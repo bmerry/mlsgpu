@@ -143,7 +143,11 @@ def print_unit_tests(bld):
             Logs.pprint(color, err)
 
 def build(bld):
-    sources = bld.path.ant_glob('src/*.cpp', excl = 'src/provenance.cpp')
+    bld(
+            rule = 'python ${SRC} ${TGT}',
+            source = ['clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
+            target = 'src/kernels.cpp')
+    sources = bld.path.ant_glob('src/*.cpp', excl = 'src/provenance.cpp') + ['src/kernels.cpp']
     bld(
             features = ['cxx', 'provenance'],
             source = 'src/provenance.cpp',

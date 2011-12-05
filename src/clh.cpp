@@ -11,7 +11,6 @@
 #include <CL/cl.hpp>
 #include <vector>
 #include <string>
-#include <fstream>
 #include <sstream>
 #include <utility>
 #include <stdexcept>
@@ -23,6 +22,12 @@ namespace po = boost::program_options;
 
 namespace CLH
 {
+
+namespace detail
+{
+// Implementation in generated code
+const std::map<std::string, std::string> getSourceMap();
+}
 
 boost::program_options::options_description getOptions()
 {
@@ -97,20 +102,21 @@ cl::Program build(const cl::Context &context, const std::vector<cl::Device> &dev
                   const std::string &filename, const std::map<std::string, std::string> &defines,
                   const std::string &options)
 {
-    std::ifstream in(filename.c_str());
-    if (!in)
-    {
-        throw std::invalid_argument("Could not open " + filename);
-    }
+    const std::map<std::string, std::string> &sourceMap = detail::getSourceMap();
+    if (!sourceMap.count(filename))
+        throw std::invalid_argument("No such program " + filename);
+    const std::string &source = sourceMap.find(filename)->second;
+
     std::ostringstream s;
     for (std::map<std::string, std::string>::const_iterator i = defines.begin(); i != defines.end(); i++)
     {
         s << "#define " << i->first << " " << i->second;
     }
     s << "#line 1 \"" << filename << "\"\n";
-    s << in.rdbuf();
-    const std::string source = s.str();
-    cl::Program::Sources sources(1, std::make_pair(source.data(), source.length()));
+    const std::string header = s.str();
+    cl::Program::Sources sources(2);
+    sources[0] = std::make_pair(header.data(), header.length());
+    sources[1] = std::make_pair(source.data(), source.length());
     cl::Program program(context, sources);
 
     try
