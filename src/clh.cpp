@@ -26,7 +26,7 @@ namespace CLH
 namespace detail
 {
 // Implementation in generated code
-const std::map<std::string, std::string> getSourceMap();
+const std::map<std::string, std::string> &getSourceMap();
 }
 
 boost::program_options::options_description getOptions()
@@ -98,6 +98,13 @@ cl::Device findDevice(const boost::program_options::variables_map &vm)
     return ans;
 }
 
+cl::Context makeContext(const cl::Device &device)
+{
+    const cl::Platform &platform = device.getInfo<CL_DEVICE_PLATFORM>();
+    cl_context_properties props[3] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform(), 0};
+    return cl::Context(device.getInfo<CL_DEVICE_TYPE>(), props, NULL);
+}
+
 cl::Program build(const cl::Context &context, const std::vector<cl::Device> &devices,
                   const std::string &filename, const std::map<std::string, std::string> &defines,
                   const std::string &options)
@@ -110,7 +117,7 @@ cl::Program build(const cl::Context &context, const std::vector<cl::Device> &dev
     std::ostringstream s;
     for (std::map<std::string, std::string>::const_iterator i = defines.begin(); i != defines.end(); i++)
     {
-        s << "#define " << i->first << " " << i->second;
+        s << "#define " << i->first << " " << i->second << "\n";
     }
     s << "#line 1 \"" << filename << "\"\n";
     const std::string header = s.str();

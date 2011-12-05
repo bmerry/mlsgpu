@@ -41,12 +41,13 @@ def main(argv):
             Init::Init()
             {'''), file = outf)
         for i in sys.argv[1:-1]:
+            label = re.sub(r'\.\./', '', i)
             with open(i, 'r') as inf:
                 lines = inf.readlines()
                 lines = [escape(line.rstrip('\n')) for line in lines]
-                print('    g_sources["{}"] ='.format(escape(i)), file = outf)
+                print('    g_sources["{}"] ='.format(escape(label)), file = outf)
                 for line in lines:
-                    print('        "{}"'.format(line), file = outf)
+                    print('        "{}\\n"'.format(line), file = outf)
                 print('        ;', file = outf)
         print(dedent('''
             }

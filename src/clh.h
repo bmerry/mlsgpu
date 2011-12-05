@@ -37,6 +37,11 @@ boost::program_options::options_description getOptions();
 cl::Device findDevice(const boost::program_options::variables_map &vm);
 
 /**
+ * Create an OpenCL context suitable for use with a device.
+ */
+cl::Context makeContext(const cl::Device &device);
+
+/**
  * Build a program for potentially multiple devices.
  *
  * If compilation fails, the build log will be emitted to the error log.

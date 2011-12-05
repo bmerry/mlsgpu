@@ -162,7 +162,7 @@ def build(bld):
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
-            lib = ['boost_program_options-mt'])
+            lib = ['boost_program_options-mt', 'rt'])
     if bld.env['unit_tests']:
         bld.program(
                 features = 'test',
