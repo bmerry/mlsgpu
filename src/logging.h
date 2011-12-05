@@ -16,7 +16,8 @@ enum Level
 {
     debug,
     info,
-    warn
+    warn,
+    error
 };
 
 namespace internal

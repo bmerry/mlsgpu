@@ -11,25 +11,30 @@
 #include <CL/cl.hpp>
 #include <vector>
 #include <string>
+#include <fstream>
+#include <sstream>
+#include <utility>
+#include <stdexcept>
+#include <map>
 #include "clh.h"
+#include "logging.h"
 
 namespace po = boost::program_options;
-using namespace std;
 
 namespace CLH
 {
 
-po::options_description getOptions()
+boost::program_options::options_description getOptions()
 {
-    po::options_description ans("OpenCL options");
+    boost::program_options::options_description ans("OpenCL options");
     ans.add_options()
-        (Option::device,     po::value<string>(),    "OpenCL device name")
-        (Option::cpu,                                "Use a CPU device")
-        (Option::gpu,                                "Use a GPU device");
+        (Option::device,  boost::program_options::value<std::string>(),    "OpenCL device name")
+        (Option::cpu,                                                 "Use a CPU device")
+        (Option::gpu,                                                 "Use a GPU device");
     return ans;
 }
 
-cl::Device findDevice(const po::variables_map &vm)
+cl::Device findDevice(const boost::program_options::variables_map &vm)
 {
     /* Scores are used to decide between multiple matching devices */
     const int scoreGPU = 1;
@@ -38,11 +43,11 @@ cl::Device findDevice(const po::variables_map &vm)
     cl::Device ans;
     int score = -1;
 
-    vector<cl::Platform> platforms;
+    std::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
     BOOST_FOREACH(const cl::Platform &platform, platforms)
     {
-        vector<cl::Device> devices;
+        std::vector<cl::Device> devices;
         cl_device_type type = CL_DEVICE_TYPE_ALL;
 
         platform.getDevices(type, &devices);
@@ -53,7 +58,7 @@ cl::Device findDevice(const po::variables_map &vm)
             /* Match name if given */
             if (vm.count(Option::device))
             {
-                const std::string expected = vm[Option::device].as<string>();
+                const std::string expected = vm[Option::device].as<std::string>();
                 const std::string actual = device.getInfo<CL_DEVICE_NAME>();
                 if (actual.substr(0, expected.size()) != expected)
                     good = false;
@@ -75,7 +80,7 @@ cl::Device findDevice(const po::variables_map &vm)
             if (device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_GPU)
                 s += scoreGPU;
             /* Require OpenCL 1.1 */
-            if (device.getInfo<CL_DEVICE_VERSION>() < string("OpenCL 1.1"))
+            if (device.getInfo<CL_DEVICE_VERSION>() < std::string("OpenCL 1.1"))
                 good = false;
 
             if (good && s > score)
@@ -86,6 +91,56 @@ cl::Device findDevice(const po::variables_map &vm)
         }
     }
     return ans;
+}
+
+cl::Program build(const cl::Context &context, const std::vector<cl::Device> &devices,
+                  const std::string &filename, const std::map<std::string, std::string> &defines,
+                  const std::string &options)
+{
+    std::ifstream in(filename.c_str());
+    if (!in)
+    {
+        throw std::invalid_argument("Could not open " + filename);
+    }
+    std::ostringstream s;
+    for (std::map<std::string, std::string>::const_iterator i = defines.begin(); i != defines.end(); i++)
+    {
+        s << "#define " << i->first << " " << i->second;
+    }
+    s << "#line 1 \"" << filename << "\"\n";
+    s << in.rdbuf();
+    const std::string source = s.str();
+    cl::Program::Sources sources(1, std::make_pair(source.data(), source.length()));
+    cl::Program program(context, sources);
+
+    try
+    {
+        program.build(devices, options.c_str());
+    }
+    catch (cl::Error &e)
+    {
+        std::ostream &msg = Log::log[Log::error];
+        BOOST_FOREACH(const cl::Device &device, devices)
+        {
+            const std::string log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
+            if (log != "" && log != "\n")
+            {
+                msg << "Log for device " << device.getInfo<CL_DEVICE_NAME>() << '\n';
+                msg << log << '\n';
+            }
+        }
+        throw;
+    }
+
+    return program;
+}
+
+cl::Program build(const cl::Context &context,
+                  const std::string &filename, const std::map<std::string, std::string> &defines,
+                  const std::string &options)
+{
+    std::vector<cl::Device> devices = context.getInfo<CL_CONTEXT_DEVICES>();
+    return build(context, devices, filename, defines, options);
 }
 
 } // namespace CLH

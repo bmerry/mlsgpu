@@ -41,6 +41,7 @@
 
 class TestPlyReader;
 
+/// Point cloud support for the Stanford PLY format.
 namespace PLY
 {
 
