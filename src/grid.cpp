@@ -26,23 +26,6 @@ Grid::Grid()
     }
 }
 
-Grid::Grid(const float bboxMin[3], const float bboxMax[3], int nx, int ny, int nz)
-{
-    MLSGPU_ASSERT(nx > 0 && ny > 0 && nz > 0, std::length_error);
-    setReference(bboxMin);
-
-    float dir[3];
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        dir[0] = dir[1] = dir[2] = 0.0f;
-        dir[i] = bboxMax[i] - bboxMin[i];
-        setDirection(i, dir);
-    }
-    setExtent(0, 0, nx);
-    setExtent(1, 0, ny);
-    setExtent(2, 0, nz);
-}
-
 Grid::Grid(const float ref[3],
            const float xDir[3],
            const float yDir[3],

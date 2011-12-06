@@ -11,15 +11,18 @@
 #include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/numeric/conversion/converter.hpp>
 #include <iostream>
 #include <map>
 #include <vector>
+#include <algorithm>
 #include "src/clh.h"
 #include "src/logging.h"
 #include "src/timer.h"
 #include "src/ply.h"
 #include "src/splat.h"
 #include "src/files.h"
+#include "src/grid.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -142,10 +145,83 @@ static OutputIterator loadInputSplats(const po::variables_map &vm, OutputIterato
     return loadInputSplats(inFiles.begin(), inFiles.end(), out);
 }
 
+/**
+ * Grid that encloses the bounding spheres of all the input splats.
+ *
+ * The grid is constructed as follows:
+ *  -# The bounding box of the sample points is found, ignoring influence regions.
+ *  -# The lower bound is used as the grid reference point.
+ *  -# The grid extends are set to cover the full bounding box.
+ *
+ * @param first, last   Iterator range for the splats.
+ * @param spacing       The spacing between grid vertices.
+ *
+ * @pre The iterator range is not empty.
+ */
+template<typename ForwardIterator>
+static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
+{
+    typedef boost::numeric::converter<
+        int,
+        float,
+        boost::numeric::conversion_traits<int, float>,
+        boost::numeric::def_overflow_handler,
+        boost::numeric::Ceil<float> > RoundUp;
+    typedef boost::numeric::converter<
+        int,
+        float,
+        boost::numeric::conversion_traits<int, float>,
+        boost::numeric::def_overflow_handler,
+        boost::numeric::Floor<float> > RoundDown;
+
+    MLSGPU_ASSERT(first != last, std::invalid_argument);
+
+    float low[3];
+    float bboxMin[3];
+    float bboxMax[3];
+
+    // Load the first splat
+    {
+        float radius = sqrt(first->radiusSquared);
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            low[i] = first->position[i];
+            bboxMin[i] = low[i] - radius;
+            bboxMax[i] = low[i] + radius;
+        }
+    }
+    first++;
+
+    for (ForwardIterator i = first; i != last; ++i)
+    {
+        float radius = sqrt(i->radiusSquared);
+        for (unsigned int j = 0; j < 3; j++)
+        {
+            float p = i->position[j];
+            low[j] = min(low[j], p);
+            bboxMin[j] = min(bboxMin[j], p - radius);
+            bboxMax[j] = max(bboxMax[j], p + radius);
+        }
+    }
+
+    const float dir[3][3] = { {spacing, 0, 0}, {0, spacing, 0}, {0, 0, spacing} };
+    int extents[3][2];
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float l = (bboxMin[i] - low[i]) / spacing;
+        float h = (bboxMax[i] - low[i]) / spacing;
+        extents[i][0] = RoundDown::convert(l);
+        extents[i][1] = RoundUp::convert(h);
+    }
+    return Grid(low, dir[0], dir[1], dir[2],
+                extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
+}
+
 static void run(const po::variables_map &vm)
 {
     vector<Splat> splats;
     loadInputSplats(vm, back_inserter(splats));
+    Grid grid = makeGrid(splats.begin(), splats.end(), vm[Option::fitGrid].as<double>());
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)

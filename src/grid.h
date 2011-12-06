@@ -31,8 +31,6 @@ class Grid
 {
 public:
     Grid();
-    Grid(const float bboxMin[3], const float bboxMax[3],
-         int nx, int ny, int nz);
     Grid(const float ref[3], const float xDir[3], const float yDir[3], const float zDir[3],
          int xLow, int xHigh, int yLow, int yHigh, int zLow, int zHigh);
 
