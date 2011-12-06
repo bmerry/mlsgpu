@@ -219,9 +219,10 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
 
 static void run(const po::variables_map &vm)
 {
+    float spacing = vm[Option::fitGrid].as<double>();
     vector<Splat> splats;
     loadInputSplats(vm, back_inserter(splats));
-    Grid grid = makeGrid(splats.begin(), splats.end(), vm[Option::fitGrid].as<double>());
+    Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)
