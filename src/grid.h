@@ -45,6 +45,14 @@ public:
     void getVertex(int x, int y, int z, float vertex[3]) const;
     int numVertices(int axis) const;
     int numCells(int axis) const;
+
+    /**
+     * Inverse of @ref getVertex.
+     *
+     * @pre The directions are axially aligned.
+     */
+    void worldToVertex(const float world[3], float out[3]) const;
+
 private:
     float reference[3];
     float directions[3][3];

@@ -90,6 +90,19 @@ void Grid::getVertex(int x, int y, int z, float vertex[3]) const
     }
 }
 
+void Grid::worldToVertex(const float world[3], float out[3]) const
+{
+    // Check that the directions are axial
+    MLSGPU_ASSERT(directions[0][1] == 0.0f && directions[0][2] == 0.0f, std::invalid_argument);
+    MLSGPU_ASSERT(directions[1][0] == 0.0f && directions[1][2] == 0.0f, std::invalid_argument);
+    MLSGPU_ASSERT(directions[2][0] == 0.0f && directions[2][1] == 0.0f, std::invalid_argument);
+
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        out[i] = (world[i] - reference[i]) / directions[i][i] - extents[i].first;
+    }
+}
+
 int Grid::numVertices(int axis) const
 {
     return numCells(axis) + 1;
