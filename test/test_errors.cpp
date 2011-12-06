@@ -12,8 +12,8 @@
 #include <iostream>
 #include "../src/errors.h"
 
-#if MINIMLS_ASSERT_ABORT
-# error "Cannot set MINIMLS_ASSERT_ABORT when unit testing"
+#if MLSGPU_ASSERT_ABORT
+# error "Cannot set MLSGPU_ASSERT_ABORT when unit testing"
 #endif
 
 #include <cppunit/extensions/TestFactoryRegistry.h>
@@ -35,10 +35,10 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestErrors, TestSet::perBuild());
 
 void TestErrors::testAssertPass()
 {
-    CPPUNIT_ASSERT_NO_THROW(MINIMLS_ASSERT(true, std::domain_error));
+    CPPUNIT_ASSERT_NO_THROW(MLSGPU_ASSERT(true, std::domain_error));
 }
 
 void TestErrors::testAssertFail()
 {
-    CPPUNIT_ASSERT_THROW(MINIMLS_ASSERT(false, std::domain_error), std::domain_error);
+    CPPUNIT_ASSERT_THROW(MLSGPU_ASSERT(false, std::domain_error), std::domain_error);
 }

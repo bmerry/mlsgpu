@@ -596,10 +596,10 @@ public:
 
         void validate() const
         {
-            MINIMLS_ASSERT(owner != NULL, std::invalid_argument);
-            MINIMLS_ASSERT(&*owner->reader.currentReader == owner, std::invalid_argument);
-            MINIMLS_ASSERT(owner->reader.currentPos == pos, std::invalid_argument);
-            MINIMLS_ASSERT(pos < owner->getNumber(), std::invalid_argument);
+            MLSGPU_ASSERT(owner != NULL, std::invalid_argument);
+            MLSGPU_ASSERT(&*owner->reader.currentReader == owner, std::invalid_argument);
+            MLSGPU_ASSERT(owner->reader.currentPos == pos, std::invalid_argument);
+            MLSGPU_ASSERT(pos < owner->getNumber(), std::invalid_argument);
         }
 
         void increment()
@@ -705,7 +705,7 @@ T Reader::readField()
 template<typename Builder>
 void Reader::addBuilder(const std::string &name, const Builder &templateBuilder)
 {
-    MINIMLS_ASSERT(!factories.count(name), std::invalid_argument);
+    MLSGPU_ASSERT(!factories.count(name), std::invalid_argument);
     std::string nameCopy = name;
     factories.insert(nameCopy, new Factory<Builder>(templateBuilder));
 }
@@ -926,7 +926,7 @@ void ElementRangeWriter<Iterator, Fetcher>::writeAll(Writer &writer) const
         writer.endElement();
         n++;
     }
-    MINIMLS_ASSERT(n == getNumber(), std::length_error);
+    MLSGPU_ASSERT(n == getNumber(), std::length_error);
 }
 
 /**

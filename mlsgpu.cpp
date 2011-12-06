@@ -8,11 +8,18 @@
 
 #include <boost/program_options.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/foreach.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include <iostream>
 #include <map>
+#include <vector>
 #include "src/clh.h"
 #include "src/logging.h"
 #include "src/timer.h"
+#include "src/ply.h"
+#include "src/splat.h"
+#include "src/files.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -90,6 +97,57 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
+static void makeInputFiles(boost::ptr_vector<InputFile> &inFiles, const po::variables_map &vm)
+{
+    if (vm.count(Option::inputFile))
+    {
+        vector<string> inFilenames = vm[Option::inputFile].as<vector<string> >();
+        BOOST_FOREACH(const string &filename, inFilenames)
+        {
+            inFiles.push_back(new InputFile(filename));
+        }
+    }
+    else
+    {
+        inFiles.push_back(new InputFile());
+    }
+}
+
+template<typename InputIterator, typename OutputIterator>
+static OutputIterator loadInputSplats(InputIterator first, InputIterator last, OutputIterator out)
+{
+    for (InputIterator in = first; in != last; ++in)
+    {
+        try
+        {
+            PLY::Reader reader(in->buffer);
+            reader.addBuilder("vertex", SplatBuilder());
+            reader.readHeader();
+            PLY::ElementRangeReader<SplatBuilder> &rangeReader = reader.skipTo<SplatBuilder>("vertex");
+            copy(rangeReader.begin(), rangeReader.end(), out);
+        }
+        catch (PLY::FormatError &e)
+        {
+            throw PLY::FormatError(in->filename + ": " + e.what());
+        }
+    }
+    return out;
+}
+
+template<typename OutputIterator>
+static OutputIterator loadInputSplats(const po::variables_map &vm, OutputIterator out)
+{
+    boost::ptr_vector<InputFile> inFiles;
+    makeInputFiles(inFiles, vm);
+    return loadInputSplats(inFiles.begin(), inFiles.end(), out);
+}
+
+static void run(const po::variables_map &vm)
+{
+    vector<Splat> splats;
+    loadInputSplats(vm, back_inserter(splats));
+}
+
 static void benchmarking(const cl::Context &context, const cl::Device &device)
 {
     cl::CommandQueue queue(context, device);
@@ -149,5 +207,29 @@ int main(int argc, char **argv)
 
     cl::Context context = CLH::makeContext(device);
     benchmarking(context, device);
+
+    try
+    {
+        boost::scoped_ptr<OutputFile> outFile;
+        if (vm.count(Option::outputFile))
+        {
+            const string &outFilename = vm[Option::outputFile].as<string>();
+            outFile.reset(new OutputFile(outFilename));
+        }
+        else
+            outFile.reset(new OutputFile());
+        run(vm);
+    }
+    catch (ios::failure &e)
+    {
+        cerr << e.what() << '\n';
+        return 1;
+    }
+    catch (PLY::FormatError &e)
+    {
+        cerr << e.what() << '\n';
+        return 1;
+    }
+
     return 0;
 }
