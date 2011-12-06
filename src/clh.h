@@ -23,8 +23,12 @@ const char * const gpu = "cl-gpu";
 const char * const cpu = "cl-cpu";
 } // namespace Option
 
-/// Program options for selecting an OpenCL device
-boost::program_options::options_description getOptions();
+/**
+ * Append program options for selecting an OpenCL device.
+ *
+ * The resulting variables map can be passed to @ref findDevice.
+ */
+void addOptions(boost::program_options::options_description &desc);
 
 /**
  * Pick an OpenCL device based on command-line options.

@@ -29,14 +29,12 @@ namespace detail
 const std::map<std::string, std::string> &getSourceMap();
 }
 
-boost::program_options::options_description getOptions()
+void addOptions(boost::program_options::options_description &desc)
 {
-    boost::program_options::options_description ans("OpenCL options");
-    ans.add_options()
-        (Option::device,  boost::program_options::value<std::string>(),    "OpenCL device name")
-        (Option::cpu,                                                 "Use a CPU device")
-        (Option::gpu,                                                 "Use a GPU device");
-    return ans;
+    desc.add_options()
+        (Option::device, boost::program_options::value<std::string>(), "OpenCL device name")
+        (Option::cpu,                                                  "Use a CPU device")
+        (Option::gpu,                                                  "Use a GPU device");
 }
 
 cl::Device findDevice(const boost::program_options::variables_map &vm)

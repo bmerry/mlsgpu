@@ -1,0 +1,7 @@
+- Classes, structs and enums use InterCaps.
+- Methods, functions, member variables and variables use camelCase.
+- Filenames use lowercase_with_underscores.
+
+However, where implementing concepts from another API (e.g. STL), the
+conventions of that API may be used. For example, a function object should
+define its result type as result_type, not ResultType.

@@ -17,14 +17,54 @@
 namespace po = boost::program_options;
 using namespace std;
 
+namespace Option
+{
+    const char * const help = "help";
+    const char * const quiet = "quiet";
+
+    const char * const fitSmooth = "fit-smooth";
+    const char * const fitGrid = "fit-grid";
+
+    const char * const inputFile = "input-file";
+    const char * const outputFile = "output-file";
+};
+
+static void addCommonOptions(po::options_description &opts)
+{
+    opts.add_options()
+        ("help,h",                "show help")
+        (Option::quiet,           "do not show informational messages");
+}
+
+static void addFitOptions(po::options_description &opts)
+{
+    opts.add_options()
+        (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "smoothing factor")
+        (Option::fitGrid,         po::value<double>()->default_value(0.01), "spacing of grid cells");
+}
+
 static po::variables_map processOptions(int argc, char **argv)
 {
+    po::positional_options_description positional;
+    positional.add(Option::inputFile, -1);
+
     po::options_description desc("General options");
-    desc.add_options()("help,h", "show this help");
-    desc.add(CLH::getOptions());
+    addCommonOptions(desc);
+    addFitOptions(desc);
+    desc.add_options()
+        ("output-file,o",   po::value<string>(), "output file");
+
+    po::options_description clopts("OpenCL options");
+    CLH::addOptions(clopts);
+    desc.add(clopts);
+
+    po::options_description hidden("Hidden options");
+    hidden.add_options()
+        (Option::inputFile, po::value<vector<string> >()->composing(), "input files");
 
     po::options_description all("All options");
     all.add(desc);
+    all.add(hidden);
 
     try
     {
@@ -32,10 +72,11 @@ static po::variables_map processOptions(int argc, char **argv)
         po::store(po::command_line_parser(argc, argv)
                   .style(po::command_line_style::default_style & ~po::command_line_style::allow_guessing)
                   .options(all)
+                  .positional(positional)
                   .run(), vm);
         po::notify(vm);
 
-        if (vm.count("help"))
+        if (vm.count(Option::help))
         {
             cout << desc << '\n';
             exit(0);
@@ -95,8 +136,10 @@ int main(int argc, char **argv)
     Log::log.setLevel(Log::info);
 
     po::variables_map vm = processOptions(argc, argv);
+    if (vm.count(Option::quiet))
+        Log::log.setLevel(Log::warn);
+
     cl::Device device = CLH::findDevice(vm);
-    cl::Context context = CLH::makeContext(device);
     if (!device())
     {
         cerr << "No suitable OpenCL device found\n";
@@ -104,6 +147,7 @@ int main(int argc, char **argv)
     }
     Log::log[Log::info] << "Using device " << device.getInfo<CL_DEVICE_NAME>() << "\n";
 
+    cl::Context context = CLH::makeContext(device);
     benchmarking(context, device);
     return 0;
 }
