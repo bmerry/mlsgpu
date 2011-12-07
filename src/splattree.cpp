@@ -143,11 +143,26 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     {
         const Entry &e = entries[i];
         ids.push_back(e.splatId);
-        if ((int) e.level != lastLevel || e.code != lastCode)
+        while (lastLevel != (int) e.level || lastCode != e.code)
         {
-            levels[e.level].start[e.code] = i;
-            lastLevel = e.level;
-            lastCode = e.code;
+            lastCode++;
+            if (lastLevel == -1 || lastCode == (1U << (3 * lastLevel)))
+            {
+                lastLevel++;
+                lastCode = 0;
+            }
+            levels[lastLevel].start[lastCode] = i;
         }
+    }
+    while (lastLevel < (int) levels.size())
+    {
+        lastCode++;
+        if (lastLevel == -1 || lastCode == (1U << (3 * lastLevel)))
+        {
+            lastLevel++;
+            lastCode = 0;
+        }
+        if (lastLevel < (int) levels.size())
+            levels[lastLevel].start[lastCode] = entries.size();
     }
 }
