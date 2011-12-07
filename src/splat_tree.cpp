@@ -15,7 +15,7 @@
 #include "errors.h"
 #include "grid.h"
 #include "splat.h"
-#include "splattree.h"
+#include "splat_tree.h"
 
 namespace
 {

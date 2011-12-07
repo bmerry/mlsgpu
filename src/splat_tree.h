@@ -4,8 +4,8 @@
  * Declaration of @ref SplatTree.
  */
 
-#ifndef SPLATTREE_H
-#define SPLATTREE_H
+#ifndef SPLAT_TREE_H
+#define SPLAT_TREE_H
 
 #if HAVE_CONFIG_H
 # include <config.h>

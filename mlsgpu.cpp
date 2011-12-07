@@ -23,7 +23,7 @@
 #include "src/splat.h"
 #include "src/files.h"
 #include "src/grid.h"
-#include "src/splattree.h"
+#include "src/splat_tree.h"
 
 namespace po = boost::program_options;
 using namespace std;
