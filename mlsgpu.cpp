@@ -23,9 +23,23 @@
 #include "src/splat.h"
 #include "src/files.h"
 #include "src/grid.h"
+#include "src/splattree.h"
 
 namespace po = boost::program_options;
 using namespace std;
+
+typedef boost::numeric::converter<
+    int,
+    float,
+    boost::numeric::conversion_traits<int, float>,
+    boost::numeric::def_overflow_handler,
+    boost::numeric::Ceil<float> > RoundUp;
+typedef boost::numeric::converter<
+    int,
+    float,
+    boost::numeric::conversion_traits<int, float>,
+    boost::numeric::def_overflow_handler,
+    boost::numeric::Floor<float> > RoundDown;
 
 namespace Option
 {
@@ -161,19 +175,6 @@ static OutputIterator loadInputSplats(const po::variables_map &vm, OutputIterato
 template<typename ForwardIterator>
 static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
 {
-    typedef boost::numeric::converter<
-        int,
-        float,
-        boost::numeric::conversion_traits<int, float>,
-        boost::numeric::def_overflow_handler,
-        boost::numeric::Ceil<float> > RoundUp;
-    typedef boost::numeric::converter<
-        int,
-        float,
-        boost::numeric::conversion_traits<int, float>,
-        boost::numeric::def_overflow_handler,
-        boost::numeric::Floor<float> > RoundDown;
-
     MLSGPU_ASSERT(first != last, std::invalid_argument);
 
     float low[3];
@@ -223,6 +224,15 @@ static void run(const po::variables_map &vm)
     vector<Splat> splats;
     loadInputSplats(vm, back_inserter(splats));
     Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
+
+    int dims[3];
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        dims[i] = grid.numCells(i);
+    }
+    cout << "Grid cells: " << dims[0] << " " << dims[1] << " " << dims[2] << "\n";
+
+    SplatTree tree(splats, grid);
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)
