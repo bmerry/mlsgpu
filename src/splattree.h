@@ -31,16 +31,6 @@ public:
      */
     typedef std::tr1::uint32_t size_type;
 private:
-    struct Level
-    {
-        /**
-         * Index into @ref SplatTree::ids of the first
-         * splat index for each cell. The cells are indexed
-         * by their Morton codes.
-         */
-        std::vector<size_type> start;
-    };
-
     const std::vector<Splat> &splats;
     const Grid &grid;
 
@@ -49,7 +39,22 @@ private:
      * They are organised first by level, then by cell code.
      */
     std::vector<size_type> ids;
-    std::vector<Level> levels;
+    /**
+     * For each octree cell, the first element in @ref ids that
+     * contains the ids for this cell. These are arranged first
+     * by level, then by Morton code. To find the start of the
+     * elements with level @a level and code @a code, look
+     * at <code>start[levelStart[level] + code]</code>.
+     *
+     * There is an extra element at the end of the vector equal to
+     * <code>ids.size()</code>, to allow the range of ids related to a cell
+     * to be found from two adjacent elements.
+     */
+    std::vector<size_type> start;
+    /**
+     * The first element in @ref start corresponding to this level.
+     */
+    std::vector<size_type> levelStart;
 
     /**
      * Compute a Morton code by interleaving the bits of @a x, @a y, @a z.

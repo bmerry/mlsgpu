@@ -27,16 +27,12 @@ namespace
  */
 struct Entry
 {
-    unsigned int level;
-    SplatTree::size_type code;
+    SplatTree::size_type pos; ///< Position of cell in the @c start array
     SplatTree::size_type splatId;
 
     bool operator<(const Entry &e) const
     {
-        if (level != e.level)
-            return level < e.level;
-        else
-            return code < e.code;
+        return pos < e.pos;
     }
 };
 
@@ -77,19 +73,22 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
         boost::numeric::def_overflow_handler,
         boost::numeric::Floor<float> > RoundDown;
 
-    // Compute the number of levels
+    // Compute the number of levels and related data
     unsigned int size = std::max(std::max(grid.numVertices(0), grid.numVertices(1)), grid.numVertices(2));
     unsigned int maxLevel = 0;
     while ((1 << maxLevel) < size)
         maxLevel++;
+    levelStart.resize(maxLevel + 2);
+    levelStart[0] = 0;
+    for (unsigned int i = 0; i <= maxLevel; i++)
+        levelStart[i + 1] = levelStart[i] + (1U << (3 * i));
+    start.resize(levelStart.back() + 1);
 
+    // Make a list of all octree entries, initially ordered by splat ID
+    // TODO: this is memory-heavy, and scales O(N log N). Passes for
+    // counting, scanning, emitting would avoid this.
     std::vector<Entry> entries;
     entries.reserve(8 * splats.size());
-    levels.resize(maxLevel + 1);
-    for (unsigned int i = 0; i <= maxLevel; i++)
-        levels[i].start.resize(1 << (3 * i));
-
-    // Enter splats into the octree
     for (size_type splatId = 0; splatId < splats.size(); splatId++)
     {
         const Splat &splat = splats[splatId];
@@ -122,47 +121,37 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
             ilo[i] >>= shift;
             ihi[i] >>= shift;
         }
+        unsigned int level = maxLevel - shift;
 
         Entry e;
-        e.level = maxLevel - shift;
         e.splatId = splatId;
         for (unsigned int z = ilo[2]; z <= (unsigned int) ihi[2]; z++)
             for (unsigned int y = ilo[1]; y <= (unsigned int) ihi[1]; y++)
                 for (unsigned int x = ilo[0]; x <= (unsigned int) ihi[0]; x++)
                 {
-                    e.code = makeCode(x, y, z);
+                    e.pos = levelStart[level] + makeCode(x, y, z);
                     entries.push_back(e);
                 }
     }
 
+    /* Extract the entries into the persistent structures.
+     * Initially, start is a count of entries per cell.
+     */
     stable_sort(entries.begin(), entries.end());
-    int lastLevel = -1;
-    size_type lastCode = 0;
     ids.reserve(entries.size());
     for (size_t i = 0; i < entries.size(); i++)
     {
         const Entry &e = entries[i];
         ids.push_back(e.splatId);
-        while (lastLevel != (int) e.level || lastCode != e.code)
-        {
-            lastCode++;
-            if (lastLevel == -1 || lastCode == (1U << (3 * lastLevel)))
-            {
-                lastLevel++;
-                lastCode = 0;
-            }
-            levels[lastLevel].start[lastCode] = i;
-        }
+        start[e.pos]++;
     }
-    while (lastLevel < (int) levels.size())
+
+    // Prefix sum the start array to get proper start positions
+    size_type sum = 0;
+    for (size_type i = 0; i < start.size(); i++)
     {
-        lastCode++;
-        if (lastLevel == -1 || lastCode == (1U << (3 * lastLevel)))
-        {
-            lastLevel++;
-            lastCode = 0;
-        }
-        if (lastLevel < (int) levels.size())
-            levels[lastLevel].start[lastCode] = entries.size();
+        size_type next = sum + start[i];
+        start[i] = sum;
+        sum = next;
     }
 }

@@ -60,6 +60,7 @@ static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
 
 void TestSplatTree::testConstructor()
 {
+    typedef SplatTree::size_type size_type;
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     const float dir[3][3] = { {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f} };
     Grid grid(ref, dir[0], dir[1], dir[2], 0, 15, 0, 15, 0, 11);
@@ -75,61 +76,75 @@ void TestSplatTree::testConstructor()
     addSplat(splats, 0.0f, 0.0f, 0.0f, 0.5f);
     SplatTree tree(splats, grid);
 
+    const size_type expectedIds[] =
+    {
+        2, 2, 2, 2, 2, 2, 2, 2,
+        1, 1, 1, 1,
+        3,
+        0, 0, 0, 0, 0, 0, 0, 0
+    };
     const struct
     {
         unsigned int level;
         unsigned int x, y, z;
-        SplatTree::size_type id;
-    } expectedTable[] =
+        unsigned int count;
+    } expectedCounts[] =
     {
-        { 1,  0, 0, 0,  2 },
-        { 1,  1, 0, 0,  2 },
-        { 1,  0, 1, 0,  2 },
-        { 1,  1, 1, 0,  2 },
-        { 1,  0, 0, 1,  2 },
-        { 1,  1, 0, 1,  2 },
-        { 1,  0, 1, 1,  2 },
-        { 1,  1, 1, 1,  2 },
+        { 1,  0, 0, 0,  1 },
+        { 1,  1, 0, 0,  1 },
+        { 1,  0, 1, 0,  1 },
+        { 1,  1, 1, 0,  1 },
+        { 1,  0, 0, 1,  1 },
+        { 1,  1, 0, 1,  1 },
+        { 1,  0, 1, 1,  1 },
+        { 1,  1, 1, 1,  1 },
 
         { 2,  1, 2, 0,  1 },
         { 2,  1, 2, 1,  1 },
         { 2,  2, 2, 0,  1 },
         { 2,  2, 2, 1,  1 },
 
-        { 4,  0, 0, 0,  3 },
+        { 4,  0, 0, 0,  1 },
 
-        { 4,  7, 7, 7,  0 },
-        { 4,  8, 7, 7,  0 },
-        { 4,  7, 8, 7,  0 },
-        { 4,  8, 8, 7,  0 },
-        { 4,  7, 7, 8,  0 },
-        { 4,  8, 7, 8,  0 },
-        { 4,  7, 8, 8,  0 },
-        { 4,  8, 8, 8,  0 }
+        { 4,  7, 7, 7,  1 },
+        { 4,  8, 7, 7,  1 },
+        { 4,  7, 8, 7,  1 },
+        { 4,  8, 8, 7,  1 },
+        { 4,  7, 7, 8,  1 },
+        { 4,  8, 7, 8,  1 },
+        { 4,  7, 8, 8,  1 },
+        { 4,  8, 8, 8,  1 }
     };
 
-    CPPUNIT_ASSERT_EQUAL(size_t(5), tree.levels.size());
-    CPPUNIT_ASSERT_EQUAL(sizeof(expectedTable) / sizeof(expectedTable[0]), tree.ids.size());
+    // Validate levelStart
+    CPPUNIT_ASSERT_EQUAL(size_t(6), tree.levelStart.size());
+    CPPUNIT_ASSERT_EQUAL(size_type(0), tree.levelStart[0]);
+    CPPUNIT_ASSERT_EQUAL(size_type(1), tree.levelStart[1]);
+    CPPUNIT_ASSERT_EQUAL(size_type(9), tree.levelStart[2]);
+    CPPUNIT_ASSERT_EQUAL(size_type(73), tree.levelStart[3]);
+    CPPUNIT_ASSERT_EQUAL(size_type(585), tree.levelStart[4]);
+    CPPUNIT_ASSERT_EQUAL(size_type(4681), tree.levelStart[5]);
+
+    // Validate ids
+    CPPUNIT_ASSERT_EQUAL(sizeof(expectedIds) / sizeof(expectedIds[0]), tree.ids.size());
     for (size_t i = 0; i < tree.ids.size(); i++)
-        CPPUNIT_ASSERT_EQUAL(expectedTable[i].id, tree.ids[i]);
+        CPPUNIT_ASSERT_EQUAL(expectedIds[i], tree.ids[i]);
 
-    // Check that the start values are monotonically non-decreasing
-    CPPUNIT_ASSERT_EQUAL(SplatTree::size_type(0), tree.levels[0].start[0]);
-    for (unsigned int i = 0; i < tree.levels.size(); i++)
+    // Validate start
+    CPPUNIT_ASSERT_EQUAL(size_t(tree.levelStart.back()) + 1, tree.start.size());
+    CPPUNIT_ASSERT_EQUAL(size_type(0), tree.start[0]);
+    CPPUNIT_ASSERT_EQUAL(size_type(tree.ids.size()), tree.start.back());
+
+    // Make sure it is non-decreasing
+    for (size_t i = 0; i + 1 < tree.start.size(); i++)
+        CPPUNIT_ASSERT(tree.start[i] <= tree.start[i + 1]);
+    // Check the specific counts we are interested in. This forces the
+    // others to be zero because we checked the grand total.
+
+    for (size_t i = 0; i < sizeof(expectedCounts) / sizeof(expectedCounts[0]); i++)
     {
-        CPPUNIT_ASSERT_EQUAL(size_t(1 << (3 * i)), tree.levels[i].start.size());
-        for (unsigned int j = 0; j + 1 < tree.levels[i].start.size(); j++)
-            CPPUNIT_ASSERT(tree.levels[i].start[j] <= tree.levels[i].start[j + 1]);
-        if (i + 1 < tree.levels.size())
-            CPPUNIT_ASSERT(tree.levels[i].start.back() <= tree.levels[i + 1].start[0]);
+        size_type pos = tree.levelStart[expectedCounts[i].level]
+            + SplatTree::makeCode(expectedCounts[i].x, expectedCounts[i].y, expectedCounts[i].z);
+        CPPUNIT_ASSERT_EQUAL(expectedCounts[i].count, tree.start[pos + 1] - tree.start[pos]);
     }
-
-    // Check the start values where there is data
-    for (SplatTree::size_type i = 0; i < tree.ids.size(); i++)
-    {
-        SplatTree::size_type code = SplatTree::makeCode(expectedTable[i].x, expectedTable[i].y, expectedTable[i].z);
-        CPPUNIT_ASSERT_EQUAL(i, tree.levels[expectedTable[i].level].start[code]);
-    }
-
-    // TODO: check the start values for those entries which have no nodes
 }
