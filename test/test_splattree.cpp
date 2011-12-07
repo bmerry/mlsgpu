@@ -72,6 +72,8 @@ void TestSplatTree::testConstructor()
     addSplat(splats, 8.5f, 9.5f, 4.5f, 2.0f);
     // bbox: 3,6,1 - 11,14,9. level 1, 8 nodes (0,0,0-1,1,1)
     addSplat(splats, 7.0f, 10.0f, 5.0f, 4.5f);
+    // bbox: 0,0,0 - 0,1,0. level 4, 2 nodes.
+    addSplat(splats, 0.0f, 0.5f, 0.0f, 0.75f);
     // bbox: 0,0,0 - 0,0,0. level 4, 1 node.
     addSplat(splats, 0.0f, 0.0f, 0.0f, 0.5f);
     SplatTree tree(splats, grid);
@@ -80,8 +82,7 @@ void TestSplatTree::testConstructor()
     {
         2, 2, 2, 2, 2, 2, 2, 2,
         1, 1, 1, 1,
-        3,
-        0, 0, 0, 0, 0, 0, 0, 0
+        3, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0
     };
     const struct
     {
@@ -104,7 +105,8 @@ void TestSplatTree::testConstructor()
         { 2,  2, 2, 0,  1 },
         { 2,  2, 2, 1,  1 },
 
-        { 4,  0, 0, 0,  1 },
+        { 4,  0, 0, 0,  2 },
+        { 4,  0, 1, 0,  1 },
 
         { 4,  7, 7, 7,  1 },
         { 4,  8, 7, 7,  1 },
