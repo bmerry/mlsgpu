@@ -23,11 +23,10 @@ namespace po = boost::program_options;
 namespace CLH
 {
 
-BufferMapping::BufferMapping(const cl::Buffer &buffer, cl_map_flags flags, ::size_t offset, ::size_t size)
+BufferMapping::BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size)
     : buffer(buffer)
 {
     const cl::Context &context = buffer.getInfo<CL_MEM_CONTEXT>();
-    const cl::Device &device = context.getInfo<CL_CONTEXT_DEVICES>()[0];
     queue = cl::CommandQueue(context, device, 0);
     ptr = queue.enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size);
 }

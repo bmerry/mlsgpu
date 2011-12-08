@@ -29,10 +29,11 @@ private:
         cl::Buffer buffer;
         boost::scoped_ptr<CLH::BufferMapping> mapping;
 
-        size_type *allocate(const cl::Context &context, size_type size);
+        size_type *allocate(const cl::Context &context, const cl::Device &device, size_type size);
     };
 
     const cl::Context &context;
+    const cl::Device &device;
     Buffer ids, start, levelStart;
 
     virtual size_type *allocateIds(size_type size);
@@ -40,7 +41,7 @@ private:
     virtual size_type *allocateLevelStart(size_type size);
 
 public:
-    SplatTreeCL(const cl::Context &context, const std::vector<Splat> &splats, const Grid &grid);
+    SplatTreeCL(const cl::Context &context, const cl::Device &device, const std::vector<Splat> &splats, const Grid &grid);
 
     const cl::Buffer &getIds() const;
     const cl::Buffer &getStart() const;

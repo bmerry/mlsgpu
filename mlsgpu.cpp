@@ -23,7 +23,7 @@
 #include "src/splat.h"
 #include "src/files.h"
 #include "src/grid.h"
-#include "src/splat_tree_host.h"
+#include "src/splat_tree_cl.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -218,7 +218,7 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
 
-static void run(const po::variables_map &vm)
+static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
 {
     float spacing = vm[Option::fitGrid].as<double>();
     vector<Splat> splats;
@@ -232,7 +232,7 @@ static void run(const po::variables_map &vm)
     }
     cout << "Grid cells: " << dims[0] << " " << dims[1] << " " << dims[2] << "\n";
 
-    SplatTreeHost tree(splats, grid);
+    SplatTreeCL tree(context, device, splats, grid);
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)
@@ -305,7 +305,7 @@ int main(int argc, char **argv)
         }
         else
             outFile.reset(new OutputFile());
-        run(vm);
+        run(context, device, vm);
     }
     catch (ios::failure &e)
     {

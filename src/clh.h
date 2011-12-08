@@ -28,7 +28,7 @@ private:
     void *ptr;              ///< Mapped pointer
 
 public:
-    BufferMapping(const cl::Buffer &buffer, cl_map_flags flags, ::size_t offset, ::size_t size);
+    BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size);
     ~BufferMapping();
 
     const cl::Buffer &getBuffer() const { return buffer; }
