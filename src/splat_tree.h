@@ -53,6 +53,9 @@ public:
      * the number of splats.
      */
     typedef std::tr1::uint32_t size_type;
+private:
+    unsigned int numLevels;
+
 protected:
     const std::vector<Splat> &splats;
     const Grid &grid;
@@ -113,6 +116,9 @@ protected:
      * - The grid must support @ref Grid::worldtoVertex.
      */
     SplatTree(const std::vector<Splat> &splats, const Grid &grid);
+
+public:
+    unsigned int getNumLevels() const { return numLevels; }
 };
 
 #endif /* !SPLATTREE_H */

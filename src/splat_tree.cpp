@@ -81,13 +81,14 @@ void SplatTree::initialize()
     unsigned int maxLevel = 0;
     while ((1 << maxLevel) < size)
         maxLevel++;
+    numLevels = maxLevel + 1;
 
     // We allocate this locally, because we need to read from it, and we
     // promise not to read from the return of allocateLevelStart.
-    std::vector<size_type> levelStart(maxLevel + 2);
+    std::vector<size_type> levelStart(numLevels + 1);
     size_type numPositions = 0;
     levelStart[0] = 0;
-    for (unsigned int i = 0; i <= maxLevel; i++)
+    for (unsigned int i = 0; i < numLevels; i++)
     {
         numPositions += (1U << (3 * i));
         levelStart[i + 1] = numPositions;
@@ -131,7 +132,7 @@ void SplatTree::initialize()
                 shift++;
         }
         // Check we haven't gone right past the coarsest level
-        assert(shift <= maxLevel);
+        assert(shift < numLevels);
         for (unsigned int i = 0; i < 3; i++)
         {
             ilo[i] >>= shift;
@@ -159,7 +160,7 @@ void SplatTree::initialize()
         ids[i] = entries[i].splatId;
 
     size_type e = 0;  // walks through the entries
-    for (size_t pos = 0; pos <= levelStart[maxLevel + 1]; pos++)
+    for (size_t pos = 0; pos <= levelStart[numLevels]; pos++)
     {
         start[pos] = e;
         while (e < entries.size() && entries[e].pos <= pos)
@@ -167,6 +168,6 @@ void SplatTree::initialize()
     }
 
     // Copy local levelStart to persistent memory
-    size_type *realLevelStart = allocateLevelStart(maxLevel + 2);
+    size_type *realLevelStart = allocateLevelStart(numLevels + 1);
     std::copy(levelStart.begin(), levelStart.end(), realLevelStart);
 }

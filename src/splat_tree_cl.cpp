@@ -49,4 +49,22 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
     levelStart.mapping.reset();
     start.mapping.reset();
     ids.mapping.reset();
+
+    // Prepare the shuffle texture.
+    const unsigned int numCoords = 1U << (getNumLevels() - 1);
+    std::vector<cl_uint> image(numCoords * 3);
+    unsigned int cur = 0;
+    const unsigned int mask = ((1U << 30) - 1) / 7;  // 100100100..001 in binary
+    for (unsigned int i = 0; i < numCoords; i++)
+    {
+        // Or in ~mask makes all the intermediate bits 1's, so that carries
+        // ripple through to the next interesting bit. Then we take it away
+        // again.
+        cur = ((cur | ~mask) + 1) & mask;
+        image[i] = cur;
+        image[i + numCoords] = cur << 1;
+        image[i + 2 * numCoords] = cur << 2;
+    }
+    const cl::ImageFormat format(CL_R, CL_UNSIGNED_INT32);
+    shuffle = cl::Image2D(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, format, numCoords, 3, 0, &image[0]);
 }

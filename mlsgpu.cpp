@@ -220,6 +220,12 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
 
 static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
 {
+    struct Corner
+    {
+        cl_uint hits;
+        cl_float sumW;
+    };
+
     float spacing = vm[Option::fitGrid].as<double>();
     vector<Splat> splats;
     loadInputSplats(vm, back_inserter(splats));
@@ -233,6 +239,30 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cout << "Grid cells: " << dims[0] << " " << dims[1] << " " << dims[2] << "\n";
 
     SplatTreeCL tree(context, device, splats, grid);
+
+    std::map<std::string, std::string> defines;
+    defines["OCTREE_LEVELS"] = boost::lexical_cast<std::string>(9); // TODO: get from grid
+    cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
+    cl::Kernel mlsKernel(mlsProgram, "processCorners");
+
+    cl::CommandQueue queue(context, device);
+
+    size_t numCorners = 1U << (3 * (tree.getNumLevels() - 1));
+    cl::Buffer dSplats(context, CL_MEM_READ_ONLY, sizeof(Splat) * splats.size());
+    cl::Buffer dCorners(context, CL_MEM_WRITE_ONLY, sizeof(Corner) * numCorners);
+    queue.enqueueWriteBuffer(dSplats, CL_FALSE, 0, sizeof(Splat) * splats.size(), &splats[0]);
+
+    mlsKernel.setArg(0, dCorners);
+    mlsKernel.setArg(1, dSplats);
+    mlsKernel.setArg(2, tree.getIds());
+    mlsKernel.setArg(3, tree.getStart());
+    mlsKernel.setArg(4, tree.getShuffle());
+    cl::size_t<3> workGroupSize = mlsKernel.getWorkGroupInfo<CL_KERNEL_COMPILE_WORK_GROUP_SIZE>(device);
+    queue.enqueueNDRangeKernel(mlsKernel,
+                               cl::NullRange,
+                               cl::NDRange(256, 256, 256), // TODO grid.numVertices(0), grid.numVertices(1), grid.numVertices(2)),
+                               cl::NDRange(workGroupSize[0], workGroupSize[1], workGroupSize[2]));
+    queue.finish();
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)

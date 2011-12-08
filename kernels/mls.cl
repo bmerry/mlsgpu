@@ -1,10 +1,15 @@
 /**
+ * @file
+ *
+ * Required defines:
+ * - OCTREE_LEVELS
+ */
+
+/**
  * Shorthand for defining a kernel with a fixed work group size.
  * This is needed to unconfuse Doxygen's parser.
  */
 #define KERNEL(xsize, ysize, zsize) __kernel __attribute__((reqd_work_group_size(xsize, ysize, zsize)))
-
-#define OCTREE_LEVELS 8
 
 typedef struct
 {
@@ -63,6 +68,15 @@ void processCorner(float3 coord, uint lcoord, __global Corner *out, __local cons
     }
 }
 
+
+/**
+ * The shuffleBits image is an Nx3 image, with rows for x, y, z. Each element
+ * is a single uint.
+ *
+ * Row 0, column i contains the bits of i spread out to every third bit e.g.
+ * ABCDb maps to A00B00C00Db. The values for row 1 and row 2 are the same but
+ * shifted one and two bits left.
+ */
 KERNEL(4, 4, 8)
 void processCorners(
     __global Corner *corners,

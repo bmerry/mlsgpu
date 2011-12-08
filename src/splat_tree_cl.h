@@ -35,6 +35,7 @@ private:
     const cl::Context &context;
     const cl::Device &device;
     Buffer ids, start, levelStart;
+    cl::Image2D shuffle;
 
     virtual size_type *allocateIds(size_type size);
     virtual size_type *allocateStart(size_type size);
@@ -43,9 +44,11 @@ private:
 public:
     SplatTreeCL(const cl::Context &context, const cl::Device &device, const std::vector<Splat> &splats, const Grid &grid);
 
-    const cl::Buffer &getIds() const;
-    const cl::Buffer &getStart() const;
-    const cl::Buffer &getLevelStart() const;
+    const cl::Buffer &getIds() const { return ids.buffer; }
+    const cl::Buffer &getStart() const { return start.buffer; }
+    const cl::Buffer &getLevelStart() const { return levelStart.buffer; }
+
+    const cl::Image2D &getShuffle() const { return shuffle; }
 };
 
 #endif /* !SPLATTREE_CL_H */
