@@ -131,14 +131,14 @@ static void makeInputFiles(boost::ptr_vector<InputFile> &inFiles, const po::vari
 }
 
 template<typename InputIterator, typename OutputIterator>
-static OutputIterator loadInputSplats(InputIterator first, InputIterator last, OutputIterator out)
+static OutputIterator loadInputSplats(InputIterator first, InputIterator last, OutputIterator out, float smooth)
 {
     for (InputIterator in = first; in != last; ++in)
     {
         try
         {
             PLY::Reader reader(in->buffer);
-            reader.addBuilder("vertex", SplatBuilder());
+            reader.addBuilder("vertex", SplatBuilder(smooth));
             reader.readHeader();
             PLY::ElementRangeReader<SplatBuilder> &rangeReader = reader.skipTo<SplatBuilder>("vertex");
             copy(rangeReader.begin(), rangeReader.end(), out);
@@ -152,11 +152,11 @@ static OutputIterator loadInputSplats(InputIterator first, InputIterator last, O
 }
 
 template<typename OutputIterator>
-static OutputIterator loadInputSplats(const po::variables_map &vm, OutputIterator out)
+static OutputIterator loadInputSplats(const po::variables_map &vm, OutputIterator out, float smooth)
 {
     boost::ptr_vector<InputFile> inFiles;
     makeInputFiles(inFiles, vm);
-    return loadInputSplats(inFiles.begin(), inFiles.end(), out);
+    return loadInputSplats(inFiles.begin(), inFiles.end(), out, smooth);
 }
 
 /**
@@ -218,17 +218,18 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
 
+struct Corner
+{
+    cl_uint hits;
+    cl_float sumW;
+};
+
 static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
 {
-    struct Corner
-    {
-        cl_uint hits;
-        cl_float sumW;
-    };
-
     float spacing = vm[Option::fitGrid].as<double>();
+    float smooth = vm[Option::fitSmooth].as<double>();
     vector<Splat> splats;
-    loadInputSplats(vm, back_inserter(splats));
+    loadInputSplats(vm, back_inserter(splats), smooth);
     Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
 
     int dims[3];
@@ -258,11 +259,21 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     mlsKernel.setArg(3, tree.getStart());
     mlsKernel.setArg(4, tree.getShuffle());
     cl::size_t<3> workGroupSize = mlsKernel.getWorkGroupInfo<CL_KERNEL_COMPILE_WORK_GROUP_SIZE>(device);
+
+    Timer timer;
     queue.enqueueNDRangeKernel(mlsKernel,
                                cl::NullRange,
                                cl::NDRange(256, 256, 256), // TODO grid.numVertices(0), grid.numVertices(1), grid.numVertices(2)),
                                cl::NDRange(workGroupSize[0], workGroupSize[1], workGroupSize[2]));
     queue.finish();
+    cout << timer.getElapsed() << endl;
+
+    vector<Corner> corners(numCorners);
+    queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * numCorners, &corners[0]);
+    unsigned long long totalHits = 0;
+    for (size_t i = 0; i < numCorners; i++)
+        totalHits += corners[i].hits;
+    cout << "Total hits: " << totalHits;
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)

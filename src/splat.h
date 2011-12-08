@@ -26,11 +26,12 @@ class SplatBuilder
 {
 private:
     Splat current;
+    float smooth;
 
 public:
     typedef Splat Element;
 
-    SplatBuilder()
+    SplatBuilder(float smooth) : smooth(smooth)
     {
         current.quality = std::numeric_limits<float>::quiet_NaN();
     }
@@ -45,7 +46,7 @@ public:
         else if (name == "nz") current.normal[2] = boost::numeric_cast<float>(value);
         else if (name == "radius")
         {
-            float radius = boost::numeric_cast<float>(value);
+            float radius = smooth * boost::numeric_cast<float>(value);
             current.radiusSquared = radius * radius;
         }
         else if (name == "quality") current.quality = boost::numeric_cast<float>(value);
