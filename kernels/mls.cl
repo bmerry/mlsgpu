@@ -39,12 +39,15 @@ void processCorner(float3 coord, uint lcoord, __global Corner *out, __local cons
     uint end = ot->startOffsets[level][lcoord + 1];
     uint pos = start;
 
+    Corner corner = {0, 0.0f};
     while (true)
     {
         while (pos == end)
         {
             if (level == 0)
-                return;
+            {
+                goto end;
+            }
             level--;
             lcoord >>= 3;
             start = ot->startOffsets[level][lcoord];
@@ -62,10 +65,12 @@ void processCorner(float3 coord, uint lcoord, __global Corner *out, __local cons
             w *= w;
             w *= w;
             w *= splat.normalQuality.w;
-            out->hits++;
-            out->sumW += w;
+            corner.hits++;
+            corner.sumW += w;
         }
     }
+end:
+    *out = corner;
 }
 
 

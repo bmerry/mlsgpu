@@ -286,7 +286,7 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     unsigned long long totalHits = 0;
     for (size_t i = 0; i < numCorners; i++)
         totalHits += corners[i].hits;
-    cout << "Total hits: " << totalHits;
+    cout << "Total hits: " << totalHits << "\n";
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)
