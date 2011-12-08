@@ -9,11 +9,31 @@
 # include <config.h>
 #endif
 #include <boost/program_options.hpp>
+#include <boost/noncopyable.hpp>
 #include <CL/cl.hpp>
 
 /// OpenCL helper functions
 namespace CLH
 {
+
+/**
+ * RAII wrapper around mapping and unmapping a buffer.
+ * It only handles synchronous mapping and unmapping.
+ */
+class BufferMapping : public boost::noncopyable
+{
+private:
+    cl::Buffer buffer;      ///< Buffer object passed in
+    cl::CommandQueue queue; ///< Privately allocated command queue
+    void *ptr;              ///< Mapped pointer
+
+public:
+    BufferMapping(const cl::Buffer &buffer, cl_map_flags flags, ::size_t offset, ::size_t size);
+    ~BufferMapping();
+
+    const cl::Buffer &getBuffer() const { return buffer; }
+    void *get() const { return ptr; }
+};
 
 /// Option names for OpenCL options
 namespace Option

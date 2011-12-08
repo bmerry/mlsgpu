@@ -23,7 +23,7 @@
 #include "src/splat.h"
 #include "src/files.h"
 #include "src/grid.h"
-#include "src/splat_tree.h"
+#include "src/splat_tree_host.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -232,7 +232,7 @@ static void run(const po::variables_map &vm)
     }
     cout << "Grid cells: " << dims[0] << " " << dims[1] << " " << dims[2] << "\n";
 
-    SplatTree tree(splats, grid);
+    SplatTreeHost tree(splats, grid);
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)

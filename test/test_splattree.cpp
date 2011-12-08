@@ -14,7 +14,7 @@
 #include "testmain.h"
 #include "../src/splat.h"
 #include "../src/grid.h"
-#include "../src/splattree.h"
+#include "../src/splat_tree_host.h"
 
 using namespace std;
 
@@ -76,7 +76,7 @@ void TestSplatTree::testConstructor()
     addSplat(splats, 0.0f, 0.5f, 0.0f, 0.75f);
     // bbox: 0,0,0 - 0,0,0. level 4, 1 node.
     addSplat(splats, 0.0f, 0.0f, 0.0f, 0.5f);
-    SplatTree tree(splats, grid);
+    SplatTreeHost tree(splats, grid);
 
     const size_type expectedIds[] =
     {

@@ -59,7 +59,10 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     : splats(splats), grid(grid)
 {
     MLSGPU_ASSERT(splats.size() <= std::numeric_limits<size_type>::max(), std::length_error);
+}
 
+void SplatTree::initialize()
+{
     typedef boost::numeric::converter<
         int,
         float,
@@ -78,15 +81,25 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     unsigned int maxLevel = 0;
     while ((1 << maxLevel) < size)
         maxLevel++;
-    levelStart.resize(maxLevel + 2);
+
+    // We allocate this locally, because we need to read from it, and we
+    // promise not to read from the return of allocateLevelStart.
+    std::vector<size_type> levelStart(maxLevel + 2);
+    size_type numPositions = 0;
     levelStart[0] = 0;
     for (unsigned int i = 0; i <= maxLevel; i++)
-        levelStart[i + 1] = levelStart[i] + (1U << (3 * i));
-    start.resize(levelStart.back() + 1);
+    {
+        numPositions += (1U << (3 * i));
+        levelStart[i + 1] = numPositions;
+    }
+    size_type *start = allocateStart(numPositions + 1);
 
-    // Make a list of all octree entries, initially ordered by splat ID
-    // TODO: this is memory-heavy, and scales O(N log N). Passes for
-    // counting, scanning, emitting would avoid this.
+    /* Make a list of all octree entries, initially ordered by splat ID
+     * TODO: this is memory-heavy, and scales O(N log N). Passes for
+     * counting, scanning, emitting would avoid this, but only if
+     * we allowed this function to read back data for the scan, or implemented
+     * the whole lot in CL.
+     */
     std::vector<Entry> entries;
     entries.reserve(8 * splats.size());
     for (size_type splatId = 0; splatId < splats.size(); splatId++)
@@ -104,6 +117,8 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
         grid.worldToVertex(lo, vlo);
         grid.worldToVertex(hi, vhi);
 
+        // Start with the deepest level, then coarsen until we don't
+        // take more than 2 cells in any direction.
         int ilo[3], ihi[3];
         unsigned int shift = 0;
         for (unsigned int i = 0; i < 3; i++)
@@ -115,6 +130,7 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
             while ((ihi[i] >> shift) - (ilo[i] >> shift) > 1)
                 shift++;
         }
+        // Check we haven't gone right past the coarsest level
         assert(shift <= maxLevel);
         for (unsigned int i = 0; i < 3; i++)
         {
@@ -123,6 +139,7 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
         }
         unsigned int level = maxLevel - shift;
 
+        // Create entries for sorting
         Entry e;
         e.splatId = splatId;
         for (unsigned int z = ilo[2]; z <= (unsigned int) ihi[2]; z++)
@@ -135,23 +152,21 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     }
 
     /* Extract the entries into the persistent structures.
-     * Initially, start is a count of entries per cell.
      */
     stable_sort(entries.begin(), entries.end());
-    ids.reserve(entries.size());
+    size_type *ids = allocateIds(entries.size());
     for (size_t i = 0; i < entries.size(); i++)
+        ids[i] = entries[i].splatId;
+
+    size_type e = 0;  // walks through the entries
+    for (size_t pos = 0; pos <= levelStart[maxLevel + 1]; pos++)
     {
-        const Entry &e = entries[i];
-        ids.push_back(e.splatId);
-        start[e.pos]++;
+        start[pos] = e;
+        while (e < entries.size() && entries[e].pos <= pos)
+            e++;
     }
 
-    // Prefix sum the start array to get proper start positions
-    size_type sum = 0;
-    for (size_type i = 0; i < start.size(); i++)
-    {
-        size_type next = sum + start[i];
-        start[i] = sum;
-        sum = next;
-    }
+    // Copy local levelStart to persistent memory
+    size_type *realLevelStart = allocateLevelStart(maxLevel + 2);
+    std::copy(levelStart.begin(), levelStart.end(), realLevelStart);
 }
