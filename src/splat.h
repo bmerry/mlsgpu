@@ -17,7 +17,7 @@
 struct Splat
 {
     float position[3];
-    float radiusSquared;
+    float radius;
     float normal[3];
     float quality;
 };
@@ -44,11 +44,7 @@ public:
         else if (name == "nx") current.normal[0] = boost::numeric_cast<float>(value);
         else if (name == "ny") current.normal[1] = boost::numeric_cast<float>(value);
         else if (name == "nz") current.normal[2] = boost::numeric_cast<float>(value);
-        else if (name == "radius")
-        {
-            float radius = smooth * boost::numeric_cast<float>(value);
-            current.radiusSquared = radius * radius;
-        }
+        else if (name == "radius") current.radius = smooth * boost::numeric_cast<float>(value);
         else if (name == "quality") current.quality = boost::numeric_cast<float>(value);
     }
 
@@ -59,7 +55,7 @@ public:
     Element create()
     {
         if ((std::tr1::isnan)(current.quality))
-            current.quality = 1.0 / current.radiusSquared;
+            current.quality = 1.0 / (current.radius * current.radius);
         return current;
     }
 

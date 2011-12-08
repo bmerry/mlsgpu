@@ -83,7 +83,9 @@ void processCorners(
     __global const Splat *splats,
     __global const uint *splatIds,
     __global const uint *startOffsets,
-    __read_only image2d_t shuffleBits)
+    __read_only image2d_t shuffleBits,
+    float3 gridScale,
+    float3 gridBias)
 {
     __local Octree ot;
 
@@ -109,5 +111,6 @@ void processCorners(
     }
     barrier(CLK_LOCAL_MEM_FENCE);
     float3 coord = (float3) (gx, gy, gz);
+    coord = coord * gridScale + gridBias;
     processCorner(coord, lcoord, &corners[lcoord], &ot);
 }

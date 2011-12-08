@@ -106,7 +106,7 @@ void SplatTree::initialize()
     for (size_type splatId = 0; splatId < splats.size(); splatId++)
     {
         const Splat &splat = splats[splatId];
-        float radius = sqrt(splat.radiusSquared);
+        const float radius = splat.radius;
         float lo[3], hi[3];
         for (unsigned int i = 0; i < 3; i++)
         {

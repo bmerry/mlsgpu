@@ -49,7 +49,7 @@ static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
     s.position[0] = x;
     s.position[1] = y;
     s.position[2] = z;
-    s.radiusSquared = r * r;
+    s.radius = r;
     // Normal and quality are irrelevant - just init to avoid undefined data
     s.normal[0] = 1.0f;
     s.normal[1] = 0.0f;
