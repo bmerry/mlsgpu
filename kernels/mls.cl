@@ -75,7 +75,7 @@ end:
 
 
 /**
- * The shuffleBits image is an Nx3 image, with rows for x, y, z. Each element
+ * The @a shuffleBits image is an Nx3 image, with rows for x, y, z. Each element
  * is a single uint.
  *
  * Row 0, column i contains the bits of i spread out to every third bit e.g.

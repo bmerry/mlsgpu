@@ -25,8 +25,8 @@ class SplatTreeHost : public SplatTree
 private:
     /**
      * @name
-     * {
-     * Backing storage for the splat tree. See @ref SplatTree.
+     * @{
+     * Backing storage for the splat tree. @see @ref SplatTree.
      */
     std::vector<size_type> ids;
     std::vector<size_type> start;
@@ -39,6 +39,10 @@ protected:
     virtual size_type *allocateStart(size_type size);
     virtual size_type *allocateLevelStart(size_type size);
 public:
+    /**
+     * Constructor.
+     * @see @ref SplatTree::SplatTree.
+     */
     SplatTreeHost(const std::vector<Splat> &splats, const Grid &grid);
 };
 

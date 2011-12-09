@@ -27,9 +27,10 @@ namespace
  */
 struct Entry
 {
-    SplatTree::size_type pos; ///< Position of cell in the @c start array
-    SplatTree::size_type splatId;
+    SplatTree::size_type pos;      ///< Position of cell in the @c start array
+    SplatTree::size_type splatId;  ///< Original splat ID
 
+    /// Sort by position
     bool operator<(const Entry &e) const
     {
         return pos < e.pos;
@@ -58,7 +59,7 @@ SplatTree::size_type SplatTree::makeCode(size_type x, size_type y, size_type z)
 SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     : splats(splats), grid(grid)
 {
-    MLSGPU_ASSERT(splats.size() <= std::numeric_limits<size_type>::max(), std::length_error);
+    MLSGPU_ASSERT(splats.size() <= std::numeric_limits<size_type>::max() / 8, std::length_error);
 }
 
 void SplatTree::initialize()
@@ -95,11 +96,11 @@ void SplatTree::initialize()
     }
     size_type *start = allocateStart(numPositions + 1);
 
-    /* Make a list of all octree entries, initially ordered by splat ID
-     * TODO: this is memory-heavy, and scales O(N log N). Passes for
-     * counting, scanning, emitting would avoid this, but only if
-     * we allowed this function to read back data for the scan, or implemented
-     * the whole lot in CL.
+    /* Make a list of all octree entries, initially ordered by splat ID. TODO:
+     * this is memory-heavy, and takes O(N log N) time for sorting. Passes for
+     * counting, scanning, emitting would avoid this, but only if we allowed
+     * this function to read back data for the scan, or implemented the whole
+     * lot in CL.
      */
     std::vector<Entry> entries;
     entries.reserve(8 * splats.size());
@@ -126,8 +127,8 @@ void SplatTree::initialize()
         {
             ilo[i] = RoundUp::convert(vlo[i]);
             ihi[i] = RoundDown::convert(vhi[i]);
-            assert(ihi[i] >= 0 && ihi[i] < grid.numVertices(i));
-            assert(ilo[i] >= 0 && ilo[i] < grid.numVertices(i));
+            MLSGPU_ASSERT(ihi[i] >= 0 && ihi[i] < grid.numVertices(i), std::out_of_range);
+            MLSGPU_ASSERT(ilo[i] >= 0 && ilo[i] < grid.numVertices(i), std::out_of_range);
             while ((ihi[i] >> shift) - (ilo[i] >> shift) > 1)
                 shift++;
         }
@@ -169,5 +170,6 @@ void SplatTree::initialize()
 
     // Copy local levelStart to persistent memory
     size_type *realLevelStart = allocateLevelStart(numLevels + 1);
-    std::copy(levelStart.begin(), levelStart.end(), realLevelStart);
+    if (realLevelStart != NULL)
+        std::copy(levelStart.begin(), levelStart.end(), realLevelStart);
 }

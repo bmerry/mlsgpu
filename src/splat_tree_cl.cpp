@@ -38,7 +38,8 @@ SplatTree::size_type *SplatTreeCL::allocateStart(size_type size)
 
 SplatTree::size_type *SplatTreeCL::allocateLevelStart(size_type size)
 {
-    return levelStart.allocate(context, device, size);
+    (void) size; // prevent compiler warning
+    return NULL;
 }
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
@@ -46,7 +47,6 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
     : SplatTree(splats, grid), context(context), device(device)
 {
     initialize();
-    levelStart.mapping.reset();
     start.mapping.reset();
     ids.mapping.reset();
 

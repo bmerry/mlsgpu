@@ -34,16 +34,66 @@ public:
     Grid(const float ref[3], const float xDir[3], const float yDir[3], const float zDir[3],
          int xLow, int xHigh, int yLow, int yHigh, int zLow, int zHigh);
 
+    /// Set the reference point
     void setReference(const float ref[3]);
+
+    /**
+     * Set the reference direction for one axis.
+     * @pre @a axis is 0, 1 or 2.
+     */
     void setDirection(int axis, const float dir[3]);
+
+    /**
+     * Set the number of steps for vertices relative to one axis.
+     *
+     * The vertices along this axis range from
+     * <code>reference + low * dir[axis]</code> to
+     * <code>reference + high * dir[axis]</code> inclusive.
+     * @pre
+     * - @a axis is 0, 1 or 2.
+     * - @a low < @a high.
+     */
     void setExtent(int axis, int low, int high);
 
+    /**
+     * Retrieve the reference point.
+     * @see @ref setReference.
+     */
     const float *getReference() const;
+    /**
+     * Retrieve the step direction for one axis.
+     * @pre @a axis is 0, 1 or 2.
+     * @see @ref setDirection.
+     */
     const float *getDirection(int axis) const;
+    /**
+     * Retrieve the extent range for one axis.
+     * @pre @a axis is 0, 1 or 2.
+     * @see @ref setExtent.
+     */
     const std::pair<int, int> &getExtent(int axis) const;
 
+    /**
+     * Turn a grid-indexed vertex position into world coordinates.
+     * Note that (0, 0, 0) need not correspond to the reference point.
+     * It corresponds to the low extents.
+     * @pre @a x, @a y, @a z are non-negative and less than the
+     * number of vertices along the appropriate axis.
+     * @see @ref numVertices.
+     */
     void getVertex(int x, int y, int z, float vertex[3]) const;
+
+    /**
+     * Retrieves the number of vertices along the specified axis.
+     * @pre @a axis is 0, 1 or 2.
+     */
     int numVertices(int axis) const;
+
+    /**
+     * Retrieves the number of cells along the specified axis. This is
+     * simply one less than the number of vertices.
+     * @pre @a axis is 0, 1 or 2.
+     */
     int numCells(int axis) const;
 
     /**
@@ -54,9 +104,9 @@ public:
     void worldToVertex(const float world[3], float out[3]) const;
 
 private:
-    float reference[3];
-    float directions[3][3];
-    std::pair<int, int> extents[3];
+    float reference[3];              ///< Reference point
+    float directions[3][3];          ///< <code>directions[i]</code> is the step along the ith axis
+    std::pair<int, int> extents[3];  ///< Axis extents
 };
 
 #endif /* !GRID_H */

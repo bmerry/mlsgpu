@@ -18,7 +18,7 @@ class Grid;
 class TestSplatTree;
 
 /**
- * An octree containing splats.
+ * A dense octree containing splats.
  *
  * This is an abstract base class, which subclasses override to provide the
  * backing storage (e.g. in host memory, or in something like OpenCL buffer
@@ -29,6 +29,10 @@ class TestSplatTree;
  * coordinates of the cell bit-interleaved into a single Morton code (see @ref
  * makeCode). These are sometimes combined into a @em position, which is a flattened
  * iteration over the cells, level-by-level from level 0 downwards.
+ *
+ * Leaf are point-sampled at the vertices of a @ref Grid. That is, a splat is only
+ * guaranteed to be found in a walk from a leaf cell if it overlaps the @em center
+ * of that cell.
  *
  * The octree is a complete octree (i.e. has information about all cells at
  * all levels of the hierarchy). It is encoded in several layers of indirection:
@@ -42,6 +46,9 @@ class TestSplatTree;
  *    cell as well.
  * -# The levelStart array. This is a convenience array to indicate the first position
  *    for each level. It always has the same elements: 0, 1, 1+8, 1+8+64 etc.
+ *
+ * Note that splats can be found just by walking up (or down) the tree, without
+ * visiting any neighbors.
  */
 struct SplatTree
 {
@@ -54,10 +61,19 @@ public:
      */
     typedef std::tr1::uint32_t size_type;
 private:
-    unsigned int numLevels;
+    unsigned int numLevels; ///< Number of levels in the octree.
 
 protected:
+    /**
+     * The backing store of splats. These should not be changed after
+     * constructing the octree (other than their normals or quality),
+     * as this would invalidate the octree.
+     */
     const std::vector<Splat> &splats;
+
+    /**
+     * The sampling grid. Each grid vertex corresponds to a cell center.
+     */
     const Grid &grid;
 
     /**
@@ -85,7 +101,8 @@ protected:
     virtual size_type *allocateStart(size_type size) = 0;
 
     /**
-     * Allocate the levelStart array.
+     * Allocate the levelStart array. It is permitted for this to return
+     * @c NULL, in which case the levelStart values will not be available.
      */
     virtual size_type *allocateLevelStart(size_type size) = 0;
 
@@ -113,7 +130,10 @@ protected:
      * - The number of splats must be at most 1/8th the number that can be held
      *   in @ref size_type.
      * - All the splats must be entirely contained within the grid cells.
-     * - The grid must support @ref Grid::worldtoVertex.
+     * - The grid must support @ref Grid::worldToVertex i.e., be axially
+     *   aligned.
+     *
+     * @todo Implement checks for the pre-conditions.
      */
     SplatTree(const std::vector<Splat> &splats, const Grid &grid);
 
@@ -121,4 +141,4 @@ public:
     unsigned int getNumLevels() const { return numLevels; }
 };
 
-#endif /* !SPLATTREE_H */
+#endif /* !SPLAT_TREE_H */
