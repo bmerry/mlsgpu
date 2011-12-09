@@ -113,11 +113,19 @@ cl::Device findDevice(const boost::program_options::variables_map &vm)
     return ans;
 }
 
+static void CL_CALLBACK contextCallback(const char *msg, const void *ptr, ::size_t cb, void *user)
+{
+    (void) ptr;
+    (void) cb;
+    (void) user;
+    Log::log[Log::warn] << msg << "\n";
+}
+
 cl::Context makeContext(const cl::Device &device)
 {
     const cl::Platform &platform = device.getInfo<CL_DEVICE_PLATFORM>();
     cl_context_properties props[3] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform(), 0};
-    return cl::Context(device.getInfo<CL_DEVICE_TYPE>(), props, NULL);
+    return cl::Context(device.getInfo<CL_DEVICE_TYPE>(), props, contextCallback);
 }
 
 cl::Program build(const cl::Context &context, const std::vector<cl::Device> &devices,

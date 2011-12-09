@@ -3,6 +3,7 @@
  *
  * Required defines:
  * - OCTREE_LEVELS
+ * - WGS_X, WGS_Y, WGS_Z
  */
 
 /**
@@ -82,7 +83,7 @@ end:
  * ABCDb maps to A00B00C00Db. The values for row 1 and row 2 are the same but
  * shifted one and two bits left.
  */
-KERNEL(4, 4, 8)
+KERNEL(WGS_X, WGS_Y, WGS_Z)
 void processCorners(
     __global Corner *corners,
     __global const Splat *splats,

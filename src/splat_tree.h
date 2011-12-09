@@ -107,14 +107,6 @@ protected:
     virtual size_type *allocateLevelStart(size_type size) = 0;
 
     /**
-     * Compute a Morton code by interleaving the bits of @a x, @a y, @a z.
-     *
-     * @pre x, y and z contain at most one third of the bits in @ref size_type (e.g.
-     * 10 if @c size_type is 32-bit).
-     */
-    static size_type makeCode(size_type x, size_type y, size_type z);
-
-    /**
      * Constructor.
      *
      * The tree holds references to the splats and the grid. They must not be
@@ -139,6 +131,14 @@ protected:
 
 public:
     unsigned int getNumLevels() const { return numLevels; }
+
+    /**
+     * Compute a Morton code by interleaving the bits of @a x, @a y, @a z.
+     *
+     * @pre x, y and z contain at most one third of the bits in @ref size_type (e.g.
+     * 10 if @c size_type is 32-bit).
+     */
+    static size_type makeCode(size_type x, size_type y, size_type z);
 };
 
 #endif /* !SPLAT_TREE_H */

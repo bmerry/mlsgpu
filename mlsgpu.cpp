@@ -226,29 +226,39 @@ struct Corner
 
 static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
 {
+    const size_t wgs[3] = {4, 4, 8};
+
     float spacing = vm[Option::fitGrid].as<double>();
     float smooth = vm[Option::fitSmooth].as<double>();
     vector<Splat> splats;
     loadInputSplats(vm, back_inserter(splats), smooth);
     Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
 
-    int dims[3];
+    /* Round up to multiple of work group size.
+     */
+    unsigned int dims[3];
     for (unsigned int i = 0; i < 3; i++)
     {
-        dims[i] = grid.numCells(i);
+        std::pair<int, int> extent = grid.getExtent(i);
+        dims[i] = (extent.second - extent.first + wgs[i]) / wgs[i] * wgs[i];
+        grid.setExtent(i, extent.first, extent.first + dims[i] - 1);
     }
-    cout << "Grid cells: " << dims[0] << " " << dims[1] << " " << dims[2] << "\n";
+    cout << "Octree cells: " << dims[0] << " x " << dims[1] << " x " << dims[2] << "\n";
 
     SplatTreeCL tree(context, device, splats, grid);
+    unsigned int levels = tree.getNumLevels();
 
     std::map<std::string, std::string> defines;
-    defines["OCTREE_LEVELS"] = boost::lexical_cast<std::string>(9); // TODO: get from grid
+    defines["OCTREE_LEVELS"] = boost::lexical_cast<std::string>(levels);
+    defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
+    defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
+    defines["WGS_Z"] = boost::lexical_cast<std::string>(wgs[2]);
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
     cl::CommandQueue queue(context, device);
 
-    size_t numCorners = 1U << (3 * (tree.getNumLevels() - 1));
+    SplatTreeCL::size_type numCorners = SplatTreeCL::size_type(1) << (3 * (levels - 1));
     cl::Buffer dSplats(context, CL_MEM_READ_ONLY, sizeof(Splat) * splats.size());
     cl::Buffer dCorners(context, CL_MEM_WRITE_ONLY, sizeof(Corner) * numCorners);
     // Convert splat radius to inverse-squared form
@@ -271,21 +281,22 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     grid.getVertex(0, 0, 0, gridBias.s);
     mlsKernel.setArg(5, gridScale);
     mlsKernel.setArg(6, gridBias);
-    cl::size_t<3> workGroupSize = mlsKernel.getWorkGroupInfo<CL_KERNEL_COMPILE_WORK_GROUP_SIZE>(device);
 
     Timer timer;
     queue.enqueueNDRangeKernel(mlsKernel,
                                cl::NullRange,
-                               cl::NDRange(256, 256, 256), // TODO grid.numVertices(0), grid.numVertices(1), grid.numVertices(2)),
-                               cl::NDRange(workGroupSize[0], workGroupSize[1], workGroupSize[2]));
+                               cl::NDRange(dims[0], dims[1], dims[2]),
+                               cl::NDRange(wgs[0], wgs[1], wgs[2]));
     queue.finish();
     cout << timer.getElapsed() << endl;
 
     vector<Corner> corners(numCorners);
     queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * numCorners, &corners[0]);
     unsigned long long totalHits = 0;
-    for (size_t i = 0; i < numCorners; i++)
-        totalHits += corners[i].hits;
+    for (unsigned int z = 0; z < dims[2]; z++)
+        for (unsigned int y = 0; y < dims[1]; y++)
+            for (unsigned int x = 0; x < dims[0]; x++)
+                totalHits += corners[tree.makeCode(x, y, z)].hits;
     cout << "Total hits: " << totalHits << "\n";
 }
 
@@ -373,7 +384,7 @@ int main(int argc, char **argv)
     }
     catch (cl::Error &e)
     {
-        cerr << e.what() << " (" << e.err() << ")\n";
+        cerr << "OpenCL error in " << e.what() << " (" << e.err() << ")\n";
         return 1;
     }
 
