@@ -371,6 +371,11 @@ int main(int argc, char **argv)
         cerr << e.what() << '\n';
         return 1;
     }
+    catch (cl::Error &e)
+    {
+        cerr << e.what() << " (" << e.err() << ")\n";
+        return 1;
+    }
 
     return 0;
 }
