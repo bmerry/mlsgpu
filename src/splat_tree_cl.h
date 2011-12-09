@@ -29,7 +29,17 @@ private:
         cl::Buffer buffer;
         boost::scoped_ptr<CLH::BufferMapping> mapping;
 
-        size_type *allocate(const cl::Context &context, const cl::Device &device, size_type size);
+        command_type *allocate(const cl::Context &context, const cl::Device &device, std::size_t size);
+    };
+
+    struct Image3D
+    {
+        cl::Image3D image;
+        boost::scoped_ptr<CLH::ImageMapping> mapping;
+
+        command_type *allocate(const cl::Context &context, const cl::Device &device,
+                               std::size_t width, std::size_t height, std::size_t depth,
+                               std::size_t &rowPitch, std::size_t &slicePitch);
     };
 
     /// OpenCL context used to create buffers.
@@ -39,22 +49,16 @@ private:
     /**
      * @name
      * @{
-     * Backing storage for the octree. We don't store a levelStart array, because
-     * the kernel computes it internally in shared memory.
+     * Backing storage for the octree.
      * @see SplatTree.
      */
-    Buffer ids, start;
+    Buffer commands;
+    Image3D start;
     /** @} */
 
-    /**
-     * A lookup table for computing codes.
-     * @see @ref processCorners.
-     */
-    cl::Image2D shuffle;
-
-    virtual size_type *allocateIds(size_type size);
-    virtual size_type *allocateStart(size_type size);
-    virtual size_type *allocateLevelStart(size_type size);
+    virtual command_type *allocateCommands(std::size_t size);
+    virtual command_type *allocateStart(std::size_t width, std::size_t height, std::size_t depth,
+                                        std::size_t &rowPitch, std::size_t &slicePitch);
 
 public:
     /**
@@ -74,9 +78,8 @@ public:
      * @see @ref processCorners.
      * @{
      */
-    const cl::Buffer &getIds() const { return ids.buffer; }
-    const cl::Buffer &getStart() const { return start.buffer; }
-    const cl::Image2D &getShuffle() const { return shuffle; }
+    const cl::Buffer &getCommands() const { return commands.buffer; }
+    const cl::Image3D &getStart() const { return start.image; }
     /**
      * @}
      */

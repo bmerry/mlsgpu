@@ -40,7 +40,7 @@ void TestSplatTree::testMakeCode()
      * 789 = 1100010101b
      * Morton code: 100110010011001101011100001101b = 642569997
      */
-    CPPUNIT_ASSERT_EQUAL(SplatTree::size_type(642569997U), SplatTree::makeCode(123, 456, 789));
+    CPPUNIT_ASSERT_EQUAL(SplatTree::code_type(642569997U), SplatTree::makeCode(123, 456, 789));
 }
 
 static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
@@ -60,93 +60,102 @@ static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
 
 void TestSplatTree::testConstructor()
 {
-    typedef SplatTree::size_type size_type;
+    typedef SplatTree::command_type command_type;
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     const float dir[3][3] = { {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f} };
     Grid grid(ref, dir[0], dir[1], dir[2], 0, 15, 0, 15, 0, 11);
     vector<Splat> splats;
 
-    // bbox: 7,7,7 - 8,8,8. level 4, 8 nodes (7,7,7-8,8,8)
+    // bbox: 7,7,7 - 8,8,8. level 4, 8 nodes [7,7,7-9,9,9)
     addSplat(splats, 7.5f, 7.5f, 7.5f, 1.0f);
-    // bbox: 7,8,3 - 10,11,6. level 2, 4 nodes (1,2,0-2,2,1)
+    // bbox: 7,8,3 - 10,11,6. level 2, 4 nodes [1,2,0-3,3,2) -> [4,8,0-12,12,8)
     addSplat(splats, 8.5f, 9.5f, 4.5f, 2.0f);
-    // bbox: 3,6,1 - 11,14,9. level 1, 8 nodes (0,0,0-1,1,1)
+    // bbox: 3,6,1 - 11,14,9. level 1, 8 nodes [0,0,0-2,2,2) -> [0,0,0-16,16,16)
     addSplat(splats, 7.0f, 10.0f, 5.0f, 4.5f);
-    // bbox: 0,0,0 - 0,1,0. level 4, 2 nodes.
+    // bbox: 0,0,0 - 0,1,0. level 4, 2 nodes [0,0,0-1,2,1).
     addSplat(splats, 0.0f, 0.5f, 0.0f, 0.75f);
-    // bbox: 0,0,0 - 0,0,0. level 4, 1 node.
+    // bbox: 0,0,0 - 0,0,0. level 4, 1 node [0,0,0-1,1,1).
     addSplat(splats, 0.0f, 0.0f, 0.0f, 0.5f);
     SplatTreeHost tree(splats, grid);
 
-    const size_type expectedIds[] =
+    const command_type expectedCommands[] =
     {
-        2, 2, 2, 2, 2, 2, 2, 2,
-        1, 1, 1, 1,
-        3, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0
+        2, -1,     // code 111
+        2, -1,     // code 110
+        2, -1,     // code 101
+        2, -1,     // code 100
+        2, -1,     // code 011
+        2, -1,     // code 010
+        2, -1,     // code 001
+        2, -1,     // code 000
+        1, -10,    // code 011 100
+        1, -10,    // code 011 000
+        1, -12,    // code 010 101
+        1, -12,    // code 010 001
+        0, -2,     // code 111 000 000 000
+        0, -4,     // code 110 001 001 001
+        0, -6,     // code 101 010 010 010
+        0, -8,     // code 100 001 001 001
+        0, -18,    // code 011 100 100 100
+        0, -22,    // code 010 101 101 101
+        0, -14,    // code 001 110 110 110
+        0, -16,    // code 000 111 111 111
+        3, -16,    // code 000 000 000 010
+        3, 4, -16  // code 000 000 000 000
     };
     const struct
     {
-        unsigned int level;
-        unsigned int x, y, z;
-        unsigned int count;
-    } expectedCounts[] =
+        unsigned int x0, y0, z0;
+        unsigned int x1, y1, z1;
+        unsigned int start;
+    } regions[] =
     {
-        { 1,  0, 0, 0,  1 },
-        { 1,  1, 0, 0,  1 },
-        { 1,  0, 1, 0,  1 },
-        { 1,  1, 1, 0,  1 },
-        { 1,  0, 0, 1,  1 },
-        { 1,  1, 0, 1,  1 },
-        { 1,  0, 1, 1,  1 },
-        { 1,  1, 1, 1,  1 },
-
-        { 2,  1, 2, 0,  1 },
-        { 2,  1, 2, 1,  1 },
-        { 2,  2, 2, 0,  1 },
-        { 2,  2, 2, 1,  1 },
-
-        { 4,  0, 0, 0,  2 },
-        { 4,  0, 1, 0,  1 },
-
-        { 4,  7, 7, 7,  1 },
-        { 4,  8, 7, 7,  1 },
-        { 4,  7, 8, 7,  1 },
-        { 4,  8, 8, 7,  1 },
-        { 4,  7, 7, 8,  1 },
-        { 4,  8, 7, 8,  1 },
-        { 4,  7, 8, 8,  1 },
-        { 4,  8, 8, 8,  1 }
+        { 8, 8, 8,  16, 16, 16,   0 },
+        { 0, 8, 8,   8, 16, 16,   2 },
+        { 8, 0, 8,  16,  8, 16,   4 },
+        { 0, 0, 8,   8,  8, 16,   6 },
+        { 8, 8, 0,  16, 16,  8,   8 },
+        { 0, 8, 0,   8, 16,  8,  10 },
+        { 8, 0, 0,  16,  8,  8,  12 },
+        { 0, 0, 0,   8,  8,  8,  14 },
+        { 8, 8, 4,  12, 12,  8,  16 },
+        { 8, 8, 0,  12, 12,  4,  18 },
+        { 4, 8, 4,   8, 12,  8,  20 },
+        { 4, 8, 0,   8, 12,  4,  22 },
+        { 8, 8, 8,   9,  9,  9,  24 },
+        { 7, 8, 8,   8,  9,  9,  26 },
+        { 8, 7, 8,   9,  8,  9,  28 },
+        { 7, 7, 8,   8,  8,  9,  30 },
+        { 8, 8, 7,   9,  9,  8,  32 },
+        { 7, 8, 7,   8,  9,  8,  34 },
+        { 8, 7, 7,   9,  8,  8,  36 },
+        { 7, 7, 7,   8,  8,  8,  38 },
+        { 0, 1, 0,   1,  2,  1,  40 },
+        { 0, 0, 0,   1,  1,  1,  42 }
     };
 
-    // Validate levelStart
-    CPPUNIT_ASSERT_EQUAL(size_t(6), tree.levelStart.size());
-    CPPUNIT_ASSERT_EQUAL(size_type(0), tree.levelStart[0]);
-    CPPUNIT_ASSERT_EQUAL(size_type(1), tree.levelStart[1]);
-    CPPUNIT_ASSERT_EQUAL(size_type(9), tree.levelStart[2]);
-    CPPUNIT_ASSERT_EQUAL(size_type(73), tree.levelStart[3]);
-    CPPUNIT_ASSERT_EQUAL(size_type(585), tree.levelStart[4]);
-    CPPUNIT_ASSERT_EQUAL(size_type(4681), tree.levelStart[5]);
+    CPPUNIT_ASSERT_EQUAL(5U, tree.getNumLevels());
 
-    // Validate ids
-    CPPUNIT_ASSERT_EQUAL(sizeof(expectedIds) / sizeof(expectedIds[0]), tree.ids.size());
-    for (size_t i = 0; i < tree.ids.size(); i++)
-        CPPUNIT_ASSERT_EQUAL(expectedIds[i], tree.ids[i]);
+    // Validate commands
+    CPPUNIT_ASSERT_EQUAL(sizeof(expectedCommands) / sizeof(expectedCommands[0]), tree.commands.size());
+    for (size_t i = 0; i < tree.commands.size(); i++)
+        CPPUNIT_ASSERT_EQUAL(expectedCommands[i], tree.commands[i]);
 
     // Validate start
-    CPPUNIT_ASSERT_EQUAL(size_t(tree.levelStart.back()) + 1, tree.start.size());
-    CPPUNIT_ASSERT_EQUAL(size_type(0), tree.start[0]);
-    CPPUNIT_ASSERT_EQUAL(size_type(tree.ids.size()), tree.start.back());
-
-    // Make sure it is non-decreasing
-    for (size_t i = 0; i + 1 < tree.start.size(); i++)
-        CPPUNIT_ASSERT(tree.start[i] <= tree.start[i + 1]);
-    // Check the specific counts we are interested in. This forces the
-    // others to be zero because we checked the grand total.
-
-    for (size_t i = 0; i < sizeof(expectedCounts) / sizeof(expectedCounts[0]); i++)
-    {
-        size_type pos = tree.levelStart[expectedCounts[i].level]
-            + SplatTree::makeCode(expectedCounts[i].x, expectedCounts[i].y, expectedCounts[i].z);
-        CPPUNIT_ASSERT_EQUAL(expectedCounts[i].count, tree.start[pos + 1] - tree.start[pos]);
-    }
+    CPPUNIT_ASSERT_EQUAL(size_t(16 * 16 * 12), tree.start.size());
+    for (unsigned int z = 0; z < 12; z++)
+        for (unsigned int y = 0; y < 16; y++)
+            for (unsigned int x = 0; x < 16; x++)
+            {
+                unsigned int idx = z * 16 * 16 + y * 16 + x;
+                command_type expected = -1;
+                for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++)
+                {
+                    if (regions[i].x0 <= x && x < regions[i].x1
+                        && regions[i].y0 <= y && y < regions[i].y1
+                        && regions[i].z0 <= z && z < regions[i].z1)
+                        expected = regions[i].start;
+                }
+                CPPUNIT_ASSERT_EQUAL(expected, tree.start[idx]);
+            }
 }

@@ -27,22 +27,28 @@ namespace
  */
 struct Entry
 {
-    SplatTree::size_type pos;      ///< Position of cell in the @c start array
-    SplatTree::size_type splatId;  ///< Original splat ID
+    unsigned int level;               ///< Octree level
+    SplatTree::code_type code;        ///< Position code
+    SplatTree::command_type splatId;  ///< Original splat ID
 
-    /// Sort by position
+    /**
+     * Sort by level then by code.
+     * The code sort is decreasing, which is necessary for the way
+     * the start array is computed.
+     */
     bool operator<(const Entry &e) const
     {
-        return pos < e.pos;
+        if (level != e.level) return level < e.level;
+        else return code > e.code;
     }
 };
 
 } // anonymous namespace
 
-SplatTree::size_type SplatTree::makeCode(size_type x, size_type y, size_type z)
+SplatTree::code_type SplatTree::makeCode(code_type x, code_type y, code_type z)
 {
     int shift = 0;
-    size_type ans = 0;
+    code_type ans = 0;
     while (x || y || z)
     {
         unsigned int digit = (x & 1) + ((y & 1) << 1) + ((z & 1) << 2);
@@ -52,14 +58,14 @@ SplatTree::size_type SplatTree::makeCode(size_type x, size_type y, size_type z)
         y >>= 1;
         z >>= 1;
     }
-    MLSGPU_ASSERT(shift < std::numeric_limits<size_type>::digits, std::range_error);
+    MLSGPU_ASSERT(shift < std::numeric_limits<code_type>::digits, std::range_error);
     return ans;
 }
 
 SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     : splats(splats), grid(grid)
 {
-    MLSGPU_ASSERT(splats.size() <= std::numeric_limits<size_type>::max() / 8, std::length_error);
+    MLSGPU_ASSERT(splats.size() < (size_t) std::numeric_limits<command_type>::max() / 16, std::length_error);
 }
 
 void SplatTree::initialize()
@@ -78,23 +84,14 @@ void SplatTree::initialize()
         boost::numeric::Floor<float> > RoundDown;
 
     // Compute the number of levels and related data
-    unsigned int size = std::max(std::max(grid.numVertices(0), grid.numVertices(1)), grid.numVertices(2));
+    code_type dims[3];
+    for (unsigned int i = 0; i < 3; i++)
+        dims[i] = grid.numVertices(i);
+    code_type size = *std::max_element(dims, dims + 3);
     unsigned int maxLevel = 0;
-    while ((1 << maxLevel) < size)
+    while ((1U << maxLevel) < size)
         maxLevel++;
     numLevels = maxLevel + 1;
-
-    // We allocate this locally, because we need to read from it, and we
-    // promise not to read from the return of allocateLevelStart.
-    std::vector<size_type> levelStart(numLevels + 1);
-    size_type numPositions = 0;
-    levelStart[0] = 0;
-    for (unsigned int i = 0; i < numLevels; i++)
-    {
-        numPositions += (1U << (3 * i));
-        levelStart[i + 1] = numPositions;
-    }
-    size_type *start = allocateStart(numPositions + 1);
 
     /* Make a list of all octree entries, initially ordered by splat ID. TODO:
      * this is memory-heavy, and takes O(N log N) time for sorting. Passes for
@@ -104,7 +101,7 @@ void SplatTree::initialize()
      */
     std::vector<Entry> entries;
     entries.reserve(8 * splats.size());
-    for (size_type splatId = 0; splatId < splats.size(); splatId++)
+    for (std::size_t splatId = 0; splatId < splats.size(); splatId++)
     {
         const Splat &splat = splats[splatId];
         const float radius = splat.radius;
@@ -127,13 +124,17 @@ void SplatTree::initialize()
         {
             ilo[i] = RoundUp::convert(vlo[i]);
             ihi[i] = RoundDown::convert(vhi[i]);
-            MLSGPU_ASSERT(ihi[i] >= 0 && ihi[i] < grid.numVertices(i), std::out_of_range);
-            MLSGPU_ASSERT(ilo[i] >= 0 && ilo[i] < grid.numVertices(i), std::out_of_range);
+            MLSGPU_ASSERT(ihi[i] >= 0 && ihi[i] < (int) dims[i], std::out_of_range);
+            MLSGPU_ASSERT(ilo[i] >= 0 && ilo[i] < (int) dims[i], std::out_of_range);
             while ((ihi[i] >> shift) - (ilo[i] >> shift) > 1)
                 shift++;
         }
+        // TODO: coarsen once more if we have 8 aligned cells and can have just
+        // 1 instead.
+
         // Check we haven't gone right past the coarsest level
         assert(shift < numLevels);
+
         for (unsigned int i = 0; i < 3; i++)
         {
             ilo[i] >>= shift;
@@ -144,32 +145,60 @@ void SplatTree::initialize()
         // Create entries for sorting
         Entry e;
         e.splatId = splatId;
+        e.level = level;
         for (unsigned int z = ilo[2]; z <= (unsigned int) ihi[2]; z++)
             for (unsigned int y = ilo[1]; y <= (unsigned int) ihi[1]; y++)
                 for (unsigned int x = ilo[0]; x <= (unsigned int) ihi[0]; x++)
                 {
-                    e.pos = levelStart[level] + makeCode(x, y, z);
+                    e.code = makeCode(x, y, z);
                     entries.push_back(e);
                 }
     }
-
-    /* Extract the entries into the persistent structures.
-     */
     stable_sort(entries.begin(), entries.end());
-    size_type *ids = allocateIds(entries.size());
-    for (size_t i = 0; i < entries.size(); i++)
-        ids[i] = entries[i].splatId;
 
-    size_type e = 0;  // walks through the entries
-    for (size_t pos = 0; pos <= levelStart[numLevels]; pos++)
+    /* Determine memory requirements. Each distinct sort key requires
+     * a jump command (or a terminate command).
+     */
+    size_t numCommands = entries.size() + 1;
+    for (size_t i = 1; i < entries.size(); i++)
     {
-        start[pos] = e;
-        while (e < entries.size() && entries[e].pos <= pos)
-            e++;
+        if (entries[i].level != entries[i - 1].level || entries[i].code != entries[i - 1].code)
+            numCommands++;
     }
 
-    // Copy local levelStart to persistent memory
-    size_type *realLevelStart = allocateLevelStart(numLevels + 1);
-    if (realLevelStart != NULL)
-        std::copy(levelStart.begin(), levelStart.end(), realLevelStart);
+    command_type *commands = allocateCommands(numCommands);
+    std::vector<command_type> start(code_type(1U) << (3 * maxLevel), -1);
+
+    // Build command list
+    command_type curCommand = 0;
+    std::size_t p = 0;
+    for (unsigned int level = 0; level < numLevels; level++)
+    {
+        for (code_type code = (code_type(1) << (3 * level)) - 1; code + 1 > 0; code--)
+        {
+            std::size_t q = p;
+            while (entries[q].level == level && entries[q].code == code)
+                q++;
+            command_type up = start[code >> 3];
+            command_type first = up;
+            if (p < q)
+            {
+                // non-empty octree cell, with entries [p, q)
+                first = curCommand;
+                for (std::size_t i = 0; i < q - p; i++)
+                    commands[curCommand++] = entries[p + i].splatId;
+                commands[curCommand++] = (up == -1) ? -1 : -2 - up; // terminator or jump
+                p = q;
+            }
+            start[code] = first;
+        }
+    }
+
+    // Transfer start array to backing store
+    std::size_t rowPitch, slicePitch;
+    command_type *realStart = allocateStart(dims[0], dims[1], dims[2], rowPitch, slicePitch);
+    for (code_type z = 0; z < dims[2]; z++)
+        for (code_type y = 0; y < dims[1]; y++)
+            for (code_type x = 0; x < dims[0]; x++)
+                realStart[z * slicePitch + y * rowPitch + x] = start[makeCode(x, y, z)];
 }

@@ -24,28 +24,30 @@ class TestSplatTree;
  * backing storage (e.g. in host memory, or in something like OpenCL buffer
  * memory).
  *
- * Cells in the octree are described by a @em level and a @em code. The level counts
- * from 0 (top-level single cell) to a maximum, while the code consists of the
- * coordinates of the cell bit-interleaved into a single Morton code (see @ref
- * makeCode). These are sometimes combined into a @em position, which is a flattened
- * iteration over the cells, level-by-level from level 0 downwards.
- *
- * Leaf are point-sampled at the vertices of a @ref Grid. That is, a splat is only
- * guaranteed to be found in a walk from a leaf cell if it overlaps the @em center
- * of that cell.
- *
  * The octree is a complete octree (i.e. has information about all cells at
  * all levels of the hierarchy). It is encoded in several layers of indirection:
  * -# The splats themselves.
- * -# The splat IDs array. This is a flat store of indices into the splats. Each
- *    cell corresponds to a contiguous slice of this array. Splats are entered into
- *    possibly multiple cells, so the IDs array might have up to 8 entries per splat.
- * -# The start array. The cell with position @em pos is described by elements
- *    [<code>start[pos]</code>, <code>start[pos + 1]</code>) in the IDs array. The
- *    start array has an extra trailing element to allow this to be used for the final
- *    cell as well.
- * -# The levelStart array. This is a convenience array to indicate the first position
- *    for each level. It always has the same elements: 0, 1, 1+8, 1+8+64 etc.
+ * -# A <em>command buffer</em>. Each command in the buffer is either a non-negative
+ *    splat ID (indexing the array of splats), or a stop command (-1), or a jump
+ *    command: -2 - x indicates a jump to position x in the command buffer.
+ * -# A <em>start array</em>, indicating where to start in the command buffer for
+ *    each leaf. If the leaf has no overlapping splats (at any level of the hierarchy)
+ *    the start value will be -1.
+ *
+ * To find all splats overlapping a leaf, look up the start position in the start
+ * array, then walk along the command buffer until seeing a -1. After a non-jump,
+ * proceed to the next element of the command buffer.
+ *
+ * The octree structure is thus hidden, but internally each cell in the octree
+ * corresponds to a contiguous slice of the command buffer, which ends with a
+ * jump to an ancestor.
+ *
+ * It is guaranteed that the target of any jump is a splat ID. This simplifies
+ * walking code by removing the need to re-check for special cases after a jump.
+ *
+ * Leaves are point-sampled at the vertices of a @ref Grid. That is, a splat is only
+ * guaranteed to be found in a walk from a leaf cell if it overlaps the @em center
+ * of that cell.
  *
  * Note that splats can be found just by walking up (or down) the tree, without
  * visiting any neighbors.
@@ -55,11 +57,18 @@ struct SplatTree
     friend class TestSplatTree;
 public:
     /**
-     * Type used to represent offsets in the internal data structures.
-     * This type must have enough bits to represent numbers up to 8 times
-     * the number of splats.
+     * Type used to represent values in the command table.
+     * It needs enough bits to represent both splat values, and to
+     * represent jump values.
      */
-    typedef std::tr1::uint32_t size_type;
+    typedef std::tr1::int32_t command_type;
+
+    /**
+     * Type used to represent indices into the cells, and also for
+     * sort keys that are a Morton code with a leading 1 bit.
+     */
+    typedef std::tr1::uint32_t code_type;
+
 private:
     unsigned int numLevels; ///< Number of levels in the octree.
 
@@ -91,20 +100,18 @@ protected:
     void initialize();
 
     /**
-     * Allocate the IDs array.
+     * Allocate the command array.
      */
-    virtual size_type *allocateIds(size_type size) = 0;
+    virtual command_type *allocateCommands(std::size_t size) = 0;
 
     /**
      * Allocate the start array.
+     * @param width, height, depth   Dimensions of the array (not necessary powers of 2).
+     * @param[out] rowPitch          Number of elements (@em not bytes) between rows.
+     * @param[out] slicePitch        Number of elements (@em not bytes) between 2D slices.
      */
-    virtual size_type *allocateStart(size_type size) = 0;
-
-    /**
-     * Allocate the levelStart array. It is permitted for this to return
-     * @c NULL, in which case the levelStart values will not be available.
-     */
-    virtual size_type *allocateLevelStart(size_type size) = 0;
+    virtual command_type *allocateStart(std::size_t width, std::size_t height, std::size_t depth,
+                                        std::size_t &rowPitch, std::size_t &slicePitch) = 0;
 
     /**
      * Constructor.
@@ -119,8 +126,10 @@ protected:
      * implement the allocators, then call @ref initialize.
      *
      * @pre
-     * - The number of splats must be at most 1/8th the number that can be held
-     *   in @ref size_type.
+     * - The number of splats must be strictly less than 1/16th the number that
+     *   can be held in @ref size_type.
+     * - The number of grid cells (after padding out to a power of 2) must satisfy
+     *   the range limits in @ref makeCode.
      * - All the splats must be entirely contained within the grid cells.
      * - The grid must support @ref Grid::worldToVertex i.e., be axially
      *   aligned.
@@ -135,10 +144,11 @@ public:
     /**
      * Compute a Morton code by interleaving the bits of @a x, @a y, @a z.
      *
-     * @pre x, y and z contain at most one third of the bits in @ref size_type (e.g.
-     * 10 if @c size_type is 32-bit).
+     * @pre x, y and z contain less than one third of the bits in @ref
+     * size_type (e.g. at most 10 bits if @c code_type is 32-bit, 21 if
+     * 64-bit).
      */
-    static size_type makeCode(size_type x, size_type y, size_type z);
+    static code_type makeCode(code_type x, code_type y, code_type z);
 };
 
 #endif /* !SPLAT_TREE_H */

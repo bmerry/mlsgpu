@@ -12,22 +12,20 @@
 #include "splat.h"
 #include "splat_tree_host.h"
 
-SplatTree::size_type *SplatTreeHost::allocateIds(size_type size)
+SplatTree::command_type *SplatTreeHost::allocateCommands(std::size_t size)
 {
-    ids.resize(size);
-    return &ids[0];
+    commands.resize(size);
+    return &commands[0];
 }
 
-SplatTree::size_type *SplatTreeHost::allocateStart(size_type size)
+SplatTree::command_type *SplatTreeHost::allocateStart(
+    std::size_t width, std::size_t height, std::size_t depth,
+    std::size_t &rowPitch, std::size_t &slicePitch)
 {
-    start.resize(size);
+    start.resize(width * height * depth);
+    rowPitch = width;
+    slicePitch = width * height;
     return &start[0];
-}
-
-SplatTree::size_type *SplatTreeHost::allocateLevelStart(size_type size)
-{
-    levelStart.resize(size);
-    return &levelStart[0];
 }
 
 SplatTreeHost::SplatTreeHost(const std::vector<Splat> &splats, const Grid &grid)

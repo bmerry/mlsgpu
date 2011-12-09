@@ -258,7 +258,7 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
 
     cl::CommandQueue queue(context, device);
 
-    SplatTreeCL::size_type numCorners = SplatTreeCL::size_type(1) << (3 * (levels - 1));
+    size_t numCorners = dims[0] * dims[1] * dims[2];
     cl::Buffer dSplats(context, CL_MEM_READ_ONLY, sizeof(Splat) * splats.size());
     cl::Buffer dCorners(context, CL_MEM_WRITE_ONLY, sizeof(Corner) * numCorners);
     // Convert splat radius to inverse-squared form
@@ -270,17 +270,16 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
 
     mlsKernel.setArg(0, dCorners);
     mlsKernel.setArg(1, dSplats);
-    mlsKernel.setArg(2, tree.getIds());
+    mlsKernel.setArg(2, tree.getCommands());
     mlsKernel.setArg(3, tree.getStart());
-    mlsKernel.setArg(4, tree.getShuffle());
     cl_float3 gridScale, gridBias;
     for (unsigned int i = 0; i < 3; i++)
     {
         gridScale.s[i] = grid.getDirection(i)[i];
     }
     grid.getVertex(0, 0, 0, gridBias.s);
-    mlsKernel.setArg(5, gridScale);
-    mlsKernel.setArg(6, gridBias);
+    mlsKernel.setArg(4, gridScale);
+    mlsKernel.setArg(5, gridBias);
 
     Timer timer;
     queue.enqueueNDRangeKernel(mlsKernel,
@@ -296,7 +295,7 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     for (unsigned int z = 0; z < dims[2]; z++)
         for (unsigned int y = 0; y < dims[1]; y++)
             for (unsigned int x = 0; x < dims[0]; x++)
-                totalHits += corners[tree.makeCode(x, y, z)].hits;
+                totalHits += corners[(z * dims[1] + y) * dims[0] + x].hits;
     cout << "Total hits: " << totalHits << "\n";
 }
 

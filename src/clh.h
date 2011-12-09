@@ -16,23 +16,54 @@
 namespace CLH
 {
 
+namespace detail
+{
+
+class MemoryMapping : public boost::noncopyable
+{
+private:
+    cl::Memory memory;      ///< Memory object to unmap on destruction
+    cl::CommandQueue queue; ///< Privately allocated command queue
+    void *ptr;              ///< Mapped pointer
+
+protected:
+    MemoryMapping(const cl::Memory &memory, const cl::Device &device);
+    ~MemoryMapping();
+
+    void setPointer(void *ptr) { this->ptr = ptr; }
+    const cl::CommandQueue &getQueue() const { return queue; }
+    const cl::Memory &getMemory() const { return memory; }
+
+public:
+    void *get() const { return ptr; }
+};
+
+} // namespace detail
+
 /**
  * RAII wrapper around mapping and unmapping a buffer.
  * It only handles synchronous mapping and unmapping.
  */
-class BufferMapping : public boost::noncopyable
+class BufferMapping : public detail::MemoryMapping
 {
-private:
-    cl::Buffer buffer;      ///< Buffer object passed in
-    cl::CommandQueue queue; ///< Privately allocated command queue
-    void *ptr;              ///< Mapped pointer
-
 public:
     BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size);
-    ~BufferMapping();
 
-    const cl::Buffer &getBuffer() const { return buffer; }
-    void *get() const { return ptr; }
+    const cl::Buffer &getBuffer() const { return static_cast<const cl::Buffer &>(getMemory()); }
+};
+
+/**
+ * RAII wrapper around mapping and unmapping an image.
+ * It only handles synchronous mapping and unmapped.
+ */
+class ImageMapping : public detail::MemoryMapping
+{
+public:
+    ImageMapping(const cl::Image &image, const cl::Device &device, cl_map_flags flags,
+                 const cl::size_t<3> &origin, const cl::size_t<3> &region,
+                 ::size_t *rowPitch, ::size_t *slicePitch);
+
+    const cl::Image &getImage() const { return static_cast<const cl::Image &>(getMemory()); }
 };
 
 /// Option names for OpenCL options

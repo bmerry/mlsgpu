@@ -23,21 +23,41 @@ namespace po = boost::program_options;
 namespace CLH
 {
 
-BufferMapping::BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size)
-    : buffer(buffer)
+namespace detail
 {
-    const cl::Context &context = buffer.getInfo<CL_MEM_CONTEXT>();
+
+MemoryMapping::MemoryMapping(const cl::Memory &memory, const cl::Device &device)
+    : memory(memory)
+{
+    const cl::Context &context = memory.getInfo<CL_MEM_CONTEXT>();
     queue = cl::CommandQueue(context, device, 0);
-    ptr = queue.enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size);
+    ptr = NULL;
 }
 
-BufferMapping::~BufferMapping()
+MemoryMapping::~MemoryMapping()
 {
     if (ptr)
     {
-        queue.enqueueUnmapMemObject(buffer, ptr);
+        queue.enqueueUnmapMemObject(memory, ptr);
         queue.finish();
     }
+}
+
+} // namespace detail
+
+BufferMapping::BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size)
+    : detail::MemoryMapping(buffer, device)
+{
+    setPointer(getQueue().enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size));
+}
+
+ImageMapping::ImageMapping(
+    const cl::Image &image, const cl::Device &device, cl_map_flags flags,
+    const cl::size_t<3> &origin, const cl::size_t<3> &region,
+    ::size_t *rowPitch, ::size_t *slicePitch)
+    : detail::MemoryMapping(image, device)
+{
+    setPointer(getQueue().enqueueMapImage(image, CL_TRUE, flags, origin, region, rowPitch, slicePitch));
 }
 
 namespace detail

@@ -28,16 +28,15 @@ private:
      * @{
      * Backing storage for the splat tree. @see @ref SplatTree.
      */
-    std::vector<size_type> ids;
-    std::vector<size_type> start;
-    std::vector<size_type> levelStart;
+    std::vector<command_type> commands;
+    std::vector<command_type> start;
     /**
      * @}
      */
 protected:
-    virtual size_type *allocateIds(size_type size);
-    virtual size_type *allocateStart(size_type size);
-    virtual size_type *allocateLevelStart(size_type size);
+    virtual command_type *allocateCommands(std::size_t size);
+    virtual command_type *allocateStart(std::size_t width, std::size_t height, std::size_t depth,
+                                        std::size_t &rowPitch, std::size_t &slicePitch);
 public:
     /**
      * Constructor.

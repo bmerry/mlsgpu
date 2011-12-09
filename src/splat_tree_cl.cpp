@@ -19,27 +19,45 @@
 #include "grid.h"
 #include "clh.h"
 
-SplatTree::size_type *SplatTreeCL::Buffer::allocate(const cl::Context &context, const cl::Device &device, size_type size)
+SplatTree::command_type *SplatTreeCL::Buffer::allocate(const cl::Context &context, const cl::Device &device, std::size_t size)
 {
-    buffer = cl::Buffer(context, CL_MEM_READ_ONLY, size * sizeof(size_type));
-    mapping.reset(new CLH::BufferMapping(buffer, device, CL_MAP_WRITE, 0, size * sizeof(size_type)));
-    return static_cast<size_type *>(mapping->get());
+    buffer = cl::Buffer(context, CL_MEM_READ_ONLY, size * sizeof(command_type));
+    mapping.reset(new CLH::BufferMapping(buffer, device, CL_MAP_WRITE, 0, size * sizeof(command_type)));
+    return static_cast<command_type *>(mapping->get());
 }
 
-SplatTree::size_type *SplatTreeCL::allocateIds(size_type size)
+SplatTree::command_type *SplatTreeCL::Image3D::allocate(const cl::Context &context, const cl::Device &device,
+                                                        std::size_t width, std::size_t height, std::size_t depth,
+                                                        std::size_t &rowPitch, std::size_t &slicePitch)
 {
-    return ids.allocate(context, device, size);
+    image = cl::Image3D(context, CL_MEM_READ_ONLY,
+                        cl::ImageFormat(CL_R, CL_SIGNED_INT32),
+                        width, height, depth);
+    cl::size_t<3> origin;
+    origin[0] = 0; origin[1] = 0; origin[2] = 0;
+    cl::size_t<3> region;
+    region[0] = width;
+    region[1] = height;
+    region[2] = depth;
+    mapping.reset(new CLH::ImageMapping(image, device, CL_MAP_WRITE, origin, region, &rowPitch, &slicePitch));
+    // CL specifies pitches in bytes, but we need it in elements
+    assert(rowPitch % sizeof(command_type) == 0);
+    assert(slicePitch % sizeof(command_type) == 0);
+    rowPitch /= sizeof(command_type);
+    slicePitch /= sizeof(command_type);
+    return static_cast<command_type *>(mapping->get());
 }
 
-SplatTree::size_type *SplatTreeCL::allocateStart(size_type size)
+SplatTree::command_type *SplatTreeCL::allocateCommands(std::size_t size)
 {
-    return start.allocate(context, device, size);
+    return commands.allocate(context, device, size);
 }
 
-SplatTree::size_type *SplatTreeCL::allocateLevelStart(size_type size)
+SplatTree::command_type *SplatTreeCL::allocateStart(
+    std::size_t width, std::size_t height, std::size_t depth,
+    std::size_t &rowPitch, std::size_t &slicePitch)
 {
-    (void) size; // prevent compiler warning
-    return NULL;
+    return start.allocate(context, device, width, height, depth, rowPitch, slicePitch);
 }
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
@@ -48,7 +66,7 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
 {
     initialize();
     start.mapping.reset();
-    ids.mapping.reset();
+    commands.mapping.reset();
 
     // Prepare the shuffle texture.
     const unsigned int numCoords = 1U << (getNumLevels() - 1);
@@ -65,6 +83,4 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
         image[i + 2 * numCoords] = cur << 2;
         cur = ((cur | ~mask) + 1) & mask;
     }
-    const cl::ImageFormat format(CL_R, CL_UNSIGNED_INT32);
-    shuffle = cl::Image2D(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, format, numCoords, 3, 0, &image[0]);
 }
