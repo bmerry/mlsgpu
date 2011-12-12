@@ -47,15 +47,16 @@ void processCorner(command_type start, float3 coord, __global Corner *out,
                 cmd = commands[pos];
             }
 
-            Splat splat = splats[cmd];
-            float3 offset = splat.positionRadius.xyz - coord;
-            float d = dot(offset, offset) * splat.positionRadius.w;
+            __global const Splat *splat = &splats[cmd];
+            float4 positionRadius = splat->positionRadius;
+            float3 offset = positionRadius.xyz - coord;
+            float d = dot(offset, offset) * positionRadius.w;
             if (d < 1.0f)
             {
                 float w = 1.0f - d;
                 w *= w;
                 w *= w;
-                w *= splat.normalQuality.w;
+                w *= splat->normalQuality.w;
                 corner.hits++;
                 corner.sumW += w;
             }
