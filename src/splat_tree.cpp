@@ -65,7 +65,7 @@ SplatTree::code_type SplatTree::makeCode(code_type x, code_type y, code_type z)
 SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     : splats(splats), grid(grid)
 {
-    MLSGPU_ASSERT(splats.size() < (size_t) std::numeric_limits<command_type>::max() / 16, std::length_error);
+    MLSGPU_ASSERT(splats.size() < (size_t) std::numeric_limits<command_type>::max() / (2 * maxAmplify), std::length_error);
 }
 
 static bool splatCellIntersect(const Splat &splat, const float c0[3], const float c1[3])
@@ -114,7 +114,7 @@ void SplatTree::initialize()
      * lot in CL.
      */
     std::vector<Entry> entries;
-    entries.reserve(8 * splats.size());
+    entries.reserve(maxAmplify * splats.size());
     for (std::size_t splatId = 0; splatId < splats.size(); splatId++)
     {
         const Splat &splat = splats[splatId];
@@ -131,7 +131,7 @@ void SplatTree::initialize()
         grid.worldToVertex(hi, vhi);
 
         // Start with the deepest level, then coarsen until we don't
-        // take more than 2 cells in any direction.
+        // take more than maxAmplify cells.
         int ilo[3], ihi[3];
         unsigned int shift = 0;
         for (unsigned int i = 0; i < 3; i++)
@@ -140,8 +140,18 @@ void SplatTree::initialize()
             ihi[i] = RoundDown::convert(vhi[i]);
             MLSGPU_ASSERT(ihi[i] >= 0 && ihi[i] < (int) dims[i], std::out_of_range);
             MLSGPU_ASSERT(ilo[i] >= 0 && ilo[i] < (int) dims[i], std::out_of_range);
-            while ((ihi[i] >> shift) - (ilo[i] >> shift) > 1)
-                shift++;
+        }
+        while (true)
+        {
+            size_t sz[3];
+            for (unsigned int i = 0; i < 3; i++)
+            {
+                sz[i] = (ihi[i] >> shift) - (ilo[i] >> shift) + 1;
+            }
+            if (sz[0] <= maxAmplify && sz[1] <= maxAmplify && sz[2] <= maxAmplify
+                && sz[0] * sz[1] * sz[2] <= maxAmplify)
+                break;
+            shift++;
         }
 
         // Check we haven't gone right past the coarsest level

@@ -57,6 +57,11 @@ struct SplatTree
     friend class TestSplatTree;
 public:
     /**
+     * Maximum number of cells in which any splat will be entered.
+     */
+    static const unsigned int maxAmplify = 8;
+
+    /**
      * Type used to represent values in the command table.
      * It needs enough bits to represent both splat values, and to
      * represent jump values.
@@ -126,7 +131,7 @@ protected:
      * implement the allocators, then call @ref initialize.
      *
      * @pre
-     * - The number of splats must be strictly less than 1/16th the number that
+     * - The number of splats must be strictly less than 1/(2*maxAmplify) the number that
      *   can be held in @ref size_type.
      * - The number of grid cells (after padding out to a power of 2) must satisfy
      *   the range limits in @ref makeCode.
