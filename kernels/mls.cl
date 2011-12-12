@@ -28,42 +28,37 @@ typedef struct
 
 __constant sampler_t nearest = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE;
 
-void processCorner(command_type start, float3 coord, __global Corner *out,
+void processCorner(command_type start, float3 coord, Corner *out,
                    __global const Splat * restrict splats,
                    __global const command_type * restrict commands)
 {
-    Corner corner = {0, 0.0f};
-    if (start >= 0)
+    command_type pos = start;
+    while (true)
     {
-        command_type pos = start;
-        while (true)
+        command_type cmd = commands[pos];
+        if (cmd == -1)
+            break;
+        if (cmd < 0)
         {
-            command_type cmd = commands[pos];
-            if (cmd == -1)
-                break;
-            if (cmd < 0)
-            {
-                pos = -2 - cmd;
-                cmd = commands[pos];
-            }
-
-            __global const Splat *splat = &splats[cmd];
-            float4 positionRadius = splat->positionRadius;
-            float3 offset = positionRadius.xyz - coord;
-            float d = dot(offset, offset) * positionRadius.w;
-            if (d < 1.0f)
-            {
-                float w = 1.0f - d;
-                w *= w;
-                w *= w;
-                w *= splat->normalQuality.w;
-                corner.hits++;
-                corner.sumW += w;
-            }
-            pos++;
+            pos = -2 - cmd;
+            cmd = commands[pos];
         }
+
+        __global const Splat *splat = &splats[cmd];
+        float4 positionRadius = splat->positionRadius;
+        float3 offset = positionRadius.xyz - coord;
+        float d = dot(offset, offset) * positionRadius.w;
+        if (d < 1.0f)
+        {
+            float w = 1.0f - d;
+            w *= w;
+            w *= w;
+            w *= splat->normalQuality.w;
+            out->hits++;
+            out->sumW += w;
+        }
+        pos++;
     }
-    *out = corner;
 }
 
 
@@ -88,7 +83,12 @@ void processCorners(
     command_type myStart = start[linearId];
 #endif
 
-    float3 coord = convert_float3(gid.xyz);
-    coord = coord * gridScale + gridBias;
-    processCorner(myStart, coord, &corners[linearId], splats, commands);
+    Corner corner = {0, 0.0f};
+    if (myStart >= 0)
+    {
+        float3 coord = convert_float3(gid.xyz);
+        coord = coord * gridScale + gridBias;
+        processCorner(myStart, coord, &corner, splats, commands);
+    }
+    corners[linearId] = corner;
 }

@@ -291,11 +291,22 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     vector<Corner> corners(numCorners);
     queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * numCorners, &corners[0]);
     unsigned long long totalHits = 0;
+    unsigned long long cellsGE1 = 0;
+    unsigned long long cellsGE4 = 0;
     for (unsigned int z = 0; z < dims[2]; z++)
         for (unsigned int y = 0; y < dims[1]; y++)
             for (unsigned int x = 0; x < dims[0]; x++)
-                totalHits += corners[(z * dims[1] + y) * dims[0] + x].hits;
+            {
+                unsigned int hits = corners[(z * dims[1] + y) * dims[0] + x].hits;
+                totalHits += hits;
+                if (hits > 0) cellsGE1++;
+                if (hits >= 4) cellsGE4++;
+            }
+
     cout << "Total hits: " << totalHits << "\n";
+    cout << "Total cells: " << dims[0] * dims[1] * dims[2] << "\n";
+    cout << "Total cells >= 1: " << cellsGE1 << "\n";
+    cout << "Total cells >= 4: " << cellsGE4 << "\n";
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)
