@@ -68,6 +68,20 @@ SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
     MLSGPU_ASSERT(splats.size() < (size_t) std::numeric_limits<command_type>::max() / 16, std::length_error);
 }
 
+static bool splatCellIntersect(const Splat &splat, const float c0[3], const float c1[3])
+{
+    float dist[3];
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float lo = std::min(c0[i], c1[i]);
+        float hi = std::max(c0[i], c1[i]);
+        // Find the point in the cell closest to the splat center
+        float nearest = std::min(hi, std::max(lo, splat.position[i]));
+        dist[i] = nearest - splat.position[i];
+    }
+    return dist[0] * dist[0] + dist[1] * dist[1] + dist[2] * dist[2] <= splat.radius * splat.radius * 1.00001;
+}
+
 void SplatTree::initialize()
 {
     typedef boost::numeric::converter<
@@ -129,8 +143,6 @@ void SplatTree::initialize()
             while ((ihi[i] >> shift) - (ilo[i] >> shift) > 1)
                 shift++;
         }
-        // TODO: coarsen once more if we have 8 aligned cells and can have just
-        // 1 instead.
 
         // Check we haven't gone right past the coarsest level
         assert(shift < numLevels);
@@ -150,8 +162,23 @@ void SplatTree::initialize()
             for (unsigned int y = ilo[1]; y <= (unsigned int) ihi[1]; y++)
                 for (unsigned int x = ilo[0]; x <= (unsigned int) ihi[0]; x++)
                 {
-                    e.code = makeCode(x, y, z);
-                    entries.push_back(e);
+                    float c0[3], c1[3];
+                    int ic0[3], ic1[3];
+                    ic0[0] = x << shift;
+                    ic0[1] = y << shift;
+                    ic0[2] = z << shift;
+                    for (unsigned int i = 0; i < 3; i++)
+                    {
+                        ic1[i] = std::min((int) dims[i], ic0[i] + (1 << shift)) - 1;
+                    }
+                    grid.getVertex(ic0[0], ic0[1], ic0[2], c0);
+                    grid.getVertex(ic1[0], ic1[1], ic1[2], c1);
+                    if (splatCellIntersect(splat, c0, c1))
+                    {
+                        // Check that the sphere hits the cell, not just the bbox
+                        e.code = makeCode(x, y, z);
+                        entries.push_back(e);
+                    }
                 }
     }
     stable_sort(entries.begin(), entries.end());
