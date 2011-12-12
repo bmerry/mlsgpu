@@ -32,6 +32,7 @@ private:
         command_type *allocate(const cl::Context &context, const cl::Device &device, std::size_t size);
     };
 
+#if USE_IMAGES
     struct Image3D
     {
         cl::Image3D image;
@@ -41,6 +42,7 @@ private:
                                std::size_t width, std::size_t height, std::size_t depth,
                                std::size_t &rowPitch, std::size_t &slicePitch);
     };
+#endif
 
     /// OpenCL context used to create buffers.
     const cl::Context &context;
@@ -53,7 +55,11 @@ private:
      * @see SplatTree.
      */
     Buffer commands;
+#if USE_IMAGES
     Image3D start;
+#else
+    Buffer start;
+#endif
     /** @} */
 
     virtual command_type *allocateCommands(std::size_t size);
@@ -79,7 +85,11 @@ public:
      * @{
      */
     const cl::Buffer &getCommands() const { return commands.buffer; }
+#if USE_IMAGES
     const cl::Image3D &getStart() const { return start.image; }
+#else
+    const cl::Buffer &getStart() const { return start.buffer; }
+#endif
     /**
      * @}
      */

@@ -3,6 +3,7 @@
  *
  * Required defines:
  * - WGS_X, WGS_Y, WGS_Z
+ * - USE_IMAGES
  */
 
 /**
@@ -67,16 +68,24 @@ void processCorner(command_type start, float3 coord, __global Corner *out,
 
 KERNEL(WGS_X, WGS_Y, WGS_Z)
 void processCorners(
-    __global Corner *corners,
-    __global const Splat *splats,
-    __global const command_type *commands,
+    __global Corner * restrict corners,
+    __global const Splat * restrict splats,
+    __global const command_type * restrict commands,
+#if USE_IMAGES
     __read_only image3d_t start,
+#else
+    __global const command_type * restrict start,
+#endif
     float3 gridScale,
     float3 gridBias)
 {
     int4 gid = (int4) (get_global_id(0), get_global_id(1), get_global_id(2), 0);
     uint linearId = (gid.z * get_global_size(1) + gid.y) * get_global_size(0) + gid.x;
+#if USE_IMAGES
     command_type myStart = read_imagei(start, nearest, gid).x;
+#else
+    command_type myStart = start[linearId];
+#endif
 
     float3 coord = convert_float3(gid.xyz);
     coord = coord * gridScale + gridBias;

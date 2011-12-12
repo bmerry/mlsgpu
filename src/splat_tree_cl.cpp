@@ -26,6 +26,7 @@ SplatTree::command_type *SplatTreeCL::Buffer::allocate(const cl::Context &contex
     return static_cast<command_type *>(mapping->get());
 }
 
+#if USE_IMAGES
 SplatTree::command_type *SplatTreeCL::Image3D::allocate(const cl::Context &context, const cl::Device &device,
                                                         std::size_t width, std::size_t height, std::size_t depth,
                                                         std::size_t &rowPitch, std::size_t &slicePitch)
@@ -47,6 +48,7 @@ SplatTree::command_type *SplatTreeCL::Image3D::allocate(const cl::Context &conte
     slicePitch /= sizeof(command_type);
     return static_cast<command_type *>(mapping->get());
 }
+#endif
 
 SplatTree::command_type *SplatTreeCL::allocateCommands(std::size_t size)
 {
@@ -57,7 +59,13 @@ SplatTree::command_type *SplatTreeCL::allocateStart(
     std::size_t width, std::size_t height, std::size_t depth,
     std::size_t &rowPitch, std::size_t &slicePitch)
 {
+#if USE_IMAGES
     return start.allocate(context, device, width, height, depth, rowPitch, slicePitch);
+#else
+    rowPitch = width;
+    slicePitch = width * height;
+    return start.allocate(context, device, width * height * depth);
+#endif
 }
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
@@ -67,20 +75,4 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
     initialize();
     start.mapping.reset();
     commands.mapping.reset();
-
-    // Prepare the shuffle texture.
-    const unsigned int numCoords = 1U << (getNumLevels() - 1);
-    std::vector<cl_uint> image(numCoords * 3);
-    unsigned int cur = 0;
-    const unsigned int mask = ((1U << 30) - 1) / 7;  // 100100100..001 in binary
-    for (unsigned int i = 0; i < numCoords; i++)
-    {
-        // Or in ~mask makes all the intermediate bits 1's, so that carries
-        // ripple through to the next interesting bit. Then we take it away
-        // again.
-        image[i] = cur;
-        image[i + numCoords] = cur << 1;
-        image[i + 2 * numCoords] = cur << 2;
-        cur = ((cur | ~mask) + 1) & mask;
-    }
 }

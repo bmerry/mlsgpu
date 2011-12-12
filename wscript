@@ -60,6 +60,7 @@ def options(opt):
     opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'debug', action = 'store', help = 'build variant', choices = variants.keys())
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
+    opt.add_option('--use-images', action = 'store_true', default = False, help = 'Use OpenCL images for start table')
 
 def configure_variant(conf):
     if conf.env['assertions']:
@@ -111,6 +112,7 @@ def configure(conf):
         configure_variant_gcc(conf)
 
     conf.define('PROVENANCE_VARIANT', conf.options.variant)
+    conf.define('USE_IMAGES', int(conf.options.use_images))
 
     conf.check_cxx(header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT')
     if conf.options.cl_headers:

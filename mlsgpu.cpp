@@ -246,13 +246,12 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cout << "Octree cells: " << dims[0] << " x " << dims[1] << " x " << dims[2] << "\n";
 
     SplatTreeCL tree(context, device, splats, grid);
-    unsigned int levels = tree.getNumLevels();
 
     std::map<std::string, std::string> defines;
-    defines["OCTREE_LEVELS"] = boost::lexical_cast<std::string>(levels);
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
     defines["WGS_Z"] = boost::lexical_cast<std::string>(wgs[2]);
+    defines["USE_IMAGES"] = boost::lexical_cast<std::string>(USE_IMAGES);
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
