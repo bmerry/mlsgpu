@@ -111,7 +111,7 @@ cl::Context makeContext(const cl::Device &device);
  * @throw cl::Error if the program could not be compiled.
  */
 cl::Program build(const cl::Context &context, const std::vector<cl::Device> &devices,
-                  const std::string &filename, const std::map<std::string, std::string> &defines,
+                  const std::string &filename, const std::map<std::string, std::string> &defines = std::map<std::string, std::string>(),
                   const std::string &options = "");
 
 /**
@@ -121,7 +121,7 @@ cl::Program build(const cl::Context &context, const std::vector<cl::Device> &dev
  * list.
  */
 cl::Program build(const cl::Context &context,
-                  const std::string &filename, const std::map<std::string, std::string> &defines,
+                  const std::string &filename, const std::map<std::string, std::string> &defines = std::map<std::string, std::string>(),
                   const std::string &options = "");
 
 } // namespace CLH

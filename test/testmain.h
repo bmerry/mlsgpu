@@ -11,6 +11,9 @@
 # include <config.h>
 #endif
 #include <string>
+#include <boost/program_options.hpp>
+
+const boost::program_options::variables_map &testGetOptions();
 
 namespace TestSet
 {
