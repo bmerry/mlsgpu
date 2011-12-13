@@ -24,23 +24,23 @@ class TestSplatTreeCL : public CLH::Test::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatTreeCL);
     CPPUNIT_TEST(testLevelShift);
+    CPPUNIT_TEST(testPointBoxDist2);
     CPPUNIT_TEST(testMakeCode);
     CPPUNIT_TEST_SUITE_END();
 private:
     cl::Program program;
 
     int callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz);
+    float callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz);
     int callMakeCode(cl_int x, cl_int y, cl_int z, cl_int level);
 
-    void testLevelShift();  ///< Tests @ref levelShift in @ref octree.cl.
-    void testMakeCode();    ///< Tests @ref makeCode in @ref octree.cl.
+    void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
+    void testPointBoxDist2();  ///< Test @ref pointBoxDist2 in @ref octree.cl.
+    void testMakeCode();       ///< Test @ref makeCode in @ref octree.cl.
 public:
-    TestSplatTreeCL();
     virtual void setUp();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeCL, TestSet::perBuild());
-
-TestSplatTreeCL::TestSplatTreeCL() : program() {}
 
 void TestSplatTreeCL::setUp()
 {
@@ -63,6 +63,24 @@ int TestSplatTreeCL::callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_in
     kernel.setArg(2, ihi);
     queue.enqueueTask(kernel);
     queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_int), &ans);
+    return ans;
+}
+
+float TestSplatTreeCL::callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz)
+{
+    cl_float ans;
+    cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
+    cl::Kernel kernel(program, "testPointBoxDist2");
+    cl_float3 pos, lo, hi;
+    pos.x = px; pos.y = py; pos.z = pz;
+    lo.x = lx; lo.y = ly; lo.z = lz;
+    hi.x = hx; hi.y = hy; hi.z = hz;
+    kernel.setArg(0, out);
+    kernel.setArg(1, pos);
+    kernel.setArg(2, lo);
+    kernel.setArg(3, hi);
+    queue.enqueueTask(kernel);
+    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_float), &ans);
     return ans;
 }
 
@@ -92,6 +110,19 @@ void TestSplatTreeCL::testLevelShift()
     CPPUNIT_ASSERT_EQUAL(3, callLevelShift(31, 0, 0, 36, 0, 0)); // 011111 -> 100100
     CPPUNIT_ASSERT_EQUAL(3, callLevelShift(27, 0, 0, 32, 0, 0)); // 011011 -> 100000
     CPPUNIT_ASSERT_EQUAL(4, callLevelShift(48, 0, 0, 79, 0, 0)); // 0110000 -> 1001111
+}
+
+void TestSplatTreeCL::testPointBoxDist2()
+{
+    // Point inside the box
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.0,
+        callPointBoxDist2(0.5f, 0.5f, 0.5f,  0.0f, 0.0f, 0.0f,  1.0f, 1.0f, 1.0f), 1e-4);
+    // Above one face
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(4.0,
+        callPointBoxDist2(0.25f, 0.5f, 3.0f,  -1.5f, 0.0f, 0.5f,  1.5f, 0.75f, 1.0f), 1e-4);
+    // Nearest point is a corner
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(14.0,
+        callPointBoxDist2(9.0f, 11.f, -10.f,  -1.0f, 0.0f, -7.0f,  8.0f, 9.0f, 8.0f), 1e-4);
 }
 
 void TestSplatTreeCL::testMakeCode()
