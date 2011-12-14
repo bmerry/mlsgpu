@@ -218,6 +218,9 @@ inline uint2 findRange(__global const uint *codes, uint codesLen, uint code)
  * @param      codes           The cell codes for the input entries.
  * @param      codesLen        The length of the @a codes array.
  * @param      level           The level being processed.
+ *
+ * @todo Rewrite this to emit just start values (rather than start+end), since
+ * the following code's start is our end.
  */
 __kernel void countLevel(
     __global int *sizes,
