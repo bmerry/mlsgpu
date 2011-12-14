@@ -72,7 +72,21 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
                          const std::vector<Splat> &splats, const Grid &grid)
     : SplatTree(splats, grid), context(context), device(device)
 {
-    initialize();
-    start.mapping.reset();
-    commands.mapping.reset();
+    for (unsigned int i = 0; i < 3; i++)
+        dims[i] = grid.numVertices(i);
+    code_type size = *std::max_element(dims, dims + 3);
+    unsigned int maxLevel = 0;
+    while ((1U << maxLevel) < size)
+        maxLevel++;
+
+    splats = cl::Buffer(context, CL_MEM_READ_WRITE, splats.size() * sizeof(Splat));
+    start = cl::Buffer(context, CL_MEM_READ_WRITE, 
+
+    // copy splats to the GPU
+    // writeEntries
+    // sort
+    // countLevel
+    // scan
+    // writeLevel
+    // transformSplats
 }

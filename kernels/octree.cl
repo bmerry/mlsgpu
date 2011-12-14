@@ -98,38 +98,39 @@ inline bool goodEntry(
  * Turn cell coordinates into a cell code.
  *
  * A code consists of the bits of the (shifted) coordinates interleaved (z
- * major), with an offset of (8^level / 4) to make room for prior levels.
+ * major).
  *
- * @todo Investigate using an image lookup instead, and also compacting
- * the codes better using a table.
+ * @todo Investigate preloading this (per axis) to shared memory from a table
+ * instead.
  */
-inline uint makeCode(int3 xyz, int level)
+inline uint makeCode(int3 xyz)
 {
     uint ans = 0;
     uint scale = 1;
     xyz.y <<= 1;  // pre-shift these to avoid shifts inside the loop
     xyz.z <<= 2;
-    for (unsigned int i = 0; i < level; i++)
+    while (any(xyz != 0))
     {
         uint bits = (xyz.x & 1) | (xyz.y & 2) | (xyz.z & 4);
         ans += bits * scale;
         scale <<= 3;
         xyz >>= 1;
     }
-    ans += scale / 4;
     return ans;
 }
 
 /**
  * Write splat entries for an octree.
  *
- * Each splat produces up to 8 "entries", consisting of a cell code/splat ID
+ * Each splat produces up to 8 "entries", consisting of a cell key/splat ID
  * pair. In fact, each splat must produce exactly 8 entries, and for unwanted
  * slots, it must write a cell code of UINT_MAX.
  *
  * The output arrays are slot-major i.e. of layout [8][numsplats] and splat i
  * writes to slots [j][i] for j in 0..7. The number of splats is given by
  * <code>get_global_size(0)</code>.
+ *
+ * Each workitem corresponds to a single splat.
  *
  * @param keys          The cell codes for the entries.
  * @param values        The splat IDs for the entries.
@@ -148,15 +149,18 @@ __kernel void writeEntries(
     float3 invBias,
     int maxLevel)
 {
+    __local Consts consts;
+
     uint gid = get_global_id(0);
     uint stride = get_global_size(0);
     uint pos = gid;
+
+    loadConsts(&consts);
 
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;
     int shift;
     prepare(&ilo, &shift, positionRadius, invScale, invBias);
-    int level = maxLevel - shift;
 
     float radius2 = positionRadius.w * positionRadius.w * 1.00001f;
     int3 ofs;
@@ -165,8 +169,9 @@ __kernel void writeEntries(
             for (ofs.x = 0; ofs.x < 2; ofs.x++)
             {
                 int3 addr = ilo + ofs;
+                uint key = makeCode(addr) | (0x80000000 >> shift);
                 bool isect = goodEntry(addr, shift, positionRadius.xyz, radius2, scale, bias);
-                uint key = isect ? makeCode(addr, level) : UINT_MAX;
+                uint key = isect ? key : UINT_MAX;
 
                 values[pos] = gid;
                 keys[pos] = key;
@@ -175,32 +180,32 @@ __kernel void writeEntries(
 }
 
 /**
- * Binary search a sorted for the section equal to a value.
+ * Binary search a sorted list for the section equal to a value.
  *
- * @param codes         The array to search.
- * @param codesLen      The length of @a codes.
- * @param code          The search key.
+ * @param keys          The array to search.
+ * @param keysLen       The length of @a codes.
+ * @param key           The search key.
  *
  * @pre
- * - @a codes is increasing.
- * - @a codes ends with a value strictly greater than @a code (e.g. @c UINT_MAX).
+ * - @a keys is increasing.
+ * - @a keys ends with a value strictly greater than @a key (e.g. @c UINT_MAX).
  *
- * @return index to first and to one past the end within @a codes
+ * @return index to first and to one past the end within @a keys
  */
-inline uint2 findRange(__global const uint *codes, uint codesLen, uint code)
+inline uint2 findRange(__global const uint *keys, uint keysLen, uint key)
 {
-    int L = -1;             // index of something strictly less than code
-    int R = codesLen - 1;   // index of something greater than or equal to code
+    int L = -1;             // index of something strictly less than key
+    int R = keysLen - 1;    // index of something greater than or equal to key
     while (R - L > 1)
     {
         uint M = (L + R) / 2;
-        if (codes[M] >= code)
+        if (keys[M] >= key)
             R = M;
         else
             L = M;
     }
     int E = R;
-    while (codes[E] == code)
+    while (keys[E] == key)
         E++;
     return (uint2) (R, E);
 }
@@ -209,15 +214,16 @@ inline uint2 findRange(__global const uint *codes, uint codesLen, uint code)
  * Count the number of spots in the command array for each cell.
  * See @ref SplatTree for the definition of the command array.
  *
- * This kernel is launched once per level of the octree, in increasing
- * levels. The global ids are offset such that the global id is always
- * the code to consider.
+ * The kernel has one work-item per code on a level, with a global work
+ * offset selected such that the arrays are indexed at the desired position.
+ * Thus, get_global_id(0) is neither a key nor a code. @a keyOffset is added
+ * to the global id to give the correct key.
  *
  * @param[out] sizes           Number of entries needed for cell.
  * @param[out] ranges          Range of values to copy in to slot.
- * @param      codes           The cell codes for the input entries.
- * @param      codesLen        The length of the @a codes array.
- * @param      level           The level being processed.
+ * @param      keys            The cell codes for the input entries.
+ * @param      keysLen         The length of the @a keys array.
+ * @param      keyOffset       Offset to add to global ID to get the sort key.
  *
  * @todo Rewrite this to emit just start values (rather than start+end), since
  * the following code's start is our end.
@@ -225,46 +231,56 @@ inline uint2 findRange(__global const uint *codes, uint codesLen, uint code)
 __kernel void countLevel(
     __global int *sizes,
     __global uint2 *ranges,
-    __global const uint *codes,
-    uint codesLen)
+    __global const uint *keys,
+    uint keysLen,
+    uint keyOffset)
 {
-    uint code = get_global_id(0);
-    uint2 range = findRange(codes, codesLen, code);
-    ranges[code] = range;
-    sizes[code] = (range.y - range.x) + (range.x != range.y);
+    uint pos = get_global_id(0);
+    uint key = pos + keyOffset;
+    uint2 range = findRange(keys, keysLen, key);
+    ranges[pos] = range;
+    sizes[pos] = (range.y - range.x) + (range.x != range.y);
 }
 
 /**
  * Emit the command buffer for a level of the octree.
- * This kernel is launched in the same way as @ref countLevel.
+ * There is one workitem per code. As with @ref countLevel,
+ * the global work offset is selected so that the
+ * @a start and @a ranges arrays are correctly indexed.
  *
- * @param[in,out] codeStart    On input, the position in the command array allocated
+ *
+ * @param[in,out] start        On input, the position in the command array allocated
  *                             for writing (even if there is nothing to write). On output,
  *                             the start array (see @ref SplatTree).
+ * @param         prevOffset   Bias added to (pos >> 3) to get previous level position.
  * @param[out]    commands     The command array (see @ref SplatTree).
  * @param         ranges       The ranges of entries for each code, as written by @ref countLevel.
  * @param         splatIds     The splat IDs written by @ref writeEntries.
  */
 __kernel void writeLevel(
-    __global int *codeStart,
+    __global int *start,
+    int prevOffset,
+    __global const int *prevStart,
     __global int *commands,
     __global const uint2 *ranges,
     __global const uint *splatIds)
 {
-    uint code = get_global_id(0);
-    uint2 range = ranges[code];
+    uint pos = get_global_id(0);
+    uint2 range = ranges[pos];
 
-    int prev = codeStart[code >> 3];
-    if (range.x == range.y)
+    int prev = prevStart[(pos >> 3) + prevOffset];
+    if (range.x == range.y) // empty cell: chain directly to parent
     {
-        codeStart[code] = prev;
+        start[pos] = prev;
     }
     else
     {
-        int s = codeStart[code];
+        int s = start[pos];
         commands += s;
         for (uint i = range.x; i < range.y; i++)
         {
+            // TODO: handle this copying with a separate kernel that iterates over
+            // the splatIds array? Would give better coalescing.
             *commands++ = splatIds[i];
         }
         *commands = (prev == -1) ? -1 : -2 - prev;
@@ -281,15 +297,13 @@ __kernel void writeLevel(
  * @todo NVIDIA is compiling this to load the float4 and write it all back
  * again.
  */
-__kernel void transformSplats(
-    __global Splat *splats)
+__kernel void transformSplats(__global Splat *splats)
 {
     uint gid = get_global_id(0);
     __global Splat *splat = splats + gid;
     float radius = splat->positionRadius.w;
     splat->positionRadius.w = 1.0f / (radius * radius);
 }
-
 
 /*******************************************************************************
  * Test code only below here.
@@ -307,9 +321,9 @@ __kernel void testPointBoxDist2(__global float *out, float3 pos, float3 lo, floa
     *out = pointBoxDist2(pos, lo, hi);
 }
 
-__kernel void testMakeCode(__global uint *out, int3 xyz, int level)
+__kernel void testMakeCode(__global uint *out, int3 xyz)
 {
-    *out = makeCode(xyz, level);
+    *out = makeCode(xyz);
 }
 
 __kernel void testFindRange(__global uint2 *out, __global const uint *codes, uint codesLen, uint code)

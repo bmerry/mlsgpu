@@ -34,7 +34,7 @@ private:
 
     int callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz);
     float callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz);
-    int callMakeCode(cl_int x, cl_int y, cl_int z, cl_int level);
+    int callMakeCode(cl_int x, cl_int y, cl_int z);
     cl_uint2 callFindRange(const cl::Buffer &codes, cl_uint codesLen, cl_uint code);
 
     void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
@@ -88,7 +88,7 @@ float TestSplatTreeCL::callPointBoxDist2(float px, float py, float pz, float lx,
     return ans;
 }
 
-int TestSplatTreeCL::callMakeCode(cl_int x, cl_int y, cl_int z, cl_int level)
+int TestSplatTreeCL::callMakeCode(cl_int x, cl_int y, cl_int z)
 {
     cl_uint ans;
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
@@ -97,7 +97,6 @@ int TestSplatTreeCL::callMakeCode(cl_int x, cl_int y, cl_int z, cl_int level)
     xyz.s0 = x; xyz.s1 = y; xyz.s2 = z;
     kernel.setArg(0, out);
     kernel.setArg(1, xyz);
-    kernel.setArg(2, level);
     queue.enqueueTask(kernel);
     queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_uint), &ans);
     return ans;
@@ -145,13 +144,10 @@ void TestSplatTreeCL::testPointBoxDist2()
 
 void TestSplatTreeCL::testMakeCode()
 {
-    CPPUNIT_ASSERT_EQUAL(0, callMakeCode(0, 0, 0, 0));
-    CPPUNIT_ASSERT_EQUAL(2, callMakeCode(0, 0, 0, 1));
-    CPPUNIT_ASSERT_EQUAL(2 + 7, callMakeCode(1, 1, 1, 1));
-    CPPUNIT_ASSERT_EQUAL(128, callMakeCode(0, 0, 0, 3));
-    CPPUNIT_ASSERT_EQUAL(128 + 174, callMakeCode(2, 5, 3, 3));
-    CPPUNIT_ASSERT_EQUAL(128 + 511, callMakeCode(7, 7, 7, 3));
-    CPPUNIT_ASSERT_EQUAL(8192, callMakeCode(0, 0, 0, 5));
+    CPPUNIT_ASSERT_EQUAL(0, callMakeCode(0, 0, 0));
+    CPPUNIT_ASSERT_EQUAL(7, callMakeCode(1, 1, 1));
+    CPPUNIT_ASSERT_EQUAL(174, callMakeCode(2, 5, 3));
+    CPPUNIT_ASSERT_EQUAL(511, callMakeCode(7, 7, 7));
 }
 
 void TestSplatTreeCL::testFindRange()
