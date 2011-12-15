@@ -145,6 +145,13 @@ def print_unit_tests(bld):
             Logs.pprint(color, err)
 
 def build(bld):
+    bld.read_shlib('clcpp', paths = ['../clcpp/build'])
+    bld(
+            name = 'CLCPP',
+            use = 'clcpp',
+            export_includes = '../clcpp/include'
+        )
+
     bld(
             rule = 'python ${SRC} ${TGT}',
             source = ['clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
@@ -158,7 +165,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = sources,
             target = 'mls',
-            use = 'OPENCL',
+            use = 'OPENCL CLCPP',
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],

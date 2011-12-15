@@ -17,6 +17,7 @@
 #include "splat_tree.h"
 #include "src/clh.h"
 #include "grid.h"
+#include "clcpp/clcpp.h"
 
 /**
  * Concrete implementation of @ref SplatTree that stores the data
@@ -27,13 +28,37 @@
  */
 class SplatTreeCL
 {
+public:
+    /**
+     * Type used to represent values in the command table.
+     * It needs enough bits to represent both splat values, and to
+     * represent jump values.
+     */
+    typedef std::tr1::int32_t command_type;
+
+    /**
+     * Type used to represent indices into the cells, and also for
+     * sort keys that are a Morton code with a leading 1 bit.
+     */
+    typedef std::tr1::uint32_t code_type;
+
 private:
     Grid grid;
 
     /// OpenCL context used to create buffers.
     cl::Context context;
-    /// OpenCL device used for enqueuing the building operations.
-    cl::Device device;
+
+    /// Program containing the internal kernels for building
+    cl::Program program;
+
+    /**
+     * @name
+     * @{
+     * Kernels implementing the internal operations.
+     */
+    cl::Kernel writeEntriesKernel, countCommandsKernel, writeSplatIdsKernel, writeStartKernel;
+    cl::Kernel fillKernel, transformSplatsKernel;
+    /** @} */
 
     /**
      * @name
@@ -54,6 +79,7 @@ private:
      * These are never deleted, so that the memory can be recycled each
      * time the octree is regenerated.
      */
+    cl::Buffer commandMap;
     cl::Buffer entryKeys;
     cl::Buffer entryValues;
     /** @} */
@@ -63,23 +89,61 @@ private:
     std::size_t numSplats; ///< Number of splats in the octree
     std::vector<std::size_t> levelOffsets; ///< Start of each level in compacted arrays
 
-    void enqueueUpload(const cl::CommandQueue &queue,
-                       const Splat *splats, std::size_t numSplats,
-                       const std::vector<cl::Event> *events,
-                       cl::Event *event);
+    clcpp::Radixsort sort;
+    clcpp::Scan scan;
 
     void enqueueWriteEntries(const cl::CommandQueue &queue,
                              const cl::Buffer &keys,
                              const cl::Buffer &values,
                              const cl::Buffer &splats,
-                             const Grid &grid);
+                             command_type numSplats,
+                             const Grid &grid,
+                             std::vector<cl::Event> *events,
+                             cl::Event *event);
 
-    void enqueueCountLevel(const cl::CommandQueue &queue,
-                           const cl::Buffer &sizes,
-                           const cl::Buffer &ranges,
+    void enqueueCountCommands(const cl::CommandQueue &queue,
+                              const cl::Buffer &indicator,
+                              const cl::Buffer &keys,
+                              command_type numKeys,
+                              std::vector<cl::Event> *events,
+                              cl::Event *event);
+
+    void enqueueWriteSplatIds(const cl::CommandQueue &queue,
+                              const cl::Buffer &commands,
+                              const cl::Buffer &commandMap,
+                              const cl::Buffer &splatIds,
+                              command_type numEntries,
+                              std::vector<cl::Event> *events,
+                              cl::Event *event);
+
+    void enqueueWriteStart(const cl::CommandQueue &queue,
+                           const cl::Buffer &start,
+                           const cl::Buffer &commands,
+                           const cl::Buffer &commandMap,
                            const cl::Buffer &keys,
-                           std::size_t keysLen,
-                           std::size_t keyOffset);
+                           code_type numCodes,
+                           command_type keysLen,
+                           code_type curOffset,
+                           code_type prevOffset,
+                           command_type keyOffset,
+                           std::vector<cl::Event> *events,
+                           cl::Event *event);
+
+    void enqueueFill(const cl::CommandQueue &queue,
+                     const cl::Buffer &buffer,
+                     std::size_t offset,
+                     std::size_t elements,
+                     command_type value,
+                     std::vector<cl::Event> *events,
+                     cl::Event *event);
+
+    void enqueueTransformSplats(const cl::CommandQueue &queue,
+                                const cl::Buffer &splats,
+                                command_type numSplats,
+                                std::vector<cl::Event> *events,
+                                cl::Event *event);
+
+    code_type keyOffset(unsigned int level);
 
 public:
     /**
@@ -111,8 +175,8 @@ public:
     void enqueueBuild(const cl::CommandQueue &queue,
                       const Splat *splats, std::size_t numSplats,
                       const Grid &grid, bool blockingCopy,
-                      const std::vector<cl::Event> *events,
-                      cl::Event *uploadEvent, cl::Event *event);
+                      const std::vector<cl::Event> *events = NULL,
+                      cl::Event *uploadEvent = NULL, cl::Event *event = NULL);
 
     /**
      * @name Getters for the buffers and images needed to use the octree.

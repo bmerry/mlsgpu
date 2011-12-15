@@ -245,9 +245,12 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     }
     cout << "Octree cells: " << dims[0] << " x " << dims[1] << " x " << dims[2] << "\n";
 
-#if 0 // TODO reenable when it compiles
-    SplatTreeCL tree(context, device, splats, grid);
+    cl::CommandQueue queue(context, device);
 
+    SplatTreeCL tree(context, splats.size(), 8);
+    tree.enqueueBuild(queue, &splats[0], splats.size(), grid, CL_FALSE);
+
+#if 0 // TODO reenable when it compiles
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
@@ -256,7 +259,6 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
-    cl::CommandQueue queue(context, device);
 
     size_t numCorners = dims[0] * dims[1] * dims[2];
     cl::Buffer dSplats(context, CL_MEM_READ_ONLY, sizeof(Splat) * splats.size());

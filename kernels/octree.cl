@@ -189,7 +189,7 @@ __kernel void writeEntries(
  * the scan kernel.
  * @todo Test whether loading the data to __local first helps.
  */
-__kernel void countLevel(
+__kernel void countCommands(
     __global uint *indicator,
     __global const uint *keys)
 {
@@ -200,11 +200,7 @@ __kernel void countLevel(
 /**
  * Emit the command array for a level of the octree, excluding jumps.
  *
- * There is one workitem per entry., and one launch per level. The last entry
- * for a cell does extra work to emit the final jump. The global work offset
- * is chosen so that the global ID directly indexes the keys and splats arrays.
- *
- * @todo How is the range for each level found?
+ * There is one workitem per entry.
  *
  * @param[out]  commands       The command array (see @ref SplatTree).
  * @param       commandMap     Mapping from entry to command position.
@@ -289,6 +285,14 @@ __kernel void writeStart(
         }
         start[code + curOffset] = cur;
     }
+}
+
+/**
+ * Fill a buffer with a constant value.
+ */
+__kernel void fill(__global int *out, int value)
+{
+    out[get_global_id(0)] = value;
 }
 
 /**
