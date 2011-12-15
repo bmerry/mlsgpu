@@ -137,7 +137,6 @@ inline uint makeCode(int3 xyz)
  * @param splats        The original splats.
  * @param scale,bias    The grid-to-world transformation.
  * @param invScale,invBias The world-to-grid transformation.
- * @param maxLevel      One less than the number of levels in the octree.
  */
 __kernel void writeEntries(
     __global uint *keys,
@@ -146,8 +145,7 @@ __kernel void writeEntries(
     float3 scale,
     float3 bias,
     float3 invScale,
-    float3 invBias,
-    int maxLevel)
+    float3 invBias)
 {
     uint gid = get_global_id(0);
     uint stride = get_global_size(0);

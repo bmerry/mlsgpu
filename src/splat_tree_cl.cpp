@@ -43,7 +43,7 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
     start = cl::Buffer(context, CL_MEM_READ_WRITE, pos * sizeof(command_type));
     commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
-    commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 + sizeof(command_type));
+    commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
 
@@ -173,8 +173,7 @@ void SplatTreeCL::enqueueWriteStart(
     writeStartKernel.setArg(6, curOffset);
     writeStartKernel.setArg(7, prevOffset);
     writeStartKernel.setArg(8, keyOffset);
-    writeStartKernel.setArg(9, numCodes);
-    writeStartKernel.setArg(10, M + 1);
+    writeStartKernel.setArg(9, cl::__local(M + 1));
 
     unsigned int groups = (numCodes + M - 1) / M;
     queue.enqueueNDRangeKernel(writeStartKernel,
