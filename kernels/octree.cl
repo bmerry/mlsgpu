@@ -261,8 +261,8 @@ __kernel void writeStart(
     uint keyOffset,
     __local uint *search)
 {
-    uint lid = get_global_id(0);
-    uint code = get_group_id(0) * (get_local_size(0) - 1) + get_local_id(0);
+    uint lid = get_local_id(0);
+    uint code = get_group_id(0) * (get_local_size(0) - 1) + lid;
     uint key = code + keyOffset;
 
     uint pos = lowerBound(keys, keysLen, key);

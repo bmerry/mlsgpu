@@ -173,7 +173,7 @@ void SplatTreeCL::enqueueWriteStart(
     writeStartKernel.setArg(6, curOffset);
     writeStartKernel.setArg(7, prevOffset);
     writeStartKernel.setArg(8, keyOffset);
-    writeStartKernel.setArg(9, cl::__local(M + 1));
+    writeStartKernel.setArg(9, cl::__local((M + 1) * sizeof(command_type)));
 
     unsigned int groups = (numCodes + M - 1) / M;
     queue.enqueueNDRangeKernel(writeStartKernel,

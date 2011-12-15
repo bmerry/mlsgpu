@@ -248,8 +248,12 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cl::CommandQueue queue(context, device);
 
     SplatTreeCL tree(context, 9, splats.size());
-    tree.enqueueBuild(queue, &splats[0], splats.size(), grid, CL_FALSE);
-    queue.finish();
+    {
+        Timer timer;
+        tree.enqueueBuild(queue, &splats[0], splats.size(), grid, CL_FALSE);
+        queue.finish();
+        cout << "Build: " << timer.getElapsed() << '\n';
+    }
 
 #if 0 // TODO reenable when it compiles
     std::map<std::string, std::string> defines;
