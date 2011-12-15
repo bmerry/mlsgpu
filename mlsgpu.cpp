@@ -245,6 +245,7 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     }
     cout << "Octree cells: " << dims[0] << " x " << dims[1] << " x " << dims[2] << "\n";
 
+#if 0 // TODO reenable when it compiles
     SplatTreeCL tree(context, device, splats, grid);
 
     std::map<std::string, std::string> defines;
@@ -307,6 +308,7 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cout << "Total cells: " << dims[0] * dims[1] * dims[2] << "\n";
     cout << "Total cells >= 1: " << cellsGE1 << "\n";
     cout << "Total cells >= 4: " << cellsGE4 << "\n";
+#endif
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)

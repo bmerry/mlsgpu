@@ -27,7 +27,7 @@ class TestSplatTreeCL : public CLH::Test::TestFixture
     CPPUNIT_TEST(testLevelShift);
     CPPUNIT_TEST(testPointBoxDist2);
     CPPUNIT_TEST(testMakeCode);
-    CPPUNIT_TEST(testFindRange);
+    CPPUNIT_TEST(testLowerBound);
     CPPUNIT_TEST_SUITE_END();
 private:
     cl::Program program;
@@ -35,12 +35,12 @@ private:
     int callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz);
     float callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz);
     int callMakeCode(cl_int x, cl_int y, cl_int z);
-    cl_uint2 callFindRange(const cl::Buffer &codes, cl_uint codesLen, cl_uint code);
+    cl_uint callLowerBound(const cl::Buffer &keys, cl_uint keysLen, cl_uint key);
 
     void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
     void testPointBoxDist2();  ///< Test @ref pointBoxDist2 in @ref octree.cl.
     void testMakeCode();       ///< Test @ref makeCode in @ref octree.cl.
-    void testFindRange();      ///< Test @ref findRange in @ref octree.cl.
+    void testLowerBound();     ///< Test @ref lowerBound in @ref octree.cl.
 public:
     virtual void setUp();
 };
@@ -102,17 +102,17 @@ int TestSplatTreeCL::callMakeCode(cl_int x, cl_int y, cl_int z)
     return ans;
 }
 
-cl_uint2 TestSplatTreeCL::callFindRange(const cl::Buffer &codes, cl_uint codesLen, cl_uint code)
+cl_uint TestSplatTreeCL::callLowerBound(const cl::Buffer &keys, cl_uint keysLen, cl_uint key)
 {
-    cl_uint2 ans;
-    cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint2));
-    cl::Kernel kernel(program, "testFindRange");
+    cl_uint ans;
+    cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
+    cl::Kernel kernel(program, "testLowerBound");
     kernel.setArg(0, out);
-    kernel.setArg(1, codes);
-    kernel.setArg(2, codesLen);
-    kernel.setArg(3, code);
+    kernel.setArg(1, keys);
+    kernel.setArg(2, keysLen);
+    kernel.setArg(3, key);
     queue.enqueueTask(kernel);
-    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_uint2), &ans);
+    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_uint), &ans);
     return ans;
 }
 
@@ -150,24 +150,21 @@ void TestSplatTreeCL::testMakeCode()
     CPPUNIT_ASSERT_EQUAL(511, callMakeCode(7, 7, 7));
 }
 
-void TestSplatTreeCL::testFindRange()
+void TestSplatTreeCL::testLowerBound()
 {
-    cl_uint hCodes[] =
+    cl_uint hKeys[] =
     {
-        1, 1, 4, 7, 7, 7, 8, 9, 10, 10, 12, 12, UINT_MAX
+        1, 1, 4, 7, 7, 7, 8, 9, 10, 10, 12, 12, 14
     };
-    cl::Buffer dCodes(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(hCodes), hCodes);
-    cl_uint codesLen = sizeof(hCodes) / sizeof(hCodes[0]);
-    cl_uint2 ans;
+    cl::Buffer dKeys(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(hKeys), hKeys);
+    cl_uint keysLen = sizeof(hKeys) / sizeof(hKeys[0]);
+    cl_uint ans;
 
     for (unsigned int i = 0; i < 16; i++)
     {
-        ans = callFindRange(dCodes, codesLen, i);
-        CPPUNIT_ASSERT(ans.s0 < codesLen);
-        CPPUNIT_ASSERT(hCodes[ans.s0] >= i);
-        CPPUNIT_ASSERT(ans.s0 == 0 || hCodes[ans.s0 - 1] < i);
-        CPPUNIT_ASSERT(ans.s1 < codesLen);
-        CPPUNIT_ASSERT(hCodes[ans.s1] > i);
-        CPPUNIT_ASSERT(ans.s1 == 0 || hCodes[ans.s1 - 1] <= i);
+        ans = callLowerBound(dKeys, keysLen, i);
+        CPPUNIT_ASSERT(ans <= keysLen);
+        CPPUNIT_ASSERT(ans == keysLen || hKeys[ans] >= i);
+        CPPUNIT_ASSERT(ans == 0 || hKeys[ans - 1] < i);
     }
 }

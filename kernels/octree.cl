@@ -149,13 +149,9 @@ __kernel void writeEntries(
     float3 invBias,
     int maxLevel)
 {
-    __local Consts consts;
-
     uint gid = get_global_id(0);
     uint stride = get_global_size(0);
     uint pos = gid;
-
-    loadConsts(&consts);
 
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;
@@ -171,7 +167,7 @@ __kernel void writeEntries(
                 int3 addr = ilo + ofs;
                 uint key = makeCode(addr) | (0x80000000 >> shift);
                 bool isect = goodEntry(addr, shift, positionRadius.xyz, radius2, scale, bias);
-                uint key = isect ? key : UINT_MAX;
+                key = isect ? key : UINT_MAX;
 
                 values[pos] = gid;
                 keys[pos] = key;
@@ -180,110 +176,118 @@ __kernel void writeEntries(
 }
 
 /**
- * Binary search a sorted list for the section equal to a value.
+ * Generate an indicator function over the entries that is 2 for the last
+ * entry of each key and 1 elsewhere. This is later scanned to determine the
+ * mapping between entries and commands.
  *
- * @param keys          The array to search.
- * @param keysLen       The length of @a codes.
- * @param key           The search key.
+ * There is one work-item per entry.
  *
- * @pre
- * - @a keys is increasing.
- * - @a keys ends with a value strictly greater than @a key (e.g. @c UINT_MAX).
+ * @param[out] indicator       Indicator function.
+ * @param      keys            The cell keys for the input entries.
  *
- * @return index to first and to one past the end within @a keys
+ * @todo See if clcpp can be extended to allow this to be welded onto
+ * the scan kernel.
+ * @todo Test whether loading the data to __local first helps.
  */
-inline uint2 findRange(__global const uint *keys, uint keysLen, uint key)
+__kernel void countLevel(
+    __global uint *indicator,
+    __global const uint *keys)
 {
-    int L = -1;             // index of something strictly less than key
-    int R = keysLen - 1;    // index of something greater than or equal to key
+    uint pos = get_global_id(0);
+    indicator[pos] = (keys[pos] != keys[pos + 1]) ? 2 : 1;
+}
+
+/**
+ * Emit the command array for a level of the octree, excluding jumps.
+ *
+ * There is one workitem per entry., and one launch per level. The last entry
+ * for a cell does extra work to emit the final jump. The global work offset
+ * is chosen so that the global ID directly indexes the keys and splats arrays.
+ *
+ * @todo How is the range for each level found?
+ *
+ * @param[out]  commands       The command array (see @ref SplatTree).
+ * @param       commandMap     Mapping from entry to command position.
+ * @param       splatIds       The splat IDs written by @ref writeEntries (and sorted).
+ */
+__kernel void writeSplatIds(
+    __global int *commands,
+    __global const uint *commandMap,
+    __global const uint *splatIds)
+{
+    uint pos = get_global_id(0);
+    commands[commandMap[pos]] = splatIds[pos];
+}
+
+inline uint lowerBound(__global const uint *keys, uint keysLen, uint key)
+{
+    int L = -1;        // < key
+    int R = keysLen;   // >= key
     while (R - L > 1)
     {
-        uint M = (L + R) / 2;
+        int M = (L + R) / 2;
         if (keys[M] >= key)
             R = M;
         else
             L = M;
     }
-    int E = R;
-    while (keys[E] == key)
-        E++;
-    return (uint2) (R, E);
+    return R;
 }
 
 /**
- * Count the number of spots in the command array for each cell.
- * See @ref SplatTree for the definition of the command array.
+ * Writes the start array for jump commands for one level. The codes are divided
+ * into groups of size M, each of which is processed by a workgroup of M + 1
+ * workitems. The algorithm is
+ * -# Binary search M + 1 codes in the list of keys.
+ * -# Use __local memory to share these between workitems.
+ * -# If the commands for a code are non-empty, compute the start and write a jump
+ *    at the end.
+ * -# Write to the start array.
  *
- * The kernel has one work-item per code on a level, with a global work
- * offset selected such that the arrays are indexed at the desired position.
- * Thus, get_global_id(0) is neither a key nor a code. @a keyOffset is added
- * to the global id to give the correct key.
- *
- * @param[out] sizes           Number of entries needed for cell.
- * @param[out] ranges          Range of values to copy in to slot.
- * @param      keys            The cell codes for the input entries.
- * @param      keysLen         The length of the @a keys array.
- * @param      keyOffset       Offset to add to global ID to get the sort key.
- *
- * @todo Rewrite this to emit just start values (rather than start+end), since
- * the following code's start is our end.
+ * @param[in,out]  start           Start array for previous and current level.
+ * @param[out]     commands        Command array in which to write jump commands.
+ * @param          commandMap      Mapping from entry to command positions.
+ * @param          keys            Keys written by @ref writeEntries and sorted.
+ * @param          numCodes        One more than the highest code to process.
+ * @param          keysLen         Length of the keys array.
+ * @param          curOffset       Offset added to code to get position in start array on current level.
+ * @param          prevOffset      Offset added to parent code to get position in parent start array.
+ * @param          keyOffset       Offset added to code to get corresponding key.
+ * @param          search          Local memory of M+1 uints.
  */
-__kernel void countLevel(
-    __global int *sizes,
-    __global uint2 *ranges,
-    __global const uint *keys,
-    uint keysLen,
-    uint keyOffset)
-{
-    uint pos = get_global_id(0);
-    uint key = pos + keyOffset;
-    uint2 range = findRange(keys, keysLen, key);
-    ranges[pos] = range;
-    sizes[pos] = (range.y - range.x) + (range.x != range.y);
-}
-
-/**
- * Emit the command buffer for a level of the octree.
- * There is one workitem per code. As with @ref countLevel,
- * the global work offset is selected so that the
- * @a start and @a ranges arrays are correctly indexed.
- *
- *
- * @param[in,out] start        On input, the position in the command array allocated
- *                             for writing (even if there is nothing to write). On output,
- *                             the start array (see @ref SplatTree).
- * @param         prevOffset   Bias added to (pos >> 3) to get previous level position.
- * @param[out]    commands     The command array (see @ref SplatTree).
- * @param         ranges       The ranges of entries for each code, as written by @ref countLevel.
- * @param         splatIds     The splat IDs written by @ref writeEntries.
- */
-__kernel void writeLevel(
+__kernel void writeStart(
     __global int *start,
-    int prevOffset,
-    __global const int *prevStart,
     __global int *commands,
-    __global const uint2 *ranges,
-    __global const uint *splatIds)
+    __global const uint *commandMap,
+    __global const uint *keys,
+    uint numCodes,
+    uint keysLen,
+    uint curOffset,
+    uint prevOffset,
+    uint keyOffset,
+    __local uint *search)
 {
-    uint pos = get_global_id(0);
-    uint2 range = ranges[pos];
+    uint lid = get_global_id(0);
+    uint code = get_group_id(0) * (get_local_size(0) - 1) + get_local_id(0);
+    uint key = code + keyOffset;
 
-    int prev = prevStart[(pos >> 3) + prevOffset];
-    if (range.x == range.y) // empty cell: chain directly to parent
+    uint pos = lowerBound(keys, keysLen, key);
+    uint posCmd = commandMap[pos];
+    search[lid] = posCmd;
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    if (lid < get_local_size(0) - 1 && code < numCodes)
     {
-        start[pos] = prev;
-    }
-    else
-    {
-        int s = start[pos];
-        commands += s;
-        for (uint i = range.x; i < range.y; i++)
+        int prev = start[(code >> 3) + prevOffset];
+        int cur = prev;
+        if (keys[pos] == key)
         {
-            // TODO: handle this copying with a separate kernel that iterates over
-            // the splatIds array? Would give better coalescing.
-            *commands++ = splatIds[i];
+            cur = posCmd;
+            uint jumpPos = search[lid + 1] - 1;
+            commands[jumpPos] = (prev == -1) ? -1 : -2 - prev;
         }
-        *commands = (prev == -1) ? -1 : -2 - prev;
+        start[code + curOffset] = cur;
     }
 }
 
@@ -326,9 +330,9 @@ __kernel void testMakeCode(__global uint *out, int3 xyz)
     *out = makeCode(xyz);
 }
 
-__kernel void testFindRange(__global uint2 *out, __global const uint *codes, uint codesLen, uint code)
+__kernel void testLowerBound(__global uint *out, __global const uint *keys, uint keysLen, uint key)
 {
-    *out = findRange(codes, codesLen, code);
+    *out = lowerBound(keys, keysLen, key);
 }
 
 #endif /* UNIT_TESTS */

@@ -16,6 +16,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include "splat_tree.h"
 #include "src/clh.h"
+#include "grid.h"
 
 /**
  * Concrete implementation of @ref SplatTree that stores the data
@@ -53,10 +54,11 @@ private:
      * These are never deleted, so that the memory can be recycled each
      * time the octree is regenerated.
      */
-    cl::Buffer ranges;
     cl::Buffer entryKeys;
     cl::Buffer entryValues;
     /** @} */
+
+    std::size_t maxSplats; ///< Maximum splats for which memory has been allocated
 
     std::size_t numSplats; ///< Number of splats in the octree
     std::vector<std::size_t> levelOffsets; ///< Start of each level in compacted arrays

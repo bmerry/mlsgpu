@@ -19,69 +19,37 @@
 #include "grid.h"
 #include "clh.h"
 
-SplatTree::command_type *SplatTreeCL::Buffer::allocate(const cl::Context &context, const cl::Device &device, std::size_t size)
+SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)
+    : splats(context, CL_MEM_READ_WRITE, sizeof(Splat) * maxSplats),
+    start(context, CL_MEM_READ_WRITE, sizeof(cl_uint) << (3 * maxLevels) / 7),
+    commands(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(cl_int)),
+    entryKeys(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(cl_uint)),
+    entryValues(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(cl_uint)),
+    maxSplats(0), numSplats(0), levelOffsets(maxLevels)
 {
-    buffer = cl::Buffer(context, CL_MEM_READ_ONLY, size * sizeof(command_type));
-    mapping.reset(new CLH::BufferMapping(buffer, device, CL_MAP_WRITE, 0, size * sizeof(command_type)));
-    return static_cast<command_type *>(mapping->get());
+    // TODO: validate that maxSplats and maxLevels aren't too large before attempting to do allocations
+    std::size_t pos = 0;
+    for (std::size_t i = 0; i < maxLevels; i++)
+    {
+        levelOffsets[i] = pos;
+        pos += 1U << (3 * (maxLevels - i - 1));
+    }
 }
 
-#if USE_IMAGES
-SplatTree::command_type *SplatTreeCL::Image3D::allocate(const cl::Context &context, const cl::Device &device,
-                                                        std::size_t width, std::size_t height, std::size_t depth,
-                                                        std::size_t &rowPitch, std::size_t &slicePitch)
+void SplatTreeCL::enqueueBuild(
+    const cl::CommandQueue &queue,
+    const Splat *splats, std::size_t numSplats,
+    const Grid &grid, bool blockingCopy,
+    const std::vector<cl::Event> *events,
+    cl::Event *uploadEvent, cl::Event *event)
 {
-    image = cl::Image3D(context, CL_MEM_READ_ONLY,
-                        cl::ImageFormat(CL_R, CL_SIGNED_INT32),
-                        width, height, depth);
-    cl::size_t<3> origin;
-    origin[0] = 0; origin[1] = 0; origin[2] = 0;
-    cl::size_t<3> region;
-    region[0] = width;
-    region[1] = height;
-    region[2] = depth;
-    mapping.reset(new CLH::ImageMapping(image, device, CL_MAP_WRITE, origin, region, &rowPitch, &slicePitch));
-    // CL specifies pitches in bytes, but we need it in elements
-    assert(rowPitch % sizeof(command_type) == 0);
-    assert(slicePitch % sizeof(command_type) == 0);
-    rowPitch /= sizeof(command_type);
-    slicePitch /= sizeof(command_type);
-    return static_cast<command_type *>(mapping->get());
-}
-#endif
+    if (numSplats > maxSplats)
+    {
+        throw std::length_error("Too many splats");
+    }
 
-SplatTree::command_type *SplatTreeCL::allocateCommands(std::size_t size)
-{
-    return commands.allocate(context, device, size);
-}
-
-SplatTree::command_type *SplatTreeCL::allocateStart(
-    std::size_t width, std::size_t height, std::size_t depth,
-    std::size_t &rowPitch, std::size_t &slicePitch)
-{
-#if USE_IMAGES
-    return start.allocate(context, device, width, height, depth, rowPitch, slicePitch);
-#else
-    rowPitch = width;
-    slicePitch = width * height;
-    return start.allocate(context, device, width * height * depth);
-#endif
-}
-
-SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
-                         const std::vector<Splat> &splats, const Grid &grid)
-    : SplatTree(splats, grid), context(context), device(device)
-{
-    for (unsigned int i = 0; i < 3; i++)
-        dims[i] = grid.numVertices(i);
-    code_type size = *std::max_element(dims, dims + 3);
-    unsigned int maxLevel = 0;
-    while ((1U << maxLevel) < size)
-        maxLevel++;
-
-    splats = cl::Buffer(context, CL_MEM_READ_WRITE, splats.size() * sizeof(Splat));
-    start = cl::Buffer(context, CL_MEM_READ_WRITE, 
-
+    cl::Event myUploadEvent;
+    queue.enqueueWriteBuffer(this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
     // copy splats to the GPU
     // writeEntries
     // sort
@@ -89,4 +57,10 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
     // scan
     // writeLevel
     // transformSplats
+    if (uploadEvent != NULL)
+    {
+        *uploadEvent = myUploadEvent;
+    }
+    if (blockingCopy)
+        myUploadEvent.wait();
 }
