@@ -57,7 +57,7 @@ private:
      * Kernels implementing the internal operations.
      */
     cl::Kernel writeEntriesKernel, countCommandsKernel, writeSplatIdsKernel, writeStartKernel;
-    cl::Kernel fillKernel, transformSplatsKernel;
+    cl::Kernel fillKernel;
     /** @} */
 
     /**
@@ -137,12 +137,6 @@ private:
                      command_type value,
                      std::vector<cl::Event> *events,
                      cl::Event *event);
-
-    void enqueueTransformSplats(const cl::CommandQueue &queue,
-                                const cl::Buffer &splats,
-                                command_type numSplats,
-                                std::vector<cl::Event> *events,
-                                cl::Event *event);
 
     code_type keyOffset(unsigned int level);
 

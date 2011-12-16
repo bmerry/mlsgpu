@@ -46,7 +46,6 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     writeSplatIdsKernel = cl::Kernel(program, "writeSplatIds");
     fillKernel = cl::Kernel(program, "fill");
     writeStartKernel = cl::Kernel(program, "writeStart");
-    transformSplatsKernel = cl::Kernel(program, "transformSplats");
 }
 
 SplatTreeCL::code_type SplatTreeCL::keyOffset(unsigned int level)
@@ -177,21 +176,6 @@ void SplatTreeCL::enqueueWriteStart(
 }
 
 
-void SplatTreeCL::enqueueTransformSplats(
-    const cl::CommandQueue &queue,
-    const cl::Buffer &splats,
-    command_type numSplats,
-    std::vector<cl::Event> *events,
-    cl::Event *event)
-{
-    transformSplatsKernel.setArg(0, splats);
-    queue.enqueueNDRangeKernel(transformSplatsKernel,
-                               cl::NullRange,
-                               cl::NDRange(numSplats),
-                               cl::NullRange,
-                               events, event);
-}
-
 void SplatTreeCL::enqueueBuild(
     const cl::CommandQueue &queue,
     const Splat *splats, std::size_t numSplats,
@@ -227,7 +211,7 @@ void SplatTreeCL::enqueueBuild(
 
     // Copy splats to the GPU
     cl::Event myUploadEvent, writeEntriesEvent, sortEvent, countEvent, scanEvent,
-        writeSplatIdsEvent, levelEvent, transformSplatsEvent;
+        writeSplatIdsEvent, levelEvent;
     queue.enqueueWriteBuffer(this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
     queue.flush(); // Start the copy going while we do remaining queuing.
 
@@ -235,8 +219,6 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = myUploadEvent;
     enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, grid, &wait, &writeEntriesEvent);
     wait[0] = writeEntriesEvent;
-    // transformSplats is independent of everything after writeEntries
-    enqueueTransformSplats(queue, this->splats, numSplats, &wait, &transformSplatsEvent);
     sort.enqueue(queue, entryKeys, entryValues, numEntries, &wait, &sortEvent);
     wait[0] = sortEvent;
     enqueueCountCommands(queue, commandMap, entryKeys, numEntries, &wait, &countEvent);
@@ -263,19 +245,9 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = writeEntriesEvent;
 
     if (event != NULL)
-    {
-        // This is a quick hack. Our interface only allows one event to be returned,
-        // and there isn't currently a nice way to combine events in OpenCL.
-        // We enqueue a wait for one and return the other.
-        wait[0] = transformSplatsEvent;
-        queue.enqueueWaitForEvents(wait);
         *event = levelEvent;
-    }
-
     if (uploadEvent != NULL)
-    {
         *uploadEvent = myUploadEvent;
-    }
     if (blockingCopy)
         myUploadEvent.wait();
 }

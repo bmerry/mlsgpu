@@ -132,16 +132,16 @@ inline uint makeCode(int3 xyz)
  *
  * Each workitem corresponds to a single splat.
  *
- * @param keys          The cell codes for the entries.
- * @param values        The splat IDs for the entries.
- * @param splats        The original splats.
- * @param scale,bias    The grid-to-world transformation.
+ * @param keys             The cell codes for the entries.
+ * @param values           The splat IDs for the entries.
+ * @param[in,out] splats   The original splats. On output, radius replaced by 1/radius^2.
+ * @param scale,bias       The grid-to-world transformation.
  * @param invScale,invBias The world-to-grid transformation.
  */
 __kernel void writeEntries(
     __global uint *keys,
     __global uint *values,
-    __global const Splat *splats,
+    __global Splat *splats,
     float3 scale,
     float3 bias,
     float3 invScale,
@@ -156,7 +156,9 @@ __kernel void writeEntries(
     int shift;
     prepare(&ilo, &shift, positionRadius, invScale, invBias);
 
-    float radius2 = positionRadius.w * positionRadius.w * 1.00001f;
+    float radius2 = positionRadius.w * positionRadius.w;
+    splats[gid].positionRadius.w = 1.0f / radius2; // replace with form used in mls.cl
+    radius2 *= 1.00001f;   // be conservative in deciding intersections
     int3 ofs;
     for (ofs.z = 0; ofs.z < 2; ofs.z++)
         for (ofs.y = 0; ofs.y < 2; ofs.y++)
@@ -291,24 +293,6 @@ __kernel void writeStart(
 __kernel void fill(__global int *out, int value)
 {
     out[get_global_id(0)] = value;
-}
-
-/**
- * Turn the splats from the form they were used in computing the octree to
- * the form they will be used in by @ref mls.cl.
- *
- * The latter stores an inverse-squared radius instead of the raw radius.
- * @param[in,out] splats     The splats to transform (one per launch).
- *
- * @todo NVIDIA is compiling this to load the float4 and write it all back
- * again.
- */
-__kernel void transformSplats(__global Splat *splats)
-{
-    uint gid = get_global_id(0);
-    __global Splat *splat = splats + gid;
-    float radius = splat->positionRadius.w;
-    splat->positionRadius.w = 1.0f / (radius * radius);
 }
 
 /*******************************************************************************
