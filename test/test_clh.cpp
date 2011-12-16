@@ -28,9 +28,8 @@ namespace CLH
 namespace Test
 {
 
-void TestFixture::setUp()
+void Mixin::setUpCL()
 {
-    CppUnit::TestFixture::setUp();
     const po::variables_map &vm = testGetOptions();
     device = CLH::findDevice(vm);
     if (device() == NULL)
@@ -42,12 +41,22 @@ void TestFixture::setUp()
     queue = cl::CommandQueue(context, device, 0);
 }
 
-void TestFixture::tearDown()
+void Mixin::tearDownCL()
 {
     context = NULL;
     device = NULL;
     queue = NULL;
+}
 
+void TestFixture::setUp()
+{
+    CppUnit::TestFixture::setUp();
+    setUpCL();
+}
+
+void TestFixture::tearDown()
+{
+    tearDownCL();
     CppUnit::TestFixture::tearDown();
 }
 

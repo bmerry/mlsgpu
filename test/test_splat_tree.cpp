@@ -70,30 +70,30 @@ void TestSplatTree::testBuild()
 
     const command_type expectedCommands[] =
     {
-        2, -1,     // code 111
-        2, -1,     // code 110
-        2, -1,     // code 101
-        2, -1,     // code 100
-        2, -1,     // code 011
-        2, -1,     // code 010
-        2, -1,     // code 001
         2, -1,     // code 000
-        1, -10,    // code 011 100
-        1, -10,    // code 011 000
-        1, -12,    // code 010 101
+        2, -1,     // code 001
+        2, -1,     // code 010
+        2, -1,     // code 011
+        2, -1,     // code 100
+        2, -1,     // code 101
+        2, -1,     // code 110
+        2, -1,     // code 111
         /* Eliminated because the sphere doesn't cut the cell:
-         * 1, -12,    // code 010 001
+         * 1, ?,   // code 010 001
          */
-        0, -2,     // code 111 000 000 000
-        0, -4,     // code 110 001 001 001
-        0, -6,     // code 101 010 010 010
-        0, -8,     // code 100 001 001 001
-        0, -18,    // code 011 100 100 100
-        0, -22,    // code 010 101 101 101
-        0, -14,    // code 001 110 110 110
-        0, -16,    // code 000 111 111 111
-        3, -16,    // code 000 000 000 010
-        3, 4, -16  // code 000 000 000 000
+        1, -6,     // code 010 101
+        1, -8,     // code 011 000
+        1, -8,     // code 011 100
+        3, 4, -2,  // code 000 000 000 000
+        3, -2,     // code 000 000 000 010
+        0, -2,     // code 000 111 111 111
+        0, -4,     // code 001 110 110 110
+        0, -18,    // code 010 101 101 101
+        0, -22,    // code 011 100 100 100
+        0, -10,    // code 100 001 001 001
+        0, -12,    // code 101 010 010 010
+        0, -14,    // code 110 001 001 001
+        0, -16     // code 111 000 000 000
     };
     const struct
     {
@@ -102,41 +102,42 @@ void TestSplatTree::testBuild()
         unsigned int start;
     } regions[] =
     {
-        { 8, 8, 8,  16, 16, 16,   0 },
-        { 0, 8, 8,   8, 16, 16,   2 },
-        { 8, 0, 8,  16,  8, 16,   4 },
-        { 0, 0, 8,   8,  8, 16,   6 },
-        { 8, 8, 0,  16, 16,  8,   8 },
-        { 0, 8, 0,   8, 16,  8,  10 },
-        { 8, 0, 0,  16,  8,  8,  12 },
-        { 0, 0, 0,   8,  8,  8,  14 },
-        { 8, 8, 4,  12, 12,  8,  16 },
+        { 0, 0, 0,   8,  8,  8,   0 },
+        { 8, 0, 0,  16,  8,  8,   2 },
+        { 0, 8, 0,   8, 16,  8,   4 },
+        { 8, 8, 0,  16, 16,  8,   6 },
+        { 0, 0, 8,   8,  8, 16,   8 },
+        { 8, 0, 8,  16,  8, 16,  10 },
+        { 0, 8, 8,   8, 16, 16,  12 },
+        { 8, 8, 8,  16, 16, 16,  14 },
+        { 4, 8, 4,   8, 12,  8,  16 },
         { 8, 8, 0,  12, 12,  4,  18 },
-        { 4, 8, 4,   8, 12,  8,  20 },
+        { 8, 8, 4,  12, 12,  8,  20 },
         /* Eliminated because the sphere does not cut the cell.
-         * { 4, 8, 0,   8, 12,  4,  22 },
+         * { 4, 8, 0,   8, 12,  4,  ? },
          */
-        { 8, 8, 8,   9,  9,  9,  22 },
-        { 7, 8, 8,   8,  9,  9,  24 },
-        { 8, 7, 8,   9,  8,  9,  26 },
-        { 7, 7, 8,   8,  8,  9,  28 },
-        { 8, 8, 7,   9,  9,  8,  30 },
-        { 7, 8, 7,   8,  9,  8,  32 },
-        { 8, 7, 7,   9,  8,  8,  34 },
-        { 7, 7, 7,   8,  8,  8,  36 },
-        { 0, 1, 0,   1,  2,  1,  38 },
-        { 0, 0, 0,   1,  1,  1,  40 }
+        { 0, 0, 0,   1,  1,  1,  22 },
+        { 0, 1, 0,   1,  2,  1,  25 },
+        { 7, 7, 7,   8,  8,  8,  27 },
+        { 8, 7, 7,   9,  8,  8,  29 },
+        { 7, 8, 7,   8,  9,  8,  31 },
+        { 8, 8, 7,   9,  9,  8,  33 },
+        { 7, 7, 8,   8,  8,  9,  35 },
+        { 8, 7, 8,   9,  8,  9,  37 },
+        { 7, 8, 8,   8,  9,  9,  39 },
+        { 8, 8, 8,   9,  9,  9,  41 }
     };
 
     CPPUNIT_ASSERT_EQUAL(std::size_t(5), numLevels);
 
     // Validate commands
-    CPPUNIT_ASSERT_EQUAL(sizeof(expectedCommands) / sizeof(expectedCommands[0]), commands.size());
-    for (size_t i = 0; i < commands.size(); i++)
+    std::size_t nCommands = sizeof(expectedCommands) / sizeof(expectedCommands[0]);
+    CPPUNIT_ASSERT(nCommands <= commands.size());
+    for (size_t i = 0; i < nCommands; i++)
         CPPUNIT_ASSERT_EQUAL(expectedCommands[i], commands[i]);
 
     // Validate start
-    CPPUNIT_ASSERT_EQUAL(size_t(16 * 16 * 16), start.size());
+    CPPUNIT_ASSERT(size_t(16 * 16 * 16) <= start.size());
     for (unsigned int z = 0; z < 12; z++)
         for (unsigned int y = 0; y < 16; y++)
             for (unsigned int x = 0; x < 16; x++)

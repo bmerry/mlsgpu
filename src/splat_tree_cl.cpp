@@ -23,7 +23,7 @@
 #include "clh.h"
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)
-    : maxSplats(maxSplats), numSplats(0),
+    : maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
     sort(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clcpp::TYPE_UINT, clcpp::TYPE_INT),
     scan(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clcpp::TYPE_UINT)
 {
@@ -32,16 +32,9 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     if (maxLevels >= std::numeric_limits<code_type>::digits / 3)
         throw std::out_of_range("maxLevels is too large");
 
-    std::size_t pos = 0;
-    levelOffsets.resize(maxLevels);
-    for (std::size_t i = 0; i < maxLevels; i++)
-    {
-        levelOffsets[i] = pos;
-        pos += 1U << (3 * (maxLevels - i - 1));
-    }
-
+    std::size_t maxStart = (std::size_t(1) << (3 * maxLevels)) / 7;
     splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
-    start = cl::Buffer(context, CL_MEM_READ_WRITE, pos * sizeof(command_type));
+    start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
     commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
@@ -215,13 +208,20 @@ void SplatTreeCL::enqueueBuild(
            || grid.numVertices(1) > (1U << (levels - 1))
            || grid.numVertices(2) > (1U << (levels - 1)))
         levels++;
-    if (levels > levelOffsets.size())
+    if (levels > maxLevels)
     {
         throw std::length_error("Grid is too large");
     }
 
     this->grid = grid;
     this->numSplats = numSplats;
+    std::size_t pos = 0;
+    levelOffsets.resize(levels);
+    for (std::size_t i = 0; i < levels; i++)
+    {
+        levelOffsets[i] = pos;
+        pos += 1U << (3 * (levels - i - 1));
+    }
 
     std::vector<cl::Event> wait(1);
 

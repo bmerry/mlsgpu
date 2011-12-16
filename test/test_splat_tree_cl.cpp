@@ -15,20 +15,31 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <climits>
+#include <cstddef>
+#include <vector>
 #include "testmain.h"
 #include "test_clh.h"
+#include "test_splat_tree.h"
 #include "../src/splat_tree_cl.h"
 
 using namespace std;
 
-class TestSplatTreeCL : public CLH::Test::TestFixture
+class TestSplatTreeCL : public TestSplatTree, public CLH::Test::Mixin
 {
-    CPPUNIT_TEST_SUITE(TestSplatTreeCL);
+    CPPUNIT_TEST_SUB_SUITE(TestSplatTreeCL, TestSplatTree);
     CPPUNIT_TEST(testLevelShift);
     CPPUNIT_TEST(testPointBoxDist2);
     CPPUNIT_TEST(testMakeCode);
     CPPUNIT_TEST(testLowerBound);
     CPPUNIT_TEST_SUITE_END();
+
+protected:
+    virtual void build(
+        std::size_t &numLevels,
+        std::vector<SplatTree::command_type> &commands,
+        std::vector<SplatTree::command_type> &start,
+        const std::vector<Splat> &splats, const Grid &grid);
+
 private:
     cl::Program program;
 
@@ -43,15 +54,42 @@ private:
     void testLowerBound();     ///< Test @ref lowerBound in @ref octree.cl.
 public:
     virtual void setUp();
+    virtual void tearDown();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeCL, TestSet::perBuild());
 
 void TestSplatTreeCL::setUp()
 {
-    CLH::Test::TestFixture::setUp();
+    TestSplatTree::setUp();
+    setUpCL();
     map<string, string> defines;
     defines["UNIT_TESTS"] = "1";
     program = CLH::build(context, "kernels/octree.cl", defines);
+}
+
+void TestSplatTreeCL::tearDown()
+{
+    tearDownCL();
+    TestSplatTree::tearDown();
+}
+
+void TestSplatTreeCL::build(
+    std::size_t &numLevels,
+    std::vector<SplatTree::command_type> &commands,
+    std::vector<SplatTree::command_type> &start,
+    const std::vector<Splat> &splats, const Grid &grid)
+{
+    SplatTreeCL tree(context, 9, 1001);
+    std::vector<cl::Event> events(1);
+    tree.enqueueBuild(queue, &splats[0], splats.size(), grid, CL_FALSE, NULL, NULL, &events[0]);
+
+    std::size_t commandsSize = tree.getCommands().getInfo<CL_MEM_SIZE>();
+    std::size_t startSize = tree.getStart().getInfo<CL_MEM_SIZE>();
+    commands.resize(commandsSize / sizeof(SplatTree::command_type));
+    start.resize(startSize / sizeof(SplatTree::command_type));
+    queue.enqueueReadBuffer(tree.getCommands(), CL_TRUE, 0, commandsSize, &commands[0]);
+    queue.enqueueReadBuffer(tree.getStart(), CL_TRUE, 0, startSize, &start[0]);
+    numLevels = tree.getNumLevels();
 }
 
 int TestSplatTreeCL::callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz)

@@ -33,13 +33,11 @@ struct Entry
 
     /**
      * Sort by level then by code.
-     * The code sort is decreasing, which is necessary for the way
-     * the start array is computed.
      */
     bool operator<(const Entry &e) const
     {
         if (level != e.level) return level < e.level;
-        else return code > e.code;
+        else return code < e.code;
     }
 };
 
@@ -204,19 +202,22 @@ void SplatTree::initialize()
     }
 
     command_type *commands = allocateCommands(numCommands);
-    std::vector<command_type> start(code_type(1U) << (3 * maxLevel), -1);
+    std::vector<command_type> start(1, -1);
 
     // Build command list
     command_type curCommand = 0;
     std::size_t p = 0;
     for (unsigned int level = 0; level < numLevels; level++)
     {
-        for (code_type code = (code_type(1) << (3 * level)) - 1; code + 1 > 0; code--)
+        code_type levelSize = code_type(1U) << (3 * level);
+        std::vector<command_type> prevStart(levelSize);
+        prevStart.swap(start);
+        for (code_type code = 0; code < levelSize; code++)
         {
             std::size_t q = p;
             while (entries[q].level == level && entries[q].code == code)
                 q++;
-            command_type up = start[code >> 3];
+            command_type up = prevStart[code >> 3];
             command_type first = up;
             if (p < q)
             {

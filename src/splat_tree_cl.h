@@ -85,6 +85,7 @@ private:
     /** @} */
 
     std::size_t maxSplats; ///< Maximum splats for which memory has been allocated
+    std::size_t maxLevels; ///< Maximum levels for which memory has been allocated
 
     std::size_t numSplats; ///< Number of splats in the octree
     std::vector<std::size_t> levelOffsets; ///< Start of each level in compacted arrays
@@ -189,6 +190,8 @@ public:
     /**
      * @}
      */
+
+    std::size_t getNumLevels() const { return levelOffsets.size(); }
 };
 
 #endif /* !SPLATTREE_CL_H */
