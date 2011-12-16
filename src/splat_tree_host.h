@@ -14,14 +14,11 @@
 #include <vector>
 #include "splat_tree.h"
 
-class TestSplatTree;
-
 /**
  * Concrete implementation of @ref SplatTree that stores data in arrays on the host.
  */
 class SplatTreeHost : public SplatTree
 {
-    friend class TestSplatTree;
 private:
     /**
      * @name
@@ -43,6 +40,9 @@ public:
      * @see @ref SplatTree::SplatTree.
      */
     SplatTreeHost(const std::vector<Splat> &splats, const Grid &grid);
+
+    const std::vector<command_type> &getCommands() { return commands; }
+    const std::vector<command_type> &getStart() { return start; }
 };
 
 #endif /* !SPLAT_TREE_HOST_H */

@@ -14,24 +14,10 @@
 #include "testmain.h"
 #include "../src/splat.h"
 #include "../src/grid.h"
-#include "../src/splat_tree_host.h"
+#include "../src/splat_tree.h"
+#include "test_splat_tree.h"
 
 using namespace std;
-
-/**
- * Tests for @ref SplatTree.
- */
-class TestSplatTree : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestSplatTree);
-    CPPUNIT_TEST(testMakeCode);
-    CPPUNIT_TEST(testConstructor);
-    CPPUNIT_TEST_SUITE_END();
-public:
-    void testMakeCode();         ///< Test @ref SplatTree::makeCode
-    void testConstructor();      ///< Test construction of internal state
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTree, TestSet::perBuild());
 
 void TestSplatTree::testMakeCode()
 {
@@ -58,7 +44,7 @@ static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
     splats.push_back(s);
 }
 
-void TestSplatTree::testConstructor()
+void TestSplatTree::testBuild()
 {
     typedef SplatTree::command_type command_type;
     const float ref[3] = {0.0f, 0.0f, 0.0f};
@@ -76,7 +62,11 @@ void TestSplatTree::testConstructor()
     addSplat(splats, 0.0f, 0.5f, 0.0f, 0.75f);
     // bbox: 0,0,0 - 0,0,0. level 4, 1 node [0,0,0-1,1,1).
     addSplat(splats, 0.0f, 0.0f, 0.0f, 0.5f);
-    SplatTreeHost tree(splats, grid);
+
+    std::size_t numLevels;
+    std::vector<command_type> commands;
+    std::vector<command_type> start;
+    build(numLevels, commands, start, splats, grid);
 
     const command_type expectedCommands[] =
     {
@@ -138,15 +128,15 @@ void TestSplatTree::testConstructor()
         { 0, 0, 0,   1,  1,  1,  40 }
     };
 
-    CPPUNIT_ASSERT_EQUAL(5U, tree.getNumLevels());
+    CPPUNIT_ASSERT_EQUAL(std::size_t(5), numLevels);
 
     // Validate commands
-    CPPUNIT_ASSERT_EQUAL(sizeof(expectedCommands) / sizeof(expectedCommands[0]), tree.commands.size());
-    for (size_t i = 0; i < tree.commands.size(); i++)
-        CPPUNIT_ASSERT_EQUAL(expectedCommands[i], tree.commands[i]);
+    CPPUNIT_ASSERT_EQUAL(sizeof(expectedCommands) / sizeof(expectedCommands[0]), commands.size());
+    for (size_t i = 0; i < commands.size(); i++)
+        CPPUNIT_ASSERT_EQUAL(expectedCommands[i], commands[i]);
 
     // Validate start
-    CPPUNIT_ASSERT_EQUAL(size_t(16 * 16 * 16), tree.start.size());
+    CPPUNIT_ASSERT_EQUAL(size_t(16 * 16 * 16), start.size());
     for (unsigned int z = 0; z < 12; z++)
         for (unsigned int y = 0; y < 16; y++)
             for (unsigned int x = 0; x < 16; x++)
@@ -160,6 +150,6 @@ void TestSplatTree::testConstructor()
                         && regions[i].z0 <= z && z < regions[i].z1)
                         expected = regions[i].start;
                 }
-                CPPUNIT_ASSERT_EQUAL(expected, tree.start[idx]);
+                CPPUNIT_ASSERT_EQUAL(expected, start[idx]);
             }
 }
