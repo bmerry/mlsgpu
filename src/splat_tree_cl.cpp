@@ -222,7 +222,7 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = myUploadEvent;
     enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, grid, levels, &wait, &writeEntriesEvent);
     wait[0] = writeEntriesEvent;
-    sort.enqueue(queue, entryKeys, entryValues, numEntries, &wait, &sortEvent);
+    sort.enqueue(queue, entryKeys, entryValues, numEntries, 3 * (levels - 1) + 1, &wait, &sortEvent);
     wait[0] = sortEvent;
     enqueueCountCommands(queue, commandMap, entryKeys, numEntries, &wait, &countEvent);
     wait[0] = countEvent;
