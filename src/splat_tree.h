@@ -111,12 +111,8 @@ protected:
 
     /**
      * Allocate the start array.
-     * @param width, height, depth   Dimensions of the array (not necessary powers of 2).
-     * @param[out] rowPitch          Number of elements (@em not bytes) between rows.
-     * @param[out] slicePitch        Number of elements (@em not bytes) between 2D slices.
      */
-    virtual command_type *allocateStart(std::size_t width, std::size_t height, std::size_t depth,
-                                        std::size_t &rowPitch, std::size_t &slicePitch) = 0;
+    virtual command_type *allocateStart(std::size_t size) = 0;
 
     /**
      * Constructor.

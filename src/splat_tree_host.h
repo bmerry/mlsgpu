@@ -35,8 +35,8 @@ private:
      */
 protected:
     virtual command_type *allocateCommands(std::size_t size);
-    virtual command_type *allocateStart(std::size_t width, std::size_t height, std::size_t depth,
-                                        std::size_t &rowPitch, std::size_t &slicePitch);
+    virtual command_type *allocateStart(std::size_t size);
+
 public:
     /**
      * Constructor.

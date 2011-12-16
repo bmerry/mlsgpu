@@ -18,13 +18,9 @@ SplatTree::command_type *SplatTreeHost::allocateCommands(std::size_t size)
     return &commands[0];
 }
 
-SplatTree::command_type *SplatTreeHost::allocateStart(
-    std::size_t width, std::size_t height, std::size_t depth,
-    std::size_t &rowPitch, std::size_t &slicePitch)
+SplatTree::command_type *SplatTreeHost::allocateStart(std::size_t size)
 {
-    start.resize(width * height * depth);
-    rowPitch = width;
-    slicePitch = width * height;
+    start.resize(size);
     return &start[0];
 }
 

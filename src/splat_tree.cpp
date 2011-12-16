@@ -232,10 +232,6 @@ void SplatTree::initialize()
     }
 
     // Transfer start array to backing store
-    std::size_t rowPitch, slicePitch;
-    command_type *realStart = allocateStart(dims[0], dims[1], dims[2], rowPitch, slicePitch);
-    for (code_type z = 0; z < dims[2]; z++)
-        for (code_type y = 0; y < dims[1]; y++)
-            for (code_type x = 0; x < dims[0]; x++)
-                realStart[z * slicePitch + y * rowPitch + x] = start[makeCode(x, y, z)];
+    command_type *realStart = allocateStart(start.size());
+    std::copy(start.begin(), start.end(), realStart);
 }

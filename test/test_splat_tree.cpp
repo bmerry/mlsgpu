@@ -146,12 +146,12 @@ void TestSplatTree::testConstructor()
         CPPUNIT_ASSERT_EQUAL(expectedCommands[i], tree.commands[i]);
 
     // Validate start
-    CPPUNIT_ASSERT_EQUAL(size_t(16 * 16 * 12), tree.start.size());
+    CPPUNIT_ASSERT_EQUAL(size_t(16 * 16 * 16), tree.start.size());
     for (unsigned int z = 0; z < 12; z++)
         for (unsigned int y = 0; y < 16; y++)
             for (unsigned int x = 0; x < 16; x++)
             {
-                unsigned int idx = z * 16 * 16 + y * 16 + x;
+                unsigned int idx = SplatTree::makeCode(x, y, z);
                 command_type expected = -1;
                 for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++)
                 {

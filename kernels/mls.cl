@@ -26,7 +26,31 @@ typedef struct
     float sumW;
 } Corner;
 
-__constant sampler_t nearest = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE;
+
+/**
+ * Turn cell coordinates into a cell code.
+ *
+ * A code consists of the bits of the (shifted) coordinates interleaved (z
+ * major).
+ *
+ * @todo Investigate preloading this (per axis) to shared memory from a table
+ * instead.
+ */
+inline uint makeCode(int3 xyz)
+{
+    uint ans = 0;
+    uint scale = 1;
+    xyz.y <<= 1;  // pre-shift these to avoid shifts inside the loop
+    xyz.z <<= 2;
+    while (any(xyz != 0))
+    {
+        uint bits = (xyz.x & 1) | (xyz.y & 2) | (xyz.z & 4);
+        ans += bits * scale;
+        scale <<= 3;
+        xyz >>= 1;
+    }
+    return ans;
+}
 
 void processCorner(command_type start, float3 coord, Corner *out,
                    __global const Splat * restrict splats,
@@ -67,21 +91,14 @@ void processCorners(
     __global Corner * restrict corners,
     __global const Splat * restrict splats,
     __global const command_type * restrict commands,
-#if USE_IMAGES
-    __read_only image3d_t start,
-#else
     __global const command_type * restrict start,
-#endif
     float3 gridScale,
     float3 gridBias)
 {
-    int4 gid = (int4) (get_global_id(0), get_global_id(1), get_global_id(2), 0);
-    uint linearId = (gid.z * get_global_size(1) + gid.y) * get_global_size(0) + gid.x;
-#if USE_IMAGES
-    command_type myStart = read_imagei(start, nearest, gid).x;
-#else
+    // TODO: investigate making the global ID the linear ID and reverseing makeCode
+    int3 gid = (int3) (get_global_id(0), get_global_id(1), get_global_id(2));
+    uint linearId = makeCode(gid);
     command_type myStart = start[linearId];
-#endif
 
     Corner corner = {0, 0.0f};
     if (myStart >= 0)
