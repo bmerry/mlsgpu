@@ -29,7 +29,7 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
 {
     if (maxSplats > std::size_t(std::numeric_limits<command_type>::max() / 16))
         throw std::out_of_range("maxSplats is too large");
-    if (maxLevels >= std::numeric_limits<code_type>::digits / 3)
+    if (maxLevels * 3 >= std::numeric_limits<code_type>::digits - 1)
         throw std::out_of_range("maxLevels is too large");
 
     std::size_t maxStart = (std::size_t(1) << (3 * maxLevels)) / 7;
