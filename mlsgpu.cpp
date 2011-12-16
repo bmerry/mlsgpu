@@ -255,28 +255,18 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
         cout << "Build: " << timer.getElapsed() << '\n';
     }
 
-#if 0 // TODO reenable when it compiles
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
     defines["WGS_Z"] = boost::lexical_cast<std::string>(wgs[2]);
-    defines["USE_IMAGES"] = boost::lexical_cast<std::string>(USE_IMAGES);
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
-
-    size_t numCorners = dims[0] * dims[1] * dims[2];
-    cl::Buffer dSplats(context, CL_MEM_READ_ONLY, sizeof(Splat) * splats.size());
-    cl::Buffer dCorners(context, CL_MEM_WRITE_ONLY, sizeof(Corner) * numCorners);
-    // Convert splat radius to inverse-squared form
-    // TODO: move this to the GPU and/or stream to a mapped buffer,
-    // since otherwise we're corrupting the CPU version.
-    for (size_t i = 0; i < splats.size(); i++)
-        splats[i].radius = 1.0f / (splats[i].radius * splats[i].radius);
-    queue.enqueueWriteBuffer(dSplats, CL_FALSE, 0, sizeof(Splat) * splats.size(), &splats[0]);
+    size_t numCorners = size_t(1) << (3 * tree.getNumLevels() - 1);
+    cl::Buffer dCorners(context, CL_MEM_WRITE_ONLY, numCorners * sizeof(Corner));
 
     mlsKernel.setArg(0, dCorners);
-    mlsKernel.setArg(1, dSplats);
+    mlsKernel.setArg(1, tree.getSplats());
     mlsKernel.setArg(2, tree.getCommands());
     mlsKernel.setArg(3, tree.getStart());
     cl_float3 gridScale, gridBias;
@@ -288,13 +278,15 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     mlsKernel.setArg(4, gridScale);
     mlsKernel.setArg(5, gridBias);
 
-    Timer timer;
-    queue.enqueueNDRangeKernel(mlsKernel,
-                               cl::NullRange,
-                               cl::NDRange(dims[0], dims[1], dims[2]),
-                               cl::NDRange(wgs[0], wgs[1], wgs[2]));
-    queue.finish();
-    cout << timer.getElapsed() << endl;
+    {
+        Timer timer;
+        queue.enqueueNDRangeKernel(mlsKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(dims[0], dims[1], dims[2]),
+                                   cl::NDRange(wgs[0], wgs[1], wgs[2]));
+        queue.finish();
+        cout << "Process: " << timer.getElapsed() << endl;
+    }
 
     vector<Corner> corners(numCorners);
     queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * numCorners, &corners[0]);
@@ -305,7 +297,8 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
         for (unsigned int y = 0; y < dims[1]; y++)
             for (unsigned int x = 0; x < dims[0]; x++)
             {
-                unsigned int hits = corners[(z * dims[1] + y) * dims[0] + x].hits;
+                unsigned int pos = SplatTree::makeCode(x, y, z);
+                unsigned int hits = corners[pos].hits;
                 totalHits += hits;
                 if (hits > 0) cellsGE1++;
                 if (hits >= 4) cellsGE4++;
@@ -315,7 +308,6 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cout << "Total cells: " << dims[0] * dims[1] * dims[2] << "\n";
     cout << "Total cells >= 1: " << cellsGE1 << "\n";
     cout << "Total cells >= 4: " << cellsGE4 << "\n";
-#endif
 }
 
 static void benchmarking(const cl::Context &context, const cl::Device &device)
