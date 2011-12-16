@@ -30,7 +30,6 @@ class TestSplatTreeCL : public TestSplatTree, public CLH::Test::Mixin
     CPPUNIT_TEST(testLevelShift);
     CPPUNIT_TEST(testPointBoxDist2);
     CPPUNIT_TEST(testMakeCode);
-    CPPUNIT_TEST(testLowerBound);
     CPPUNIT_TEST_SUITE_END();
 
 protected:
@@ -46,12 +45,10 @@ private:
     int callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz);
     float callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz);
     int callMakeCode(cl_int x, cl_int y, cl_int z);
-    cl_uint callLowerBound(const cl::Buffer &keys, cl_uint keysLen, cl_uint key);
 
     void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
     void testPointBoxDist2();  ///< Test @ref pointBoxDist2 in @ref octree.cl.
     void testMakeCode();       ///< Test @ref makeCode in @ref octree.cl.
-    void testLowerBound();     ///< Test @ref lowerBound in @ref octree.cl.
 public:
     virtual void setUp();
     virtual void tearDown();
@@ -141,20 +138,6 @@ int TestSplatTreeCL::callMakeCode(cl_int x, cl_int y, cl_int z)
     return ans;
 }
 
-cl_uint TestSplatTreeCL::callLowerBound(const cl::Buffer &keys, cl_uint keysLen, cl_uint key)
-{
-    cl_uint ans;
-    cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
-    cl::Kernel kernel(program, "testLowerBound");
-    kernel.setArg(0, out);
-    kernel.setArg(1, keys);
-    kernel.setArg(2, keysLen);
-    kernel.setArg(3, key);
-    queue.enqueueTask(kernel);
-    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_uint), &ans);
-    return ans;
-}
-
 void TestSplatTreeCL::testLevelShift()
 {
     CPPUNIT_ASSERT_EQUAL(0, callLevelShift(0, 0, 0,  0, 0, 0)); // single cell
@@ -187,23 +170,4 @@ void TestSplatTreeCL::testMakeCode()
     CPPUNIT_ASSERT_EQUAL(7, callMakeCode(1, 1, 1));
     CPPUNIT_ASSERT_EQUAL(174, callMakeCode(2, 5, 3));
     CPPUNIT_ASSERT_EQUAL(511, callMakeCode(7, 7, 7));
-}
-
-void TestSplatTreeCL::testLowerBound()
-{
-    cl_uint hKeys[] =
-    {
-        1, 1, 4, 7, 7, 7, 8, 9, 10, 10, 12, 12, 14
-    };
-    cl::Buffer dKeys(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(hKeys), hKeys);
-    cl_uint keysLen = sizeof(hKeys) / sizeof(hKeys[0]);
-    cl_uint ans;
-
-    for (unsigned int i = 0; i < 16; i++)
-    {
-        ans = callLowerBound(dKeys, keysLen, i);
-        CPPUNIT_ASSERT(ans <= keysLen);
-        CPPUNIT_ASSERT(ans == keysLen || hKeys[ans] >= i);
-        CPPUNIT_ASSERT(ans == 0 || hKeys[ans - 1] < i);
-    }
 }

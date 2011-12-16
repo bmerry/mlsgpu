@@ -80,6 +80,7 @@ private:
      * time the octree is regenerated.
      */
     cl::Buffer commandMap;
+    cl::Buffer jumpPos;
     cl::Buffer entryKeys;
     cl::Buffer entryValues;
     /** @} */
@@ -112,7 +113,10 @@ private:
 
     void enqueueWriteSplatIds(const cl::CommandQueue &queue,
                               const cl::Buffer &commands,
+                              const cl::Buffer &start,
+                              const cl::Buffer &jumpPos,
                               const cl::Buffer &commandMap,
+                              const cl::Buffer &keys,
                               const cl::Buffer &splatIds,
                               command_type numEntries,
                               std::vector<cl::Event> *events,
@@ -121,12 +125,10 @@ private:
     void enqueueWriteStart(const cl::CommandQueue &queue,
                            const cl::Buffer &start,
                            const cl::Buffer &commands,
-                           const cl::Buffer &commandMap,
-                           const cl::Buffer &keys,
-                           code_type numCodes,
-                           command_type keysLen,
+                           const cl::Buffer &jumpPos,
                            code_type curOffset,
                            code_type prevOffset,
+                           code_type numCodes,
                            std::vector<cl::Event> *events,
                            cl::Event *event);
 

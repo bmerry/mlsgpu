@@ -35,6 +35,7 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     std::size_t maxStart = (std::size_t(1) << (3 * maxLevels)) / 7;
     splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
     start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
+    jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
     commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
@@ -114,15 +115,21 @@ void SplatTreeCL::enqueueCountCommands(
 void SplatTreeCL::enqueueWriteSplatIds(
     const cl::CommandQueue &queue,
     const cl::Buffer &commands,
+    const cl::Buffer &start,
+    const cl::Buffer &jumpPos,
     const cl::Buffer &commandMap,
+    const cl::Buffer &keys,
     const cl::Buffer &splatIds,
     command_type numEntries,
     std::vector<cl::Event> *events,
     cl::Event *event)
 {
     writeSplatIdsKernel.setArg(0, commands);
-    writeSplatIdsKernel.setArg(1, commandMap);
-    writeSplatIdsKernel.setArg(2, splatIds);
+    writeSplatIdsKernel.setArg(1, start);
+    writeSplatIdsKernel.setArg(2, jumpPos);
+    writeSplatIdsKernel.setArg(3, commandMap);
+    writeSplatIdsKernel.setArg(4, keys);
+    writeSplatIdsKernel.setArg(5, splatIds);
     queue.enqueueNDRangeKernel(writeSplatIdsKernel,
                                cl::NullRange, cl::NDRange(numEntries), cl::NullRange,
                                events, event);
@@ -150,31 +157,23 @@ void SplatTreeCL::enqueueWriteStart(
     const cl::CommandQueue &queue,
     const cl::Buffer &start,
     const cl::Buffer &commands,
-    const cl::Buffer &commandMap,
-    const cl::Buffer &keys,
-    code_type numCodes,
-    command_type keysLen,
+    const cl::Buffer &jumpPos,
     code_type curOffset,
     code_type prevOffset,
+    code_type numCodes,
     std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    const std::size_t M = 255;
     writeStartKernel.setArg(0, start);
     writeStartKernel.setArg(1, commands);
-    writeStartKernel.setArg(2, commandMap);
-    writeStartKernel.setArg(3, keys);
-    writeStartKernel.setArg(4, numCodes);
-    writeStartKernel.setArg(5, keysLen);
-    writeStartKernel.setArg(6, curOffset);
-    writeStartKernel.setArg(7, prevOffset);
-    writeStartKernel.setArg(8, cl::__local((M + 1) * sizeof(command_type)));
+    writeStartKernel.setArg(2, jumpPos);
+    writeStartKernel.setArg(3, curOffset);
+    writeStartKernel.setArg(4, prevOffset);
 
-    unsigned int groups = (numCodes + M - 1) / M;
     queue.enqueueNDRangeKernel(writeStartKernel,
                                cl::NullRange,
-                               cl::NDRange(groups * (M + 1)),
-                               cl::NDRange(M + 1),
+                               cl::NDRange(numCodes),
+                               cl::NullRange,
                                events, event);
 }
 
@@ -209,12 +208,13 @@ void SplatTreeCL::enqueueBuild(
         levelOffsets[i] = pos;
         pos += 1U << (3 * (levels - i - 1));
     }
+    std::size_t numStart = pos;
 
     std::vector<cl::Event> wait(1);
 
     // Copy splats to the GPU
     cl::Event myUploadEvent, writeEntriesEvent, sortEvent, countEvent, scanEvent,
-        writeSplatIdsEvent, levelEvent;
+        writeSplatIdsEvent, levelEvent, fillStartEvent, fillJumpPosEvent;
     queue.enqueueWriteBuffer(this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
     queue.flush(); // Start the copy going while we do remaining queuing.
 
@@ -228,26 +228,26 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = countEvent;
     scan.enqueue(queue, commandMap, numEntries, &wait, &scanEvent);
     wait[0] = scanEvent;
-    enqueueWriteSplatIds(queue, commands, commandMap, entryValues, numEntries, &wait, &writeSplatIdsEvent);
-    // don't update wait[0]: writeSplatIds and writeStart are independent
+    enqueueFill(queue, start, 0, numStart, (command_type) -1, &wait, &fillStartEvent);
+    wait[0] = fillStartEvent; // TODO: fill jobs are semi-independent of others
+    enqueueFill(queue, jumpPos, 0, numStart, (command_type) -1, &wait, &fillJumpPosEvent);
+    wait[0] = fillJumpPosEvent;
+    enqueueWriteSplatIds(queue, commands, start, jumpPos, commandMap, entryKeys, entryValues, numEntries, &wait, &writeSplatIdsEvent);
+    wait[0] = writeSplatIdsEvent;
 
-    // Prime level "-1" with a terminator
-    // TODO: use enqueueFillBuffer if CL 1.2 is available
-    enqueueFill(queue, start, levelOffsets.back(), 1, (command_type) -1, &wait, &levelEvent);
     for (int i = levels - 1; i >= 0; i--)
     {
-        wait[0] = levelEvent;
-        enqueueWriteStart(queue, start, commands, commandMap, entryKeys,
-                          1U << (3 * (levels - i - 1)), numEntries,
+        std::size_t levelSize = std::size_t(1) << (3 * (levels - 1 - i));
+        enqueueWriteStart(queue, start, commands, jumpPos,
                           levelOffsets[i],
                           levelOffsets[std::min(i + 1, int(levels) - 1)],
+                          levelSize,
                           &wait, &levelEvent);
+        wait[0] = levelEvent;
     }
 
-    wait[0] = writeEntriesEvent;
-
     if (event != NULL)
-        *event = levelEvent;
+        *event = wait[0];
     if (uploadEvent != NULL)
         *uploadEvent = myUploadEvent;
     if (blockingCopy)

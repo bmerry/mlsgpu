@@ -212,7 +212,10 @@ __kernel void countCommands(
     __global const uint *keys)
 {
     uint pos = get_global_id(0);
-    indicator[pos] = (keys[pos] != keys[pos + 1]) ? 2 : 1;
+    uint curKey = keys[pos];
+    uint nextKey = keys[pos + 1];
+    bool end = curKey != nextKey;
+    indicator[pos] = end ? 2 : 1;
 }
 
 /**
@@ -221,31 +224,30 @@ __kernel void countCommands(
  * There is one workitem per entry.
  *
  * @param[out]  commands       The command array (see @ref SplatTree).
+ * @param[out]  start          First command for each code.
+ * @param[out]  jumpPos        Position in command array of jump commands.
  * @param       commandMap     Mapping from entry to command position.
  * @param       splatIds       The splat IDs written by @ref writeEntries (and sorted).
  */
 __kernel void writeSplatIds(
     __global int *commands,
+    __global int *start,
+    __global int *jumpPos,
     __global const uint *commandMap,
+    __global const uint *keys,
     __global const uint *splatIds)
 {
     uint pos = get_global_id(0);
-    commands[commandMap[pos]] = splatIds[pos];
-}
+    uint cpos = commandMap[pos];
+    commands[cpos] = splatIds[pos];
 
-inline uint lowerBound(__global const uint *keys, uint keysLen, uint key)
-{
-    int L = -1;        // < key
-    int R = keysLen;   // >= key
-    while (R - L > 1)
-    {
-        int M = (L + R) / 2;
-        if (keys[M] >= key)
-            R = M;
-        else
-            L = M;
-    }
-    return R;
+    uint curKey = keys[pos];
+    uint prevKey = pos > 0 ? keys[pos - 1] : UINT_MAX;
+    uint nextKey = (pos < get_global_size(0) - 1) ? keys[pos + 1] : UINT_MAX;
+    if (prevKey != curKey && curKey != UINT_MAX)
+        start[curKey] = cpos;
+    if (curKey != nextKey)
+        jumpPos[curKey] = cpos + 1;
 }
 
 /**
@@ -260,46 +262,28 @@ inline uint lowerBound(__global const uint *keys, uint keysLen, uint key)
  *
  * @param[in,out]  start           Start array for previous and current level.
  * @param[out]     commands        Command array in which to write jump commands.
- * @param          commandMap      Mapping from entry to command positions.
- * @param          keys            Keys written by @ref writeEntries and sorted.
- * @param          numCodes        One more than the highest code to process.
- * @param          keysLen         Length of the keys array.
+ * @param          jumpPos         Jump positions in command array, as written by @ref writeSplatIds.
  * @param          curOffset       Offset added to code to get position in start array on current level.
  * @param          prevOffset      Offset added to parent code to get position in parent start array.
- * @param          search          Local memory of M+1 uints.
  */
 __kernel void writeStart(
     __global int *start,
     __global int *commands,
-    __global const uint *commandMap,
-    __global const uint *keys,
-    uint numCodes,
-    uint keysLen,
+    __global const uint *jumpPos,
     uint curOffset,
-    uint prevOffset,
-    __local uint *search)
+    uint prevOffset)
 {
-    uint lid = get_local_id(0);
-    uint code = get_group_id(0) * (get_local_size(0) - 1) + lid;
-    uint key = code + curOffset;
-
-    uint pos = lowerBound(keys, keysLen, key);
-    uint posCmd = commandMap[pos];
-    search[lid] = posCmd;
-
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    if (lid < get_local_size(0) - 1 && code < numCodes)
+    uint code = get_global_id(0);
+    uint pos = code + curOffset;
+    int jp = jumpPos[pos];
+    uint prev = start[prevOffset + (code >> 3)];
+    if (jp >= 0)
     {
-        int prev = start[(code >> 3) + prevOffset];
-        int cur = prev;
-        if (keys[pos] == key)
-        {
-            cur = posCmd;
-            uint jumpPos = search[lid + 1] - 1;
-            commands[jumpPos] = (prev == -1) ? -1 : -2 - prev;
-        }
-        start[code + curOffset] = cur;
+        commands[jp] = (prev == -1) ? -1 : -2 - prev;
+    }
+    else
+    {
+        start[pos] = prev;
     }
 }
 
@@ -330,11 +314,6 @@ __kernel void testPointBoxDist2(__global float *out, float3 pos, float3 lo, floa
 __kernel void testMakeCode(__global uint *out, int3 xyz)
 {
     *out = makeCode(xyz);
-}
-
-__kernel void testLowerBound(__global uint *out, __global const uint *keys, uint keysLen, uint key)
-{
-    *out = lowerBound(keys, keysLen, key);
 }
 
 #endif /* UNIT_TESTS */
