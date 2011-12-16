@@ -160,12 +160,11 @@ void SplatTree::initialize()
             ilo[i] >>= shift;
             ihi[i] >>= shift;
         }
-        unsigned int level = maxLevel - shift;
 
         // Create entries for sorting
         Entry e;
         e.splatId = splatId;
-        e.level = level;
+        e.level = shift;
         for (unsigned int z = ilo[2]; z <= (unsigned int) ihi[2]; z++)
             for (unsigned int y = ilo[1]; y <= (unsigned int) ihi[1]; y++)
                 for (unsigned int x = ilo[0]; x <= (unsigned int) ihi[0]; x++)
@@ -201,38 +200,57 @@ void SplatTree::initialize()
             numCommands++;
     }
 
+    // Build command list, excluding jumps
+    // Also build direct entries in start and record jump slots
     command_type *commands = allocateCommands(numCommands);
-    std::vector<command_type> start(1, -1);
-
-    // Build command list
-    command_type curCommand = 0;
-    std::size_t p = 0;
-    for (unsigned int level = 0; level < numLevels; level++)
+    size_t nextCommand = 0;
+    std::vector<std::vector<command_type> > start(numLevels + 1), jumpPos(numLevels);
+    for (unsigned int i = 0; i < numLevels; i++)
     {
-        code_type levelSize = code_type(1U) << (3 * level);
-        std::vector<command_type> prevStart(levelSize);
-        prevStart.swap(start);
+        std::size_t levelSize = size_t(1) << (3 * (numLevels - 1 - i));
+        start[i].resize(levelSize, -1);
+        jumpPos[i].resize(levelSize, -1);
+    }
+    for (size_t i = 0; i < entries.size(); i++)
+    {
+        if (i == 0
+            || entries[i].level != entries[i - 1].level
+            || entries[i].code != entries[i - 1].code)
+        {
+            start[entries[i].level][entries[i].code] = nextCommand;
+        }
+        commands[nextCommand++] = entries[i].splatId;
+
+        if (i + 1 == entries.size()
+            || entries[i].level != entries[i + 1].level
+            || entries[i].code != entries[i + 1].code)
+        {
+            jumpPos[entries[i].level][entries[i].code] = nextCommand;
+            nextCommand++;
+        }
+    }
+    assert(nextCommand = numCommands);
+
+    // build jumps and start array
+    start[numLevels].resize(1, -1); // sentinel
+    for (int level = numLevels - 1; level >= 0; level--)
+    {
+        std::size_t levelSize = size_t(1) << (3 * (numLevels - 1 - level));
         for (code_type code = 0; code < levelSize; code++)
         {
-            std::size_t q = p;
-            while (entries[q].level == level && entries[q].code == code)
-                q++;
-            command_type up = prevStart[code >> 3];
-            command_type first = up;
-            if (p < q)
+            command_type up = start[level + 1][code >> 3];
+            if (jumpPos[level][code] != -1)
             {
-                // non-empty octree cell, with entries [p, q)
-                first = curCommand;
-                for (std::size_t i = 0; i < q - p; i++)
-                    commands[curCommand++] = entries[p + i].splatId;
-                commands[curCommand++] = (up == -1) ? -1 : -2 - up; // terminator or jump
-                p = q;
+                commands[jumpPos[level][code]] = up == -1 ? -1 : -2 - up;
             }
-            start[code] = first;
+            else
+            {
+                start[level][code] = up;
+            }
         }
     }
 
     // Transfer start array to backing store
-    command_type *realStart = allocateStart(start.size());
-    std::copy(start.begin(), start.end(), realStart);
+    command_type *realStart = allocateStart(start[0].size());
+    std::copy(start[0].begin(), start[0].end(), realStart);
 }

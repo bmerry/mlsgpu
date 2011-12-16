@@ -64,6 +64,7 @@ void TestSplatTreeCL::setUp()
     setUpCL();
     map<string, string> defines;
     defines["UNIT_TESTS"] = "1";
+    defines["MAX_LEVELS"] = "9";
     program = CLH::build(context, "kernels/octree.cl", defines);
 }
 

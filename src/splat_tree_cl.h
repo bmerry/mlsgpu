@@ -99,6 +99,7 @@ private:
                              const cl::Buffer &splats,
                              command_type numSplats,
                              const Grid &grid,
+                             std::size_t numLevels,
                              std::vector<cl::Event> *events,
                              cl::Event *event);
 
@@ -126,7 +127,6 @@ private:
                            command_type keysLen,
                            code_type curOffset,
                            code_type prevOffset,
-                           command_type keyOffset,
                            std::vector<cl::Event> *events,
                            cl::Event *event);
 

@@ -40,7 +40,9 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
 
-    program = CLH::build(context, "kernels/octree.cl");
+    std::map<std::string, std::string> defines;
+    defines["MAX_LEVELS"] = boost::lexical_cast<std::string>(maxLevels);
+    program = CLH::build(context, "kernels/octree.cl", defines);
     writeEntriesKernel = cl::Kernel(program, "writeEntries");
     countCommandsKernel = cl::Kernel(program, "countCommands");
     writeSplatIdsKernel = cl::Kernel(program, "writeSplatIds");
@@ -60,6 +62,7 @@ void SplatTreeCL::enqueueWriteEntries(
     const cl::Buffer &splats,
     command_type numSplats,
     const Grid &grid,
+    std::size_t numLevels,
     std::vector<cl::Event> *events,
     cl::Event *event)
 {
@@ -81,6 +84,8 @@ void SplatTreeCL::enqueueWriteEntries(
     writeEntriesKernel.setArg(4, bias);
     writeEntriesKernel.setArg(5, invScale);
     writeEntriesKernel.setArg(6, invBias);
+    writeEntriesKernel.setArg(7, cl::__local(sizeof(code_type) * numLevels));
+    writeEntriesKernel.setArg(8, (cl_uint) numLevels);
 
     queue.enqueueNDRangeKernel(writeEntriesKernel,
                                cl::NullRange,
@@ -151,7 +156,6 @@ void SplatTreeCL::enqueueWriteStart(
     command_type keysLen,
     code_type curOffset,
     code_type prevOffset,
-    command_type keyOffset,
     std::vector<cl::Event> *events,
     cl::Event *event)
 {
@@ -164,8 +168,7 @@ void SplatTreeCL::enqueueWriteStart(
     writeStartKernel.setArg(5, keysLen);
     writeStartKernel.setArg(6, curOffset);
     writeStartKernel.setArg(7, prevOffset);
-    writeStartKernel.setArg(8, keyOffset);
-    writeStartKernel.setArg(9, cl::__local((M + 1) * sizeof(command_type)));
+    writeStartKernel.setArg(8, cl::__local((M + 1) * sizeof(command_type)));
 
     unsigned int groups = (numCodes + M - 1) / M;
     queue.enqueueNDRangeKernel(writeStartKernel,
@@ -217,7 +220,7 @@ void SplatTreeCL::enqueueBuild(
 
     const std::size_t numEntries = numSplats * 8;
     wait[0] = myUploadEvent;
-    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, grid, &wait, &writeEntriesEvent);
+    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, grid, levels, &wait, &writeEntriesEvent);
     wait[0] = writeEntriesEvent;
     sort.enqueue(queue, entryKeys, entryValues, numEntries, &wait, &sortEvent);
     wait[0] = sortEvent;
@@ -238,7 +241,6 @@ void SplatTreeCL::enqueueBuild(
                           1U << (3 * (levels - i - 1)), numEntries,
                           levelOffsets[i],
                           levelOffsets[std::min(i + 1, int(levels) - 1)],
-                          keyOffset(i),
                           &wait, &levelEvent);
     }
 

@@ -2,6 +2,9 @@
  * @file
  *
  * Construction of an octree containing splats.
+ *
+ * Required defines
+ * - MAX_LEVELS
  */
 
 /**
@@ -145,8 +148,22 @@ __kernel void writeEntries(
     float3 scale,
     float3 bias,
     float3 invScale,
-    float3 invBias)
+    float3 invBias,
+    __local uint *levelOffsets,
+    uint numLevels)
 {
+    if (get_local_id(0) == 0)
+    {
+        uint pos = 0;
+        uint add = 1U << (3 * (numLevels - 1));
+        for (uint i = 0; i < numLevels; i++)
+        {
+            levelOffsets[i] = pos;
+            pos += add;
+            add >>= 3;
+        }
+    }
+
     uint gid = get_global_id(0);
     uint stride = get_global_size(0);
     uint pos = gid;
@@ -160,12 +177,13 @@ __kernel void writeEntries(
     splats[gid].positionRadius.w = 1.0f / radius2; // replace with form used in mls.cl
     radius2 *= 1.00001f;   // be conservative in deciding intersections
     int3 ofs;
+    uint levelOffset = levelOffsets[shift];
     for (ofs.z = 0; ofs.z < 2; ofs.z++)
         for (ofs.y = 0; ofs.y < 2; ofs.y++)
             for (ofs.x = 0; ofs.x < 2; ofs.x++)
             {
                 int3 addr = ilo + ofs;
-                uint key = makeCode(addr) | (0x80000000 >> shift);
+                uint key = makeCode(addr) + levelOffset;
                 bool isect = goodEntry(addr, shift, positionRadius.xyz, radius2, scale, bias);
                 key = isect ? key : UINT_MAX;
 
@@ -248,7 +266,6 @@ inline uint lowerBound(__global const uint *keys, uint keysLen, uint key)
  * @param          keysLen         Length of the keys array.
  * @param          curOffset       Offset added to code to get position in start array on current level.
  * @param          prevOffset      Offset added to parent code to get position in parent start array.
- * @param          keyOffset       Offset added to code to get corresponding key.
  * @param          search          Local memory of M+1 uints.
  */
 __kernel void writeStart(
@@ -260,12 +277,11 @@ __kernel void writeStart(
     uint keysLen,
     uint curOffset,
     uint prevOffset,
-    uint keyOffset,
     __local uint *search)
 {
     uint lid = get_local_id(0);
     uint code = get_group_id(0) * (get_local_size(0) - 1) + lid;
-    uint key = code + keyOffset;
+    uint key = code + curOffset;
 
     uint pos = lowerBound(keys, keysLen, key);
     uint posCmd = commandMap[pos];
