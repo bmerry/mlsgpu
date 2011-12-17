@@ -86,6 +86,11 @@ void processCorner(command_type start, float3 coord, Corner *out,
 }
 
 
+/**
+ * Compute isovalues for all grid corners.
+ *
+ * @todo Investigate making the global ID the linear ID and reversing @ref makeCode.
+ */
 KERNEL(WGS_X, WGS_Y, WGS_Z)
 void processCorners(
     __global Corner * restrict corners,
@@ -95,7 +100,6 @@ void processCorners(
     float3 gridScale,
     float3 gridBias)
 {
-    // TODO: investigate making the global ID the linear ID and reverseing makeCode
     int3 gid = (int3) (get_global_id(0), get_global_id(1), get_global_id(2));
     uint linearId = makeCode(gid);
     command_type myStart = start[linearId];

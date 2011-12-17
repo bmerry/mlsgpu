@@ -21,7 +21,8 @@
 
 /**
  * Concrete implementation of @ref SplatTree that stores the data
- * in OpenCL buffers.
+ * in OpenCL buffers. It does not actually derive from @ref SplatTree because
+ * it does not re-use the building code, but it presents similar interfaces.
  *
  * To ease implementation, levels are numbered backwards i.e. level 0 is the
  * largest, finest-grained level, and the last level is 1x1x1.
@@ -31,14 +32,13 @@ class SplatTreeCL
 public:
     /**
      * Type used to represent values in the command table.
-     * It needs enough bits to represent both splat values, and to
-     * represent jump values.
+     * It needs enough bits to represent splat values and jump values.
      */
     typedef std::tr1::int32_t command_type;
 
     /**
      * Type used to represent indices into the cells, and also for
-     * sort keys that are a Morton code with a leading 1 bit.
+     * sort keys.
      */
     typedef std::tr1::uint32_t code_type;
 
@@ -79,21 +79,22 @@ private:
      * These are never deleted, so that the memory can be recycled each
      * time the octree is regenerated.
      */
-    cl::Buffer commandMap;
-    cl::Buffer jumpPos;
-    cl::Buffer entryKeys;
-    cl::Buffer entryValues;
+    cl::Buffer commandMap;   ///< Maps sorted entries to positions in the command array
+    cl::Buffer jumpPos;      ///< Position in command array of jump command for each key (-1 if not present)
+    cl::Buffer entryKeys;    ///< Sort keys for entries
+    cl::Buffer entryValues;  ///< Splat IDs for entries
     /** @} */
 
-    std::size_t maxSplats; ///< Maximum splats for which memory has been allocated
-    std::size_t maxLevels; ///< Maximum levels for which memory has been allocated
+    std::size_t maxSplats;   ///< Maximum splats for which memory has been allocated
+    std::size_t maxLevels;   ///< Maximum levels for which memory has been allocated
 
-    std::size_t numSplats; ///< Number of splats in the octree
+    std::size_t numSplats;   ///< Number of splats in the octree
     std::vector<std::size_t> levelOffsets; ///< Start of each level in compacted arrays
 
-    clcpp::Radixsort sort;
-    clcpp::Scan scan;
+    clcpp::Radixsort sort;   ///< Sorter for sorting the entries
+    clcpp::Scan scan;        ///< Scanner for computing @ref commandMap
 
+    /// Wrapper to call @ref writeEntries
     void enqueueWriteEntries(const cl::CommandQueue &queue,
                              const cl::Buffer &keys,
                              const cl::Buffer &values,
@@ -104,6 +105,7 @@ private:
                              std::vector<cl::Event> *events,
                              cl::Event *event);
 
+    /// Wrapper to call @ref countCommands
     void enqueueCountCommands(const cl::CommandQueue &queue,
                               const cl::Buffer &indicator,
                               const cl::Buffer &keys,
@@ -111,6 +113,7 @@ private:
                               std::vector<cl::Event> *events,
                               cl::Event *event);
 
+    /// Wrapper to call @ref writeSplatIds
     void enqueueWriteSplatIds(const cl::CommandQueue &queue,
                               const cl::Buffer &commands,
                               const cl::Buffer &start,
@@ -122,6 +125,7 @@ private:
                               std::vector<cl::Event> *events,
                               cl::Event *event);
 
+    /// Wrapper to call @ref writeStart
     void enqueueWriteStart(const cl::CommandQueue &queue,
                            const cl::Buffer &start,
                            const cl::Buffer &commands,
@@ -132,6 +136,7 @@ private:
                            std::vector<cl::Event> *events,
                            cl::Event *event);
 
+    /// Wrapper to call @ref fill
     void enqueueFill(const cl::CommandQueue &queue,
                      const cl::Buffer &buffer,
                      std::size_t offset,
@@ -140,19 +145,22 @@ private:
                      std::vector<cl::Event> *events,
                      cl::Event *event);
 
-    code_type keyOffset(unsigned int level);
-
 public:
     /**
      * Constructor. This allocates the maximum supported sizes for all the
      * buffers necessary, but does not populate them.
      *
      * @param context   OpenCL context used to create buffers, images etc.
+     * @param maxLevels Maximum number of octree levels (maximum dimension is 2^@a maxLevels).
+     * @param maxSplats Maximum number of splats supported.
      */
     SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats);
 
     /**
      * Asynchronously builds the octree, discarding any previous contents.
+     *
+     * This must not be called while either a previous #enqueueBuild is still in
+     * progress, or while the octree is being traversed.
      *
      * @param queue         The command queue for the building operations.
      * @param splats        The splats to put in the octree.
@@ -177,6 +185,9 @@ public:
 
     /**
      * @name Getters for the buffers and images needed to use the octree.
+     * These can be called at any time, and remain valid across a call to
+     * @ref enqueueBuild. However, the contents will only be valid when
+     * @ref enqueueBuild has completed.
      * @see @ref processCorners.
      * @{
      */
@@ -187,6 +198,7 @@ public:
      * @}
      */
 
+    /// Get the number of levels currently in the octree.
     std::size_t getNumLevels() const { return levelOffsets.size(); }
 };
 

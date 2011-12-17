@@ -128,7 +128,7 @@ protected:
      *
      * @pre
      * - The number of splats must be strictly less than 1/(2*maxAmplify) the number that
-     *   can be held in @ref size_type.
+     *   can be held in @ref command_type.
      * - The number of grid cells (after padding out to a power of 2) must satisfy
      *   the range limits in @ref makeCode.
      * - All the splats must be entirely contained within the grid cells.
@@ -146,7 +146,7 @@ public:
      * Compute a Morton code by interleaving the bits of @a x, @a y, @a z.
      *
      * @pre x, y and z contain less than one third of the bits in @ref
-     * size_type (e.g. at most 10 bits if @c code_type is 32-bit, 21 if
+     * code_type (e.g. at most 10 bits if @c code_type is 32-bit, 21 if
      * 64-bit).
      */
     static code_type makeCode(code_type x, code_type y, code_type z);

@@ -51,11 +51,6 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     writeStartKernel = cl::Kernel(program, "writeStart");
 }
 
-SplatTreeCL::code_type SplatTreeCL::keyOffset(unsigned int level)
-{
-    return 0x80000000U >> level;
-}
-
 void SplatTreeCL::enqueueWriteEntries(
     const cl::CommandQueue &queue,
     const cl::Buffer &keys,

@@ -2,9 +2,6 @@
  * @file
  *
  * Construction of an octree containing splats.
- *
- * Required defines
- * - MAX_LEVELS
  */
 
 /**
@@ -20,7 +17,7 @@ typedef struct
 
 /**
  * Determine the number of bits to shift off ilo and ihi so that they
- * differ by at most 1.
+ * differ by at most 1 in any dimension.
  *
  * ihi = aaa1000???? and
  * ilo = aaa0111????.
@@ -140,6 +137,8 @@ inline uint makeCode(int3 xyz)
  * @param[in,out] splats   The original splats. On output, radius replaced by 1/radius^2.
  * @param scale,bias       The grid-to-world transformation.
  * @param invScale,invBias The world-to-grid transformation.
+ * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @a numLevels values).
+ * @param numLevels        Number of levels in the octree.
  */
 __kernel void writeEntries(
     __global uint *keys,
@@ -154,6 +153,7 @@ __kernel void writeEntries(
 {
     if (get_local_id(0) == 0)
     {
+        // TODO: compute in parallel, as long as splats array is big enough
         uint pos = 0;
         uint add = 1U << (3 * (numLevels - 1));
         for (uint i = 0; i < numLevels; i++)
@@ -163,6 +163,7 @@ __kernel void writeEntries(
             add >>= 3;
         }
     }
+    barrier(CLK_LOCAL_MEM_FENCE);
 
     uint gid = get_global_id(0);
     uint stride = get_global_size(0);
@@ -198,7 +199,7 @@ __kernel void writeEntries(
  * entry of each key and 1 elsewhere. This is later scanned to determine the
  * mapping between entries and commands.
  *
- * There is one work-item per entry.
+ * There is one work-item per entry, excluding the last one.
  *
  * @param[out] indicator       Indicator function.
  * @param      keys            The cell keys for the input entries.
@@ -220,6 +221,7 @@ __kernel void countCommands(
 
 /**
  * Emit the command array for a level of the octree, excluding jumps.
+ * Also computes the start and jumpPos for each range of commands.
  *
  * There is one workitem per entry.
  *
@@ -227,7 +229,10 @@ __kernel void countCommands(
  * @param[out]  start          First command for each code.
  * @param[out]  jumpPos        Position in command array of jump commands.
  * @param       commandMap     Mapping from entry to command position.
+ * @param       keys           Sorted keys written by @ref writeEntries.
  * @param       splatIds       The splat IDs written by @ref writeEntries (and sorted).
+ *
+ * @todo Investigate using local memory to avoid multiple global reads.
  */
 __kernel void writeSplatIds(
     __global int *commands,
@@ -251,20 +256,15 @@ __kernel void writeSplatIds(
 }
 
 /**
- * Writes the start array for jump commands for one level. The codes are divided
- * into groups of size M, each of which is processed by a workgroup of M + 1
- * workitems. The algorithm is
- * -# Binary search M + 1 codes in the list of keys.
- * -# Use __local memory to share these between workitems.
- * -# If the commands for a code are non-empty, compute the start and write a jump
- *    at the end.
- * -# Write to the start array.
+ * Writes the start array and jump commands for one level.
  *
  * @param[in,out]  start           Start array for previous and current level.
  * @param[out]     commands        Command array in which to write jump commands.
  * @param          jumpPos         Jump positions in command array, as written by @ref writeSplatIds.
  * @param          curOffset       Offset added to code to get position in start array on current level.
  * @param          prevOffset      Offset added to parent code to get position in parent start array.
+ *
+ * @todo Investigate copying prev to local memory using subset of threads.
  */
 __kernel void writeStart(
     __global int *start,
