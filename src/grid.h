@@ -77,9 +77,8 @@ public:
      * Turn a grid-indexed vertex position into world coordinates.
      * Note that (0, 0, 0) need not correspond to the reference point.
      * It corresponds to the low extents.
-     * @pre @a x, @a y, @a z are non-negative and less than the
-     * number of vertices along the appropriate axis.
-     * @see @ref numVertices.
+     *
+     * The coordinates need not fall inside the grid itself.
      */
     void getVertex(int x, int y, int z, float vertex[3]) const;
 

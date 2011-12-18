@@ -78,9 +78,6 @@ const std::pair<int, int> &Grid::getExtent(int axis) const
 
 void Grid::getVertex(int x, int y, int z, float vertex[3]) const
 {
-    MLSGPU_ASSERT(x >= 0 && x <= extents[0].second - extents[0].first, std::out_of_range);
-    MLSGPU_ASSERT(y >= 0 && y <= extents[1].second - extents[1].first, std::out_of_range);
-    MLSGPU_ASSERT(z >= 0 && z <= extents[2].second - extents[2].first, std::out_of_range);
     for (unsigned int i = 0; i < 3; i++)
     {
         vertex[i] = reference[i]

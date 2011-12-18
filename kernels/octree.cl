@@ -56,20 +56,21 @@ float pointBoxDist2(float3 pos, float3 lo, float3 hi)
  *
  * @param[out]  ilo             Coordinates for the first cell.
  * @param[out]  shift           Bits shifted off to produce @a ilo.
+ * @param       maxShift        Maximum allowed shift (one less than number of levels)
  * @param       positionRadius  Position (xyz) and radius (w) of splat.
  * @param       invScale,invBias Transformation from world to grid coordinates
  */
 inline void prepare(
-    int3 *ilo, int *shift,
+    int3 *ilo, int *shift, int maxShift,
     float4 positionRadius, float3 invScale, float3 invBias)
 {
     float3 vlo = positionRadius.xyz - positionRadius.w;
     float3 vhi = positionRadius.xyz + positionRadius.w;
     vlo = vlo * invScale + invBias;
     vhi = vhi * invScale + invBias;
-    *ilo = convert_int3_rtp(vlo);
+    *ilo = max(convert_int3_rtp(vlo), (int3) (0, 0, 0));
     int3 ihi = convert_int3_rtn(vhi);
-    *shift = levelShift(*ilo, ihi);
+    *shift = min(maxShift, levelShift(*ilo, ihi));
     *ilo >>= *shift;
 }
 
@@ -172,7 +173,7 @@ __kernel void writeEntries(
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;
     int shift;
-    prepare(&ilo, &shift, positionRadius, invScale, invBias);
+    prepare(&ilo, &shift, numLevels - 1, positionRadius, invScale, invBias);
 
     float radius2 = positionRadius.w * positionRadius.w;
     splats[gid].positionRadius.w = 1.0f / radius2; // replace with form used in mls.cl
