@@ -60,10 +60,10 @@ void processCorner(command_type start, float3 coord, Corner *out,
     while (true)
     {
         command_type cmd = commands[pos];
-        if (cmd == -1)
-            break;
         if (cmd < 0)
         {
+            if (cmd == -1)
+                break;
             pos = -2 - cmd;
             cmd = commands[pos];
         }
@@ -75,7 +75,7 @@ void processCorner(command_type start, float3 coord, Corner *out,
         if (d < 1.0f)
         {
             float w = 1.0f - d;
-            w *= w;
+            w *= w; // raise to the 4th power
             w *= w;
             w *= splat->normalQuality.w;
             out->hits++;
