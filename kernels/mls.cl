@@ -23,7 +23,7 @@ typedef struct
 typedef struct
 {
     uint hits;
-    float sumW;
+    float iso;
 } Corner;
 
 
@@ -52,11 +52,80 @@ inline uint makeCode(int3 xyz)
     return ans;
 }
 
+// This seems to generate fewer instructions than NVIDIA's implementation
+inline float dot3(float3 a, float3 b)
+{
+    return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z));
+}
+
+inline void fitSphere(float sumWpp, float sumWpn, float3 sumWp, float3 sumWn, float sumW, uint hits,
+                      float params[5])
+{
+    float invSumW = 1.0f / sumW;
+    float3 m = sumWp * invSumW;
+    float qNum = sumWpn - dot3(m, sumWn);
+    float qDen = sumWpp - dot3(m, sumWp);
+    float q = qNum / qDen;
+    if (fabs(qDen) < (4 * FLT_EPSILON) * hits * fabs(sumWpp) || !isfinite(q))
+    {
+        q = 0.0f; // numeric instability
+    }
+
+    params[3] = 0.5f * q;
+    float3 p012 = (sumWn - q * sumWp) * invSumW;
+    params[4] = -params[3] * sumWpp - dot3(p012, sumWp);
+    params[0] = p012.s0;
+    params[1] = p012.s1;
+    params[2] = p012.s2;
+}
+
+inline float solveQuadratic(float a, float b, float c)
+{
+    // Start with a closed-form but numerically unstable solution
+    // (for a = 0 it gives an arbitrary sane value, which will get refined in one step)
+
+    float x = (fabs(a) > FLT_EPSILON) ? (-b + sqrt(b * b - 4 * a * c)) / (2.0f * a) : 0.0f;
+    // Refine using Newton iteration
+    for (uint pass = 0; pass < 2; pass++)
+    {
+        float fx = fma(fma(a, x, b), x, c);
+        float fpx = fma(2.0f * a, x, b);
+        x -= fx / fpx;
+    }
+    return x;
+}
+
+inline float projectDist(const float params[5], float3 origin, float3 p)
+{
+    const float3 d0 = p - origin;
+    const float3 u = (float3) (params[0], params[1], params[2]);
+
+    float3 g = p012 + 2.0f * params[3] * d; // gradient
+    float3 dir = normalize(g);
+    if (dot3(dir, dir) < 0.5f)
+    {
+        // g was exactly 0, i.e. the centre of the sphere. Pick any
+        // direction.
+        g = (float3) (0.0f, 0.0f, 0.0f);
+    }
+
+    float a = params[3];
+    float b = dot3(dir, g);
+    float c = dot3(d, u) + params[3] * dot3(d, d) + params[4];
+    return -solveQuadratic(a, b, c);
+}
+
 void processCorner(command_type start, float3 coord, Corner *out,
                    __global const Splat * restrict splats,
                    __global const command_type * restrict commands)
 {
     command_type pos = start;
+
+    float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
+    float3 sumWn = (float3) (0.0f, 0.0f, 0.0f);
+    float sumWpn = 0.0f, sumWpp = 0.0f, sumW = 0.0f;
+    float3 origin;
+    uint hits = 0;
     while (true)
     {
         command_type cmd = commands[pos];
@@ -71,20 +140,38 @@ void processCorner(command_type start, float3 coord, Corner *out,
         __global const Splat *splat = &splats[cmd];
         float4 positionRadius = splat->positionRadius;
         float3 offset = positionRadius.xyz - coord;
-        // The dot product is written out in full since NVIDIA's dot() implementation
-        // seems to produce more instructions
-        float d = fma(offset.x, offset.x, fma(offset.y, offset.y, offset.z * offset.z));
-        d *= positionRadius.w;
+        float d = dot3(offset, offset) * positionRadius.w;
         if (d < 1.0f)
         {
             float w = 1.0f - d;
             w *= w; // raise to the 4th power
             w *= w;
             w *= splat->normalQuality.w;
-            out->hits++;
-            out->sumW += w;
+
+            if (hits == 0)
+                origin = positionRadius.xyz;
+            hits++;
+            sumW += w;
+            float3 p = positionRadius.xyz - origin;
+            float3 wp = w * p;
+            float3 wn = w * splat->normalQuality.xyz;
+            sumWpp += dot3(wp, p);
+            sumWpn += dot3(wn, p);
+            sumWp += wp;
+            sumWn += wn;
         }
         pos++;
+    }
+    out->hits = hits;
+    if (hits >= 4)
+    {
+        float params[5];
+        fitSphere(sumWpp, sumWpn, sumWp, sumWn, sumW, hits, params);
+        out->iso = projectDist(params, origin, coord);
+    }
+    else
+    {
+        out->iso = nan(0U);
     }
 }
 

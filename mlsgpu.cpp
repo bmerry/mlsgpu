@@ -221,7 +221,7 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
 struct Corner
 {
     cl_uint hits;
-    cl_float sumW;
+    cl_float iso;
 };
 
 static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
