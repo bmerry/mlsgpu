@@ -71,7 +71,10 @@ void processCorner(command_type start, float3 coord, Corner *out,
         __global const Splat *splat = &splats[cmd];
         float4 positionRadius = splat->positionRadius;
         float3 offset = positionRadius.xyz - coord;
-        float d = dot(offset, offset) * positionRadius.w;
+        // The dot product is written out in full since NVIDIA's dot() implementation
+        // seems to produce more instructions
+        float d = fma(offset.x, offset.x, fma(offset.y, offset.y, offset.z * offset.z));
+        d *= positionRadius.w;
         if (d < 1.0f)
         {
             float w = 1.0f - d;
