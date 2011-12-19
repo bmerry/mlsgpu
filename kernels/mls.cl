@@ -72,19 +72,23 @@ inline void fitSphere(float sumWpp, float sumWpn, float3 sumWp, float3 sumWn, fl
     }
 
     params[3] = 0.5f * q;
-    float3 p012 = (sumWn - q * sumWp) * invSumW;
-    params[4] = -params[3] * sumWpp - dot3(p012, sumWp);
-    params[0] = p012.s0;
-    params[1] = p012.s1;
-    params[2] = p012.s2;
+    float3 u = (sumWn - q * sumWp) * invSumW;
+    params[4] = -params[3] * sumWpp - dot3(u, sumWp);
+    params[0] = u.s0;
+    params[1] = u.s1;
+    params[2] = u.s2;
 }
 
+/**
+ * Returns the root of ax^2 + bx + c with smaller (b >= 0) or larger (b <= 0)
+ * absolute value.
+ */
 inline float solveQuadratic(float a, float b, float c)
 {
     // Start with a closed-form but numerically unstable solution
     // (for a = 0 it gives an arbitrary sane value, which will get refined in one step)
-
-    float x = (fabs(a) > FLT_EPSILON) ? (-b + sqrt(b * b - 4 * a * c)) / (2.0f * a) : 0.0f;
+    float det = sqrt(b * b - 4 * a * c);
+    float x = (fabs(a) > 1e-20f) ? (-b + det) / (2.0f * a) : 0.0f;
     // Refine using Newton iteration
     for (uint pass = 0; pass < 2; pass++)
     {
@@ -97,21 +101,22 @@ inline float solveQuadratic(float a, float b, float c)
 
 inline float projectDist(const float params[5], float3 origin, float3 p)
 {
-    const float3 d0 = p - origin;
+    const float3 d = p - origin;
     const float3 u = (float3) (params[0], params[1], params[2]);
 
-    float3 g = p012 + 2.0f * params[3] * d; // gradient
+    float3 g = u + 2.0f * params[3] * d; // gradient
     float3 dir = normalize(g);
     if (dot3(dir, dir) < 0.5f)
     {
         // g was exactly 0, i.e. the centre of the sphere. Pick any
         // direction.
-        g = (float3) (0.0f, 0.0f, 0.0f);
+        dir = (float3) (0.0f, 0.0f, 0.0f);
     }
 
     float a = params[3];
     float b = dot3(dir, g);
     float c = dot3(d, u) + params[3] * dot3(d, d) + params[4];
+    // b will always be positive
     return -solveQuadratic(a, b, c);
 }
 
