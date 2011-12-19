@@ -226,7 +226,8 @@ struct Corner
 
 static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
 {
-    const size_t wgs[3] = {4, 4, 8};
+    const size_t wgs[3] = {8, 8, 4};
+    const unsigned int subsampling = 2;
 
     float spacing = vm[Option::fitGrid].as<double>();
     float smooth = vm[Option::fitSmooth].as<double>();
@@ -250,7 +251,7 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     SplatTreeCL tree(context, 9, splats.size());
     {
         Timer timer;
-        tree.enqueueBuild(queue, &splats[0], splats.size(), grid, CL_FALSE);
+        tree.enqueueBuild(queue, &splats[0], splats.size(), grid, subsampling, CL_FALSE);
         queue.finish();
         cout << "Build: " << timer.getElapsed() << '\n';
     }
@@ -262,8 +263,8 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
-    size_t numCorners = size_t(1) << (3 * tree.getNumLevels() - 1);
-    cl::Buffer dCorners(context, CL_MEM_WRITE_ONLY, numCorners * sizeof(Corner));
+    size_t sliceCorners = dims[0] * dims[1] * wgs[2];
+    cl::Buffer dCorners(context, CL_MEM_READ_WRITE, sliceCorners * sizeof(Corner));
 
     mlsKernel.setArg(0, dCorners);
     mlsKernel.setArg(1, tree.getSplats());
@@ -277,32 +278,49 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     grid.getVertex(0, 0, 0, gridBias.s);
     mlsKernel.setArg(4, gridScale);
     mlsKernel.setArg(5, gridBias);
+    mlsKernel.setArg(6, 3 * subsampling);
 
     {
         Timer timer;
-        queue.enqueueNDRangeKernel(mlsKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(dims[0], dims[1], dims[2]),
-                                   cl::NDRange(wgs[0], wgs[1], wgs[2]));
+        for (unsigned int z = 0; z < dims[2]; z += wgs[2])
+        {
+            mlsKernel.setArg(7, -cl_int(z * dims[0] * dims[1]));
+            queue.enqueueNDRangeKernel(mlsKernel,
+                                       cl::NDRange(0, 0, z),
+                                       cl::NDRange(dims[0], dims[1], wgs[2]),
+                                       cl::NDRange(wgs[0], wgs[1], wgs[2]));
+        }
         queue.finish();
         cout << "Process: " << timer.getElapsed() << endl;
     }
 
-    vector<Corner> corners(numCorners);
-    queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * numCorners, &corners[0]);
+    vector<Corner> corners(sliceCorners);
     unsigned long long totalHits = 0;
     unsigned long long cellsGE1 = 0;
     unsigned long long cellsGE4 = 0;
-    for (unsigned int z = 0; z < dims[2]; z++)
-        for (unsigned int y = 0; y < dims[1]; y++)
-            for (unsigned int x = 0; x < dims[0]; x++)
+    {
+        for (unsigned int z0 = 0; z0 < dims[2]; z0 += wgs[2])
+        {
+            mlsKernel.setArg(7, -cl_int(z0 * dims[0] * dims[1]));
+            queue.enqueueNDRangeKernel(mlsKernel,
+                                       cl::NDRange(0, 0, z0),
+                                       cl::NDRange(dims[0], dims[1], wgs[2]),
+                                       cl::NDRange(wgs[0], wgs[1], wgs[2]));
+            queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * sliceCorners, &corners[0]);
+            for (unsigned int z = z0; z < z0 + wgs[2]; z++)
             {
-                unsigned int pos = SplatTree::makeCode(x, y, z);
-                unsigned int hits = corners[pos].hits;
-                totalHits += hits;
-                if (hits > 0) cellsGE1++;
-                if (hits >= 4) cellsGE4++;
+                for (unsigned int y = 0; y < dims[1]; y++)
+                    for (unsigned int x = 0; x < dims[0]; x++)
+                    {
+                        unsigned int pos = ((z - z0) * dims[1] + y) * dims[0] + x;
+                        unsigned int hits = corners[pos].hits;
+                        totalHits += hits;
+                        if (hits > 0) cellsGE1++;
+                        if (hits >= 4) cellsGE4++;
+                    }
             }
+        }
+    }
 
     cout << "Total hits: " << totalHits << "\n";
     cout << "Total cells: " << dims[0] * dims[1] * dims[2] << "\n";

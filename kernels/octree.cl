@@ -56,12 +56,13 @@ float pointBoxDist2(float3 pos, float3 lo, float3 hi)
  *
  * @param[out]  ilo             Coordinates for the first cell.
  * @param[out]  shift           Bits shifted off to produce @a ilo.
- * @param       maxShift        Maximum allowed shift (one less than number of levels)
+ * @param       minShift        Minimum allowed shift.
+ * @param       maxShift        Maximum allowed shift (one less than number of levels).
  * @param       positionRadius  Position (xyz) and radius (w) of splat.
- * @param       invScale,invBias Transformation from world to grid coordinates
+ * @param       invScale,invBias Transformation from world to grid coordinates.
  */
 inline void prepare(
-    int3 *ilo, int *shift, int maxShift,
+    int3 *ilo, int *shift, int minShift, int maxShift,
     float4 positionRadius, float3 invScale, float3 invBias)
 {
     float3 vlo = positionRadius.xyz - positionRadius.w;
@@ -70,7 +71,7 @@ inline void prepare(
     vhi = vhi * invScale + invBias;
     *ilo = max(convert_int3_rtp(vlo), (int3) (0, 0, 0));
     int3 ihi = convert_int3_rtn(vhi);
-    *shift = min(maxShift, levelShift(*ilo, ihi));
+    *shift = clamp(levelShift(*ilo, ihi), minShift, maxShift);
     *ilo >>= *shift;
 }
 
@@ -138,8 +139,9 @@ inline uint makeCode(int3 xyz)
  * @param[in,out] splats   The original splats. On output, radius replaced by 1/radius^2.
  * @param scale,bias       The grid-to-world transformation.
  * @param invScale,invBias The world-to-grid transformation.
- * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @a numLevels values).
- * @param numLevels        Number of levels in the octree.
+ * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @maxShift + 1 values).
+ * @param minShift         Minimum bit shift (determines subsampling of grid to give finest level).
+ * @param maxShift         Maximum bit shift (determines base level).
  */
 __kernel void writeEntries(
     __global uint *keys,
@@ -150,14 +152,15 @@ __kernel void writeEntries(
     float3 invScale,
     float3 invBias,
     __local uint *levelOffsets,
-    uint numLevels)
+    uint minShift,
+    uint maxShift)
 {
     if (get_local_id(0) == 0)
     {
         // TODO: compute in parallel, as long as splats array is big enough
         uint pos = 0;
-        uint add = 1U << (3 * (numLevels - 1));
-        for (uint i = 0; i < numLevels; i++)
+        uint add = 1U << (3 * (maxShift - minShift));
+        for (uint i = minShift; i <= maxShift; i++)
         {
             levelOffsets[i] = pos;
             pos += add;
@@ -173,7 +176,7 @@ __kernel void writeEntries(
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;
     int shift;
-    prepare(&ilo, &shift, numLevels - 1, positionRadius, invScale, invBias);
+    prepare(&ilo, &shift, minShift, maxShift, positionRadius, invScale, invBias);
 
     float radius2 = positionRadius.w * positionRadius.w;
     splats[gid].positionRadius.w = 1.0f / radius2; // replace with form used in mls.cl

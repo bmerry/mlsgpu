@@ -98,11 +98,14 @@ void processCorners(
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
     float3 gridScale,
-    float3 gridBias)
+    float3 gridBias,
+    uint startShift,
+    int cornerOffset)
 {
     int3 gid = (int3) (get_global_id(0), get_global_id(1), get_global_id(2));
-    uint linearId = makeCode(gid);
-    command_type myStart = start[linearId];
+    uint code = makeCode(gid) >> startShift;
+    command_type myStart = start[code];
+    uint linearId = (gid.z * get_global_size(1) + gid.y) * get_global_size(0) + gid.x + cornerOffset;
 
     Corner corner = {0, 0.0f};
     if (myStart >= 0)
