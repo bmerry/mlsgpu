@@ -34,7 +34,7 @@ class TestSplatTreeCL : public TestSplatTree, public CLH::Test::Mixin
     CPPUNIT_TEST(testMakeCode);
     CPPUNIT_TEST(testSolveQuadratic);
     // TODO CPPUNIT_TEST(testSphereFit);
-    // TODO CPPUNIT_TEST(testProjectDist);
+    CPPUNIT_TEST(testProjectDistOrigin);
     CPPUNIT_TEST_SUITE_END();
 
 protected:
@@ -45,12 +45,14 @@ protected:
         const std::vector<Splat> &splats, const Grid &grid);
 
 private:
-    cl::Program octreeProgram, mlsProgram;
+    cl::Program octreeProgram;  ///< Program compiled from @ref octree.cl.
+    cl::Program mlsProgram;     ///< Program compiled from @ref mls.cl.
 
     /**
      * Variant of @c CppUnit::assertDoublesEqual that accepts relative or absolute error.
      *
-     * - If @a expected or @a actual is NaN, fails.
+     * - If @a expected or @a actual are both NaN, passes.
+     * - If one of @a expected or @a actual is NaN, fails.
      * - If @a expected or @a actual is an infinity, fails unless they're equal.
      * - Otherwise, passes if |@a expected - @a actual| <= @a eps or
      *   if |@a expected - @a actual| <= @a eps * @a expected.
@@ -64,15 +66,35 @@ private:
      */
     static void assertDoublesRelEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine);
 
+    /**
+     * Generate an algebraic sphere from a geometric one.
+     * @param xc, yc, zc       Sphere center.
+     * @param r                Sphere radius.
+     * @param grad             Magnitude of gradient at surface (negative to invert the sphere).
+     * @return A 5-element vector of algebraic sphere parameters.
+     */
+    std::vector<float> makeSphere(float xc, float yc, float zc, float r, float grad);
+
+    /**
+     * Generate an algebraic sphere representing a plane.
+     * @param px, py, pz       A point on the plane.
+     * @param dx, dy, dz       Normal to the plane (need not be unit length).
+     * @return A 5-element vector of algebraic sphere parameters.
+     */
+    std::vector<float> makePlane(float px, float py, float pz, float dx, float dy, float dz);
+
     int callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz);
     float callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz);
     int callMakeCode(cl_int x, cl_int y, cl_int z);
     float callSolveQuadratic(float a, float b, float c);
+    float callProjectDistOrigin(float p0, float p1, float p2, float p3, float p4);
+    float callProjectDistOrigin(const std::vector<float> &params);
 
     void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
     void testPointBoxDist2();  ///< Test @ref pointBoxDist2 in @ref octree.cl.
     void testMakeCode();       ///< Test @ref makeCode in @ref octree.cl.
     void testSolveQuadratic(); ///< Test @ref solveQuadratic in @ref mls.cl.
+    void testProjectDistOrigin();  ///< Test @ref projectDistOrigin in @ref mls.cl.
 public:
     virtual void setUp();
     virtual void tearDown();
@@ -208,6 +230,28 @@ float TestSplatTreeCL::callSolveQuadratic(float a, float b, float c)
     return ans;
 }
 
+float TestSplatTreeCL::callProjectDistOrigin(float p0, float p1, float p2, float p3, float p4)
+{
+    cl_float ans;
+    cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_float));
+    cl::Kernel kernel(mlsProgram, "testProjectDistOrigin");
+    kernel.setArg(0, out);
+    kernel.setArg(1, p0);
+    kernel.setArg(2, p1);
+    kernel.setArg(3, p2);
+    kernel.setArg(4, p3);
+    kernel.setArg(5, p4);
+    queue.enqueueTask(kernel);
+    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_float), &ans);
+    return ans;
+}
+
+float TestSplatTreeCL::callProjectDistOrigin(const std::vector<float> &params)
+{
+    CPPUNIT_ASSERT_EQUAL(std::vector<float>::size_type(5), params.size());
+    return callProjectDistOrigin(params[0], params[1], params[2], params[3], params[4]);
+}
+
 void TestSplatTreeCL::testLevelShift()
 {
     CPPUNIT_ASSERT_EQUAL(0, callLevelShift(0, 0, 0,  0, 0, 0)); // single cell
@@ -286,4 +330,49 @@ void TestSplatTreeCL::testSolveQuadratic()
     ASSERT_DOUBLES_EQUAL(1e6, callSolveQuadratic(1, -1 - 1e6, 1e6), eps);
     ASSERT_DOUBLES_EQUAL(1e20, callSolveQuadratic(1e-20, -2, 1e20), eps);
     ASSERT_DOUBLES_EQUAL(-1e-6, callSolveQuadratic(1e-6, 1, 1e-6), eps);
+}
+
+std::vector<float> TestSplatTreeCL::makeSphere(float xc, float yc, float zc, float r, float grad)
+{
+    // (x - xc)^2 + (y - yc)^2 + (z - zc)^2 - r^2 = 0
+    // gradient = 2[x - xc, y - yc, z - zc]
+    // |gradient| = 2r
+
+    float scale = grad * 0.5f / r;
+    std::vector<float> params(5);
+    params[0] = -2.0f * xc * scale;
+    params[1] = -2.0f * yc * scale;
+    params[2] = -2.0f * zc * scale;
+    params[3] = scale;
+    params[4] = (xc * xc + yc * yc + zc * zc - r * r) * scale;
+    return params;
+}
+
+std::vector<float> TestSplatTreeCL::makePlane(float px, float py, float pz, float dx, float dy, float dz)
+{
+    std::vector<float> params(5);
+    params[0] = dx;
+    params[1] = dy;
+    params[2] = dz;
+    params[3] = 0.0f;
+    params[4] = -(dx * px + dy * py + dz * pz);
+    return params;
+}
+
+void TestSplatTreeCL::testProjectDistOrigin()
+{
+    float eps = std::numeric_limits<float>::epsilon() * 4;
+    // General sphere case (3^2 + 4^2 + 12^2 = 13^2)
+    ASSERT_DOUBLES_EQUAL(7.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, 1.0f)), eps);
+    ASSERT_DOUBLES_EQUAL(7.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, 2.5f)), eps);
+    ASSERT_DOUBLES_EQUAL(-7.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, -2.5f)), eps);
+    ASSERT_DOUBLES_EQUAL(0.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 13.0f, 2.5f)), eps);
+    ASSERT_DOUBLES_EQUAL(-5.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 18.0f, 2.5f)), eps);
+    // Origin at center of sphere
+    ASSERT_DOUBLES_EQUAL(-6.0f, callProjectDistOrigin(makeSphere(0.0f, 0.0f, 0.0f, 6.0f, 2.5f)), eps);
+    ASSERT_DOUBLES_EQUAL(5.0f, callProjectDistOrigin(makeSphere(0.0f, 0.0f, 0.0f, 5.0f, -1.5f)), eps);
+
+    // Plane
+    ASSERT_DOUBLES_EQUAL(-5.0f / 1.5f, callProjectDistOrigin(makePlane(1.0f, 2.0f, 3.0f, 1.0f, 0.5f, 1.0f)), eps);
+    ASSERT_DOUBLES_EQUAL(5.0f / 1.5f, callProjectDistOrigin(makePlane(-1.0f, -2.0f, -3.0f, 1.0f, 0.5f, 1.0f)), eps);
 }

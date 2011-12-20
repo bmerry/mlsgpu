@@ -109,25 +109,23 @@ inline float solveQuadratic(float a, float b, float c)
     return isfinite(x) ? x : nan(0U);
 }
 
-inline float projectDist(const float params[5], float3 origin, float3 p)
+/**
+ * Computes the signed distance of the (local) origin to the sphere.
+ * It is positive outside and negative inside, or vice versa for an inside-out sphere.
+ */
+inline float projectDistOrigin(const float params[5])
 {
-    const float3 d = p - origin;
-    const float3 u = (float3) (params[0], params[1], params[2]);
-
-    float3 g = u + 2.0f * params[3] * d; // gradient
+    const float3 g = (float3) (params[0], params[1], params[2]);
     float3 dir = normalize(g);
     if (dot3(dir, dir) < 0.5f)
     {
         // g was exactly 0, i.e. the centre of the sphere. Pick any
         // direction.
-        dir = (float3) (0.0f, 0.0f, 0.0f);
+        dir = (float3) (1.0f, 0.0f, 0.0f);
     }
 
-    float a = params[3];
-    float b = dot3(dir, g);
-    float c = dot3(d, u) + params[3] * dot3(d, d) + params[4];
-    // b will always be positive
-    return -solveQuadratic(a, b, c);
+    // b will always be positive, so we will get the root we want
+    return -solveQuadratic(params[3], dot3(dir, g), params[4]);
 }
 
 void processCorner(command_type start, float3 coord, Corner *out,
@@ -139,7 +137,6 @@ void processCorner(command_type start, float3 coord, Corner *out,
     float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
     float3 sumWn = (float3) (0.0f, 0.0f, 0.0f);
     float sumWpn = 0.0f, sumWpp = 0.0f, sumW = 0.0f;
-    float3 origin;
     uint hits = 0;
     while (true)
     {
@@ -154,8 +151,9 @@ void processCorner(command_type start, float3 coord, Corner *out,
 
         __global const Splat *splat = &splats[cmd];
         float4 positionRadius = splat->positionRadius;
-        float3 offset = positionRadius.xyz - coord;
-        float d = dot3(offset, offset) * positionRadius.w;
+        float3 p = positionRadius.xyz - coord;
+        float pp = dot3(p, p);
+        float d = pp * positionRadius.w;
         if (d < 1.0f)
         {
             float w = 1.0f - d;
@@ -163,14 +161,11 @@ void processCorner(command_type start, float3 coord, Corner *out,
             w *= w;
             w *= splat->normalQuality.w;
 
-            if (hits == 0)
-                origin = positionRadius.xyz;
             hits++;
             sumW += w;
-            float3 p = positionRadius.xyz - origin;
             float3 wp = w * p;
             float3 wn = w * splat->normalQuality.xyz;
-            sumWpp += dot3(wp, p);
+            sumWpp += w * pp;
             sumWpn += dot3(wn, p);
             sumWp += wp;
             sumWn += wn;
@@ -182,7 +177,7 @@ void processCorner(command_type start, float3 coord, Corner *out,
     {
         float params[5];
         fitSphere(sumWpp, sumWpn, sumWp, sumWn, sumW, hits, params);
-        out->iso = projectDist(params, origin, coord);
+        out->iso = projectDistOrigin(params);
     }
     else
     {
@@ -231,6 +226,12 @@ void processCorners(
 __kernel void testSolveQuadratic(__global float *out, float a, float b, float c)
 {
     *out = solveQuadratic(a, b, c);
+}
+
+__kernel void testProjectDistOrigin(__global float *out, float p0, float p1, float p2, float p3, float p4)
+{
+    float params[5] = {p0, p1, p2, p3, p4};
+    *out = projectDistOrigin(params);
 }
 
 #endif /* UNIT_TESTS */
