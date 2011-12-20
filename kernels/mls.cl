@@ -26,6 +26,43 @@ typedef struct
     float iso;
 } Corner;
 
+typedef struct
+{
+    float sumWpp;
+    float sumWpn;
+    float3 sumWp;
+    float3 sumWn;
+    float sumW;
+    uint hits;
+} SphereFit;
+
+// This seems to generate fewer instructions than NVIDIA's implementation
+inline float dot3(float3 a, float3 b)
+{
+    return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z));
+}
+
+inline void sphereFitInit(SphereFit *sf)
+{
+    sf->sumWpp = 0.0f;
+    sf->sumWpn = 0.0f;
+    sf->sumWp = (float3) (0.0f, 0.0f, 0.0f);
+    sf->sumWn = (float3) (0.0f, 0.0f, 0.0f);
+    sf->sumW = 0.0f;
+    sf->hits = 0;
+}
+
+inline void sphereFitAdd(SphereFit *sf, float w, float3 p, float pp, float3 n)
+{
+    float3 wp = w * p;
+    float3 wn = w * n;
+    sf->sumW += w;
+    sf->sumWp += wp;
+    sf->sumWn += wn;
+    sf->sumWpp += w * pp;
+    sf->sumWpn += dot3(wn, p);
+    sf->hits++;
+}
 
 /**
  * Turn cell coordinates into a cell code.
@@ -52,28 +89,21 @@ inline uint makeCode(int3 xyz)
     return ans;
 }
 
-// This seems to generate fewer instructions than NVIDIA's implementation
-inline float dot3(float3 a, float3 b)
+inline void fitSphere(const SphereFit * restrict sf, float params[restrict 5])
 {
-    return fma(a.x, b.x, fma(a.y, b.y, a.z * b.z));
-}
-
-inline void fitSphere(float sumWpp, float sumWpn, float3 sumWp, float3 sumWn, float sumW, uint hits,
-                      float params[5])
-{
-    float invSumW = 1.0f / sumW;
-    float3 m = sumWp * invSumW;
-    float qNum = sumWpn - dot3(m, sumWn);
-    float qDen = sumWpp - dot3(m, sumWp);
+    float invSumW = 1.0f / sf->sumW;
+    float3 m = sf->sumWp * invSumW;
+    float qNum = sf->sumWpn - dot3(m, sf->sumWn);
+    float qDen = sf->sumWpp - dot3(m, sf->sumWp);
     float q = qNum / qDen;
-    if (fabs(qDen) < (4 * FLT_EPSILON) * hits * fabs(sumWpp) || !isfinite(q))
+    if (fabs(qDen) < (4 * FLT_EPSILON) * sf->hits * fabs(sf->sumWpp) || !isfinite(q))
     {
         q = 0.0f; // numeric instability
     }
 
     params[3] = 0.5f * q;
-    float3 u = (sumWn - q * sumWp) * invSumW;
-    params[4] = -params[3] * sumWpp - dot3(u, sumWp);
+    float3 u = (sf->sumWn - q * sf->sumWp) * invSumW;
+    params[4] = (-params[3] * sf->sumWpp - dot3(u, sf->sumWp)) * invSumW;
     params[0] = u.s0;
     params[1] = u.s1;
     params[2] = u.s2;
@@ -134,10 +164,8 @@ void processCorner(command_type start, float3 coord, Corner *out,
 {
     command_type pos = start;
 
-    float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
-    float3 sumWn = (float3) (0.0f, 0.0f, 0.0f);
-    float sumWpn = 0.0f, sumWpp = 0.0f, sumW = 0.0f;
-    uint hits = 0;
+    SphereFit sf;
+    sphereFitInit(&sf);
     while (true)
     {
         command_type cmd = commands[pos];
@@ -161,22 +189,15 @@ void processCorner(command_type start, float3 coord, Corner *out,
             w *= w;
             w *= splat->normalQuality.w;
 
-            hits++;
-            sumW += w;
-            float3 wp = w * p;
-            float3 wn = w * splat->normalQuality.xyz;
-            sumWpp += w * pp;
-            sumWpn += dot3(wn, p);
-            sumWp += wp;
-            sumWn += wn;
+            sphereFitAdd(&sf, w, p, pp, splat->normalQuality.xyz);
         }
         pos++;
     }
-    out->hits = hits;
-    if (hits >= 4)
+    out->hits = sf.hits;
+    if (sf.hits >= 4)
     {
         float params[5];
-        fitSphere(sumWpp, sumWpn, sumWp, sumWn, sumW, hits, params);
+        fitSphere(&sf, params);
         out->iso = projectDistOrigin(params);
     }
     else
@@ -232,6 +253,22 @@ __kernel void testProjectDistOrigin(__global float *out, float p0, float p1, flo
 {
     float params[5] = {p0, p1, p2, p3, p4};
     *out = projectDistOrigin(params);
+}
+
+__kernel void testFitSphere(__global float *out, __global const Splat *in, uint nsplats)
+{
+    SphereFit sf;
+    sphereFitInit(&sf);
+    for (uint i = 0; i < nsplats; i++)
+    {
+        const float3 p = in[i].positionRadius.xyz;
+        const float3 n = in[i].normalQuality.xyz;
+        sphereFitAdd(&sf, in[i].normalQuality.w, p, dot3(p, p), n);
+    }
+    float params[5];
+    fitSphere(&sf, params);
+    for (uint i = 0; i < 5; i++)
+        out[i] = params[i];
 }
 
 #endif /* UNIT_TESTS */

@@ -19,6 +19,8 @@
 #include <vector>
 #include <cmath>
 #include <limits>
+#include <tr1/random>
+#include <boost/math/constants/constants.hpp>
 #include "testmain.h"
 #include "test_clh.h"
 #include "test_splat_tree.h"
@@ -33,7 +35,7 @@ class TestSplatTreeCL : public TestSplatTree, public CLH::Test::Mixin
     CPPUNIT_TEST(testPointBoxDist2);
     CPPUNIT_TEST(testMakeCode);
     CPPUNIT_TEST(testSolveQuadratic);
-    // TODO CPPUNIT_TEST(testSphereFit);
+    CPPUNIT_TEST(testFitSphere);
     CPPUNIT_TEST(testProjectDistOrigin);
     CPPUNIT_TEST_SUITE_END();
 
@@ -90,11 +92,21 @@ private:
     float callProjectDistOrigin(float p0, float p1, float p2, float p3, float p4);
     float callProjectDistOrigin(const std::vector<float> &params);
 
+    /**
+     * Wrapper around @c TestFitSphere in @ref mls.cl.
+     * @param splats     Two or more splats. The radius is ignored, and the weight should be
+     *                   placed directly into the quality slot. The positions
+     *                   are in the local coordinate system in which the sphere is fitted.
+     * @return A 5-element vector of algebraic sphere parameters.
+     */
+    std::vector<float> callFitSphere(const std::vector<Splat> &splats);
+
     void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
     void testPointBoxDist2();  ///< Test @ref pointBoxDist2 in @ref octree.cl.
     void testMakeCode();       ///< Test @ref makeCode in @ref octree.cl.
     void testSolveQuadratic(); ///< Test @ref solveQuadratic in @ref mls.cl.
     void testProjectDistOrigin();  ///< Test @ref projectDistOrigin in @ref mls.cl.
+    void testFitSphere();      ///< Test @ref fitSphere in @ref mls.cl.
 public:
     virtual void setUp();
     virtual void tearDown();
@@ -103,8 +115,7 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeCL, TestSet::perBuild());
 
 /**
  * Macro wrapper around @ref TestSplatTreeCL::assertDoublesRelEqual.
- */
-#define ASSERT_DOUBLES_EQUAL(actual, expected, eps) \
+ */#define ASSERT_DOUBLES_EQUAL(actual, expected, eps) \
     TestSplatTreeCL::assertDoublesRelEqual(actual, expected, eps, CPPUNIT_SOURCELINE())
 
 void TestSplatTreeCL::assertDoublesRelEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine)
@@ -252,6 +263,20 @@ float TestSplatTreeCL::callProjectDistOrigin(const std::vector<float> &params)
     return callProjectDistOrigin(params[0], params[1], params[2], params[3], params[4]);
 }
 
+std::vector<float> TestSplatTreeCL::callFitSphere(const std::vector<Splat> &splats)
+{
+    std::vector<float> ans(5);
+    cl::Buffer in(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(Splat) * splats.size(), (void *) &splats[0]);
+    cl::Buffer out(context, CL_MEM_WRITE_ONLY, 5 * sizeof(cl_float));
+    cl::Kernel kernel(mlsProgram, "testFitSphere");
+    kernel.setArg(0, out);
+    kernel.setArg(1, in);
+    kernel.setArg(2, cl_uint(splats.size()));
+    queue.enqueueTask(kernel);
+    queue.enqueueReadBuffer(out, CL_TRUE, 0, 5 * sizeof(cl_float), &ans[0]);
+    return ans;
+}
+
 void TestSplatTreeCL::testLevelShift()
 {
     CPPUNIT_ASSERT_EQUAL(0, callLevelShift(0, 0, 0,  0, 0, 0)); // single cell
@@ -375,4 +400,57 @@ void TestSplatTreeCL::testProjectDistOrigin()
     // Plane
     ASSERT_DOUBLES_EQUAL(-5.0f / 1.5f, callProjectDistOrigin(makePlane(1.0f, 2.0f, 3.0f, 1.0f, 0.5f, 1.0f)), eps);
     ASSERT_DOUBLES_EQUAL(5.0f / 1.5f, callProjectDistOrigin(makePlane(-1.0f, -2.0f, -3.0f, 1.0f, 0.5f, 1.0f)), eps);
+}
+
+void TestSplatTreeCL::testFitSphere()
+{
+    using std::tr1::variate_generator;
+    using std::tr1::uniform_real;
+    using std::tr1::mt19937;
+    static const double pi = boost::math::constants::pi<double>();
+    mt19937 engine;
+    variate_generator<mt19937 &, uniform_real<double> > zGen(engine, uniform_real<double>(-1.0, 1.0));
+    variate_generator<mt19937 &, uniform_real<double> > tGen(engine, uniform_real<double>(-pi, pi));
+    variate_generator<mt19937 &, uniform_real<double> > wGen(engine, uniform_real<double>(0.0, 1.0));
+
+    const std::size_t N = 20;
+    const float center[3] = {1.0f, 2.0f, 3.5f};
+    const float radius = 6.5f;
+    const float eps = std::numeric_limits<float>::epsilon() * 10;
+
+    std::vector<Splat> splats(N);
+    for (std::size_t i = 0; i < N; i++)
+    {
+        double z = zGen();
+        double t = tGen();
+        double xy_len = sqrt(1.0 - z * z);
+        double x = cos(t) * xy_len;
+        double y = sin(t) * xy_len;
+
+        splats[i].normal[0] = x;
+        splats[i].normal[1] = y;
+        splats[i].normal[2] = z;
+        splats[i].position[0] = center[0] + x * radius;
+        splats[i].position[1] = center[1] + y * radius;
+        splats[i].position[2] = center[2] + z * radius;
+        splats[i].quality = wGen();
+    }
+    std::vector<float> params = callFitSphere(splats);
+    for (std::size_t i = 0; i < N; i++)
+    {
+        float x = splats[i].position[0];
+        float y = splats[i].position[1];
+        float z = splats[i].position[2];
+        float v = params[0] * x + params[1] * y + params[2] * z + params[3] * (x * x + y * y + z * z) + params[4];
+        ASSERT_DOUBLES_EQUAL(0.0f, v, eps);
+
+        const float g[3] = {
+            2 * params[3] * x + params[0],
+            2 * params[3] * y + params[1],
+            2 * params[3] * z + params[2]
+        };
+        ASSERT_DOUBLES_EQUAL(splats[i].normal[0], g[0], eps);
+        ASSERT_DOUBLES_EQUAL(splats[i].normal[1], g[1], eps);
+        ASSERT_DOUBLES_EQUAL(splats[i].normal[2], g[2], eps);
+    }
 }
