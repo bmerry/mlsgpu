@@ -80,23 +80,33 @@ inline void fitSphere(float sumWpp, float sumWpn, float3 sumWp, float3 sumWn, fl
 }
 
 /**
- * Returns the root of ax^2 + bx + c with smaller (b >= 0) or larger (b <= 0)
- * absolute value.
+ * Returns the root of ax^2 + bx + c which is larger (a > 0) or smaller (a < 0).
+ * Returns NaN if there are no roots or infinitely many roots.
  */
 inline float solveQuadratic(float a, float b, float c)
 {
-    // Start with a closed-form but numerically unstable solution
-    // (for a = 0 it gives an arbitrary sane value, which will get refined in one step)
-    float det = sqrt(b * b - 4 * a * c);
-    float x = (fabs(a) > 1e-20f) ? (-b + det) / (2.0f * a) : 0.0f;
+    float x;
+    if (fabs(a) < 1e-20f)
+    {
+        // Treat as linear to get initial estimate
+        x = -c / b;
+    }
+    else
+    {
+        // Start with a closed-form but numerically unstable solution
+        float det = sqrt(b * b - 4 * a * c);
+        x = (-b + det) / (2.0f * a);
+    }
     // Refine using Newton iteration
-    for (uint pass = 0; pass < 2; pass++)
+    for (uint pass = 0; pass < 1; pass++)
     {
         float fx = fma(fma(a, x, b), x, c);
         float fpx = fma(2.0f * a, x, b);
+        // Prevent divide by zero when at the critical point
+        fpx = maxmag(fpx, 1e-20f);
         x -= fx / fpx;
     }
-    return x;
+    return isfinite(x) ? x : nan(0U);
 }
 
 inline float projectDist(const float params[5], float3 origin, float3 p)
@@ -211,3 +221,16 @@ void processCorners(
     }
     corners[linearId] = corner;
 }
+
+/*******************************************************************************
+ * Test code only below here.
+ *******************************************************************************/
+
+#if UNIT_TESTS
+
+__kernel void testSolveQuadratic(__global float *out, float a, float b, float c)
+{
+    *out = solveQuadratic(a, b, c);
+}
+
+#endif /* UNIT_TESTS */
