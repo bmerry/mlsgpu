@@ -1,3 +1,5 @@
+#define NUM_EDGES 19
+
 __constant sampler_t nearest = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
 inline uint makeCode(const float iso[8])
@@ -84,15 +86,18 @@ __kernel void countElements(
     viCount[gid] = convert_uint2(countTable[code]);
 }
 
-inline float4 interp(float iso0, float iso1, uint2 cell, uint3 offset0, uint3 offset1, float3 scale, float3 bias)
+inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3 offset1, float3 scale, float3 bias)
 {
+    float inv = 1.0f / (iso0 - iso1);
+    float3 lcoord = cell + (iso1 * offset0 - iso0 * offset1) * inv;
+    return fma(lcoord, scale, bias);
 }
 
 #define INTERP(a, b) \
-    interp(iso[a], iso[b], cell, (uint3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (uint3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
+    interp(iso[a], iso[b], cellf, (float3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (float3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
 __kernel void generateElements(
-    __global float4 *vertices,
+    __global float3 *vertices,
     __global uint *indices,
     __global const uint2 * restrict viStart,
     __global const uint2 * restrict cells,
@@ -100,24 +105,28 @@ __kernel void generateElements(
     __read_only image2d_t isoB,
     __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
+    uint z,
     float3 scale,
     float3 bias,
-    __local float4 *lvertices)
+    __local float3 *lvertices)
 {
-    uint gid = get_global_id(0);
-    uint lid = get_local_id(0);
-    uint2 cell = cells[gid];
-    __local float4 *lverts = lvertices + 19 * lid;
+    const uint gid = get_global_id(0);
+    const uint lid = get_local_id(0);
+    uint3 cell;
+    cell.xy = cells[gid];
+    cell.z = z;
+    const float3 cellf = convert_float3(cell);
+    __local float3 *lverts = lvertices + NUM_EDGES * lid;
 
     float iso[8];
-    iso[0] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, 0))).x;
-    iso[1] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, 0))).x;
-    iso[2] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, 1))).x;
-    iso[3] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, 1))).x;
-    iso[4] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, 0))).x;
-    iso[5] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, 0))).x;
-    iso[6] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, 1))).x;
-    iso[7] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, 1))).x;
+    iso[0] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, 0))).x;
+    iso[1] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, 0))).x;
+    iso[2] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, 1))).x;
+    iso[3] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, 1))).x;
+    iso[4] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, 0))).x;
+    iso[5] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, 0))).x;
+    iso[6] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, 1))).x;
+    iso[7] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, 1))).x;
 
     lverts[0] = INTERP(0, 1);
     lverts[1] = INTERP(0, 2);

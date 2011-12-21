@@ -246,6 +246,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
 
 void Marching::enqueue(
     const cl::CommandQueue &queue, const Functor &functor,
+    const cl_float3 &gridScale, const cl_float3 &gridBias,
     cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
     const std::vector<cl::Event> *events,
     cl::Event *event)
@@ -269,6 +270,7 @@ void Marching::enqueue(
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
 
+    const std::size_t wgsCompacted = 1; // TODO: not very good at all!
     const std::size_t levelCells = (width - 1) * (height - 1);
     bool haveLastCompacted = false;
     std::size_t lastCompacted = 0;
@@ -313,7 +315,7 @@ void Marching::enqueue(
             queue.enqueueNDRangeKernel(countElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),
-                                       cl::NullRange,
+                                       cl::NDRange(wgsCompacted),
                                        &wait, &last);
             wait[0] = last;
 
@@ -331,10 +333,14 @@ void Marching::enqueue(
 
             generateElementsKernel.setArg(4, *images[0]);
             generateElementsKernel.setArg(5, *images[1]);
+            generateElementsKernel.setArg(8, cl_uint(z));
+            generateElementsKernel.setArg(9, gridScale);
+            generateElementsKernel.setArg(10, gridBias);
+            generateElementsKernel.setArg(11, NUM_EDGES * wgsCompacted);
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),
-                                       cl::NullRange,
+                                       cl::NDRange(wgsCompacted),
                                        &wait, &last);
             wait[0] = last;
         }

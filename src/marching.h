@@ -109,7 +109,9 @@ public:
              std::size_t width, std::size_t height, std::size_t depth);
 
     void enqueue(const cl::CommandQueue &queue, const Functor &functor,
-                 cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
+                 const cl_float3 &gridScale, const cl_float3 &gridBias,
+                 cl::Buffer &vertices, cl::Buffer &indices,
+                 cl_uint2 *totals,
                  const std::vector<cl::Event> *events,
                  cl::Event *event);
 };
