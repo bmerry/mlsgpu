@@ -230,6 +230,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, numCells * sizeof(cl_uint2));
     occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells + 1) * sizeof(cl_uint));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, numCells * sizeof(cl_uint2));
+    offsets = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint2));
 
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");
@@ -277,8 +278,7 @@ void Marching::enqueue(
 
     const std::size_t wgsCompacted = 1; // TODO: not very good at all!
     const std::size_t levelCells = (width - 1) * (height - 1);
-    bool haveLastCompacted = false;
-    std::size_t lastCompacted = 0;
+    bool haveOffset = false;
 
     functor(queue, *images[1], 0, events, &last); wait[0] = last;
 
@@ -324,17 +324,23 @@ void Marching::enqueue(
                                        &wait, &last);
             wait[0] = last;
 
-            if (haveLastCompacted)
+            if (haveOffset)
             {
-                scanElements.enqueue(queue, viCount, compacted + 1, viCount, lastCompacted, &wait, &last);
+                scanElements.enqueue(queue, viCount, compacted + 1, offsets, 0, &wait, &last);
             }
             else
             {
                 scanElements.enqueue(queue, viCount, compacted + 1, &wait, &last);
             }
             wait[0] = last;
-            lastCompacted = compacted;
-            haveLastCompacted = true;
+
+            /* Copy the past-the-end indices to the offsets memory, so that it does not
+             * get overwritten later.
+             */
+            queue.enqueueCopyBuffer(viCount, offsets, compacted * sizeof(cl_uint2), 0, sizeof(cl_uint2),
+                                    &wait, &last);
+            wait[0] = last; // TODO: generateElementsKernel does not need to wait for this.
+            haveOffset = true;
 
             generateElementsKernel.setArg(4, *images[0]);
             generateElementsKernel.setArg(5, *images[1]);
@@ -352,9 +358,9 @@ void Marching::enqueue(
     }
 
     /* Obtain the total number of vertices and indices */
-    if (haveLastCompacted)
+    if (haveOffset)
     {
-        queue.enqueueReadBuffer(viCount, CL_FALSE, lastCompacted * sizeof(cl_uint2), sizeof(cl_uint2), totals,
+        queue.enqueueReadBuffer(offsets, CL_FALSE, 0, sizeof(cl_uint2), totals,
                                 &wait, &last);
     }
     else

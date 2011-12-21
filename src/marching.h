@@ -66,6 +66,7 @@ private:
     cl::Buffer viCount;
     cl::Buffer cells;
     cl::Buffer occupied;
+    cl::Buffer offsets;
 
     cl::Image2D backingImages[2];
     cl::Image2D *images[2];
