@@ -16,7 +16,9 @@
 #include <utility>
 #include <algorithm>
 #include <cassert>
+#include "clh.h"
 #include "marching.h"
+#include "errors.h"
 
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
 {
@@ -207,7 +209,148 @@ void Marching::makeTables()
                             hVertexTable.size() * sizeof(hVertexTable[0]), &hVertexTable[0]);
 }
 
-Marching::Marching(const cl::Context &context) : context(context)
+Marching::Marching(const cl::Context &context, const cl::Device &device, size_t width, size_t height, size_t depth)
+:
+    width(width), height(height), depth(depth), context(context),
+    scanOccupied(context, device, clcpp::TYPE_UINT),
+    scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2))
 {
+    MLSGPU_ASSERT(width >= 2, std::invalid_argument);
+    MLSGPU_ASSERT(height >= 2, std::invalid_argument);
+    MLSGPU_ASSERT(depth >= 2, std::invalid_argument);
+
     makeTables();
+    for (unsigned int i = 0; i < 2; i++)
+    {
+        backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), width, height);
+        images[i] = &backingImages[i];
+    }
+
+    program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
+    countOccupiedKernel = cl::Kernel(program, "countOccupied");
+    compactKernel = cl::Kernel(program, "compact");
+    countElementsKernel = cl::Kernel(program, "countElements");
+    generateElementsKernel = cl::Kernel(program, "generateElements");
+
+    countOccupiedKernel.setArg(0, occupied);
+    compactKernel.setArg(0, cells);
+    compactKernel.setArg(1, occupied);
+    countElementsKernel.setArg(0, viCount);
+    countElementsKernel.setArg(1, cells);
+    countElementsKernel.setArg(4, countTable);
+    generateElementsKernel.setArg(2, viCount);
+    generateElementsKernel.setArg(3, cells);
+    generateElementsKernel.setArg(6, startTable);
+    generateElementsKernel.setArg(7, dataTable);
+}
+
+void Marching::enqueue(
+    const cl::CommandQueue &queue, const Functor &functor,
+    cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    generateElementsKernel.setArg(0, vertices);
+    generateElementsKernel.setArg(1, indices);
+
+    /** TODO
+     * 1. Call functor on 1st slice
+     * 2. For each slice:
+     *    - call the functor
+     *    - call the cell counting kernel
+     *    - scan the counts
+     *    - read the total number of cells back to the CPU
+     *    - call the compaction kernel
+     *    - add padding cells?
+     *    - call the vertex/index counting kernel
+     *    - scan the vertex/index counts, carrying in value from previous round (if any)
+     *    - call the generation kernel
+     */
+    std::vector<cl::Event> wait(1);
+    cl::Event last, readEvent;
+
+    const std::size_t levelCells = (width - 1) * (height - 1);
+    bool haveLastCompacted = false;
+    std::size_t lastCompacted = 0;
+
+    functor(queue, *images[1], 0, events, &last); wait[0] = last;
+
+    for (std::size_t z = 1; z < depth; z++)
+    {
+        std::swap(images[0], images[1]);
+        functor(queue, *images[1], z, &wait, &last); wait[0] = last;
+
+        countOccupiedKernel.setArg(1, *images[0]);
+        countOccupiedKernel.setArg(2, *images[1]);
+        queue.enqueueNDRangeKernel(countOccupiedKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(width - 1, height - 1),
+                                   cl::NullRange,
+                                   &wait, &last);
+        wait[0] = last;
+        scanOccupied.enqueue(queue, occupied, levelCells + 1, &wait, &last);
+        wait[0] = last;
+        cl_uint compacted;
+        queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint), &compacted,
+                                &wait, &readEvent);
+
+        // In parallel to the readback, do compaction
+        queue.enqueueNDRangeKernel(compactKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(width - 1, height - 1),
+                                   cl::NullRange,
+                                   &wait, &last);
+        wait[0] = last;
+
+        // Now obtain the number of compacted cells for subsequent steps
+        queue.flush();
+        readEvent.wait();
+
+        if (compacted > 0)
+        {
+            countElementsKernel.setArg(2, *images[0]);
+            countElementsKernel.setArg(3, *images[1]);
+            queue.enqueueNDRangeKernel(countElementsKernel,
+                                       cl::NullRange,
+                                       cl::NDRange(compacted),
+                                       cl::NullRange,
+                                       &wait, &last);
+            wait[0] = last;
+
+            if (haveLastCompacted)
+            {
+                scanElements.enqueue(queue, viCount, compacted + 1, viCount, lastCompacted, &wait, &last);
+            }
+            else
+            {
+                scanElements.enqueue(queue, viCount, compacted + 1, &wait, &last);
+            }
+            wait[0] = last;
+            lastCompacted = compacted;
+            haveLastCompacted = true;
+
+            generateElementsKernel.setArg(4, *images[0]);
+            generateElementsKernel.setArg(5, *images[1]);
+            queue.enqueueNDRangeKernel(generateElementsKernel,
+                                       cl::NullRange,
+                                       cl::NDRange(compacted),
+                                       cl::NullRange,
+                                       &wait, &last);
+            wait[0] = last;
+        }
+    }
+
+    /* Obtain the total number of vertices and indices */
+    if (haveLastCompacted)
+    {
+        queue.enqueueReadBuffer(viCount, CL_FALSE, lastCompacted * sizeof(cl_uint2), sizeof(cl_uint2), totals,
+                                &wait, &last);
+    }
+    else
+    {
+        totals->s0 = 0;
+        totals->s1 = 0;
+    }
+    if (event != NULL)
+        *event = last;
 }

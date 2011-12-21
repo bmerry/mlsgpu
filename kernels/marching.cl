@@ -49,14 +49,13 @@ __kernel void countOccupied(
 
 __kernel void compact(
     __global uint2 * restrict cells,
-    __global const uint * restrict occupiedRemap,
-    uint limit)
+    __global const uint * restrict occupiedRemap)
 {
     uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
     uint linearId = gid.y * get_global_size(0) + gid.x;
 
     uint pos = occupiedRemap[linearId];
-    uint next = occupiedRemap[min(linearId + 1, limit)];
+    uint next = occupiedRemap[linearId + 1];
     if (next != pos)
         cells[pos] = gid;
 }
@@ -82,7 +81,7 @@ __kernel void countElements(
     iso[7] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, 1))).x;
 
     uint code = makeCode(iso);
-    viCount[gid] = convert_uint2(viCountTable[code]);
+    viCount[gid] = convert_uint2(countTable[code]);
 }
 
 inline float4 interp(float iso0, float iso1, uint2 cell, uint3 offset0, uint3 offset1, float3 scale, float3 bias)
@@ -99,7 +98,7 @@ __kernel void generateElements(
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
     __read_only image2d_t isoB,
-    __global const uint4 * restrict startTable,
+    __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
     float3 scale,
     float3 bias,

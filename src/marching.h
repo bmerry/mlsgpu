@@ -11,6 +11,10 @@
 # include <config.h>
 #endif
 #include <CL/cl.hpp>
+#include <cstddef>
+#include <vector>
+#include <boost/function.hpp>
+#include <clcpp/clcpp.h>
 
 class TestMarching;
 
@@ -35,6 +39,8 @@ private:
      */
     static const unsigned char tetrahedronIndices[NUM_TETRAHEDRA][4];
 
+    std::size_t width, height, depth;
+
     cl::Context context;
 
     /**
@@ -56,6 +62,22 @@ private:
      * two adjacent elements of @ref dCountTable.
      */
     cl::Buffer dataTable;
+
+    cl::Buffer viCount;
+    cl::Buffer cells;
+    cl::Buffer occupied;
+
+    cl::Image2D backingImages[2];
+    cl::Image2D *images[2];
+
+    cl::Program program;
+    cl::Kernel countOccupiedKernel;
+    cl::Kernel compactKernel;
+    cl::Kernel countElementsKernel;
+    cl::Kernel generateElementsKernel;
+
+    clcpp::Scan scanOccupied;
+    clcpp::Scan scanElements;
 
     /**
      * Finds the edge incident on vertices v0 and v1.
@@ -81,7 +103,15 @@ private:
     void makeTables();
 
 public:
-    Marching(const cl::Context &context);
+    typedef boost::function<void(const cl::CommandQueue &, const cl::Image2D &, cl_uint z, const std::vector<cl::Event> *, cl::Event *)> Functor;
+
+    Marching(const cl::Context &context, const cl::Device &device,
+             std::size_t width, std::size_t height, std::size_t depth);
+
+    void enqueue(const cl::CommandQueue &queue, const Functor &functor,
+                 cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
+                 const std::vector<cl::Event> *events,
+                 cl::Event *event);
 };
 
 #endif /* !MARCHING_H */
