@@ -24,7 +24,10 @@ inline bool isValid(const float iso[8])
         && isfinite(iso[7]);
 }
 
-__kernel void countOccupied(__global uint *occupied, __read_only image2d_t isoA, __read_only image2d_t isoB)
+__kernel void countOccupied(
+    __global uint *occupied,
+    __read_only image2d_t isoA,
+    __read_only image2d_t isoB)
 {
     uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
     uint linearId = gid.y * get_global_size(0) + gid.x;
@@ -44,7 +47,10 @@ __kernel void countOccupied(__global uint *occupied, __read_only image2d_t isoA,
     occupied[linearId] = (valid && code != 0 && code != 255);
 }
 
-__kernel void compact(__global uint2 * restrict cells, __global const uint * restrict occupiedRemap, uint limit)
+__kernel void compact(
+    __global uint2 * restrict cells,
+    __global const uint * restrict occupiedRemap,
+    uint limit)
 {
     uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
     uint linearId = gid.y * get_global_size(0) + gid.x;
@@ -60,7 +66,7 @@ __kernel void countElements(
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
     __read_only image2d_t isoB,
-    __global const uchar2 * restrict viCountTable)
+    __global const uchar2 * restrict countTable)
 {
     uint gid = get_global_id(0);
     uint2 cell = cells[gid];
@@ -87,21 +93,22 @@ inline float4 interp(float iso0, float iso1, uint2 cell, uint3 offset0, uint3 of
     interp(iso[a], iso[b], cell, (uint3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (uint3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
 __kernel void generateElements(
+    __global float4 *vertices,
     __global uint *indices,
     __global const uint2 * restrict viStart,
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
     __read_only image2d_t isoB,
-    __global const uint4 * restrict table,
-    __global const uchar * restrict viTable,
+    __global const uint4 * restrict startTable,
+    __global const uchar * restrict dataTable,
     float3 scale,
     float3 bias,
-    __local float4 *vertices)
+    __local float4 *lvertices)
 {
     uint gid = get_global_id(0);
     uint lid = get_local_id(0);
     uint2 cell = cells[gid];
-    __local float4 *lverts = vertices + 19 * lid;
+    __local float4 *lverts = lvertices + 19 * lid;
 
     float iso[8];
     iso[0] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, 0))).x;
@@ -138,18 +145,15 @@ __kernel void generateElements(
     uint vNext = viNext.s0;
     uint iNext = viNext.s1;
 
-    uint4 tableData = table[code];
-    uint numIndices = tableData.x;
-    uint firstIndex = tableData.y;
-    uint numVertices = tableData.z;
-    uint firstVertex = tableData.w;
+    ushort2 start = startTable[code];
+    ushort2 end = startTable[code + 1];
 
-    for (uint i = 0; i < numIndices; i++)
+    for (uint i = 0; i < end.x - start.x; i++)
     {
-        indices[iNext + i] = viTable[firstIndex + i];
+        vertices[vNext + i] = lverts[dataTable[start.x + i]];
     }
-    for (uint i = 0; i < numVertices; i++)
+    for (uint i = 0; i < end.y - start.y; i++)
     {
-        vertices[vNext + i] = lverts[viTable[firstVertex + i]];
+        indices[iNext + i] = vNext + dataTable[start.y + i];
     }
 }
