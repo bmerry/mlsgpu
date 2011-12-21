@@ -226,6 +226,11 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
         images[i] = &backingImages[i];
     }
 
+    const std::size_t numCells = (width - 1) * (height - 1);
+    cells = cl::Buffer(context, CL_MEM_READ_WRITE, numCells * sizeof(cl_uint2));
+    occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells + 1) * sizeof(cl_uint));
+    viCount = cl::Buffer(context, CL_MEM_READ_WRITE, numCells * sizeof(cl_uint2));
+
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");
     compactKernel = cl::Kernel(program, "compact");
@@ -336,7 +341,7 @@ void Marching::enqueue(
             generateElementsKernel.setArg(8, cl_uint(z));
             generateElementsKernel.setArg(9, gridScale);
             generateElementsKernel.setArg(10, gridBias);
-            generateElementsKernel.setArg(11, NUM_EDGES * wgsCompacted);
+            generateElementsKernel.setArg(11, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),

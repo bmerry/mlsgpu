@@ -112,8 +112,8 @@ public:
                  const cl_float3 &gridScale, const cl_float3 &gridBias,
                  cl::Buffer &vertices, cl::Buffer &indices,
                  cl_uint2 *totals,
-                 const std::vector<cl::Event> *events,
-                 cl::Event *event);
+                 const std::vector<cl::Event> *events = NULL,
+                 cl::Event *event = NULL);
 };
 
 #endif /* !MARCHING_H */
