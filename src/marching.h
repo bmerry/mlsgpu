@@ -12,8 +12,11 @@
 #endif
 #include <CL/cl.hpp>
 
+class TestMarching;
+
 class Marching
 {
+    friend class TestMarching;
 private:
     static const unsigned int NUM_CUBES = 256;      ///< Number of possible vertex codes for a cube (2^vertices)
     static const unsigned int NUM_EDGES = 19;       ///< Number of edges in each cube
@@ -31,6 +34,8 @@ private:
      * viewed from the fourth in a right-handed coordinate system.
      */
     static const unsigned char tetrahedronIndices[NUM_TETRAHEDRA][4];
+
+    cl::Context context;
 
     /**
      * Buffer of uchar2 values, indexed by cube code. The two elements are
@@ -73,7 +78,10 @@ private:
     template<typename Iterator>
     static unsigned int permutationParity(Iterator first, Iterator last);
 
-    void makeTables(const cl::Context &context);
+    void makeTables();
+
+public:
+    Marching(const cl::Context &context);
 };
 
 #endif /* !MARCHING_H */

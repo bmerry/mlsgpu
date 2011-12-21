@@ -77,7 +77,7 @@ unsigned int Marching::permutationParity(Iterator first, Iterator last)
     return parity;
 }
 
-void Marching::makeTables(const cl::Context &context)
+void Marching::makeTables()
 {
     std::vector<cl_uchar> hVertexTable, hIndexTable;
     std::vector<cl_uchar2> hCountTable(NUM_CUBES);
@@ -204,5 +204,10 @@ void Marching::makeTables(const cl::Context &context)
     startTable = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                             hStartTable.size() * sizeof(hStartTable[0]), &hStartTable[0]);
     dataTable =  cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                            hVertexTable.size() * sizeof(hVertexTable), &hVertexTable[0]);
+                            hVertexTable.size() * sizeof(hVertexTable[0]), &hVertexTable[0]);
+}
+
+Marching::Marching(const cl::Context &context) : context(context)
+{
+    makeTables();
 }

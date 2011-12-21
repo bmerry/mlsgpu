@@ -42,7 +42,7 @@ protected:
  * The provided command queue is guaranteed to be in-order. Create a
  * separate command queue if out-of-order execution is needed.
  */
-class TestFixture : public CppUnit::TestFixture, Mixin
+class TestFixture : public CppUnit::TestFixture, public Mixin
 {
 public:
     virtual void setUp();          ///< Create context, etc.
