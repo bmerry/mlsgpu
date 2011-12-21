@@ -18,6 +18,7 @@
 #include <vector>
 #include <CL/cl.hpp>
 #include <cmath>
+#include <iostream>
 #include "testmain.h"
 #include "test_clh.h"
 #include "../src/marching.h"
@@ -148,4 +149,27 @@ void TestMarching::testSphere()
 
     marching.enqueue(queue, func, scale, bias, vertices, indices, &totals, NULL, &done);
     done.wait();
+#if 0
+    vector<cl_float3> hVertices(totals.s0);
+    vector<cl_uint> hIndices(totals.s1);
+    queue.enqueueReadBuffer(vertices, CL_TRUE, 0, totals.s0 * sizeof(cl_float3), &hVertices[0]);
+    queue.enqueueReadBuffer(indices, CL_TRUE, 0, totals.s1 * sizeof(cl_uint), &hIndices[0]);
+    cout << "ply\n"
+         << "format ascii 1.0\n"
+         << "element vertex " << totals.s0 << '\n'
+         << "property float32 x\n"
+         << "property float32 y\n"
+         << "property float32 z\n"
+         << "element face " << totals.s1 / 3 << '\n'
+         << "property list uint8 uint32 vertex_indices\n"
+         << "end_header\n";
+    for (std::size_t i = 0; i < totals.s0; i++)
+    {
+        cout << hVertices[i].x << ' ' << hVertices[i].y << ' ' << hVertices[i].z << '\n';
+    }
+    for (std::size_t i = 0; i < totals.s1; i += 3)
+    {
+        cout << "3 " << hIndices[i] << ' ' << hIndices[i + 1] << ' ' << hIndices[i + 2] << '\n';
+    }
+#endif
 }
