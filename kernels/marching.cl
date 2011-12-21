@@ -88,7 +88,7 @@ __kernel void countElements(
 
 inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3 offset1, float3 scale, float3 bias)
 {
-    float inv = 1.0f / (iso0 - iso1);
+    float inv = 1.0f / (iso1 - iso0);
     float3 lcoord = cell + (iso1 * offset0 - iso0 * offset1) * inv;
     return fma(lcoord, scale, bias);
 }
