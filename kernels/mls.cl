@@ -181,7 +181,7 @@ float processCorner(command_type start, float3 coord,
         float3 p = positionRadius.xyz - coord;
         float pp = dot3(p, p);
         float d = pp * positionRadius.w;
-        if (d < 1.0f)
+        if (d < 0.99f)
         {
             float w = 1.0f - d;
             w *= w; // raise to the 4th power
