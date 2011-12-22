@@ -12,6 +12,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
+#include <boost/array.hpp>
 #include <iostream>
 #include <map>
 #include <vector>
@@ -20,10 +21,12 @@
 #include "src/logging.h"
 #include "src/timer.h"
 #include "src/ply.h"
+#include "src/ply_mesh.h"
 #include "src/splat.h"
 #include "src/files.h"
 #include "src/grid.h"
 #include "src/splat_tree_cl.h"
+#include "src/marching.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -218,15 +221,45 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
 
-struct Corner
+/**
+ * Generates the signed distance from an MLS surface for a single slice.
+ * It is designed to be usable with @ref Marching::Functor.
+ */
+struct MlsFunctor
 {
-    cl_uint hits;
-    cl_float iso;
+    cl::Kernel mlsKernel;
+    float zScale, zBias;
+    size_t dims[2];
+    size_t wgs[2];
+
+    void operator()(const cl::CommandQueue &queue,
+                    const cl::Image2D &slice,
+                    cl_uint z,
+                    const std::vector<cl::Event> *events,
+                    cl::Event *event);
 };
 
-static void run(const cl::Context &context, const cl::Device &device, const po::variables_map &vm)
+void MlsFunctor::operator()(
+    const cl::CommandQueue &queue,
+    const cl::Image2D &slice,
+    cl_uint z,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
 {
-    const size_t wgs[3] = {8, 8, 4};
+    cl_float zWorld = z * zScale + zBias;
+    mlsKernel.setArg(0, slice);
+    mlsKernel.setArg(7, cl_int(z));
+    mlsKernel.setArg(8, zWorld);
+    queue.enqueueNDRangeKernel(mlsKernel,
+                               cl::NullRange,
+                               cl::NDRange(dims[0], dims[1]),
+                               cl::NDRange(wgs[0], wgs[1]),
+                               events, event);
+}
+
+static void run(const cl::Context &context, const cl::Device &device, streambuf *out, const po::variables_map &vm)
+{
+    const size_t wgs[3] = {16, 16, 1};
     const unsigned int subsampling = 2;
 
     float spacing = vm[Option::fitGrid].as<double>();
@@ -259,73 +292,64 @@ static void run(const cl::Context &context, const cl::Device &device, const po::
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
-    defines["WGS_Z"] = boost::lexical_cast<std::string>(wgs[2]);
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
-    size_t sliceCorners = dims[0] * dims[1] * wgs[2];
-    cl::Buffer dCorners(context, CL_MEM_READ_WRITE, sliceCorners * sizeof(Corner));
+    cl_float3 gridScale3, gridBias3;
+    cl_float2 gridScale, gridBias;
+    for (unsigned int i = 0; i < 3; i++)
+        gridScale3.s[i] = grid.getDirection(i)[i];
+    grid.getVertex(0, 0, 0, gridBias3.s);
+    for (unsigned int i = 0; i < 2; i++)
+    {
+        gridScale.s[i] = gridScale3.s[i];
+        gridBias.s[i] = gridBias3.s[i];
+    }
 
-    mlsKernel.setArg(0, dCorners);
     mlsKernel.setArg(1, tree.getSplats());
     mlsKernel.setArg(2, tree.getCommands());
     mlsKernel.setArg(3, tree.getStart());
-    cl_float3 gridScale, gridBias;
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        gridScale.s[i] = grid.getDirection(i)[i];
-    }
-    grid.getVertex(0, 0, 0, gridBias.s);
     mlsKernel.setArg(4, gridScale);
     mlsKernel.setArg(5, gridBias);
     mlsKernel.setArg(6, 3 * subsampling);
 
+    MlsFunctor functor;
+    functor.mlsKernel = mlsKernel;
+    functor.zScale = gridScale3.s[2];
+    functor.zBias = gridBias3.s[2];
+    functor.dims[0] = dims[0];
+    functor.dims[1] = dims[1];
+    functor.wgs[0] = wgs[0];
+    functor.wgs[1] = wgs[1];
+
+    Marching marching(context, device, dims[0], dims[1], dims[2]);
+    cl::Buffer vertices(context, CL_MEM_WRITE_ONLY, 10000000 * sizeof(cl_float4));
+    cl::Buffer indices(context, CL_MEM_WRITE_ONLY, 30000000 * sizeof(cl_uint));
+    cl_uint2 totals;
+
     {
         Timer timer;
-        for (unsigned int z = 0; z < dims[2]; z += wgs[2])
-        {
-            mlsKernel.setArg(7, -cl_int(z * dims[0] * dims[1]));
-            queue.enqueueNDRangeKernel(mlsKernel,
-                                       cl::NDRange(0, 0, z),
-                                       cl::NDRange(dims[0], dims[1], wgs[2]),
-                                       cl::NDRange(wgs[0], wgs[1], wgs[2]));
-        }
+        marching.enqueue(queue, functor, gridScale3, gridBias3, vertices, indices, &totals,
+                         NULL, NULL);
         queue.finish();
         cout << "Process: " << timer.getElapsed() << endl;
+        cout << "Generated " << totals.s0 << " vertices and " << totals.s1 << " indices\n";
     }
 
-    vector<Corner> corners(sliceCorners);
-    unsigned long long totalHits = 0;
-    unsigned long long cellsGE1 = 0;
-    unsigned long long cellsGE4 = 0;
-    {
-        for (unsigned int z0 = 0; z0 < dims[2]; z0 += wgs[2])
-        {
-            mlsKernel.setArg(7, -cl_int(z0 * dims[0] * dims[1]));
-            queue.enqueueNDRangeKernel(mlsKernel,
-                                       cl::NDRange(0, 0, z0),
-                                       cl::NDRange(dims[0], dims[1], wgs[2]),
-                                       cl::NDRange(wgs[0], wgs[1], wgs[2]));
-            queue.enqueueReadBuffer(dCorners, CL_TRUE, 0, sizeof(Corner) * sliceCorners, &corners[0]);
-            for (unsigned int z = z0; z < z0 + wgs[2]; z++)
-            {
-                for (unsigned int y = 0; y < dims[1]; y++)
-                    for (unsigned int x = 0; x < dims[0]; x++)
-                    {
-                        unsigned int pos = ((z - z0) * dims[1] + y) * dims[0] + x;
-                        unsigned int hits = corners[pos].hits;
-                        totalHits += hits;
-                        if (hits > 0) cellsGE1++;
-                        if (hits >= 4) cellsGE4++;
-                    }
-            }
-        }
-    }
+    std::vector<cl_float3> hVertices(totals.s0);
+    std::vector<boost::array<cl_uint, 3> > hIndices(totals.s1 / 3);
+    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, totals.s0 * sizeof(cl_float3), &hVertices[0]);
+    queue.enqueueReadBuffer(indices, CL_FALSE, 0, totals.s1 * sizeof(cl_uint), &hIndices[0]);
+    queue.finish();
 
-    cout << "Total hits: " << totalHits << "\n";
-    cout << "Total cells: " << dims[0] * dims[1] * dims[2] << "\n";
-    cout << "Total cells >= 1: " << cellsGE1 << "\n";
-    cout << "Total cells >= 4: " << cellsGE4 << "\n";
+    PLY::Writer writer(PLY::FILE_FORMAT_LITTLE_ENDIAN, out);
+    writer.addElement(PLY::makeElementRangeWriter(
+            hVertices.begin(), hVertices.end(), hVertices.size(),
+            PLY::VertexFetcher()));
+    writer.addElement(PLY::makeElementRangeWriter(
+            hIndices.begin(), hIndices.end(), hIndices.size(),
+            PLY::TriangleFetcher()));
+    writer.write();
 }
 
 int main(int argc, char **argv)
@@ -356,7 +380,7 @@ int main(int argc, char **argv)
         }
         else
             outFile.reset(new OutputFile());
-        run(context, device, vm);
+        run(context, device, outFile->buffer, vm);
     }
     catch (ios::failure &e)
     {

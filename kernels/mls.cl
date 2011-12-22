@@ -2,7 +2,7 @@
  * @file
  *
  * Required defines:
- * - WGS_X, WGS_Y, WGS_Z
+ * - WGS_X, WGS_Y
  * - USE_IMAGES
  */
 
@@ -19,12 +19,6 @@ typedef struct
     float4 positionRadius;   // position in xyz, inverse-squared radius in w
     float4 normalQuality;    // normal in xyz, quality metric in w
 } Splat;
-
-typedef struct
-{
-    uint hits;
-    float iso;
-} Corner;
 
 typedef struct
 {
@@ -163,9 +157,9 @@ inline float projectDistOrigin(const float params[5])
     return -solveQuadratic(params[3], dot3(dir, g), params[4]);
 }
 
-void processCorner(command_type start, float3 coord, Corner *out,
-                   __global const Splat * restrict splats,
-                   __global const command_type * restrict commands)
+float processCorner(command_type start, float3 coord,
+                    __global const Splat * restrict splats,
+                    __global const command_type * restrict commands)
 {
     command_type pos = start;
 
@@ -198,16 +192,15 @@ void processCorner(command_type start, float3 coord, Corner *out,
         }
         pos++;
     }
-    out->hits = sf.hits;
     if (sf.hits >= 4)
     {
         float params[5];
         fitSphere(&sf, params);
-        out->iso = projectDistOrigin(params);
+        return projectDistOrigin(params);
     }
     else
     {
-        out->iso = nan(0U);
+        return nan(0U);
     }
 }
 
@@ -217,30 +210,31 @@ void processCorner(command_type start, float3 coord, Corner *out,
  *
  * @todo Investigate making the global ID the linear ID and reversing @ref makeCode.
  */
-KERNEL(WGS_X, WGS_Y, WGS_Z)
+KERNEL(WGS_X, WGS_Y, 1)
 void processCorners(
-    __global Corner * restrict corners,
+    __write_only image2d_t corners,
     __global const Splat * restrict splats,
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
-    float3 gridScale,
-    float3 gridBias,
+    float2 gridScale,
+    float2 gridBias,
     uint startShift,
-    int cornerOffset)
+    float z,
+    float zWorld)
 {
-    int3 gid = (int3) (get_global_id(0), get_global_id(1), get_global_id(2));
+    int3 gid = (int3) (get_global_id(0), get_global_id(1), z);
     uint code = makeCode(gid) >> startShift;
     command_type myStart = start[code];
-    uint linearId = (gid.z * get_global_size(1) + gid.y) * get_global_size(0) + gid.x + cornerOffset;
 
-    Corner corner = {0, 0.0f};
+    float f = nan(0U);
     if (myStart >= 0)
     {
-        float3 coord = convert_float3(gid.xyz);
-        coord = coord * gridScale + gridBias;
-        processCorner(myStart, coord, &corner, splats, commands);
+        float3 coord;
+        coord.xy = convert_float2(gid.xy) * gridScale + gridBias;
+        coord.z = zWorld;
+        f = processCorner(myStart, coord, splats, commands);
     }
-    corners[linearId] = corner;
+    write_imagef(corners, gid.xy, f);
 }
 
 /*******************************************************************************
