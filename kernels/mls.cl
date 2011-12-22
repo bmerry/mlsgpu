@@ -219,7 +219,7 @@ void processCorners(
     float2 gridScale,
     float2 gridBias,
     uint startShift,
-    float z,
+    int z,
     float zWorld)
 {
     int3 gid = (int3) (get_global_id(0), get_global_id(1), z);
