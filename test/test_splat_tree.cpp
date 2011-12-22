@@ -47,21 +47,21 @@ static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
 void TestSplatTree::testBuild()
 {
     typedef SplatTree::command_type command_type;
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    const float dir[3][3] = { {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f} };
+    const float ref[3] = {30.0f, 0.0f, 10.0f};
+    const float dir[3][3] = { {10.f, 0.0f, 0.0f}, {0.0f, 10.f, 0.0f}, {0.0f, 0.0f, 10.f} };
     Grid grid(ref, dir[0], dir[1], dir[2], 0, 15, 0, 15, 0, 11);
     vector<Splat> splats;
 
     // bbox: 7,7,7 - 8,8,8. level 4, 8 nodes [7,7,7-9,9,9)
-    addSplat(splats, 7.5f, 7.5f, 7.5f, 1.0f);
+    addSplat(splats, 105.0f, 75.0f, 85.0f, 10.0f);
     // bbox: 7,8,3 - 10,11,6. level 2, 4 nodes [1,2,0-3,3,2) -> [4,8,0-12,12,8)
-    addSplat(splats, 8.5f, 9.5f, 4.5f, 2.0f);
+    addSplat(splats, 115.0f, 95.0f, 55.0f, 20.0f);
     // bbox: 3,6,1 - 11,14,9. level 1, 8 nodes [0,0,0-2,2,2) -> [0,0,0-16,16,16)
-    addSplat(splats, 7.0f, 10.0f, 5.0f, 4.5f);
+    addSplat(splats, 100.0f, 100.0f, 60.0f, 45.0f);
     // bbox: 0,0,0 - 0,1,0. level 4, 2 nodes [0,0,0-1,2,1).
-    addSplat(splats, 0.0f, 0.5f, 0.0f, 0.75f);
+    addSplat(splats, 30.0f, 5.0f, 10.0f, 7.5f);
     // bbox: 0,0,0 - 0,0,0. level 4, 1 node [0,0,0-1,1,1).
-    addSplat(splats, 0.0f, 0.0f, 0.0f, 0.5f);
+    addSplat(splats, 30.0f, 0.0f, 10.0f, 5.0f);
 
     std::size_t numLevels;
     std::vector<command_type> commands;
