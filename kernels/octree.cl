@@ -139,7 +139,7 @@ inline uint makeCode(int3 xyz)
  * @param[in,out] splats   The original splats. On output, radius replaced by 1/radius^2.
  * @param scale,bias       The grid-to-world transformation.
  * @param invScale,invBias The world-to-grid transformation.
- * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @maxShift + 1 values).
+ * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @a maxShift + 1 values).
  * @param minShift         Minimum bit shift (determines subsampling of grid to give finest level).
  * @param maxShift         Maximum bit shift (determines base level).
  */

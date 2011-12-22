@@ -1,7 +1,18 @@
+/**
+ * @file
+ *
+ * Implementation of marching tetrahedra.
+ */
+
+/// Number of edges in a cell
 #define NUM_EDGES 19
 
 __constant sampler_t nearest = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
+/**
+ * Computes a cell code from 8 isovalues. Non-negative (outside) values are
+ * given 1 bits, negative (inside) and NaNs are given 0 bits.
+ */
 inline uint makeCode(const float iso[8])
 {
     return (iso[0] >= 0.0f ? 0x01U : 0U)
@@ -26,6 +37,19 @@ inline bool isValid(const float iso[8])
         && isfinite(iso[7]);
 }
 
+/**
+ * Emits a boolean table indicating whether each cell may produce triangles.
+ * It only needs to be conservative - nothing bad will happen if it emits
+ * 1 for cells that end up producing nothing.
+ *
+ * Cell indices are linearized by treating them as y major.
+ *
+ * There is one work-item per cell in a slice, arranged in a 2D NDRange.
+ *
+ * @param[out] occupied      1 for occupied cells, 0 for unoccupied cells.
+ * @param      isoA          Slice of samples for lower z.
+ * @param      isoB          Slice of samples for higher z.
+ */
 __kernel void countOccupied(
     __global uint *occupied,
     __read_only image2d_t isoA,
@@ -49,6 +73,14 @@ __kernel void countOccupied(
     occupied[linearId] = (valid && code != 0 && code != 255);
 }
 
+/**
+ * Produce list of useful cells.
+ *
+ * There is one work-item per cell in a slice, arranged in a 2D NDRange.
+ *
+ * @param[out] cells         The coordinates of cells which may produce triangles.
+ * @param      occupiedRemap Scan of output from @ref countOccupied.
+ */
 __kernel void compact(
     __global uint2 * restrict cells,
     __global const uint * restrict occupiedRemap)
@@ -62,6 +94,16 @@ __kernel void compact(
         cells[pos] = gid;
 }
 
+/**
+ * Count the number of triangles and indices produced by each cell.
+ * There is one work-item per compacted cell.
+ *
+ * @param[out] viCount         Number of triangles+indices per cells.
+ * @param      cells           Cell list written by @ref compact.
+ * @param      isoA            Slice of samples for lower z.
+ * @param      isoB            Slice of samples for higher z.
+ * @param      countTable      Lookup table of counts per cube code.
+ */
 __kernel void countElements(
     __global uint2 * restrict viCount,
     __global const uint2 * restrict cells,
@@ -86,6 +128,15 @@ __kernel void countElements(
     viCount[gid] = convert_uint2(countTable[code]);
 }
 
+/**
+ * Generate coordinates of a new vertex by interpolation along an edge.
+ * @param iso0       Function sample at one corner.
+ * @param iso1       Function sample at a second corner.
+ * @param cell       Local coordinates of the lowest corner of the cell.
+ * @param offset0    Local coordinate offset from @a cell to corner @a iso0.
+ * @param offset1    Local coordinate offset from @a cell to corner @a iso1.
+ * @param scale,bias Transformation from local to world coordinates.
+ */
 inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3 offset1, float3 scale, float3 bias)
 {
     float inv = 1.0f / (iso1 - iso0);
@@ -96,6 +147,22 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
 #define INTERP(a, b) \
     interp(iso[a], iso[b], cellf, (float3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (float3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
+/**
+ * Generate vertices and indices for a slice.
+ * There is one work-item per compacted cell.
+ *
+ * @param[out] vertices        Vertices in world coordinates.
+ * @param[out] indices         Indices into @a vertices.
+ * @param      viStart         Position to start writing vertices/indices for each cell.
+ * @param      cells           List of compacted cells written by @ref compact.
+ * @param      isoA            Slice of samples for lower z.
+ * @param      isoB            Slice of samples for higher z.
+ * @param      startTable      Lookup table indicating where to find vertices/indices in @a dataTable.
+ * @param      dataTable       Lookup table of vertex and index indices.
+ * @param      z               Z coordinate of the current slice.
+ * @param      scale,bias      Transformation from local to world coordinates.
+ * @param      lvertices       Scratch space of @ref NUM_EDGES elements per work item.
+ */
 __kernel void generateElements(
     __global float3 *vertices,
     __global uint *indices,

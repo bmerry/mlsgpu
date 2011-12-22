@@ -78,7 +78,7 @@ private:
     cl::Buffer countTable;
     /**
      * Buffer of ushort2 values, indexed by cube code. The two elements are
-     * the positions of the index array and vertex array in @ref dDataTable.
+     * the positions of the index array and vertex array in @ref dataTable.
      * It has one extra element at the end so that the element range for
      * the last cube code can be found.
      */
@@ -87,7 +87,7 @@ private:
      * Buffer of uchar values, which are either indices to be emitted
      * (after biasing), or vertices represented as an edge ID. The range
      * of vertices or indices for a particular cube code is determined by
-     * two adjacent elements of @ref dCountTable.
+     * two adjacent elements of @ref countTable.
      */
     cl::Buffer dataTable;
 
@@ -135,7 +135,7 @@ private:
     cl::Kernel generateElementsKernel;      ///< Kernel compiled from @ref generateElements.
 
     clcpp::Scan scanOccupied;               ///< Scanner to scan @ref occupied.
-    clcpp::Scan scanElements;               ///< Scanner to scan @ref elements.
+    clcpp::Scan scanElements;               ///< Scanner to scan @ref viCount.
 
     /**
      * Finds the edge incident on vertices v0 and v1.
@@ -221,7 +221,7 @@ public:
      * @param gridBias       Bias from grid coordinates to world coordinates for vertices.
      * @param[out] vertices  Buffer to write the vertices to. It will contain @c cl_float3 values.
      * @param[out] indices   Buffer to write the indices to. It will contain
-     *                       @c cl_uint values indexing @ref vertices.
+     *                       @c cl_uint values indexing @a vertices.
      * @param[out] totals    The number of vertices and indices written to the buffers
      *                       (only valid once the queued work has completed!)
      * @param events         Previous events to wait for (can be @c NULL).

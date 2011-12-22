@@ -89,6 +89,11 @@ inline uint makeCode(int3 xyz)
     return ans;
 }
 
+/**
+ * Fit an algebraic sphere given cumulated sums.
+ * @param      sf      The accumulated sums.
+ * @param[out] params  Output parameters for the sphere.
+ */
 inline void fitSphere(const SphereFit * restrict sf, float params[restrict 5])
 {
     float invSumW = 1.0f / sf->sumW;

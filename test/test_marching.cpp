@@ -65,6 +65,9 @@ public:
     }
 };
 
+/**
+ * Tests for @ref Marching.
+ */
 class TestMarching : public CLH::Test::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestMarching);
