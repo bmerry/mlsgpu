@@ -115,7 +115,8 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeCL, TestSet::perCommit());
 
 /**
  * Macro wrapper around @ref TestSplatTreeCL::assertDoublesRelEqual.
- */#define ASSERT_DOUBLES_EQUAL(actual, expected, eps) \
+ */
+#define ASSERT_DOUBLES_EQUAL(actual, expected, eps) \
     TestSplatTreeCL::assertDoublesRelEqual(actual, expected, eps, CPPUNIT_SOURCELINE())
 
 void TestSplatTreeCL::assertDoublesRelEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine)
