@@ -111,7 +111,7 @@ public:
     virtual void setUp();
     virtual void tearDown();
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeCL, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeCL, TestSet::perCommit());
 
 /**
  * Macro wrapper around @ref TestSplatTreeCL::assertDoublesRelEqual.

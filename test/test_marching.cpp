@@ -151,7 +151,7 @@ private:
     void testConstructor();    ///< Basic sanity tests on the tables
     void testSphere();         ///< Builds a sphere
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMarching, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMarching, TestSet::perCommit());
 
 template<typename T>
 vector<T> TestMarching::bufferToVector(const cl::Buffer &buffer)
