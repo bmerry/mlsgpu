@@ -51,6 +51,9 @@ private:
     static const unsigned int NUM_EDGES = 19;       ///< Number of edges in each cube
     static const unsigned int NUM_TETRAHEDRA = 6;   ///< Number of tetrahedra in each cube
 
+    static const unsigned int MAX_CELL_VERTICES = 13; ///< Maximum vertices generated per cell
+    static const unsigned int MAX_CELL_INDICES = 36;  ///< Maximum triangles generated per cell
+
     /**
      * The vertices incident on each edge. It is important that the vertex indices
      * are in order in each edge.
@@ -214,6 +217,8 @@ public:
      * At present there is no protection against buffer overrun. You are
      * responsible for passing in @a vertices and @a indices that are large
      * enough to hold the result.
+     *
+     * @see @ref MAX_CELL_VERTICES, @ref MAX_CELL_INDICES.
      *
      * @param queue          Command queue to enqueue the work to.
      * @param functor        Generates slices of the function (see @ref Functor).
