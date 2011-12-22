@@ -238,6 +238,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
     countElementsKernel = cl::Kernel(program, "countElements");
     generateElementsKernel = cl::Kernel(program, "generateElements");
 
+    // Set up kernel arguments that never change.
     countOccupiedKernel.setArg(0, occupied);
     compactKernel.setArg(0, cells);
     compactKernel.setArg(1, occupied);
@@ -260,22 +261,10 @@ void Marching::enqueue(
     generateElementsKernel.setArg(0, vertices);
     generateElementsKernel.setArg(1, indices);
 
-    /** TODO
-     * 1. Call functor on 1st slice
-     * 2. For each slice:
-     *    - call the functor
-     *    - call the cell counting kernel
-     *    - scan the counts
-     *    - read the total number of cells back to the CPU
-     *    - call the compaction kernel
-     *    - add padding cells?
-     *    - call the vertex/index counting kernel
-     *    - scan the vertex/index counts, carrying in value from previous round (if any)
-     *    - call the generation kernel
-     */
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
 
+    // Work group size for kernels that operate on compacted cells
     const std::size_t wgsCompacted = 1; // TODO: not very good at all!
     const std::size_t levelCells = (width - 1) * (height - 1);
     bool haveOffset = false;
