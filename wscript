@@ -143,7 +143,7 @@ def print_unit_tests(bld):
             Logs.pprint(color, err)
 
 def build(bld):
-    bld.read_shlib('clcpp', paths = ['../clcpp/build'])
+    bld.read_stlib('clcpp', paths = ['../clcpp/build'])
     bld(
             name = 'CLCPP',
             use = 'clcpp',

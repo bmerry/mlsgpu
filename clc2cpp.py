@@ -11,7 +11,7 @@ def escape(s):
 
 def main(argv):
     if len(argv) < 2:
-        print("Usage: {} <input.cl>... <output.cpp>".format(sys.argv[0]), file = sys.stderr)
+        print("Usage: {0} <input.cl>... <output.cpp>".format(sys.argv[0]), file = sys.stderr)
         return 2
 
     with open(sys.argv[-1], 'w') as outf:
@@ -45,9 +45,9 @@ def main(argv):
             with open(i, 'r') as inf:
                 lines = inf.readlines()
                 lines = [escape(line.rstrip('\n')) for line in lines]
-                print('    g_sources["{}"] ='.format(escape(label)), file = outf)
+                print('    g_sources["{0}"] ='.format(escape(label)), file = outf)
                 for line in lines:
-                    print('        "{}\\n"'.format(line), file = outf)
+                    print('        "{0}\\n"'.format(line), file = outf)
                 print('        ;', file = outf)
         print(dedent('''
             }
