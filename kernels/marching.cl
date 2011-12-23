@@ -164,7 +164,8 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
  * @param      lvertices       Scratch space of @ref NUM_EDGES elements per work item.
  */
 __kernel void generateElements(
-    __global float3 *vertices,
+    __global float4 *vertices,
+    __global ulong *vertexKeys,
     __global uint *indices,
     __global const uint2 * restrict viStart,
     __global const uint2 * restrict cells,
@@ -172,6 +173,7 @@ __kernel void generateElements(
     __read_only image2d_t isoB,
     __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
+    __global const ulong * restrict keyTable,
     uint z,
     float3 scale,
     float3 bias,
@@ -223,12 +225,51 @@ __kernel void generateElements(
     ushort2 start = startTable[code];
     ushort2 end = startTable[code + 1];
 
+    ulong cellKey = ((ulong) cell.z << 43) | ((ulong) cell.y << 22) | ((ulong) cell.x << 1);
+
     for (uint i = 0; i < end.x - start.x; i++)
     {
-        vertices[vNext + i] = lverts[dataTable[start.x + i]];
+        float4 vertex;
+        vertex.xyz = lverts[dataTable[start.x + i]];
+        vertex.w = as_float(vNext + i);
+        vertices[vNext + i] = vertex;
+        vertexKeys[vNext + i] = cellKey + keyTable[start.x + i];
     }
     for (uint i = 0; i < end.y - start.y; i++)
     {
         indices[iNext + i] = vNext + dataTable[start.y + i];
     }
+}
+
+__kernel void countUniqueVertices(__global uint * restrict unique,
+                                  __global const ulong * restrict keys)
+{
+    const uint gid = get_global_id(0);
+    bool last = (gid == get_global_size(0) - 1 || keys[gid] != keys[gid + 1]);
+    unique[gid] = last ? 1 : 0;
+}
+
+__kernel void compactVertices(
+    __global float4 * restrict outVertices,
+    __global uint * restrict indexRemap,
+    __global const uint * restrict unique,
+    __global const float4 * restrict inVertices)
+{
+    const uint gid = get_global_id(0);
+    const uint u = unique[gid];
+    float4 v = inVertices[gid];
+    if (u != unique[gid + 1])
+    {
+        outVertices[u] = v;
+    }
+    uint originalIndex = as_uint(v.w);
+    indexRemap[originalIndex] = u;
+}
+
+__kernel void reindex(
+    __global uint *indices,
+    __global const uint * restrict indexRemap)
+{
+    const uint gid = get_global_id(0);
+    indices[gid] = indexRemap[indices[gid]];
 }
