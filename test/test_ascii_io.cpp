@@ -117,7 +117,7 @@ void TestStringToNumber::testInt32()
 void TestStringToNumber::testUint32()
 {
     CPPUNIT_ASSERT_EQUAL(uint32_t(0), stringToNumber<uint32_t>("0"));
-    CPPUNIT_ASSERT_EQUAL(uint32_t(4294967295), stringToNumber<uint32_t>("4294967295"));
+    CPPUNIT_ASSERT_EQUAL(uint32_t(4294967295U), stringToNumber<uint32_t>("4294967295"));
     CPPUNIT_ASSERT_EQUAL(uint32_t(1000000000), stringToNumber<uint32_t>("01000000000"));
     CPPUNIT_ASSERT_THROW(stringToNumber<uint32_t>(""), bad_lexical_cast);
     CPPUNIT_ASSERT_THROW(stringToNumber<uint32_t>("4294967296"), bad_lexical_cast);
@@ -251,7 +251,7 @@ void TestNumberToString::testInt32()
 void TestNumberToString::testUint32()
 {
     CPPUNIT_ASSERT_EQUAL(string("0"), numberToString(uint32_t(0)));
-    CPPUNIT_ASSERT_EQUAL(string("4294967295"), numberToString(uint32_t(4294967295)));
+    CPPUNIT_ASSERT_EQUAL(string("4294967295"), numberToString(uint32_t(4294967295U)));
 }
 
 void TestNumberToString::testInt64()
