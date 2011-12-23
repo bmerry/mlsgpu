@@ -93,6 +93,20 @@ private:
      * two adjacent elements of @ref countTable.
      */
     cl::Buffer dataTable;
+    /**
+     * Buffer of ulong values, in ranges indexed by startTable. It contains
+     * biases to be added to the cell key to get a vertex key for each
+     * vertex generated in a cell.
+     *
+     * A vertex key is a 63-bit value with 3 21-bit fields, each of which is
+     * a 20.1 fixed-point representation. The three values (from LSB) give
+     * the x, y, z coordinates of the midpoint of the edge generating the
+     * vertex (in local coordinates). The cell key is simply the vertex
+     * key for the vertex at minimum-x/y/z corner.
+     *
+     * @todo Make the range dynamic to be more friendly to the radix sort.
+     */
+    cl::Buffer keyTable;
 
     /**
      * Buffer of uint2 values, indexed by compacted cell ID. Initially they are
@@ -139,6 +153,7 @@ private:
 
     clcpp::Scan scanOccupied;               ///< Scanner to scan @ref occupied.
     clcpp::Scan scanElements;               ///< Scanner to scan @ref viCount.
+    clcpp::Radixsort sortVertices;
 
     /**
      * Finds the edge incident on vertices v0 and v1.
@@ -224,7 +239,8 @@ public:
      * @param functor        Generates slices of the function (see @ref Functor).
      * @param gridScale      Scale from grid coordinates to world coordinates for vertices.
      * @param gridBias       Bias from grid coordinates to world coordinates for vertices.
-     * @param[out] vertices  Buffer to write the vertices to. It will contain @c cl_float3 values.
+     * @param[out] vertices  Buffer to write the vertices to. It will contain @c cl_float4 values.
+     * @param[out] vertexKeys Buffer to write the vertex keys to. It will contain @c cl_ulong values.
      * @param[out] indices   Buffer to write the indices to. It will contain
      *                       @c cl_uint values indexing @a vertices.
      * @param[out] totals    The number of vertices and indices written to the buffers
@@ -234,7 +250,7 @@ public:
      */
     void enqueue(const cl::CommandQueue &queue, const Functor &functor,
                  const cl_float3 &gridScale, const cl_float3 &gridBias,
-                 cl::Buffer &vertices, cl::Buffer &indices,
+                 cl::Buffer &vertices, cl::Buffer &vertexKeys, cl::Buffer &indices,
                  cl_uint2 *totals,
                  const std::vector<cl::Event> *events = NULL,
                  cl::Event *event = NULL);

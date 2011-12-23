@@ -82,6 +82,7 @@ unsigned int Marching::permutationParity(Iterator first, Iterator last)
 void Marching::makeTables()
 {
     std::vector<cl_uchar> hVertexTable, hIndexTable;
+    std::vector<cl_ulong> hKeyTable;
     std::vector<cl_uchar2> hCountTable(NUM_CUBES);
     std::vector<cl_ushort2> hStartTable(NUM_CUBES + 1);
     for (unsigned int i = 0; i < NUM_CUBES; i++)
@@ -177,6 +178,15 @@ void Marching::makeTables()
             {
                 edgeCompact[j] = pool++;
                 hVertexTable.push_back(j);
+                cl_ulong key = 0;
+                for (unsigned int axis = 0; axis < 3; axis++)
+                {
+                    cl_ulong offset = 
+                        ((edgeIndices[j][0] >> axis) & 1)
+                        + ((edgeIndices[j][1] >> axis) & 1);
+                    key += offset << (21 * axis);
+                }
+                hKeyTable.push_back(key);
             }
         }
         for (unsigned int j = 0; j < triangles.size(); j++)
@@ -207,13 +217,16 @@ void Marching::makeTables()
                             hStartTable.size() * sizeof(hStartTable[0]), &hStartTable[0]);
     dataTable =  cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                             hVertexTable.size() * sizeof(hVertexTable[0]), &hVertexTable[0]);
+    keyTable =   cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                            hKeyTable.size() * sizeof(hKeyTable[0]), &hKeyTable[0]);
 }
 
 Marching::Marching(const cl::Context &context, const cl::Device &device, size_t width, size_t height, size_t depth)
 :
     width(width), height(height), depth(depth), context(context),
     scanOccupied(context, device, clcpp::TYPE_UINT),
-    scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2))
+    scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2)),
+    sortVertices(context, device, clcpp::TYPE_ULONG, clcpp::Type(clcpp::TYPE_FLOAT, 4))
 {
     MLSGPU_ASSERT(width >= 2, std::invalid_argument);
     MLSGPU_ASSERT(height >= 2, std::invalid_argument);
@@ -245,21 +258,23 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
     countElementsKernel.setArg(0, viCount);
     countElementsKernel.setArg(1, cells);
     countElementsKernel.setArg(4, countTable);
-    generateElementsKernel.setArg(2, viCount);
-    generateElementsKernel.setArg(3, cells);
-    generateElementsKernel.setArg(6, startTable);
-    generateElementsKernel.setArg(7, dataTable);
+    generateElementsKernel.setArg(3, viCount);
+    generateElementsKernel.setArg(4, cells);
+    generateElementsKernel.setArg(7, startTable);
+    generateElementsKernel.setArg(8, dataTable);
+    generateElementsKernel.setArg(9, keyTable);
 }
 
 void Marching::enqueue(
     const cl::CommandQueue &queue, const Functor &functor,
     const cl_float3 &gridScale, const cl_float3 &gridBias,
-    cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
+    cl::Buffer &vertices, cl::Buffer &vertexKeys, cl::Buffer &indices, cl_uint2 *totals,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     generateElementsKernel.setArg(0, vertices);
-    generateElementsKernel.setArg(1, indices);
+    generateElementsKernel.setArg(1, vertexKeys);
+    generateElementsKernel.setArg(2, indices);
 
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
@@ -331,12 +346,12 @@ void Marching::enqueue(
             wait[0] = last; // TODO: generateElementsKernel does not need to wait for this.
             haveOffset = true;
 
-            generateElementsKernel.setArg(4, *images[0]);
-            generateElementsKernel.setArg(5, *images[1]);
-            generateElementsKernel.setArg(8, cl_uint(z));
-            generateElementsKernel.setArg(9, gridScale);
-            generateElementsKernel.setArg(10, gridBias);
-            generateElementsKernel.setArg(11, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(5, *images[0]);
+            generateElementsKernel.setArg(6, *images[1]);
+            generateElementsKernel.setArg(10, cl_uint(z));
+            generateElementsKernel.setArg(11, gridScale);
+            generateElementsKernel.setArg(12, gridBias);
+            generateElementsKernel.setArg(13, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),
@@ -349,14 +364,81 @@ void Marching::enqueue(
     /* Obtain the total number of vertices and indices */
     if (haveOffset)
     {
-        queue.enqueueReadBuffer(offsets, CL_FALSE, 0, sizeof(cl_uint2), totals,
+        // TODO: turn this back into non-blocking once allocation of buffers has
+        // been figured out
+        queue.enqueueReadBuffer(offsets, CL_TRUE, 0, sizeof(cl_uint2), totals,
                                 &wait, &last);
+        wait[0] = last;
     }
     else
     {
         totals->s0 = 0;
         totals->s1 = 0;
     }
+
+    if (totals->s0 > 0)
+    {
+        // TODO: rewrite allocation of these buffers. Definitely should not be on the fly.
+        // TODO: move the sort object into this object
+        // TODO: figure out how many actual bits there are
+        // TODO: revisit the dependency tracking
+        sortVertices.enqueue(queue, vertexKeys, vertices, totals->s0, &wait, &last);
+        wait[0] = last;
+
+        cl::Buffer unique(context, CL_MEM_READ_WRITE, (totals->s0 + 1) * sizeof(cl_uint));
+        cl::Buffer indexRemap(context, CL_MEM_READ_WRITE, totals->s1 * sizeof(cl_uint));
+        cl::Kernel countUniqueVerticesKernel(program, "countUniqueVertices");
+        countUniqueVerticesKernel.setArg(0, unique);
+        countUniqueVerticesKernel.setArg(1, vertexKeys);
+        queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(totals->s0),
+                                   cl::NullRange,
+                                   &wait, &last);
+        wait[0] = last;
+
+        // TODO: rename to scanUint
+        scanOccupied.enqueue(queue, unique, totals->s0 + 1, &wait, &last);
+        wait[0] = last;
+
+        cl_uint numCompacted;
+        queue.enqueueReadBuffer(unique, CL_TRUE, totals->s0 * sizeof(cl_uint), sizeof(cl_uint), &numCompacted, &wait, &last);
+        wait[0] = last;
+        cl::Buffer compacted(context, CL_MEM_READ_WRITE, numCompacted * sizeof(cl_float4));
+
+        // TODO: should we be sorting key/value pairs? The values are going to end up moving
+        // twice, and most of them will be eliminated entirely! However, sorting them does
+        // give later passes better spatial locality and fewer indirections.
+        cl::Kernel compactVerticesKernel(program, "compactVertices");
+        compactVerticesKernel.setArg(0, compacted);
+        compactVerticesKernel.setArg(1, indexRemap);
+        compactVerticesKernel.setArg(2, unique);
+        compactVerticesKernel.setArg(3, vertices);
+        queue.enqueueNDRangeKernel(compactVerticesKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(totals->s0),
+                                   cl::NullRange,
+                                   &wait, &last);
+        wait[0] = last;
+
+        cl::Kernel reindexKernel(program, "reindex");
+        reindexKernel.setArg(0, indices);
+        reindexKernel.setArg(1, indexRemap);
+        queue.enqueueNDRangeKernel(reindexKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(totals->s1),
+                                   cl::NullRange,
+                                   &wait, &last);
+        wait[0] = last;
+
+        // Copy the compacted vertices back to the output buffer
+        // TODO: should be able to eliminate this step using internal buffers
+        queue.enqueueCopyBuffer(compacted, vertices, 0, 0, numCompacted * sizeof(cl_float4),
+                                &wait, &last);
+        wait[0] = last;
+        totals->s0 = numCompacted;
+    }
+
     if (event != NULL)
         *event = last;
 }

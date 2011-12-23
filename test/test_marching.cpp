@@ -153,11 +153,12 @@ void TestMarching::testSphere()
 
     Marching marching(context, device, width, height, depth);
     SphereFunc func(width, height, depth, 30.0, 41.5, 27.75, 25.3);
-    cl::Buffer vertices(context, CL_MEM_WRITE_ONLY, 1000000 * sizeof(cl_float3));
-    cl::Buffer indices(context, CL_MEM_WRITE_ONLY, 1000000 * sizeof(cl_uint));
+    cl::Buffer vertices(context, CL_MEM_READ_WRITE, 1000000 * sizeof(cl_float4));
+    cl::Buffer vertexKeys(context, CL_MEM_READ_WRITE, 1000000 * sizeof(cl_ulong));
+    cl::Buffer indices(context, CL_MEM_READ_WRITE, 1000000 * sizeof(cl_uint));
     cl_uint2 totals;
 
-    marching.enqueue(queue, func, scale, bias, vertices, indices, &totals, NULL, &done);
+    marching.enqueue(queue, func, scale, bias, vertices, vertexKeys, indices, &totals, NULL, &done);
     done.wait();
 
     CPPUNIT_ASSERT(totals.s1 % 3 == 0);

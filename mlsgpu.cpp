@@ -323,22 +323,23 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
     functor.wgs[1] = wgs[1];
 
     Marching marching(context, device, dims[0], dims[1], dims[2]);
-    cl::Buffer vertices(context, CL_MEM_WRITE_ONLY, 10000000 * sizeof(cl_float4));
-    cl::Buffer indices(context, CL_MEM_WRITE_ONLY, 30000000 * sizeof(cl_uint));
+    cl::Buffer vertices(context, CL_MEM_READ_WRITE, 10000000 * sizeof(cl_float4));
+    cl::Buffer vertexKeys(context, CL_MEM_READ_WRITE, 10000000 * sizeof(cl_ulong));
+    cl::Buffer indices(context, CL_MEM_READ_WRITE, 30000000 * sizeof(cl_uint));
     cl_uint2 totals;
 
     {
         Timer timer;
-        marching.enqueue(queue, functor, gridScale3, gridBias3, vertices, indices, &totals,
+        marching.enqueue(queue, functor, gridScale3, gridBias3, vertices, vertexKeys, indices, &totals,
                          NULL, NULL);
         queue.finish();
         cout << "Process: " << timer.getElapsed() << endl;
         cout << "Generated " << totals.s0 << " vertices and " << totals.s1 << " indices\n";
     }
 
-    std::vector<cl_float3> hVertices(totals.s0);
+    std::vector<cl_float4> hVertices(totals.s0);
     std::vector<boost::array<cl_uint, 3> > hIndices(totals.s1 / 3);
-    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, totals.s0 * sizeof(cl_float3), &hVertices[0]);
+    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, totals.s0 * sizeof(cl_float4), &hVertices[0]);
     queue.enqueueReadBuffer(indices, CL_FALSE, 0, totals.s1 * sizeof(cl_uint), &hIndices[0]);
     queue.finish();
 
