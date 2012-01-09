@@ -241,26 +241,35 @@ __kernel void generateElements(
     }
 }
 
-__kernel void countUniqueVertices(__global uint * restrict unique,
+/**
+ * Determines which vertex keys are unique. For a range of equal keys, the @em last
+ * one is given an indicator of 1, while the others get an indicator of 0.
+ *
+ * @param[out] vertexUnique         1 for exactly one instance of each key, 0 elsewhere.
+ * @param      keys                 Vertex keys.
+ *
+ * @pre @a keys must be sorted such that equal keys are adjacent.
+ */
+__kernel void countUniqueVertices(__global uint * restrict vertexUnique,
                                   __global const ulong * restrict keys)
 {
     const uint gid = get_global_id(0);
     bool last = (gid == get_global_size(0) - 1 || keys[gid] != keys[gid + 1]);
-    unique[gid] = last ? 1 : 0;
+    vertexUnique[gid] = last ? 1 : 0;
 }
 
 __kernel void compactVertices(
-    __global float4 * restrict outVertices,
+    __global float3 * restrict outVertices,
     __global uint * restrict indexRemap,
-    __global const uint * restrict unique,
+    __global const uint * restrict vertexUnique,
     __global const float4 * restrict inVertices)
 {
     const uint gid = get_global_id(0);
-    const uint u = unique[gid];
+    const uint u = vertexUnique[gid];
     float4 v = inVertices[gid];
-    if (u != unique[gid + 1])
+    if (u != vertexUnique[gid + 1])
     {
-        outVertices[u] = v;
+        outVertices[u] = v.xyz;
     }
     uint originalIndex = as_uint(v.w);
     indexRemap[originalIndex] = u;

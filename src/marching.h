@@ -135,6 +135,31 @@ private:
     cl::Buffer offsets;
 
     /**
+     * Intermediate unwelded vertices. These are @c cl_float4 values, with the
+     * w component holding a bit-cast of the original index before sorting by key.
+     */
+    cl::Buffer unweldedVertices;
+
+    /**
+     * Sort keys corresponding from @ref unweldedVertices.
+     */
+    cl::Buffer vertexKeys;
+
+    /**
+     * Indicator for whether each unwelded vertex is unique. It is then scanned
+     * to produce a remap table for compacting vertices. It also has one extra
+     * element at the end to allow the total number of welded vertices to be
+     * read back.
+     */
+    cl::Buffer vertexUnique;
+
+    /**
+     * Remapping table used to map unwelded vertex indices to welded vertex
+     * indices. It combines the sorting by key with the compaction.
+     */
+    cl::Buffer indexRemap;
+
+    /**
      * The images holding two slices of the signed distance function.
      */
     cl::Image2D backingImages[2];
@@ -150,10 +175,13 @@ private:
     cl::Kernel compactKernel;               ///< Kernel compiled from @ref compact.
     cl::Kernel countElementsKernel;         ///< Kernel compiled from @ref countElements.
     cl::Kernel generateElementsKernel;      ///< Kernel compiled from @ref generateElements.
+    cl::Kernel countUniqueVerticesKernel;   ///< Kernel compiled from @ref countUniqueVertices.
+    cl::Kernel compactVerticesKernel;       ///< Kernel compiled from @ref compactVerticesKernel.
+    cl::Kernel reindexKernel;               ///< Kernel compiled from @ref reindexKernel.
 
-    clcpp::Scan scanOccupied;               ///< Scanner to scan @ref occupied.
+    clcpp::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
     clcpp::Scan scanElements;               ///< Scanner to scan @ref viCount.
-    clcpp::Radixsort sortVertices;
+    clcpp::Radixsort sortVertices;          ///< Sorts vertices by keys for welding.
 
     /**
      * Finds the edge incident on vertices v0 and v1.
@@ -230,8 +258,8 @@ public:
      * as a dependency etc).
      *
      * At present there is no protection against buffer overrun. You are
-     * responsible for passing in @a vertices and @a indices that are large
-     * enough to hold the result.
+     * responsible for passing in @a vertices and @a indices
+     * that are large enough to hold the result.
      *
      * @see @ref MAX_CELL_VERTICES, @ref MAX_CELL_INDICES.
      *
@@ -239,8 +267,7 @@ public:
      * @param functor        Generates slices of the function (see @ref Functor).
      * @param gridScale      Scale from grid coordinates to world coordinates for vertices.
      * @param gridBias       Bias from grid coordinates to world coordinates for vertices.
-     * @param[out] vertices  Buffer to write the vertices to. It will contain @c cl_float4 values.
-     * @param[out] vertexKeys Buffer to write the vertex keys to. It will contain @c cl_ulong values.
+     * @param[out] vertices  Buffer to write the vertices to. It will contain @c cl_float3 values.
      * @param[out] indices   Buffer to write the indices to. It will contain
      *                       @c cl_uint values indexing @a vertices.
      * @param[out] totals    The number of vertices and indices written to the buffers
@@ -250,7 +277,7 @@ public:
      */
     void enqueue(const cl::CommandQueue &queue, const Functor &functor,
                  const cl_float3 &gridScale, const cl_float3 &gridBias,
-                 cl::Buffer &vertices, cl::Buffer &vertexKeys, cl::Buffer &indices,
+                 cl::Buffer &vertices, cl::Buffer &indices,
                  cl_uint2 *totals,
                  const std::vector<cl::Event> *events = NULL,
                  cl::Event *event = NULL);

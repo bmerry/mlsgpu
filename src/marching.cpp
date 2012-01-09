@@ -224,7 +224,7 @@ void Marching::makeTables()
 Marching::Marching(const cl::Context &context, const cl::Device &device, size_t width, size_t height, size_t depth)
 :
     width(width), height(height), depth(depth), context(context),
-    scanOccupied(context, device, clcpp::TYPE_UINT),
+    scanUint(context, device, clcpp::TYPE_UINT),
     scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2)),
     sortVertices(context, device, clcpp::TYPE_ULONG, clcpp::Type(clcpp::TYPE_FLOAT, 4))
 {
@@ -239,41 +239,61 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
         images[i] = &backingImages[i];
     }
 
-    const std::size_t numCells = (width - 1) * (height - 1);
-    cells = cl::Buffer(context, CL_MEM_READ_WRITE, numCells * sizeof(cl_uint2));
-    occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells + 1) * sizeof(cl_uint));
-    viCount = cl::Buffer(context, CL_MEM_READ_WRITE, numCells * sizeof(cl_uint2));
+    const std::size_t sliceCells = (width - 1) * (height - 1);
+    const std::size_t numCells = sliceCells * (depth - 1);
+    cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
+    occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
+    viCount = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
     offsets = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint2));
+    vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES + 1) * sizeof(cl_uint));
+    indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES) * sizeof(cl_uint));
+    unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES) * sizeof(cl_float4));
+    vertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES) * sizeof(cl_ulong));
 
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");
     compactKernel = cl::Kernel(program, "compact");
     countElementsKernel = cl::Kernel(program, "countElements");
     generateElementsKernel = cl::Kernel(program, "generateElements");
+    countUniqueVerticesKernel = cl::Kernel(program, "countUniqueVertices");
+    compactVerticesKernel = cl::Kernel(program, "compactVertices");
+    reindexKernel = cl::Kernel(program, "reindex");
 
     // Set up kernel arguments that never change.
     countOccupiedKernel.setArg(0, occupied);
+
     compactKernel.setArg(0, cells);
     compactKernel.setArg(1, occupied);
+
     countElementsKernel.setArg(0, viCount);
     countElementsKernel.setArg(1, cells);
     countElementsKernel.setArg(4, countTable);
+
+    generateElementsKernel.setArg(0, unweldedVertices);
+    generateElementsKernel.setArg(1, vertexKeys);
     generateElementsKernel.setArg(3, viCount);
     generateElementsKernel.setArg(4, cells);
     generateElementsKernel.setArg(7, startTable);
     generateElementsKernel.setArg(8, dataTable);
     generateElementsKernel.setArg(9, keyTable);
+
+    countUniqueVerticesKernel.setArg(0, vertexUnique);
+    countUniqueVerticesKernel.setArg(1, vertexKeys);
+
+    compactVerticesKernel.setArg(1, indexRemap);
+    compactVerticesKernel.setArg(2, vertexUnique);
+    compactVerticesKernel.setArg(3, unweldedVertices);
+
+    reindexKernel.setArg(1, indexRemap);
 }
 
 void Marching::enqueue(
     const cl::CommandQueue &queue, const Functor &functor,
     const cl_float3 &gridScale, const cl_float3 &gridBias,
-    cl::Buffer &vertices, cl::Buffer &vertexKeys, cl::Buffer &indices, cl_uint2 *totals,
+    cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    generateElementsKernel.setArg(0, vertices);
-    generateElementsKernel.setArg(1, vertexKeys);
     generateElementsKernel.setArg(2, indices);
 
     std::vector<cl::Event> wait(1);
@@ -299,7 +319,7 @@ void Marching::enqueue(
                                    cl::NullRange,
                                    &wait, &last);
         wait[0] = last;
-        scanOccupied.enqueue(queue, occupied, levelCells + 1, &wait, &last);
+        scanUint.enqueue(queue, occupied, levelCells + 1, &wait, &last);
         wait[0] = last;
         cl_uint compacted;
         queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint), &compacted,
@@ -378,18 +398,11 @@ void Marching::enqueue(
 
     if (totals->s0 > 0)
     {
-        // TODO: rewrite allocation of these buffers. Definitely should not be on the fly.
-        // TODO: move the sort object into this object
         // TODO: figure out how many actual bits there are
         // TODO: revisit the dependency tracking
-        sortVertices.enqueue(queue, vertexKeys, vertices, totals->s0, &wait, &last);
+        sortVertices.enqueue(queue, vertexKeys, unweldedVertices, totals->s0, &wait, &last);
         wait[0] = last;
 
-        cl::Buffer unique(context, CL_MEM_READ_WRITE, (totals->s0 + 1) * sizeof(cl_uint));
-        cl::Buffer indexRemap(context, CL_MEM_READ_WRITE, totals->s1 * sizeof(cl_uint));
-        cl::Kernel countUniqueVerticesKernel(program, "countUniqueVertices");
-        countUniqueVerticesKernel.setArg(0, unique);
-        countUniqueVerticesKernel.setArg(1, vertexKeys);
         queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
                                    cl::NullRange,
                                    cl::NDRange(totals->s0),
@@ -397,23 +410,18 @@ void Marching::enqueue(
                                    &wait, &last);
         wait[0] = last;
 
-        // TODO: rename to scanUint
-        scanOccupied.enqueue(queue, unique, totals->s0 + 1, &wait, &last);
+        scanUint.enqueue(queue, vertexUnique, totals->s0 + 1, &wait, &last);
         wait[0] = last;
 
-        cl_uint numCompacted;
-        queue.enqueueReadBuffer(unique, CL_TRUE, totals->s0 * sizeof(cl_uint), sizeof(cl_uint), &numCompacted, &wait, &last);
-        wait[0] = last;
-        cl::Buffer compacted(context, CL_MEM_READ_WRITE, numCompacted * sizeof(cl_float4));
+        // Start this readback - but we don't immediately need the result.
+        cl_uint numWelded;
+        cl::Event weldedEvent;
+        queue.enqueueReadBuffer(vertexUnique, CL_FALSE, totals->s0 * sizeof(cl_uint), sizeof(cl_uint), &numWelded, &wait, &weldedEvent);
 
         // TODO: should we be sorting key/value pairs? The values are going to end up moving
         // twice, and most of them will be eliminated entirely! However, sorting them does
         // give later passes better spatial locality and fewer indirections.
-        cl::Kernel compactVerticesKernel(program, "compactVertices");
-        compactVerticesKernel.setArg(0, compacted);
-        compactVerticesKernel.setArg(1, indexRemap);
-        compactVerticesKernel.setArg(2, unique);
-        compactVerticesKernel.setArg(3, vertices);
+        compactVerticesKernel.setArg(0, vertices);
         queue.enqueueNDRangeKernel(compactVerticesKernel,
                                    cl::NullRange,
                                    cl::NDRange(totals->s0),
@@ -421,9 +429,7 @@ void Marching::enqueue(
                                    &wait, &last);
         wait[0] = last;
 
-        cl::Kernel reindexKernel(program, "reindex");
         reindexKernel.setArg(0, indices);
-        reindexKernel.setArg(1, indexRemap);
         queue.enqueueNDRangeKernel(reindexKernel,
                                    cl::NullRange,
                                    cl::NDRange(totals->s1),
@@ -431,12 +437,9 @@ void Marching::enqueue(
                                    &wait, &last);
         wait[0] = last;
 
-        // Copy the compacted vertices back to the output buffer
-        // TODO: should be able to eliminate this step using internal buffers
-        queue.enqueueCopyBuffer(compacted, vertices, 0, 0, numCompacted * sizeof(cl_float4),
-                                &wait, &last);
-        wait[0] = last;
-        totals->s0 = numCompacted;
+        queue.flush();
+        weldedEvent.wait();
+        totals->s0 = numWelded;
     }
 
     if (event != NULL)
