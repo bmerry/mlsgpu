@@ -26,6 +26,7 @@ class TestGrid : public CppUnit::TestFixture
     CPPUNIT_TEST(testNumVertices);
     CPPUNIT_TEST(testGetVertex);
     CPPUNIT_TEST(testWorldToVertex);
+    CPPUNIT_TEST(testSubGrid);
     CPPUNIT_TEST_SUITE_END();
 private:
     float ref[3];
@@ -43,6 +44,7 @@ public:
     void testNumVertices();
     void testGetVertex();
     void testWorldToVertex();
+    void testSubGrid();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestGrid, TestSet::perBuild());
 
@@ -151,4 +153,19 @@ void TestGrid::testWorldToVertex()
     CPPUNIT_ASSERT_DOUBLES_EQUAL(49.0 / 11.0, test[0], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(-79.0 / 13.0, test[1], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(1001.5, test[2], 1e-6);
+}
+
+void TestGrid::testSubGrid()
+{
+    Grid g = grid.subGrid(3, 7, 10, 15, -5, -5);
+
+    float test[3];
+    g.getVertex(0, 0, 0, test);
+    CPPUNIT_ASSERT_EQUAL(-12.25f + 3 * 2.75f, test[0]);
+    CPPUNIT_ASSERT_EQUAL(19.75f + 10 * 3.25f, test[1]);
+    CPPUNIT_ASSERT_EQUAL(1502.25f + -5 * -1.5f, test[2]);
+
+    CPPUNIT_ASSERT_EQUAL(4, g.numCells(0));
+    CPPUNIT_ASSERT_EQUAL(5, g.numCells(1));
+    CPPUNIT_ASSERT_EQUAL(0, g.numCells(2));
 }

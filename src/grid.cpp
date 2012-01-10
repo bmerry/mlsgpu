@@ -111,3 +111,14 @@ int Grid::numCells(int axis) const
     return extents[axis].second - extents[axis].first;
 }
 
+Grid Grid::subGrid(int x0, int x1, int y0, int y1, int z0, int z1) const
+{
+    MLSGPU_ASSERT(x0 <= x1, std::invalid_argument);
+    MLSGPU_ASSERT(y0 <= y1, std::invalid_argument);
+    MLSGPU_ASSERT(z0 <= z1, std::invalid_argument);
+    Grid g = *this;
+    g.extents[0] = std::make_pair(extents[0].first + x0, extents[0].first + x1);
+    g.extents[1] = std::make_pair(extents[1].first + y0, extents[1].first + y1);
+    g.extents[2] = std::make_pair(extents[2].first + z0, extents[2].first + z1);
+    return g;
+}

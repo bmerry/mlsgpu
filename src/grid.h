@@ -102,6 +102,19 @@ public:
      */
     void worldToVertex(const float world[3], float out[3]) const;
 
+    /**
+     * Create a new grid that has the same reference point and spacing
+     * as this one, but different extents. The extents are specified
+     * relative to this grid, so passing 0 and @ref numVertices) for
+     * each dimension would give back the original grid.
+     *
+     * Note that although this is called @c subGrid, you can go outside
+     * the extents of the original grid.
+     *
+     * @pre @a x0 <= @a x1, @a y0 <= @a y1, @a z0 <= @a z1.
+     */
+    Grid subGrid(int x0, int x1, int y0, int y1, int z0, int z1) const;
+
 private:
     float reference[3];              ///< Reference point
     float directions[3][3];          ///< <code>directions[i]</code> is the step along the ith axis
