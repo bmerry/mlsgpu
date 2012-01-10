@@ -177,6 +177,7 @@ __kernel void generateElements(
     uint z,
     float3 scale,
     float3 bias,
+    uint2 offsets,
     __local float3 *lvertices)
 {
     const uint gid = get_global_id(0);
@@ -218,7 +219,7 @@ __kernel void generateElements(
     lverts[18] = INTERP(6, 7);
 
     uint code = makeCode(iso);
-    uint2 viNext = viStart[gid];
+    uint2 viNext = viStart[gid] + offsets;
     uint vNext = viNext.s0;
     uint iNext = viNext.s1;
 
@@ -277,8 +278,9 @@ __kernel void compactVertices(
 
 __kernel void reindex(
     __global uint *indices,
-    __global const uint * restrict indexRemap)
+    __global const uint * restrict indexRemap,
+    uint offset)
 {
     const uint gid = get_global_id(0);
-    indices[gid] = indexRemap[indices[gid]];
+    indices[gid] = indexRemap[indices[gid]] + offset;
 }

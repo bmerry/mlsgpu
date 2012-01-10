@@ -257,6 +257,47 @@ void MlsFunctor::operator()(
                                events, event);
 }
 
+class OutputFunctor
+{
+private:
+    vector<cl_float3> &hVertices;
+    vector<boost::array<cl_uint, 3> > &hIndices;
+
+public:
+    OutputFunctor(vector<cl_float3> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
+        : hVertices(hVertices), hIndices(hIndices) {}
+
+    void operator()(const cl::CommandQueue &queue,
+                    const cl::Buffer &vertices,
+                    const cl::Buffer &indices,
+                    std::size_t numVertices,
+                    std::size_t numIndices,
+                    cl::Event *event) const;
+};
+
+void OutputFunctor::operator()(const cl::CommandQueue &queue,
+                               const cl::Buffer &vertices,
+                               const cl::Buffer &indices,
+                               std::size_t numVertices,
+                               std::size_t numIndices,
+                               cl::Event *event) const
+{
+    cl::Event last;
+    std::vector<cl::Event> wait(1);
+
+    std::size_t oldVertices = hVertices.size();
+    std::size_t oldIndices = hIndices.size();
+    hVertices.resize(oldVertices + numVertices);
+    hIndices.resize(oldIndices + numIndices / 3);
+    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * sizeof(cl_float3), &hVertices[oldVertices],
+                            NULL, &last);
+    wait[0] = last;
+    queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
+                            &wait, &last);
+    if (event != NULL)
+        *event = last;
+}
+
 static void run(const cl::Context &context, const cl::Device &device, streambuf *out, const po::variables_map &vm)
 {
     const size_t wgs[3] = {16, 16, 1};
@@ -313,34 +354,27 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
     mlsKernel.setArg(5, gridBias);
     mlsKernel.setArg(6, 3 * subsampling);
 
-    MlsFunctor functor;
-    functor.mlsKernel = mlsKernel;
-    functor.zScale = gridScale3.s[2];
-    functor.zBias = gridBias3.s[2];
-    functor.dims[0] = dims[0];
-    functor.dims[1] = dims[1];
-    functor.wgs[0] = wgs[0];
-    functor.wgs[1] = wgs[1];
+    MlsFunctor input;
+    input.mlsKernel = mlsKernel;
+    input.zScale = gridScale3.s[2];
+    input.zBias = gridBias3.s[2];
+    input.dims[0] = dims[0];
+    input.dims[1] = dims[1];
+    input.wgs[0] = wgs[0];
+    input.wgs[1] = wgs[1];
 
     Marching marching(context, device, dims[0], dims[1], dims[2]);
-    cl::Buffer vertices(context, CL_MEM_READ_WRITE, 10000000 * sizeof(cl_float3));
-    cl::Buffer indices(context, CL_MEM_READ_WRITE, 30000000 * sizeof(cl_uint));
-    cl_uint2 totals;
+    std::vector<cl_float3> hVertices;
+    std::vector<boost::array<cl_uint, 3> > hIndices;
+    OutputFunctor output(hVertices, hIndices);
 
     {
+        cl_uint2 totals;
         Timer timer;
-        marching.enqueue(queue, functor, gridScale3, gridBias3, vertices, indices, &totals,
-                         NULL, NULL);
-        queue.finish();
+        marching.enqueue(queue, input, output, gridScale3, gridBias3, &totals, NULL);
         cout << "Process: " << timer.getElapsed() << endl;
         cout << "Generated " << totals.s0 << " vertices and " << totals.s1 << " indices\n";
     }
-
-    std::vector<cl_float3> hVertices(totals.s0);
-    std::vector<boost::array<cl_uint, 3> > hIndices(totals.s1 / 3);
-    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, totals.s0 * sizeof(cl_float3), &hVertices[0]);
-    queue.enqueueReadBuffer(indices, CL_FALSE, 0, totals.s1 * sizeof(cl_uint), &hIndices[0]);
-    queue.finish();
 
     PLY::Writer writer(PLY::FILE_FORMAT_LITTLE_ENDIAN, out);
     writer.addElement(PLY::makeElementRangeWriter(

@@ -132,6 +132,40 @@ void TestMarching::testConstructor()
     }
 }
 
+class OutputFunctor
+{
+private:
+    vector<cl_float3> &hVertices;
+    vector<boost::array<cl_uint, 3> > &hIndices;
+
+public:
+    OutputFunctor(vector<cl_float3> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
+        : hVertices(hVertices), hIndices(hIndices) {}
+
+    void operator()(const cl::CommandQueue &queue,
+                    const cl::Buffer &vertices,
+                    const cl::Buffer &indices,
+                    std::size_t numVertices,
+                    std::size_t numIndices,
+                    cl::Event *event) const
+    {
+        cl::Event last;
+        std::vector<cl::Event> wait(1);
+
+        std::size_t oldVertices = hVertices.size();
+        std::size_t oldIndices = hIndices.size();
+        hVertices.resize(oldVertices + numVertices);
+        hIndices.resize(oldIndices + numIndices / 3);
+        queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * sizeof(cl_float3), &hVertices[oldVertices],
+                                NULL, &last);
+        wait[0] = last;
+        queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
+                                &wait, &last);
+        if (event != NULL)
+            *event = last;
+    }
+};
+
 void TestMarching::testSphere()
 {
     const std::size_t width = 71;
@@ -152,20 +186,17 @@ void TestMarching::testSphere()
     queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 
     Marching marching(context, device, width, height, depth);
-    SphereFunc func(width, height, depth, 30.0, 41.5, 27.75, 25.3);
-    cl::Buffer vertices(context, CL_MEM_READ_WRITE, 1000000 * sizeof(cl_float4));
-    cl::Buffer indices(context, CL_MEM_READ_WRITE, 1000000 * sizeof(cl_uint));
+    SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
     cl_uint2 totals;
 
-    marching.enqueue(queue, func, scale, bias, vertices, indices, &totals, NULL, &done);
-    done.wait();
+    std::vector<cl_float3> hVertices;
+    std::vector<boost::array<cl_uint, 3> > hIndices;
 
-    CPPUNIT_ASSERT(totals.s1 % 3 == 0);
+    OutputFunctor output(hVertices, hIndices);
+    marching.enqueue(queue, input, output, scale, bias, &totals, NULL);
 
-    vector<cl_float3> hVertices(totals.s0);
-    vector<boost::array<cl_uint, 3> > hIndices(totals.s1 / 3);
-    queue.enqueueReadBuffer(vertices, CL_TRUE, 0, totals.s0 * sizeof(cl_float3), &hVertices[0]);
-    queue.enqueueReadBuffer(indices, CL_TRUE, 0, totals.s1 * sizeof(cl_uint), &hIndices[0]);
+    CPPUNIT_ASSERT(totals.s0 == hVertices.size());
+    CPPUNIT_ASSERT(totals.s1 == hIndices.size() * 3);
 
     std::filebuf out;
     out.open("sphere.ply", ios::out | ios::binary);

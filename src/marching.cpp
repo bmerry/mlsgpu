@@ -240,15 +240,18 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
     }
 
     const std::size_t sliceCells = (width - 1) * (height - 1);
-    const std::size_t numCells = sliceCells * (depth - 1);
+    vertexSpace = sliceCells * MAX_CELL_VERTICES * 2;
+    indexSpace = sliceCells * MAX_CELL_INDICES * 2;
+
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
     occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
-    offsets = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint2));
-    vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES + 1) * sizeof(cl_uint));
-    indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES) * sizeof(cl_uint));
-    unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES) * sizeof(cl_float4));
-    vertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (numCells * MAX_CELL_VERTICES) * sizeof(cl_ulong));
+    vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
+    indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
+    unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
+    vertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
+    vertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_float3));
+    indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
 
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");
@@ -271,6 +274,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, vertexKeys);
+    generateElementsKernel.setArg(2, indices);
     generateElementsKernel.setArg(3, viCount);
     generateElementsKernel.setArg(4, cells);
     generateElementsKernel.setArg(7, startTable);
@@ -280,168 +284,210 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
     countUniqueVerticesKernel.setArg(0, vertexUnique);
     countUniqueVerticesKernel.setArg(1, vertexKeys);
 
+    compactVerticesKernel.setArg(0, vertices);
     compactVerticesKernel.setArg(1, indexRemap);
     compactVerticesKernel.setArg(2, vertexUnique);
     compactVerticesKernel.setArg(3, unweldedVertices);
 
+    reindexKernel.setArg(0, indices);
     reindexKernel.setArg(1, indexRemap);
 }
 
-void Marching::enqueue(
-    const cl::CommandQueue &queue, const Functor &functor,
-    const cl_float3 &gridScale, const cl_float3 &gridBias,
-    cl::Buffer &vertices, cl::Buffer &indices, cl_uint2 *totals,
-    const std::vector<cl::Event> *events,
-    cl::Event *event)
+std::size_t Marching::generateCells(const cl::CommandQueue &queue,
+                                    const std::vector<cl::Event> *events)
 {
-    generateElementsKernel.setArg(2, indices);
+    cl::Event last;
+    const std::size_t levelCells = (width - 1) * (height - 1);
+
+    countOccupiedKernel.setArg(1, *images[0]);
+    countOccupiedKernel.setArg(2, *images[1]);
+    queue.enqueueNDRangeKernel(countOccupiedKernel,
+                               cl::NullRange,
+                               cl::NDRange(width - 1, height - 1),
+                               cl::NullRange,
+                               events, &last);
+
+    std::vector<cl::Event> wait(1);
+    wait[0] = last;
+    scanUint.enqueue(queue, occupied, levelCells + 1, &wait, &last);
+    wait[0] = last;
+
+    cl_uint compacted;
+    queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint), &compacted,
+                            &wait, NULL);
+
+    // In parallel to the readback, do compaction
+    queue.enqueueNDRangeKernel(compactKernel,
+                               cl::NullRange,
+                               cl::NDRange(width - 1, height - 1),
+                               cl::NullRange,
+                               &wait, NULL);
+
+    // Now obtain the number of compacted cells for subsequent steps
+    queue.finish();
+    return compacted;
+}
+
+cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
+                                 std::size_t compacted,
+                                 const std::vector<cl::Event> *events)
+{
+    cl::Event last;
+    std::vector<cl::Event> wait(1);
+
+    countElementsKernel.setArg(2, *images[0]);
+    countElementsKernel.setArg(3, *images[1]);
+    queue.enqueueNDRangeKernel(countElementsKernel,
+                               cl::NullRange,
+                               cl::NDRange(compacted),
+                               cl::NullRange,
+                               events, &last);
+    wait[0] = last;
+
+    scanElements.enqueue(queue, viCount, compacted + 1, &wait, &last);
+    wait[0] = last;
+
+    cl_uint2 ans;
+    queue.enqueueReadBuffer(viCount, CL_TRUE, compacted * sizeof(cl_uint2), sizeof(cl_uint2),
+                            &ans, &wait, NULL);
+    return ans;
+}
+
+std::size_t Marching::shipOut(const cl::CommandQueue &queue,
+                              const cl_uint2 &prevTotals,
+                              const cl_uint2 &sizes,
+                              const OutputFunctor &output,
+                              const std::vector<cl::Event> *events,
+                              cl::Event *event)
+{
+    assert(sizes.s0 > 0);
+
+    std::vector<cl::Event> wait(1);
+    cl::Event last;
+
+    // TODO: figure out how many actual bits there are
+    // TODO: revisit the dependency tracking
+    sortVertices.enqueue(queue, vertexKeys, unweldedVertices, sizes.s0, events, &last);
+    wait[0] = last;
+
+    queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
+                               cl::NullRange,
+                               cl::NDRange(sizes.s0),
+                               cl::NullRange,
+                               &wait, &last);
+    wait[0] = last;
+
+    scanUint.enqueue(queue, vertexUnique, sizes.s0 + 1, &wait, &last);
+    wait[0] = last;
+
+    // Start this readback - but we don't immediately need the result.
+    cl_uint numWelded;
+    queue.enqueueReadBuffer(vertexUnique, CL_FALSE, sizes.s0 * sizeof(cl_uint), sizeof(cl_uint), &numWelded, &wait, NULL);
+
+    // TODO: should we be sorting key/value pairs? The values are going to end up moving
+    // twice, and most of them will be eliminated entirely! However, sorting them does
+    // give later passes better spatial locality and fewer indirections.
+    queue.enqueueNDRangeKernel(compactVerticesKernel,
+                               cl::NullRange,
+                               cl::NDRange(sizes.s0),
+                               cl::NullRange,
+                               &wait, &last);
+    wait[0] = last;
+
+    reindexKernel.setArg(2, prevTotals.s0);
+    queue.enqueueNDRangeKernel(reindexKernel,
+                               cl::NullRange,
+                               cl::NDRange(sizes.s1),
+                               cl::NullRange,
+                               &wait, &last);
+    queue.finish(); // wait for readback of numWelded
+
+    output(queue, vertices, indices, numWelded, sizes.s1, &last);
+    if (event != NULL)
+        *event = last;
+    return numWelded;
+}
+
+void Marching::enqueue(
+    const cl::CommandQueue &queue,
+    const InputFunctor &input,
+    const OutputFunctor &output,
+    const cl_float3 &gridScale, const cl_float3 &gridBias,
+    cl_uint2 *totals,
+    const std::vector<cl::Event> *events)
+{
+    // Work group size for kernels that operate on compacted cells
+    const std::size_t wgsCompacted = 1; // TODO: not very good at all!
 
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
 
-    // Work group size for kernels that operate on compacted cells
-    const std::size_t wgsCompacted = 1; // TODO: not very good at all!
-    const std::size_t levelCells = (width - 1) * (height - 1);
-    bool haveOffset = false;
+    cl_uint2 offsets = { {0, 0} };
+    totals->s0 = 0;
+    totals->s1 = 0;
 
-    functor(queue, *images[1], 0, events, &last); wait[0] = last;
+    input(queue, *images[1], 0, events, &last);
+    wait[0] = last;
 
     for (std::size_t z = 1; z < depth; z++)
     {
         std::swap(images[0], images[1]);
-        functor(queue, *images[1], z, &wait, &last); wait[0] = last;
-
-        countOccupiedKernel.setArg(1, *images[0]);
-        countOccupiedKernel.setArg(2, *images[1]);
-        queue.enqueueNDRangeKernel(countOccupiedKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(width - 1, height - 1),
-                                   cl::NullRange,
-                                   &wait, &last);
-        wait[0] = last;
-        scanUint.enqueue(queue, occupied, levelCells + 1, &wait, &last);
-        wait[0] = last;
-        cl_uint compacted;
-        queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint), &compacted,
-                                &wait, &readEvent);
-
-        // In parallel to the readback, do compaction
-        queue.enqueueNDRangeKernel(compactKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(width - 1, height - 1),
-                                   cl::NullRange,
-                                   &wait, &last);
+        input(queue, *images[1], z, &wait, &last);
+        wait.resize(1);
         wait[0] = last;
 
-        // Now obtain the number of compacted cells for subsequent steps
-        queue.flush();
-        readEvent.wait();
-
+        std::size_t compacted = generateCells(queue, &wait);
+        wait.clear();
         if (compacted > 0)
         {
-            countElementsKernel.setArg(2, *images[0]);
-            countElementsKernel.setArg(3, *images[1]);
-            queue.enqueueNDRangeKernel(countElementsKernel,
-                                       cl::NullRange,
-                                       cl::NDRange(compacted),
-                                       cl::NDRange(wgsCompacted),
-                                       &wait, &last);
-            wait[0] = last;
-
-            if (haveOffset)
+            cl_uint2 counts = countElements(queue, compacted, events);
+            if (offsets.s0 + counts.s0 > vertexSpace
+                || offsets.s1 + counts.s1 > indexSpace)
             {
-                scanElements.enqueue(queue, viCount, compacted + 1, offsets, 0, &wait, &last);
-            }
-            else
-            {
-                scanElements.enqueue(queue, viCount, compacted + 1, &wait, &last);
-            }
-            wait[0] = last;
+                /* Too much information in this layer to just append. Ship out
+                 * what we have before processing this layer.
+                 */
+                std::size_t numWelded = shipOut(queue, *totals, offsets, output, &wait, &last);
+                wait.resize(1);
+                wait[0] = last;
 
-            /* Copy the past-the-end indices to the offsets memory, so that it does not
-             * get overwritten later.
-             */
-            queue.enqueueCopyBuffer(viCount, offsets, compacted * sizeof(cl_uint2), 0, sizeof(cl_uint2),
-                                    &wait, &last);
-            wait[0] = last; // TODO: generateElementsKernel does not need to wait for this.
-            haveOffset = true;
+                totals->s0 += numWelded;
+                totals->s1 += offsets.s1;
+                offsets.s0 = 0;
+                offsets.s1 = 0;
+
+                /* We'd better have enough room to process one layer at a time.
+                 */
+                assert(counts.s0 <= vertexSpace);
+                assert(counts.s1 <= indexSpace);
+            }
 
             generateElementsKernel.setArg(5, *images[0]);
             generateElementsKernel.setArg(6, *images[1]);
             generateElementsKernel.setArg(10, cl_uint(z));
             generateElementsKernel.setArg(11, gridScale);
             generateElementsKernel.setArg(12, gridBias);
-            generateElementsKernel.setArg(13, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(13, offsets);
+            generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),
                                        cl::NDRange(wgsCompacted),
                                        &wait, &last);
+            wait.resize(1);
             wait[0] = last;
+
+            offsets.s0 += counts.s0;
+            offsets.s1 += counts.s1;
         }
     }
-
-    /* Obtain the total number of vertices and indices */
-    if (haveOffset)
+    if (offsets.s0 > 0)
     {
-        // TODO: turn this back into non-blocking once allocation of buffers has
-        // been figured out
-        queue.enqueueReadBuffer(offsets, CL_TRUE, 0, sizeof(cl_uint2), totals,
-                                &wait, &last);
+        std::size_t numWelded = shipOut(queue, *totals, offsets, output, &wait, &last);
+        wait.resize(1);
         wait[0] = last;
+        totals->s0 += numWelded;
+        totals->s1 += offsets.s1;
     }
-    else
-    {
-        totals->s0 = 0;
-        totals->s1 = 0;
-    }
-
-    if (totals->s0 > 0)
-    {
-        // TODO: figure out how many actual bits there are
-        // TODO: revisit the dependency tracking
-        sortVertices.enqueue(queue, vertexKeys, unweldedVertices, totals->s0, &wait, &last);
-        wait[0] = last;
-
-        queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(totals->s0),
-                                   cl::NullRange,
-                                   &wait, &last);
-        wait[0] = last;
-
-        scanUint.enqueue(queue, vertexUnique, totals->s0 + 1, &wait, &last);
-        wait[0] = last;
-
-        // Start this readback - but we don't immediately need the result.
-        cl_uint numWelded;
-        cl::Event weldedEvent;
-        queue.enqueueReadBuffer(vertexUnique, CL_FALSE, totals->s0 * sizeof(cl_uint), sizeof(cl_uint), &numWelded, &wait, &weldedEvent);
-
-        // TODO: should we be sorting key/value pairs? The values are going to end up moving
-        // twice, and most of them will be eliminated entirely! However, sorting them does
-        // give later passes better spatial locality and fewer indirections.
-        compactVerticesKernel.setArg(0, vertices);
-        queue.enqueueNDRangeKernel(compactVerticesKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(totals->s0),
-                                   cl::NullRange,
-                                   &wait, &last);
-        wait[0] = last;
-
-        reindexKernel.setArg(0, indices);
-        queue.enqueueNDRangeKernel(reindexKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(totals->s1),
-                                   cl::NullRange,
-                                   &wait, &last);
-        wait[0] = last;
-
-        queue.flush();
-        weldedEvent.wait();
-        totals->s0 = numWelded;
-    }
-
-    if (event != NULL)
-        *event = last;
+    queue.finish(); // will normally be finished already, but there may be corner cases
 }

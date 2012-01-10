@@ -72,6 +72,11 @@ private:
      */
     std::size_t width, height, depth;
 
+    /**
+     * Space allocated to hold intermediate vertices and indices.
+     */
+    std::size_t vertexSpace, indexSpace;
+
     cl::Context context;   ///< OpenCL context used to allocate buffers
 
     /**
@@ -129,16 +134,23 @@ private:
     cl::Buffer occupied;
 
     /**
-     * A buffer of one uint2 value, containing the position to start writing more
-     * vertices and indices.
-     */
-    cl::Buffer offsets;
-
-    /**
      * Intermediate unwelded vertices. These are @c cl_float4 values, with the
      * w component holding a bit-cast of the original index before sorting by key.
      */
     cl::Buffer unweldedVertices;
+
+    /**
+     * Welded vertices. These are @c float3 values.
+     */
+    cl::Buffer vertices;
+
+    /**
+     * Indices. Before welding, these are local (0-based) and index the @ref unweldedVertices
+     * array. During welding, these are rewritten to refer to welded vertices, and are
+     * offset by the number of vertices previously shipped out so that they index the
+     * virtual array of all emitted vertices.
+     */
+    cl::Buffer indices;
 
     /**
      * Sort keys corresponding from @ref unweldedVertices.
@@ -211,7 +223,7 @@ private:
 
 public:
     /**
-     * The function type to pass to @ref enqueue.
+     * The function type to pass to @ref enqueue for sampling the isofunction.
      * An invocation of this function must enqueue commands to generate
      * one slice of the sampling grid to the provided command queue (which
      * is the same one passed to @ref enqueue). The @a z value will range
@@ -229,7 +241,33 @@ public:
      * However, it is not guaranteed that the commands enqueued by one call to the
      * functor will complete before the next host call to the functor.
      */
-    typedef boost::function<void(const cl::CommandQueue &, const cl::Image2D &, cl_uint z, const std::vector<cl::Event> *, cl::Event *)> Functor;
+    typedef boost::function<void(const cl::CommandQueue &, const cl::Image2D &, cl_uint z, const std::vector<cl::Event> *, cl::Event *)> InputFunctor;
+
+    /**
+     * The function type to pass to @ref enqueue for receiving output data.
+     * When invoked, this function must enqueue commands to retrieve the data
+     * from the supplied buffers. It must return an event that will be signaled
+     * when it is safe for the caller to overwrite the supplied buffers (if it
+     * operates synchronously, it should just return an already-signaled user
+     * event).
+     *
+     * Calls to this function are serialized, but the work that it enqueues may
+     * proceed in parallel.
+     *
+     * The command-queue is provided for convenience. If the event returned is
+     * not associated with the same command-queue, the callee is responsible for
+     * ensuring that the work completes within finite time.
+     *
+     * The vertices and indices returned will correspond, but the indices will
+     * be suitably offset so that they index the concatenation of all the vertices
+     * passed to the callback.
+     */
+    typedef boost::function<void(const cl::CommandQueue &,
+                                 const cl::Buffer &vertices,
+                                 const cl::Buffer &indices,
+                                 std::size_t numVertices,
+                                 std::size_t numIndices,
+                                 cl::Event *event)> OutputFunctor;
 
     /**
      * Constructor. Note that it must be possible to allocate an OpenCL 2D image of
@@ -257,30 +295,41 @@ public:
      * command queue barrier, in-order queue, passing the previous event in
      * as a dependency etc).
      *
-     * At present there is no protection against buffer overrun. You are
-     * responsible for passing in @a vertices and @a indices
-     * that are large enough to hold the result.
-     *
-     * @see @ref MAX_CELL_VERTICES, @ref MAX_CELL_INDICES.
+     * @note Because this function needs to read back intermediate results
+     * before enqueuing more work, this is not purely an enqueuing operation.
+     * It will block until some (in fact, most) of the work has completed. To
+     * hide latency, it is necessary to have something happening on another CPU
+     * thread.
      *
      * @param queue          Command queue to enqueue the work to.
-     * @param functor        Generates slices of the function (see @ref Functor).
+     * @param input          Generates slices of the function (see @ref InputFunctor).
+     * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param gridScale      Scale from grid coordinates to world coordinates for vertices.
      * @param gridBias       Bias from grid coordinates to world coordinates for vertices.
-     * @param[out] vertices  Buffer to write the vertices to. It will contain @c cl_float3 values.
-     * @param[out] indices   Buffer to write the indices to. It will contain
-     *                       @c cl_uint values indexing @a vertices.
-     * @param[out] totals    The number of vertices and indices written to the buffers
-     *                       (only valid once the queued work has completed!)
+     * @param[out] totals    The number of vertices and indices written to the buffers.
      * @param events         Previous events to wait for (can be @c NULL).
-     * @param[out] event     Event that will fire when work is complete (can be @c NULL).
      */
-    void enqueue(const cl::CommandQueue &queue, const Functor &functor,
+    void enqueue(const cl::CommandQueue &queue,
+                 const InputFunctor &input,
+                 const OutputFunctor &output,
                  const cl_float3 &gridScale, const cl_float3 &gridBias,
-                 cl::Buffer &vertices, cl::Buffer &indices,
                  cl_uint2 *totals,
-                 const std::vector<cl::Event> *events = NULL,
-                 cl::Event *event = NULL);
+                 const std::vector<cl::Event> *events = NULL);
+
+private:
+    std::size_t generateCells(const cl::CommandQueue &queue,
+                              const std::vector<cl::Event> *events);
+
+    cl_uint2 countElements(const cl::CommandQueue &queue,
+                           std::size_t compacted,
+                           const std::vector<cl::Event> *events);
+
+    std::size_t shipOut(const cl::CommandQueue &queue,
+                        const cl_uint2 &prevTotals,
+                        const cl_uint2 &sizes,
+                        const OutputFunctor &output,
+                        const std::vector<cl::Event> *events,
+                        cl::Event *event);
 };
 
 #endif /* !MARCHING_H */
