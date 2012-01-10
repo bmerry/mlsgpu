@@ -302,6 +302,8 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
 {
     const size_t wgs[3] = {16, 16, 1};
     const unsigned int subsampling = 2;
+    const unsigned int maxLevels = 8;
+    const unsigned int maxBlock = 1U << (maxLevels + subsampling - 1);
 
     float spacing = vm[Option::fitGrid].as<double>();
     float smooth = vm[Option::fitSmooth].as<double>();
@@ -321,14 +323,8 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
     cout << "Octree cells: " << dims[0] << " x " << dims[1] << " x " << dims[2] << "\n";
 
     cl::CommandQueue queue(context, device);
-
-    SplatTreeCL tree(context, 9, splats.size());
-    {
-        Timer timer;
-        tree.enqueueBuild(queue, &splats[0], splats.size(), grid, subsampling, CL_FALSE);
-        queue.finish();
-        cout << "Build: " << timer.getElapsed() << '\n';
-    }
+    SplatTreeCL tree(context, maxLevels, splats.size());
+    Marching marching(context, device, maxBlock, maxBlock, maxBlock);
 
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
@@ -336,45 +332,61 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
     cl::Program mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
     cl::Kernel mlsKernel(mlsProgram, "processCorners");
 
-    cl_float3 gridScale3, gridBias3;
-    cl_float2 gridScale, gridBias;
-    for (unsigned int i = 0; i < 3; i++)
-        gridScale3.s[i] = grid.getDirection(i)[i];
-    grid.getVertex(0, 0, 0, gridBias3.s);
-    for (unsigned int i = 0; i < 2; i++)
-    {
-        gridScale.s[i] = gridScale3.s[i];
-        gridBias.s[i] = gridBias3.s[i];
-    }
-
-    mlsKernel.setArg(1, tree.getSplats());
-    mlsKernel.setArg(2, tree.getCommands());
-    mlsKernel.setArg(3, tree.getStart());
-    mlsKernel.setArg(4, gridScale);
-    mlsKernel.setArg(5, gridBias);
-    mlsKernel.setArg(6, 3 * subsampling);
-
-    MlsFunctor input;
-    input.mlsKernel = mlsKernel;
-    input.zScale = gridScale3.s[2];
-    input.zBias = gridBias3.s[2];
-    input.dims[0] = dims[0];
-    input.dims[1] = dims[1];
-    input.wgs[0] = wgs[0];
-    input.wgs[1] = wgs[1];
-
-    Marching marching(context, device, dims[0], dims[1], dims[2]);
     std::vector<cl_float3> hVertices;
     std::vector<boost::array<cl_uint, 3> > hIndices;
     OutputFunctor output(hVertices, hIndices);
 
-    {
-        cl_uint2 totals;
-        Timer timer;
-        marching.enqueue(queue, input, output, gridScale3, gridBias3, &totals, NULL);
-        cout << "Process: " << timer.getElapsed() << endl;
-        cout << "Generated " << totals.s0 << " vertices and " << totals.s1 << " indices\n";
-    }
+    cl_float3 gridScale3, gridBias3;
+    cl_float2 gridScale, gridBias;
+    for (unsigned int i = 0; i < 3; i++)
+        gridScale3.s[i] = grid.getDirection(i)[i];
+
+    /* TODO: partition splats */
+    for (unsigned int bz = 0; bz < dims[2]; bz += maxBlock - 1)
+        for (unsigned int by = 0; by < dims[1]; by += maxBlock - 1)
+            for (unsigned int bx = 0; bx < dims[0]; bx += maxBlock - 1)
+            {
+                Grid sub = grid.subGrid(bx, min(bx + maxBlock, dims[0]) - 1,
+                                        by, min(by + maxBlock, dims[1]) - 1,
+                                        bz, min(bz + maxBlock, dims[2]) - 1);
+                {
+                    Timer timer;
+                    tree.enqueueBuild(queue, &splats[0], splats.size(), sub, subsampling, CL_FALSE);
+                    queue.finish();
+                    cout << "Build: " << timer.getElapsed() << '\n';
+                }
+
+                grid.getVertex(0, 0, 0, gridBias3.s);
+                for (unsigned int i = 0; i < 2; i++)
+                {
+                    gridScale.s[i] = gridScale3.s[i];
+                    gridBias.s[i] = gridBias3.s[i];
+                }
+
+                mlsKernel.setArg(1, tree.getSplats());
+                mlsKernel.setArg(2, tree.getCommands());
+                mlsKernel.setArg(3, tree.getStart());
+                mlsKernel.setArg(4, gridScale);
+                mlsKernel.setArg(5, gridBias);
+                mlsKernel.setArg(6, 3 * subsampling);
+
+                MlsFunctor input;
+                input.mlsKernel = mlsKernel;
+                input.zScale = gridScale3.s[2];
+                input.zBias = gridBias3.s[2];
+                input.dims[0] = dims[0];
+                input.dims[1] = dims[1];
+                input.wgs[0] = wgs[0];
+                input.wgs[1] = wgs[1];
+
+                {
+                    cl_uint2 totals;
+                    Timer timer;
+                    marching.enqueue(queue, input, output, gridScale3, gridBias3, &totals, NULL);
+                    cout << "Process: " << timer.getElapsed() << endl;
+                    cout << "Generated " << totals.s0 << " vertices and " << totals.s1 << " indices\n";
+                }
+            }
 
     PLY::Writer writer(PLY::FILE_FORMAT_LITTLE_ENDIAN, out);
     writer.addElement(PLY::makeElementRangeWriter(
