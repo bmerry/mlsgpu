@@ -183,6 +183,7 @@ __kernel void writeEntries(
     radius2 *= 1.00001f;   // be conservative in deciding intersections
     int3 ofs;
     uint levelOffset = levelOffsets[shift];
+    int bound = 1 << (maxShift - shift);
     for (ofs.z = 0; ofs.z < 2; ofs.z++)
         for (ofs.y = 0; ofs.y < 2; ofs.y++)
             for (ofs.x = 0; ofs.x < 2; ofs.x++)
@@ -190,6 +191,9 @@ __kernel void writeEntries(
                 int3 addr = ilo + ofs;
                 uint key = makeCode(addr) + levelOffset;
                 bool isect = goodEntry(addr, shift, positionRadius.xyz, radius2, scale, bias);
+                // Avoid going outside the octree bounds. ilo was already clamped to >= 0 in
+                // prepare so we don't need to worry about the lower bound
+                isect &= all(addr < bound);
                 key = isect ? key : UINT_MAX;
 
                 values[pos] = gid;
@@ -280,7 +284,7 @@ __kernel void writeStart(
     uint code = get_global_id(0);
     uint pos = code + curOffset;
     int jp = jumpPos[pos];
-    uint prev = start[prevOffset + (code >> 3)];
+    int prev = start[prevOffset + (code >> 3)];
     if (jp >= 0)
     {
         commands[jp] = (prev == -1) ? -1 : -2 - prev;
