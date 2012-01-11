@@ -15,6 +15,7 @@
 #include <vector>
 #include <boost/function.hpp>
 #include <clcpp/clcpp.h>
+#include "grid.h"
 
 class TestMarching;
 
@@ -70,10 +71,12 @@ private:
     /**
      * The number of cell corners (not cells) in the grid.
      */
-    std::size_t width, height, depth;
+    std::size_t maxWidth, maxHeight;
 
     /**
      * Space allocated to hold intermediate vertices and indices.
+     *
+     * @todo Make these tunable.
      */
     std::size_t vertexSpace, indexSpace;
 
@@ -280,12 +283,12 @@ public:
      *
      * @param context        OpenCL context used to allocate buffers.
      * @param device         Device for which kernels are to be compiled.
-     * @param width, height, depth Number of cell corners in the sampling grid.
+     * @param maxWidth, maxHeight Maximum X, Y dimensions of the provided sampling grid.
      *
-     * @pre @a width, @a height, @a depth are all at least 2.
+     * @pre @a maxWidth and @a maxHeight are all at least 2.
      */
     Marching(const cl::Context &context, const cl::Device &device,
-             std::size_t width, std::size_t height, std::size_t depth);
+             std::size_t maxWidth, std::size_t maxHeight);
 
     /**
      * Generate an isosurface.
@@ -298,20 +301,23 @@ public:
      * @param queue          Command queue to enqueue the work to.
      * @param input          Generates slices of the function (see @ref InputFunctor).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
-     * @param gridScale      Scale from grid coordinates to world coordinates for vertices.
-     * @param gridBias       Bias from grid coordinates to world coordinates for vertices.
+     * @param grid           Sampling grid.
      * @param indexOffset,   Bias to add to all indices.
      * @param events         Previous events to wait for (can be @c NULL).
+     *
+     * @pre The number of vertices in @a grid must not exceed the dimensions
+     * passed to the constructor.
      */
-    void enqueue(const cl::CommandQueue &queue,
-                 const InputFunctor &input,
-                 const OutputFunctor &output,
-                 const cl_float3 &gridScale, const cl_float3 &gridBias,
-                 std::size_t indexOffset,
-                 const std::vector<cl::Event> *events = NULL);
+    void generate(const cl::CommandQueue &queue,
+                  const InputFunctor &input,
+                  const OutputFunctor &output,
+                  const Grid &grid,
+                  std::size_t indexOffset,
+                  const std::vector<cl::Event> *events = NULL);
 
 private:
     std::size_t generateCells(const cl::CommandQueue &queue,
+                              std::size_t width, std::size_t height,
                               const std::vector<cl::Event> *events);
 
     cl_uint2 countElements(const cl::CommandQueue &queue,

@@ -100,7 +100,7 @@ vector<T> TestMarching::bufferToVector(const cl::Buffer &buffer)
 
 void TestMarching::testConstructor()
 {
-    Marching marching(context, device, 2, 2, 2);
+    Marching marching(context, device, 2, 2);
 
     vector<cl_uchar2> countTable = bufferToVector<cl_uchar2>(marching.countTable);
     vector<cl_ushort2> startTable = bufferToVector<cl_ushort2>(marching.startTable);
@@ -168,31 +168,31 @@ public:
 
 void TestMarching::testSphere()
 {
+    const std::size_t maxWidth = 83;
+    const std::size_t maxHeight = 78;
     const std::size_t width = 71;
     const std::size_t height = 75;
     const std::size_t depth = 60;
     cl::Event done;
 
-    cl_float3 scale, bias;
-    scale.s[0] = 1.0f;
-    scale.s[1] = 1.0f;
-    scale.s[2] = 1.0f;
-    bias.s[0] = 0.0f;
-    bias.s[1] = 0.0f;
-    bias.s[2] = 0.0f;
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    const float xDir[3] = {1.0f, 0.0f, 0.0f};
+    const float yDir[3] = {0.0f, 1.0f, 0.0f};
+    const float zDir[3] = {0.0f, 0.0f, 1.0f};
+    Grid grid(ref, xDir, yDir, zDir, 0, width - 1, 0, height - 1, 0, depth - 1);
 
     // Replace the command queue with an out-of-order one, to ensure that the
     // events are being handled correctly.
     queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 
-    Marching marching(context, device, width, height, depth);
+    Marching marching(context, device, maxWidth, maxHeight);
     SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
 
     std::vector<cl_float3> hVertices;
     std::vector<boost::array<cl_uint, 3> > hIndices;
 
     OutputFunctor output(hVertices, hIndices);
-    marching.enqueue(queue, input, output, scale, bias, 0, NULL);
+    marching.generate(queue, input, output, grid, 0, NULL);
 
     std::filebuf out;
     out.open("sphere.ply", ios::out | ios::binary);

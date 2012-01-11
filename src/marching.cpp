@@ -18,6 +18,7 @@
 #include <cassert>
 #include "clh.h"
 #include "marching.h"
+#include "grid.h"
 #include "errors.h"
 
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
@@ -221,25 +222,25 @@ void Marching::makeTables()
                             hKeyTable.size() * sizeof(hKeyTable[0]), &hKeyTable[0]);
 }
 
-Marching::Marching(const cl::Context &context, const cl::Device &device, size_t width, size_t height, size_t depth)
+Marching::Marching(const cl::Context &context, const cl::Device &device,
+                   size_t maxWidth, size_t maxHeight)
 :
-    width(width), height(height), depth(depth), context(context),
+    maxWidth(maxWidth), maxHeight(maxHeight), context(context),
     scanUint(context, device, clcpp::TYPE_UINT),
     scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2)),
     sortVertices(context, device, clcpp::TYPE_ULONG, clcpp::Type(clcpp::TYPE_FLOAT, 4))
 {
-    MLSGPU_ASSERT(width >= 2, std::invalid_argument);
-    MLSGPU_ASSERT(height >= 2, std::invalid_argument);
-    MLSGPU_ASSERT(depth >= 2, std::invalid_argument);
+    MLSGPU_ASSERT(maxWidth >= 2, std::invalid_argument);
+    MLSGPU_ASSERT(maxHeight >= 2, std::invalid_argument);
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
     {
-        backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), width, height);
+        backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
         images[i] = &backingImages[i];
     }
 
-    const std::size_t sliceCells = (width - 1) * (height - 1);
+    const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = sliceCells * MAX_CELL_VERTICES * 2;
     indexSpace = sliceCells * MAX_CELL_INDICES * 2;
 
@@ -294,6 +295,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device, size_t 
 }
 
 std::size_t Marching::generateCells(const cl::CommandQueue &queue,
+                                    std::size_t width, std::size_t height,
                                     const std::vector<cl::Event> *events)
 {
     cl::Event last;
@@ -408,33 +410,43 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     return numWelded;
 }
 
-void Marching::enqueue(
+void Marching::generate(
     const cl::CommandQueue &queue,
     const InputFunctor &input,
     const OutputFunctor &output,
-    const cl_float3 &gridScale, const cl_float3 &gridBias,
+    const Grid &grid,
     std::size_t indexOffset,
     const std::vector<cl::Event> *events)
 {
     // Work group size for kernels that operate on compacted cells
     const std::size_t wgsCompacted = 1; // TODO: not very good at all!
 
+    std::size_t width = grid.numVertices(0);
+    std::size_t height = grid.numVertices(1);
+    std::size_t depth = grid.numVertices(2);
+    MLSGPU_ASSERT(1U <= width && width <= maxWidth, std::length_error);
+    MLSGPU_ASSERT(1U <= height && height <= maxHeight, std::length_error);
+    MLSGPU_ASSERT(1U <= depth, std::length_error);
+    cl_float3 gridScale, gridBias;
+    grid.getVertex(0, 0, 0, gridBias.s);
+    for (unsigned int i = 0; i < 3; i++)
+        gridScale.s[i] = grid.getDirection(i)[i];
+
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
-
     cl_uint2 offsets = { {0, 0} };
 
     input(queue, *images[1], 0, events, &last);
     wait[0] = last;
 
-    for (std::size_t z = 1; z < depth; z++)
+    for (std::size_t z = 1; z < (std::size_t) grid.numVertices(2); z++)
     {
         std::swap(images[0], images[1]);
         input(queue, *images[1], z, &wait, &last);
         wait.resize(1);
         wait[0] = last;
 
-        std::size_t compacted = generateCells(queue, &wait);
+        std::size_t compacted = generateCells(queue, grid.numVertices(0), grid.numVertices(1), &wait);
         wait.clear();
         if (compacted > 0)
         {
