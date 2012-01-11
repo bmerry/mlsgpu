@@ -175,7 +175,7 @@ __kernel void generateElements(
     __global const uchar * restrict dataTable,
     __global const ulong * restrict keyTable,
     uint z,
-    float3 scale,
+    float scale,
     float3 bias,
     uint2 offsets,
     __local float3 *lvertices)

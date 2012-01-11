@@ -17,8 +17,8 @@
  *
  * A grid is specified by:
  *  - a reference point
- *  - three sampling steps (typically axis-aligned, but this is not required)
- *  - range of steps to take along each direction
+ *  - a sample spacing
+ *  - range of steps to take along each axis
  * The ranges are specified by two endpoints, rather than zero to some endpoint.
  * Although mathematically this is redundant (the reference could just be
  * moved), this is done for reasons of invariance: it allows the grid to be grown or shrunk in
@@ -31,24 +31,23 @@ class Grid
 {
 public:
     Grid();
-    Grid(const float ref[3], const float xDir[3], const float yDir[3], const float zDir[3],
+    Grid(const float ref[3], float spacing,
          int xLow, int xHigh, int yLow, int yHigh, int zLow, int zHigh);
 
     /// Set the reference point
     void setReference(const float ref[3]);
 
     /**
-     * Set the reference direction for one axis.
-     * @pre @a axis is 0, 1 or 2.
+     * Set the grid spacing.
      */
-    void setDirection(int axis, const float dir[3]);
+    void setSpacing(float spacing);
 
     /**
      * Set the number of steps for vertices relative to one axis.
      *
      * The vertices along this axis range from
-     * <code>reference + low * dir[axis]</code> to
-     * <code>reference + high * dir[axis]</code> inclusive.
+     * <code>reference + low * spacing * unit(axis)</code> to
+     * <code>reference + high * spacing * unit(axis)</code> inclusive.
      * @pre
      * - @a axis is 0, 1 or 2.
      * - @a low < @a high.
@@ -61,11 +60,10 @@ public:
      */
     const float *getReference() const;
     /**
-     * Retrieve the step direction for one axis.
-     * @pre @a axis is 0, 1 or 2.
-     * @see @ref setDirection.
+     * Retrieve sample spacing.
+     * @see @ref setSpacing.
      */
-    const float *getDirection(int axis) const;
+    float getSpacing() const;
     /**
      * Retrieve the extent range for one axis.
      * @pre @a axis is 0, 1 or 2.
@@ -97,8 +95,6 @@ public:
 
     /**
      * Inverse of @ref getVertex.
-     *
-     * @pre The directions are axially aligned.
      */
     void worldToVertex(const float world[3], float out[3]) const;
 
@@ -117,7 +113,7 @@ public:
 
 private:
     float reference[3];              ///< Reference point
-    float directions[3][3];          ///< <code>directions[i]</code> is the step along the ith axis
+    float spacing;                   ///< Spacing between samples
     std::pair<int, int> extents[3];  ///< Axis extents
 };
 

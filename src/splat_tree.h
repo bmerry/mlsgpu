@@ -131,8 +131,6 @@ protected:
      *   can be held in @ref command_type.
      * - The number of grid cells (after padding out to a power of 2) must satisfy
      *   the range limits in @ref makeCode.
-     * - The grid must support @ref Grid::worldToVertex i.e., be axially
-     *   aligned.
      *
      * @todo Implement checks for the pre-conditions.
      */

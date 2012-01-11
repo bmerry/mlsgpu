@@ -427,10 +427,10 @@ void Marching::generate(
     MLSGPU_ASSERT(1U <= width && width <= maxWidth, std::length_error);
     MLSGPU_ASSERT(1U <= height && height <= maxHeight, std::length_error);
     MLSGPU_ASSERT(1U <= depth, std::length_error);
-    cl_float3 gridScale, gridBias;
+
+    cl_float gridScale = grid.getSpacing();
+    cl_float3 gridBias;
     grid.getVertex(0, 0, 0, gridBias.s);
-    for (unsigned int i = 0; i < 3; i++)
-        gridScale.s[i] = grid.getDirection(i)[i];
 
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;

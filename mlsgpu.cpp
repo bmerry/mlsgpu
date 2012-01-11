@@ -213,7 +213,6 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
         }
     }
 
-    const float dir[3][3] = { {spacing, 0, 0}, {0, spacing, 0}, {0, 0, spacing} };
     int extents[3][2];
     for (unsigned int i = 0; i < 3; i++)
     {
@@ -222,7 +221,7 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
         extents[i][0] = RoundDown::convert(l);
         extents[i][1] = RoundUp::convert(h);
     }
-    return Grid(low, dir[0], dir[1], dir[2],
+    return Grid(low, spacing,
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
 

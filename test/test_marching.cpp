@@ -176,10 +176,7 @@ void TestMarching::testSphere()
     cl::Event done;
 
     const float ref[3] = {0.0f, 0.0f, 0.0f};
-    const float xDir[3] = {1.0f, 0.0f, 0.0f};
-    const float yDir[3] = {0.0f, 1.0f, 0.0f};
-    const float zDir[3] = {0.0f, 0.0f, 1.0f};
-    Grid grid(ref, xDir, yDir, zDir, 0, width - 1, 0, height - 1, 0, depth - 1);
+    Grid grid(ref, 1.0f, 0, width - 1, 0, height - 1, 0, depth - 1);
 
     // Replace the command queue with an out-of-order one, to ensure that the
     // events are being handled correctly.

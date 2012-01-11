@@ -20,7 +20,7 @@ class TestGrid : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestGrid);
     CPPUNIT_TEST(testGetReference);
-    CPPUNIT_TEST(testGetDirection);
+    CPPUNIT_TEST(testGetSpacing);
     CPPUNIT_TEST(testGetExtent);
     CPPUNIT_TEST(testNumCells);
     CPPUNIT_TEST(testNumVertices);
@@ -30,7 +30,7 @@ class TestGrid : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE_END();
 private:
     float ref[3];
-    float dirs[3][3];
+    float spacing;
     std::pair<int, int> extents[3];
     Grid grid;
 
@@ -38,7 +38,7 @@ public:
     void setUp();
 
     void testGetReference();
-    void testGetDirection();
+    void testGetSpacing();
     void testGetExtent();
     void testNumCells();
     void testNumVertices();
@@ -53,16 +53,11 @@ void TestGrid::setUp()
     ref[0] = 1.5f;
     ref[1] = -3.0f;
     ref[2] = 2.25f;
-    for (unsigned int i = 0; i < 3; i++)
-        for (unsigned int j = 0; j < 3; j++)
-            dirs[i][j] = 0.0f;
-    dirs[0][0] = 2.75f;
-    dirs[1][1] = 3.25f;
-    dirs[2][2] = -1.5f;
+    spacing = 3.0f;
     extents[0] = std::make_pair(-5, 30);
     extents[1] = std::make_pair(7, 25);
     extents[2] = std::make_pair(-1000, -2);
-    grid = Grid(ref, dirs[0], dirs[1], dirs[2],
+    grid = Grid(ref, spacing,
                 extents[0].first, extents[0].second,
                 extents[1].first, extents[1].second,
                 extents[2].first, extents[2].second);
@@ -76,15 +71,10 @@ void TestGrid::testGetReference()
     CPPUNIT_ASSERT_EQUAL(ref[2], test[2]);
 }
 
-void TestGrid::testGetDirection()
+void TestGrid::testGetSpacing()
 {
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        const float *test = grid.getDirection(i);
-        CPPUNIT_ASSERT_EQUAL(dirs[i][0], test[0]);
-        CPPUNIT_ASSERT_EQUAL(dirs[i][1], test[1]);
-        CPPUNIT_ASSERT_EQUAL(dirs[i][2], test[2]);
-    }
+    const float s = grid.getSpacing();
+    CPPUNIT_ASSERT_EQUAL(spacing, s);
 }
 
 void TestGrid::testGetExtent()
@@ -115,14 +105,14 @@ void TestGrid::testGetVertex()
 {
     float test[3];
     grid.getVertex(0, 0, 0, test);
-    CPPUNIT_ASSERT_EQUAL(-12.25f, test[0]);
-    CPPUNIT_ASSERT_EQUAL(19.75f, test[1]);
-    CPPUNIT_ASSERT_EQUAL(1502.25f, test[2]);
+    CPPUNIT_ASSERT_EQUAL(-13.5f, test[0]);
+    CPPUNIT_ASSERT_EQUAL(18.0f, test[1]);
+    CPPUNIT_ASSERT_EQUAL(-2997.75f, test[2]);
 
     grid.getVertex(5, 7, 500, test);
     CPPUNIT_ASSERT_EQUAL(1.5f, test[0]);
-    CPPUNIT_ASSERT_EQUAL(42.5f, test[1]);
-    CPPUNIT_ASSERT_EQUAL(752.25f, test[2]);
+    CPPUNIT_ASSERT_EQUAL(39.0f, test[1]);
+    CPPUNIT_ASSERT_EQUAL(-1497.75f, test[2]);
 }
 
 void TestGrid::testWorldToVertex()
@@ -130,29 +120,17 @@ void TestGrid::testWorldToVertex()
     float world[3];
     float test[3];
 
-    world[0] = -12.25f; world[1] = 19.75f; world[2] = 1502.25f;
+    world[0] = -13.5f; world[1] = 18.0f; world[2] = -2997.75f;
     grid.worldToVertex(world, test);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(0, test[0], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(0, test[1], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(0, test[2], 1e-6);
 
-    world[0] = 1.5f; world[1] = -3.0f; world[2] = 2.25f;
-    grid.worldToVertex(world, test);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(5, test[0], 1e-6);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(-7, test[1], 1e-6);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(1000, test[2], 1e-3);
-
-    world[0] = 1.5f; world[1] = 42.5f; world[2] = 752.25f;
+    world[0] = 1.5f; world[1] = 39.0f; world[2] = -1497.75f;
     grid.worldToVertex(world, test);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(5, test[0], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(7, test[1], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(500, test[2], 1e-3);
-
-    world[0] = 0.0f; world[1] = 0.0f; world[2] = 0.0f;
-    grid.worldToVertex(world, test);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(49.0 / 11.0, test[0], 1e-6);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(-79.0 / 13.0, test[1], 1e-6);
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(1001.5, test[2], 1e-6);
 }
 
 void TestGrid::testSubGrid()
@@ -161,9 +139,9 @@ void TestGrid::testSubGrid()
 
     float test[3];
     g.getVertex(0, 0, 0, test);
-    CPPUNIT_ASSERT_EQUAL(-12.25f + 3 * 2.75f, test[0]);
-    CPPUNIT_ASSERT_EQUAL(19.75f + 10 * 3.25f, test[1]);
-    CPPUNIT_ASSERT_EQUAL(1502.25f + -5 * -1.5f, test[2]);
+    CPPUNIT_ASSERT_EQUAL(-13.5f + 3 * 3.0f, test[0]);
+    CPPUNIT_ASSERT_EQUAL(18.0f + 10 * 3.0f, test[1]);
+    CPPUNIT_ASSERT_EQUAL(-2997.75f + -5 * 3.0f, test[2]);
 
     CPPUNIT_ASSERT_EQUAL(4, g.numCells(0));
     CPPUNIT_ASSERT_EQUAL(5, g.numCells(1));

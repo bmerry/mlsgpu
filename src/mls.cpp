@@ -36,13 +36,12 @@ void MlsFunctor::set(const Grid &grid, const SplatTreeCL &tree, unsigned int sub
     cl_float3 gridBias3;
     grid.getVertex(0, 0, 0, gridBias3.s);
 
-    cl_float2 gridScale, gridBias;
+    cl_float gridScale = grid.getSpacing();
+    cl_float2 gridBias;
     for (unsigned int i = 0; i < 2; i++)
-    {
-        gridScale.s[i] = grid.getDirection(i)[i];
         gridBias.s[i] = gridBias3.s[i];
-    }
-    zScale = grid.getDirection(2)[2];
+
+    zScale = gridScale;
     zBias = gridBias3.s[2];
 
     kernel.setArg(1, tree.getSplats());

@@ -216,7 +216,7 @@ void processCorners(
     __global const Splat * restrict splats,
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
-    float2 gridScale,
+    float gridScale,
     float2 gridBias,
     uint startShift,
     int z,

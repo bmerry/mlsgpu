@@ -48,8 +48,7 @@ void TestSplatTree::testBuild()
 {
     typedef SplatTree::command_type command_type;
     const float ref[3] = {30.0f, 0.0f, 10.0f};
-    const float dir[3][3] = { {10.f, 0.0f, 0.0f}, {0.0f, 10.f, 0.0f}, {0.0f, 0.0f, 10.f} };
-    Grid grid(ref, dir[0], dir[1], dir[2], 0, 15, 0, 15, 0, 11);
+    Grid grid(ref, 10.0f, 0, 15, 0, 15, 0, 11);
     vector<Splat> splats;
 
     // bbox: 7,7,7 - 8,8,8. level 4, 8 nodes [7,7,7-9,9,9)

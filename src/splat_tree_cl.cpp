@@ -64,15 +64,11 @@ void SplatTreeCL::enqueueWriteEntries(
     cl::Event *event)
 {
     const float zeros[3] = {0.0f, 0.0f, 0.0f};
-    cl_float3 scale, bias;
-    cl_float3 invScale, invBias;
+    cl_float scale = grid.getSpacing();
+    cl_float invScale = 1.0f / scale;
+    cl_float3 bias, invBias;
     grid.getVertex(0, 0, 0, bias.s);
     grid.worldToVertex(zeros, invBias.s);
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        scale.s[i] = grid.getDirection(i)[i];
-        invScale.s[i] = 1.0f / scale.s[i];
-    }
 
     writeEntriesKernel.setArg(0, keys);
     writeEntriesKernel.setArg(1, values);
