@@ -354,7 +354,7 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
 }
 
 std::size_t Marching::shipOut(const cl::CommandQueue &queue,
-                              const cl_uint2 &prevTotals,
+                              std::size_t indexOffset,
                               const cl_uint2 &sizes,
                               const OutputFunctor &output,
                               const std::vector<cl::Event> *events,
@@ -394,7 +394,7 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
                                &wait, &last);
     wait[0] = last;
 
-    reindexKernel.setArg(2, prevTotals.s0);
+    reindexKernel.setArg(2, (cl_uint) indexOffset);
     queue.enqueueNDRangeKernel(reindexKernel,
                                cl::NullRange,
                                cl::NDRange(sizes.s1),
@@ -413,7 +413,7 @@ void Marching::enqueue(
     const InputFunctor &input,
     const OutputFunctor &output,
     const cl_float3 &gridScale, const cl_float3 &gridBias,
-    cl_uint2 *totals,
+    std::size_t indexOffset,
     const std::vector<cl::Event> *events)
 {
     // Work group size for kernels that operate on compacted cells
@@ -423,8 +423,6 @@ void Marching::enqueue(
     cl::Event last, readEvent;
 
     cl_uint2 offsets = { {0, 0} };
-    totals->s0 = 0;
-    totals->s1 = 0;
 
     input(queue, *images[1], 0, events, &last);
     wait[0] = last;
@@ -447,12 +445,11 @@ void Marching::enqueue(
                 /* Too much information in this layer to just append. Ship out
                  * what we have before processing this layer.
                  */
-                std::size_t numWelded = shipOut(queue, *totals, offsets, output, &wait, &last);
+                std::size_t numWelded = shipOut(queue, indexOffset, offsets, output, &wait, &last);
                 wait.resize(1);
                 wait[0] = last;
 
-                totals->s0 += numWelded;
-                totals->s1 += offsets.s1;
+                indexOffset += numWelded;
                 offsets.s0 = 0;
                 offsets.s1 = 0;
 
@@ -483,11 +480,10 @@ void Marching::enqueue(
     }
     if (offsets.s0 > 0)
     {
-        std::size_t numWelded = shipOut(queue, *totals, offsets, output, &wait, &last);
+        std::size_t numWelded = shipOut(queue, indexOffset, offsets, output, &wait, &last);
         wait.resize(1);
         wait[0] = last;
-        totals->s0 += numWelded;
-        totals->s1 += offsets.s1;
+        indexOffset += numWelded;
     }
     queue.finish(); // will normally be finished already, but there may be corner cases
 }

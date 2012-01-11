@@ -288,32 +288,26 @@ public:
              std::size_t width, std::size_t height, std::size_t depth);
 
     /**
-     * Enqueue work to generate an isosurface. This command will (optionally)
-     * return an event to indicate when the work is complete. It is safe
-     * to call this method again only if one ensures that the work from
-     * the previous call completes before work from this call (e.g. with a
-     * command queue barrier, in-order queue, passing the previous event in
-     * as a dependency etc).
+     * Generate an isosurface.
      *
      * @note Because this function needs to read back intermediate results
      * before enqueuing more work, this is not purely an enqueuing operation.
-     * It will block until some (in fact, most) of the work has completed. To
-     * hide latency, it is necessary to have something happening on another CPU
-     * thread.
+     * It will block until somethe work has completed. To hide latency, it is
+     * necessary to have something happening on another CPU thread.
      *
      * @param queue          Command queue to enqueue the work to.
      * @param input          Generates slices of the function (see @ref InputFunctor).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param gridScale      Scale from grid coordinates to world coordinates for vertices.
      * @param gridBias       Bias from grid coordinates to world coordinates for vertices.
-     * @param[out] totals    The number of vertices and indices written to the buffers.
+     * @param indexOffset,   Bias to add to all indices.
      * @param events         Previous events to wait for (can be @c NULL).
      */
     void enqueue(const cl::CommandQueue &queue,
                  const InputFunctor &input,
                  const OutputFunctor &output,
                  const cl_float3 &gridScale, const cl_float3 &gridBias,
-                 cl_uint2 *totals,
+                 std::size_t indexOffset,
                  const std::vector<cl::Event> *events = NULL);
 
 private:
@@ -325,7 +319,7 @@ private:
                            const std::vector<cl::Event> *events);
 
     std::size_t shipOut(const cl::CommandQueue &queue,
-                        const cl_uint2 &prevTotals,
+                        std::size_t indexOffset,
                         const cl_uint2 &sizes,
                         const OutputFunctor &output,
                         const std::vector<cl::Event> *events,

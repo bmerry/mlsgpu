@@ -356,7 +356,7 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
                     cout << "Build: " << timer.getElapsed() << '\n';
                 }
 
-                grid.getVertex(0, 0, 0, gridBias3.s);
+                sub.getVertex(0, 0, 0, gridBias3.s);
                 for (unsigned int i = 0; i < 2; i++)
                 {
                     gridScale.s[i] = gridScale3.s[i];
@@ -374,17 +374,15 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
                 input.mlsKernel = mlsKernel;
                 input.zScale = gridScale3.s[2];
                 input.zBias = gridBias3.s[2];
-                input.dims[0] = dims[0];
-                input.dims[1] = dims[1];
+                input.dims[0] = maxBlock;
+                input.dims[1] = maxBlock;
                 input.wgs[0] = wgs[0];
                 input.wgs[1] = wgs[1];
 
                 {
-                    cl_uint2 totals;
                     Timer timer;
-                    marching.enqueue(queue, input, output, gridScale3, gridBias3, &totals, NULL);
+                    marching.enqueue(queue, input, output, gridScale3, gridBias3, hVertices.size(), NULL);
                     cout << "Process: " << timer.getElapsed() << endl;
-                    cout << "Generated " << totals.s0 << " vertices and " << totals.s1 << " indices\n";
                 }
             }
 

@@ -187,16 +187,12 @@ void TestMarching::testSphere()
 
     Marching marching(context, device, width, height, depth);
     SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
-    cl_uint2 totals;
 
     std::vector<cl_float3> hVertices;
     std::vector<boost::array<cl_uint, 3> > hIndices;
 
     OutputFunctor output(hVertices, hIndices);
-    marching.enqueue(queue, input, output, scale, bias, &totals, NULL);
-
-    CPPUNIT_ASSERT(totals.s0 == hVertices.size());
-    CPPUNIT_ASSERT(totals.s1 == hIndices.size() * 3);
+    marching.enqueue(queue, input, output, scale, bias, 0, NULL);
 
     std::filebuf out;
     out.open("sphere.ply", ios::out | ios::binary);
