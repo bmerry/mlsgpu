@@ -251,16 +251,20 @@ __kernel void writeSplatIds(
     __global const uint *splatIds)
 {
     uint pos = get_global_id(0);
-    uint cpos = commandMap[pos];
-    commands[cpos] = splatIds[pos];
-
     uint curKey = keys[pos];
-    uint prevKey = pos > 0 ? keys[pos - 1] : UINT_MAX;
-    uint nextKey = (pos < get_global_size(0) - 1) ? keys[pos + 1] : UINT_MAX;
-    if (prevKey != curKey && curKey != UINT_MAX)
-        start[curKey] = cpos;
-    if (curKey != nextKey)
-        jumpPos[curKey] = cpos + 1;
+
+    if (curKey != UINT_MAX)
+    {
+        uint cpos = commandMap[pos];
+        commands[cpos] = splatIds[pos];
+
+        uint prevKey = pos > 0 ? keys[pos - 1] : UINT_MAX;
+        uint nextKey = (pos < get_global_size(0) - 1) ? keys[pos + 1] : UINT_MAX;
+        if (prevKey != curKey)
+            start[curKey] = cpos;
+        if (curKey != nextKey)
+            jumpPos[curKey] = cpos + 1;
+    }
 }
 
 /**
