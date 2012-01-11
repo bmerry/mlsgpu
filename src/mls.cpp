@@ -13,6 +13,8 @@
 #endif
 
 #include <CL/cl.hpp>
+#include <stdexcept>
+#include "errors.h"
 #include "mls.h"
 
 const std::size_t MlsFunctor::wgs[2] = {16, 16};
@@ -28,6 +30,9 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
 
 void MlsFunctor::set(const Grid &grid, const SplatTreeCL &tree, unsigned int subsamplingShift)
 {
+    MLSGPU_ASSERT(grid.numVertices(0) % wgs[0] == 0, std::invalid_argument);
+    MLSGPU_ASSERT(grid.numVertices(1) % wgs[1] == 0, std::invalid_argument);
+
     cl_float3 gridBias3;
     grid.getVertex(0, 0, 0, gridBias3.s);
 
