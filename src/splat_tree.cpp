@@ -134,10 +134,8 @@ void SplatTree::initialize()
         unsigned int shift = 0;
         for (unsigned int i = 0; i < 3; i++)
         {
-            ilo[i] = RoundUp::convert(vlo[i]);
-            ihi[i] = RoundDown::convert(vhi[i]);
-            MLSGPU_ASSERT(ihi[i] >= 0 && ihi[i] < (int) dims[i], std::out_of_range);
-            MLSGPU_ASSERT(ilo[i] >= 0 && ilo[i] < (int) dims[i], std::out_of_range);
+            ilo[i] = std::max(std::min(RoundUp::convert(vlo[i]), (int) dims[i] - 1), 0);
+            ihi[i] = std::max(std::min(RoundDown::convert(vhi[i]), (int) dims[i] - 1), 0);
         }
         while (true)
         {
@@ -183,6 +181,7 @@ void SplatTree::initialize()
                     if (splatCellIntersect(splat, c0, c1))
                     {
                         // Check that the sphere hits the cell, not just the bbox
+                        // This is also where splats outside the grid get rejected
                         e.code = makeCode(x, y, z);
                         entries.push_back(e);
                     }

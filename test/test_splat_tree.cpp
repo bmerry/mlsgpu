@@ -63,6 +63,11 @@ void TestSplatTree::testBuild()
     // bbox: 0,0,0 - 0,0,0. level 4, 1 node [0,0,0-1,1,1).
     addSplat(splats, 30.0f, 0.0f, 10.0f, 5.0f);
 
+    // Various spheres lying entirely outside the octree
+    addSplat(splats, 190.0f, 80.0f, 50.0f, 6.0f);
+    addSplat(splats, 0.0f, 10.0f, 10.0f, 25.0f);
+    addSplat(splats, 50.0f, 10000.0f, 50.0f, 9000.0f);
+
     std::size_t numLevels;
     std::vector<command_type> commands;
     std::vector<command_type> start;
