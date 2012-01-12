@@ -27,6 +27,7 @@ class TestPlyReader : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE(TestPlyReader);
     CPPUNIT_TEST_EXCEPTION(testEmpty, FormatError);
     CPPUNIT_TEST_EXCEPTION(testBadSignature, FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadFormatFormat, FormatError);
     CPPUNIT_TEST_EXCEPTION(testBadFormatVersion, FormatError);
     CPPUNIT_TEST_EXCEPTION(testBadFormatLength, FormatError);
     CPPUNIT_TEST_EXCEPTION(testBadElementCount, FormatError);

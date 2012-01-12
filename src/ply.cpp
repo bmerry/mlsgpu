@@ -238,6 +238,8 @@ void Reader::readHeader()
                 format = FILE_FORMAT_BIG_ENDIAN;
             else if (tokens[1] == "binary_little_endian")
                 format = FILE_FORMAT_LITTLE_ENDIAN;
+            else
+                throw FormatError("Unknown PLY format " + tokens[1]);
 
             if (tokens[2] != "1.0")
                 throw FormatError("Unknown PLY version " + tokens[2]);
