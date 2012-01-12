@@ -15,6 +15,10 @@
 #include <cstddef>
 #include <stdexcept>
 #include <istream>
+#include <ostream>
+#include <string>
+#include <vector>
+#include <tr1/cstdint>
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
@@ -71,7 +75,7 @@ public:
      * @param first            First vertex to copy.
      * @param count            Number of vertices to copy.
      * @param out              Target of copy.
-     * @throw std::out_of_range if @a first + @a count is greater than the number of vertices.
+     * @pre @a first + @a count <= @a numVertices.
      */
     void readVertices(size_type first, size_type count, Splat *out);
 private:
@@ -96,6 +100,97 @@ private:
     size_type offsets[numProperties];  ///< Byte offsets of each property within a vertex
 
     void readHeader(std::istream &in); ///< Does the heavy lifting of parsing the header
+};
+
+/**
+ * PLY file writer that only supports one format.
+ * The supported format has:
+ *  - Binary format with host endianness;
+ *  - Vertices with x, y, z as 32-bit floats (no normals);
+ *  - Faces with 32-bit unsigned integer indices;
+ *  - 3 indices per face;
+ *  - Arbitrary user-provided comments.
+ * At present, the entire file is memory-mapped, which may significantly
+ * limit the file size when using a 32-bit address space.
+ *
+ * Writing a file is done in phases:
+ *  -# Set comments with @ref addComment and indicate the number of
+ *     vertices and indices with @ref setNumVertices and @ref setNumTriangles.
+ *  -# Write the header using @ref open.
+ *  -# Use @ref writeVertices and @ref writeTriangles to write the data.
+ *
+ * The requirement for knowing the number of vertices and indices up front is a
+ * limitation of the PLY format. If it is not possible to know this up front, you
+ * will need to dump the vertices and indices to raw temporary files and stitch
+ * it all together later.
+ *
+ * The final phase (writing of vertices and indices) is thread-safe, provided
+ * that each thread is writing to a disjoint section of the file.
+ */
+class Writer
+{
+public:
+    /// Size capable of holding maximum supported file size
+    typedef boost::iostreams::mapped_file_source::size_type size_type;
+
+    /**
+     * Add a comment to be written by @ref open.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void addComment(const std::string &comment);
+
+    /**
+     * Set the number of vertices that will be in the file.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void setNumVertices(size_type numVertices);
+
+    /**
+     * Set the number of indices that will be in the file.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void setNumTriangles(size_type numTriangles);
+
+    /**
+     * Create the file and write the header.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void open(const std::string &filename);
+
+    /**
+     * Determines whether @ref open has been successfully called.
+     */
+    bool isOpen();
+
+    /**
+     * Write a range of vertices.
+     * @param first          Index of first vertex to write.
+     * @param count          Number of vertices to write.
+     * @param data           Array of <code>float[3]</code> values.
+     * @pre @a first + @a count <= @a numVertices.
+     */
+    void writeVertices(size_type first, size_type count, const float *data);
+
+    /**
+     * Write a range of triangles.
+     * @param first          Index of first triangle to write.
+     * @param count          Number of triangles to write.
+     * @param data           Array of <code>uint32_t[3]</code> values containing indices.
+     * @pre @a first + @a count <= @a numTriangles.
+     */
+    void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+
+private:
+    static const size_type vertexSize = 3 * sizeof(float);
+    static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
+
+    std::vector<std::string> comments;
+    size_type numVertices, numTriangles;
+    char *vertexPtr;
+    char *trianglePtr;
+    boost::scoped_ptr<boost::iostreams::mapped_file_sink> mapping;
+
+    void writeHeader(std::ostream &o);
 };
 
 } // namespace FastPly

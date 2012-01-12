@@ -22,6 +22,7 @@
 #include <boost/lexical_cast.hpp>
 #include "fast_ply.h"
 #include "splat.h"
+#include "errors.h"
 
 namespace FastPly
 {
@@ -284,8 +285,7 @@ void Reader::readHeader(std::istream &in)
 
 void Reader::readVertices(size_type first, size_type count, Splat *out)
 {
-    if (first > vertexCount || first + count > vertexCount)
-        throw std::out_of_range("Attempt to read past end of vertices");
+    MLSGPU_ASSERT(first <= vertexCount && first + count <= vertexCount, std::out_of_range);
 
     const char *base = vertexPtr + first * vertexSize;
     for (size_type i = count; i > 0; i--, base += vertexSize, out++)
@@ -325,6 +325,95 @@ Reader::Reader(const char *data, size_type size)
     vertexPtr = filePtr + offset;
     if ((size - offset) / vertexSize < vertexCount)
         throw FormatError("Input source is too small to contain its vertices");
+}
+
+
+void Writer::addComment(const std::string &comment)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    comments.push_back(comment);
+}
+
+void Writer::setNumVertices(size_type numVertices)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    this->numVertices = numVertices;
+}
+
+void Writer::setNumTriangles(size_type numTriangles)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    this->numTriangles = numTriangles;
+}
+
+void Writer::writeHeader(std::ostream &out)
+{
+    out.exceptions(std::ios::failbit | std::ios::badbit);
+    out << "ply\n";
+    if (cpuLittleEndian())
+        out << "format binary_little_endian 1.0\n";
+    else if (cpuBigEndian())
+        out << "format binary_big_endian 1.0\n";
+    else
+        throw std::runtime_error("CPU is neither big- nor little-endian");
+
+    out << "element vertex " << numVertices << '\n'
+        << "property float x\n"
+        << "property float y\n"
+        << "property float z\n"
+        << "element face " << numTriangles << '\n'
+        << "property list uint8 uint32 vertex_indices\n"
+        << "end_header";
+    /* Pad out the header to a multiple of 4 bytes, so that all the vertices will
+     * be nicely aligned (leaving 1 byte for the \n).
+     */
+    while (out.tellp() != -1 && ((std::streamoff(out.tellp()) + 1U) % sizeof(float) != 0))
+        out << ' ';
+    out << '\n';
+}
+
+void Writer::open(const std::string &filename)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+
+    std::ostringstream headerStream;
+    writeHeader(headerStream);
+    const std::string &header = headerStream.str();
+
+    boost::iostreams::mapped_file_params params(filename);
+    params.mode = std::ios_base::out;
+    // TODO: check for overflow here
+    params.new_file_size = header.size() + numVertices * vertexSize + numTriangles * triangleSize;
+    mapping.reset(new boost::iostreams::mapped_file_sink(params));
+    std::memcpy(mapping->data(), header.data(), header.size());
+
+    vertexPtr = mapping->data() + header.size();
+    trianglePtr = vertexPtr + numVertices * vertexSize;
+}
+
+bool Writer::isOpen()
+{
+    return mapping.get() != NULL;
+}
+
+void Writer::writeVertices(size_type first, size_type count, const float *data)
+{
+    MLSGPU_ASSERT(isOpen(), std::runtime_error);
+    MLSGPU_ASSERT(first <= numVertices && first + count <= numVertices, std::out_of_range);
+    memcpy(vertexPtr + first * vertexSize, data, count * vertexSize);
+}
+
+void Writer::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
+{
+    MLSGPU_ASSERT(isOpen(), std::runtime_error);
+    MLSGPU_ASSERT(first <= numTriangles && first + count <= numTriangles, std::out_of_range);
+
+    char *ptr = trianglePtr + first * triangleSize;
+    for (size_type i = count; i > 0; i--, ptr += triangleSize, data += 3)
+    {
+        *ptr = 3;
+        memcpy(ptr + 1, data, 3 * sizeof(std::tr1::uint32_t));
+    }
 }
 
 } // namespace FastPly
