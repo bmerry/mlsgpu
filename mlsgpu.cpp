@@ -24,6 +24,7 @@
 #include "src/clh.h"
 #include "src/logging.h"
 #include "src/timer.h"
+#include "src/fast_ply.h"
 #include "src/ply.h"
 #include "src/ply_mesh.h"
 #include "src/splat.h"
@@ -138,33 +139,35 @@ static void makeInputFiles(boost::ptr_vector<InputFile> &inFiles, const po::vari
     }
 }
 
-template<typename InputIterator, typename OutputIterator>
-static OutputIterator loadInputSplats(InputIterator first, InputIterator last, OutputIterator out, float smooth)
+template<typename InputIterator>
+static void loadInputSplats(InputIterator first, InputIterator last, std::vector<Splat> &out, float smooth)
 {
+    out.clear();
     for (InputIterator in = first; in != last; ++in)
     {
         try
         {
-            PLY::Reader reader(in->buffer);
-            reader.addBuilder("vertex", SplatBuilder(smooth));
-            reader.readHeader();
-            PLY::ElementRangeReader<SplatBuilder> &rangeReader = reader.skipTo<SplatBuilder>("vertex");
-            copy(rangeReader.begin(), rangeReader.end(), out);
+            FastPly::Reader reader(in->filename);
+            size_t pos = out.size();
+            out.resize(pos + reader.numVertices());
+            reader.readVertices(0, reader.numVertices(), &out[pos]);
         }
         catch (PLY::FormatError &e)
         {
             throw PLY::FormatError(in->filename + ": " + e.what());
         }
     }
-    return out;
+    BOOST_FOREACH(Splat &splat, out)
+    {
+        splat.radius *= smooth;
+    }
 }
 
-template<typename OutputIterator>
-static OutputIterator loadInputSplats(const po::variables_map &vm, OutputIterator out, float smooth)
+static void loadInputSplats(const po::variables_map &vm, std::vector<Splat> &out, float smooth)
 {
     boost::ptr_vector<InputFile> inFiles;
     makeInputFiles(inFiles, vm);
-    return loadInputSplats(inFiles.begin(), inFiles.end(), out, smooth);
+    loadInputSplats(inFiles.begin(), inFiles.end(), out, smooth);
 }
 
 /**
@@ -276,7 +279,7 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
     float spacing = vm[Option::fitGrid].as<double>();
     float smooth = vm[Option::fitSmooth].as<double>();
     vector<Splat> splats;
-    loadInputSplats(vm, back_inserter(splats), smooth);
+    loadInputSplats(vm, splats, smooth);
     Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
 
     /* Round up to multiple of block size
