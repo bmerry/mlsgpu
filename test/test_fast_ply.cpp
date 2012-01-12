@@ -20,7 +20,7 @@
 using namespace std;
 using namespace FastPly;
 
-class TestFastPlyReader
+class TestFastPlyReader : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestFastPlyReader);
     CPPUNIT_TEST_EXCEPTION(testEmpty, FormatError);
@@ -47,11 +47,12 @@ class TestFastPlyReader
 
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testReadVertices);
-    CPPUNIT_TEST_EXCEPTION(testOverrun, std::out_of_range);
+    CPPUNIT_TEST_SUITE_END();
 
 private:
     string content;
 
+public:
     /**
      * @name Negative tests
      * @{
@@ -78,7 +79,7 @@ private:
     void testShortFile();              ///< File too small to hold all the vertex data
     void testList();                   ///< Vertex element contains a list
     void testNotFloat();               ///< Vertex property is not a float
-    void testOverrun();                ///< Call to @c readVertices that overruns the file
+    void testFormatAscii();            ///< Ascii format file
     /** @} */
 
     /**
@@ -95,8 +96,6 @@ private:
      * sure that a format error is not due to a short file.
      */
     void setContent(const string &header, size_t payloadBytes = 256);
-public:
-    void testEmpty();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyReader, TestSet::perBuild());
 
@@ -283,7 +282,7 @@ void TestFastPlyReader::testReadHeader()
 {
     const string header = 
         "ply\n"
-        "format ascii 1.0\n"
+        "format binary_little_endian 1.0\n"
         "element vertex 5\n"
         "property float32 z\n"
         "property float32 y\n"
@@ -297,18 +296,18 @@ void TestFastPlyReader::testReadHeader()
         "end_header\n";
     setContent(header);
     Reader r(content.data(), content.size());
-    CPPUNIT_ASSERT_EQUALS(31, int(r.vertexSize));
-    CPPUNIT_ASSERT_EQUALS(5, int(r.vertexCount));
+    CPPUNIT_ASSERT_EQUAL(31, int(r.vertexSize));
+    CPPUNIT_ASSERT_EQUAL(5, int(r.vertexCount));
 
-    CPPUNIT_ASSERT_EQUALS(8, int(r.offsets[Reader::X]));
-    CPPUNIT_ASSERT_EQUALS(4, int(r.offsets[Reader::Y]));
-    CPPUNIT_ASSERT_EQUALS(0, int(r.offsets[Reader::Z]));
-    CPPUNIT_ASSERT_EQUALS(14, int(r.offsets[Reader::NX]));
-    CPPUNIT_ASSERT_EQUALS(18, int(r.offsets[Reader::NY]));
-    CPPUNIT_ASSERT_EQUALS(22, int(r.offsets[Reader::NZ]));
-    CPPUNIT_ASSERT_EQUALS(16, int(r.offsets[Reader::RADIUS]));
+    CPPUNIT_ASSERT_EQUAL(8, int(r.offsets[Reader::X]));
+    CPPUNIT_ASSERT_EQUAL(4, int(r.offsets[Reader::Y]));
+    CPPUNIT_ASSERT_EQUAL(0, int(r.offsets[Reader::Z]));
+    CPPUNIT_ASSERT_EQUAL(14, int(r.offsets[Reader::NX]));
+    CPPUNIT_ASSERT_EQUAL(18, int(r.offsets[Reader::NY]));
+    CPPUNIT_ASSERT_EQUAL(22, int(r.offsets[Reader::NZ]));
+    CPPUNIT_ASSERT_EQUAL(26, int(r.offsets[Reader::RADIUS]));
 
-    CPPUNIT_ASSERT_EQUALS(int(header.size()), int(r.vertexPtr - r.filePtr));
+    CPPUNIT_ASSERT_EQUAL(int(header.size()), int(r.vertexPtr - r.filePtr));
 }
 
 void TestFastPlyReader::testReadVertices()
@@ -319,7 +318,7 @@ void TestFastPlyReader::testReadVertices()
             vertices[i][j] = i * 100.0f + j;
     const string header =
         "ply\n"
-        "format ascii 1.0\n"
+        "format binary_little_endian 1.0\n"
         "element vertex 5\n"
         "property float32 y\n"
         "property float32 z\n"
@@ -335,7 +334,7 @@ void TestFastPlyReader::testReadVertices()
     Reader r(content.data(), content.size());
     Splat out[4] = {};
     r.readVertices(1, 3, out);
-    CPPUNIT_ASSERT_EQUAL(0.0f, out[3].x); // check for overwriting
+    CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting
     for (int i = 0; i < 3; i++)
     {
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 102.0f, out[i].position[0]);
@@ -346,4 +345,6 @@ void TestFastPlyReader::testReadVertices()
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 105.0f, out[i].normal[2]);
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 106.0f, out[i].radius);
     }
+
+    CPPUNIT_ASSERT_THROW(r.readVertices(1, 5, out), std::out_of_range);
 }

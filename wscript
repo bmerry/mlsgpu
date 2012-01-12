@@ -169,14 +169,14 @@ def build(bld):
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
-            lib = ['boost_program_options-mt', 'rt'])
+            lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
     if bld.env['unit_tests']:
         bld.program(
                 features = 'test',
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],
-                lib = ['boost_program_options-mt'])
+                lib = ['boost_program_options-mt', 'boost_iostreams-mt'])
         def print_env(bld):
             print bld.env
         bld.add_post_fun(print_unit_tests)

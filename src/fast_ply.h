@@ -29,8 +29,9 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 
 class Splat;
+class TestFastPlyReader;
 
-namespace FastPLY
+namespace FastPly
 {
 
 /**
@@ -45,6 +46,7 @@ public:
 
 class Reader
 {
+    friend class ::TestFastPlyReader;
 public:
     typedef boost::iostreams::mapped_file_source::size_type size_type;
 
@@ -72,6 +74,6 @@ private:
     void readHeader(std::istream &in);
 };
 
-} // namespace FastPLY
+} // namespace FastPly
 
 #endif /* FAST_PLY_H */

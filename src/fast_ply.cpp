@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * Implementation of the FastPLY namespace.
+ * Implementation of the FastPly namespace.
  */
 
 #if HAVE_CONFIG_H
@@ -19,10 +19,11 @@
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
+#include <boost/lexical_cast.hpp>
 #include "fast_ply.h"
 #include "splat.h"
 
-namespace FastPLY
+namespace FastPly
 {
 
 /**
@@ -322,4 +323,4 @@ Reader::Reader(const char *data, size_type size)
         throw FormatError("Input source is too small to contain its vertices");
 }
 
-} // namespace FastPLY
+} // namespace FastPly
