@@ -235,10 +235,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
-    {
         backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
-        images[i] = &backingImages[i];
-    }
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = sliceCells * MAX_CELL_VERTICES * 2;
@@ -295,14 +292,16 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 }
 
 std::size_t Marching::generateCells(const cl::CommandQueue &queue,
+                                    const cl::Image2D &sliceA,
+                                    const cl::Image2D &sliceB,
                                     std::size_t width, std::size_t height,
                                     const std::vector<cl::Event> *events)
 {
     cl::Event last;
     const std::size_t levelCells = (width - 1) * (height - 1);
 
-    countOccupiedKernel.setArg(1, *images[0]);
-    countOccupiedKernel.setArg(2, *images[1]);
+    countOccupiedKernel.setArg(1, sliceA);
+    countOccupiedKernel.setArg(2, sliceB);
     queue.enqueueNDRangeKernel(countOccupiedKernel,
                                cl::NullRange,
                                cl::NDRange(width - 1, height - 1),
@@ -331,14 +330,16 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 }
 
 cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
+                                 const cl::Image2D &sliceA,
+                                 const cl::Image2D &sliceB,
                                  std::size_t compacted,
                                  const std::vector<cl::Event> *events)
 {
     cl::Event last;
     std::vector<cl::Event> wait(1);
 
-    countElementsKernel.setArg(2, *images[0]);
-    countElementsKernel.setArg(3, *images[1]);
+    countElementsKernel.setArg(2, sliceA);
+    countElementsKernel.setArg(3, sliceB);
     queue.enqueueNDRangeKernel(countElementsKernel,
                                cl::NullRange,
                                cl::NDRange(compacted),
@@ -421,6 +422,9 @@ void Marching::generate(
     // Work group size for kernels that operate on compacted cells
     const std::size_t wgsCompacted = 1; // TODO: not very good at all!
 
+    // Pointers into @ref backingImages, which are swapped to advance to the next slice.
+    cl::Image2D *images[2] = { &backingImages[0], &backingImages[1] };
+
     std::size_t width = grid.numVertices(0);
     std::size_t height = grid.numVertices(1);
     std::size_t depth = grid.numVertices(2);
@@ -446,11 +450,12 @@ void Marching::generate(
         wait.resize(1);
         wait[0] = last;
 
-        std::size_t compacted = generateCells(queue, grid.numVertices(0), grid.numVertices(1), &wait);
+        std::size_t compacted = generateCells(queue, *images[0], *images[1],
+                                              grid.numVertices(0), grid.numVertices(1), &wait);
         wait.clear();
         if (compacted > 0)
         {
-            cl_uint2 counts = countElements(queue, compacted, events);
+            cl_uint2 counts = countElements(queue, *images[0], *images[1], compacted, events);
             if (offsets.s0 + counts.s0 > vertexSpace
                 || offsets.s1 + counts.s1 > indexSpace)
             {

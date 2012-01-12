@@ -179,12 +179,6 @@ private:
      */
     cl::Image2D backingImages[2];
 
-    /**
-     * Pointers into @ref backingImages, which are swapped to advance to the
-     * next slice.
-     */
-    cl::Image2D *images[2];
-
     cl::Program program;                    ///< Program compiled from @ref marching.cl.
     cl::Kernel countOccupiedKernel;         ///< Kernel compiled from @ref countOccupied.
     cl::Kernel compactKernel;               ///< Kernel compiled from @ref compact.
@@ -316,14 +310,68 @@ public:
                   const std::vector<cl::Event> *events = NULL);
 
 private:
+    /**
+     * Determine which cells in a slice need to be processed further.
+     * This function may wait for previous events, but operates
+     * synchronously. On input, two images contain adjacent slices of
+     * samples of the function. On output, @ref cells contains a list
+     * of x,y pairs giving the coordinates of the cells that will generate
+     * geometry, and @ref occupied has been clobbered.
+     *
+     * @param queue           Command queue to use for enqueuing work.
+     * @param sliceA,sliceB   Images containing isofunction values.
+     * @param width,height    Dimensions of the image portions that are populated.
+     * @param events          Events to wait for before starting (may be @c NULL).
+     *
+     * @return The number of cells that need further processing.
+     *
+     * @todo It need not be totally synchronous (compaction is independent).
+     */
     std::size_t generateCells(const cl::CommandQueue &queue,
+                              const cl::Image2D &sliceA,
+                              const cl::Image2D &sliceB,
                               std::size_t width, std::size_t height,
                               const std::vector<cl::Event> *events);
 
+    /**
+     * Count the number of vertices and indices that will be generated
+     * by each (compacted) cell. This function may wait for previous work,
+     * but does its own work synchronously and so does not return an event.
+     * On output, @ref viCount contains pairs of offsets into the vertex
+     * and index outputs that indicate where each cell should emit its
+     * geometry.
+     *
+     * @param queue           Command queue to use for enqueuing work.
+     * @param sliceA,sliceB   Images containing isofunction values.
+     * @param compacted       Number of cells in @ref cells.
+     * @param events          Events to wait for before starting (may be @c NULL).
+     * @return The total number of vertices and indices that will be generated.
+     */
     cl_uint2 countElements(const cl::CommandQueue &queue,
+                           const cl::Image2D &sliceA,
+                           const cl::Image2D &sliceB,
                            std::size_t compacted,
                            const std::vector<cl::Event> *events);
 
+    /**
+     * Post-process a batch of geometry and send it to the output functor.
+     * This function operates asynchronously, with an event returned to
+     * indicate completion. It handles welding of shared vertices into
+     * a single vertex and the corresponding reindexing, as well as
+     * offsetting indices to be relative to the global set of vertices.
+     *
+     * The input vertices are in @ref unweldedVertices and @ref indices.
+     * The welded vertices are placed in @ref vertices, and the indices
+     * are updated in-place. As a side effect, @ref vertexUnique and
+     * @ref indexRemap are clobbered.
+     *
+     * @param queue           Command queue to use for enqueuing work.
+     * @param indexOffset     Value added to all indices.
+     * @param sizes           Number of vertices and indices in input.
+     * @param output          Functor to which the welded geometry is passed.
+     * @param events          Events to wait for before starting (may be @c NULL).
+     * @param event           Event to wait for before returning (may be @c NULL).
+     */
     std::size_t shipOut(const cl::CommandQueue &queue,
                         std::size_t indexOffset,
                         const cl_uint2 &sizes,
