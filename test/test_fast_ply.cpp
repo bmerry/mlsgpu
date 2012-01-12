@@ -50,7 +50,7 @@ class TestFastPlyReader : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    string content;
+    string content;                    ///< Convenience data store for the file content
 
 public:
     /**
