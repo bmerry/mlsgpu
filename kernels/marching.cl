@@ -152,6 +152,7 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
  * There is one work-item per compacted cell.
  *
  * @param[out] vertices        Vertices in world coordinates.
+ * @param[out] vertexKeys      Vertex keys corresponding to @a vertices.
  * @param[out] indices         Indices into @a vertices.
  * @param      viStart         Position to start writing vertices/indices for each cell.
  * @param      cells           List of compacted cells written by @ref compact.
@@ -159,8 +160,10 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
  * @param      isoB            Slice of samples for higher z.
  * @param      startTable      Lookup table indicating where to find vertices/indices in @a dataTable.
  * @param      dataTable       Lookup table of vertex and index indices.
+ * @param      keyTable        Lookup table for cell-relative vertex keys.
  * @param      z               Z coordinate of the current slice.
  * @param      scale,bias      Transformation from local to world coordinates.
+ * @param      offsets         Offset to add to all elements of @a viStart
  * @param      lvertices       Scratch space of @ref NUM_EDGES elements per work item.
  */
 __kernel void generateElements(

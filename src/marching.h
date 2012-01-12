@@ -220,10 +220,10 @@ private:
 
 public:
     /**
-     * The function type to pass to @ref enqueue for sampling the isofunction.
+     * The function type to pass to @ref generate for sampling the isofunction.
      * An invocation of this function must enqueue commands to generate
      * one slice of the sampling grid to the provided command queue (which
-     * is the same one passed to @ref enqueue). The @a z value will range
+     * is the same one passed to @ref generate). The @a z value will range
      * from 0 to one less than the number of cell corners in the Z dimension.
      * The return event must be populated (even for an in-order queue), because
      * the caller will wait for it at the appropriate time.
@@ -241,7 +241,7 @@ public:
     typedef boost::function<void(const cl::CommandQueue &, const cl::Image2D &, cl_uint z, const std::vector<cl::Event> *, cl::Event *)> InputFunctor;
 
     /**
-     * The function type to pass to @ref enqueue for receiving output data.
+     * The function type to pass to @ref generate for receiving output data.
      * When invoked, this function must enqueue commands to retrieve the data
      * from the supplied buffers. It must return an event that will be signaled
      * when it is safe for the caller to overwrite the supplied buffers (if it
@@ -296,7 +296,7 @@ public:
      * @param input          Generates slices of the function (see @ref InputFunctor).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param grid           Sampling grid.
-     * @param indexOffset,   Bias to add to all indices.
+     * @param indexOffset    Bias to add to all indices.
      * @param events         Previous events to wait for (can be @c NULL).
      *
      * @pre The number of vertices in @a grid must not exceed the dimensions

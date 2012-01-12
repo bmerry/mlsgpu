@@ -18,7 +18,7 @@
 
 /**
  * Generates the signed distance from an MLS surface for a single slice.
- * It is designed to be usable with @ref Marching::Functor.
+ * It is designed to be usable with @ref Marching::InputFunctor.
  *
  * After constructing the object, the user must call @ref set to specify
  * the parameters. The parameters can be changed again later, and doing so
@@ -62,7 +62,7 @@ public:
 
     /**
      * Constructor. It compiles the kernel, so it can throw a compilation error.
-     * @ref context    The context in which the function operates.
+     * @param context   The context in which the function operates.
      */
     MlsFunctor(const cl::Context &context);
 
