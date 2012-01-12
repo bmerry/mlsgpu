@@ -303,7 +303,11 @@ void Reader::readVertices(size_type first, size_type count, Splat *out)
 Reader::Reader(const std::string &filename)
     : mapping(new boost::iostreams::mapped_file_source(filename)), filePtr(mapping->data())
 {
-    boost::iostreams::stream<boost::iostreams::mapped_file_source> in(*mapping);
+    /* Note: we have to wrap the mapping in an array_source because otherwise
+     * the stream will close the mapping when it is destroyed.
+     */
+    boost::iostreams::array_source source(filePtr, mapping->size());
+    boost::iostreams::stream<boost::iostreams::array_source> in(source);
     readHeader(in);
     size_type offset = in.tellg();
     vertexPtr = filePtr + offset;
