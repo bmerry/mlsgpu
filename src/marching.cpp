@@ -83,7 +83,7 @@ unsigned int Marching::permutationParity(Iterator first, Iterator last)
 void Marching::makeTables()
 {
     std::vector<cl_uchar> hVertexTable, hIndexTable;
-    std::vector<cl_ulong> hKeyTable;
+    std::vector<cl_uint3> hKeyTable;
     std::vector<cl_uchar2> hCountTable(NUM_CUBES);
     std::vector<cl_ushort2> hStartTable(NUM_CUBES + 1);
     for (unsigned int i = 0; i < NUM_CUBES; i++)
@@ -179,13 +179,12 @@ void Marching::makeTables()
             {
                 edgeCompact[j] = pool++;
                 hVertexTable.push_back(j);
-                cl_ulong key = 0;
+                cl_uint3 key = { {0, 0, 0} };
                 for (unsigned int axis = 0; axis < 3; axis++)
                 {
-                    cl_ulong offset = 
+                    key.s[axis] =
                         ((edgeIndices[j][0] >> axis) & 1)
                         + ((edgeIndices[j][1] >> axis) & 1);
-                    key += offset << (21 * axis);
                 }
                 hKeyTable.push_back(key);
             }
@@ -247,9 +246,11 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
     unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
-    vertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
-    vertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
+    unweldedVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_ulong));
+    weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
+    weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
     indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
+    firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
 
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");
@@ -271,7 +272,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     countElementsKernel.setArg(4, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
-    generateElementsKernel.setArg(1, vertexKeys);
+    generateElementsKernel.setArg(1, unweldedVertexKeys);
     generateElementsKernel.setArg(2, indices);
     generateElementsKernel.setArg(3, viCount);
     generateElementsKernel.setArg(4, cells);
@@ -280,12 +281,15 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     generateElementsKernel.setArg(9, keyTable);
 
     countUniqueVerticesKernel.setArg(0, vertexUnique);
-    countUniqueVerticesKernel.setArg(1, vertexKeys);
+    countUniqueVerticesKernel.setArg(1, unweldedVertexKeys);
 
-    compactVerticesKernel.setArg(0, vertices);
-    compactVerticesKernel.setArg(1, indexRemap);
-    compactVerticesKernel.setArg(2, vertexUnique);
-    compactVerticesKernel.setArg(3, unweldedVertices);
+    compactVerticesKernel.setArg(0, weldedVertices);
+    compactVerticesKernel.setArg(1, weldedVertexKeys);
+    compactVerticesKernel.setArg(2, indexRemap);
+    compactVerticesKernel.setArg(3, firstExternal);
+    compactVerticesKernel.setArg(4, vertexUnique);
+    compactVerticesKernel.setArg(5, unweldedVertices);
+    compactVerticesKernel.setArg(6, unweldedVertexKeys);
 
     reindexKernel.setArg(0, indices);
     reindexKernel.setArg(1, indexRemap);
@@ -368,9 +372,15 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     std::vector<cl::Event> wait(1);
     cl::Event last;
 
+    // Write a sentinel key after the real vertex keys
+    cl_ulong key = CL_ULONG_MAX;
+    queue.enqueueWriteBuffer(unweldedVertexKeys, CL_FALSE, sizes.s0 * sizeof(cl_ulong), sizeof(cl_ulong), &key,
+                             events, &last);
+    wait[0] = last;
+
     // TODO: figure out how many actual bits there are
     // TODO: revisit the dependency tracking
-    sortVertices.enqueue(queue, vertexKeys, unweldedVertices, sizes.s0, events, &last);
+    sortVertices.enqueue(queue, unweldedVertexKeys, unweldedVertices, sizes.s0, &wait, &last);
     wait[0] = last;
 
     queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
@@ -390,6 +400,9 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     // TODO: should we be sorting key/value pairs? The values are going to end up moving
     // twice, and most of them will be eliminated entirely! However, sorting them does
     // give later passes better spatial locality and fewer indirections.
+    // TODO: actually compute minExternalKey
+    cl_ulong minExternalKey = CL_ULONG_MAX;
+    compactVerticesKernel.setArg(7, minExternalKey);
     queue.enqueueNDRangeKernel(compactVerticesKernel,
                                cl::NullRange,
                                cl::NDRange(sizes.s0),
@@ -405,7 +418,7 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
                                &wait, &last);
     queue.finish(); // wait for readback of numWelded
 
-    output(queue, vertices, indices, numWelded, sizes.s1, &last);
+    output(queue, weldedVertices, indices, numWelded, sizes.s1, &last);
     if (event != NULL)
         *event = last;
     return numWelded;
@@ -439,11 +452,12 @@ void Marching::generate(
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
     cl_uint2 offsets = { {0, 0} };
+    cl_uint3 top = { {2 * width, 2 * height, 0} };
 
     input(queue, *images[1], 0, events, &last);
     wait[0] = last;
 
-    for (std::size_t z = 1; z < (std::size_t) grid.numVertices(2); z++)
+    for (std::size_t z = 1; z < depth; z++)
     {
         std::swap(images[0], images[1]);
         input(queue, *images[1], z, &wait, &last);
@@ -469,6 +483,7 @@ void Marching::generate(
                 indexOffset += numWelded;
                 offsets.s0 = 0;
                 offsets.s1 = 0;
+                top.z = z;
 
                 /* We'd better have enough room to process one layer at a time.
                  */
@@ -482,7 +497,8 @@ void Marching::generate(
             generateElementsKernel.setArg(11, gridScale);
             generateElementsKernel.setArg(12, gridBias);
             generateElementsKernel.setArg(13, offsets);
-            generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(14, top);
+            generateElementsKernel.setArg(15, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),

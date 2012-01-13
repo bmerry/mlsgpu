@@ -10,6 +10,7 @@
 /// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
 #define KEY_AXIS_BITS 21
 #define KEY_AXIS_MASK ((1U << KEY_AXIS_BITS) - 1)
+#define KEY_EXTERNAL_FLAG (1UL << 63)
 
 __constant sampler_t nearest = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
@@ -151,11 +152,24 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
 #define INTERP(a, b) \
     interp(iso[a], iso[b], cellf, (float3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (float3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
+ulong computeKey(uint3 coords, uint3 top)
+{
+    ulong key = ((ulong) coords.z << (2 * KEY_AXIS_BITS + 1)) | ((ulong) coords.y << (KEY_AXIS_BITS + 1)) | ((ulong) coords.x << 1);
+    if (any(coords.xy == 0U) || any(coords == top))
+        key |= KEY_EXTERNAL_FLAG;
+    return key;
+}
+
 /**
  * Generate vertices and indices for a slice.
  * There is one work-item per compacted cell.
  *
- * @param[out] vertices        Vertices in world coordinates.
+ * Vertices are considered to be external if they lie on the surface of the box
+ * bounded by (0, 0, top.z)/2, (top.x, top.y, inf)/2. Note that vertices with
+ * maximum z will naturally sort to the end, so they do not get explicitly
+ * marked as external (which cannot necessarily be done when there is a split).
+ *
+ * @param[out] vertices        Vertices in world coordinates (unwelded).
  * @param[out] vertexKeys      Vertex keys corresponding to @a vertices.
  * @param[out] indices         Indices into @a vertices.
  * @param      viStart         Position to start writing vertices/indices for each cell.
@@ -167,7 +181,8 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
  * @param      keyTable        Lookup table for cell-relative vertex keys.
  * @param      z               Z coordinate of the current slice.
  * @param      scale,bias      Transformation from local to world coordinates.
- * @param      offsets         Offset to add to all elements of @a viStart
+ * @param      offsets         Offset to add to all elements of @a viStart.
+ * @param      top             See above.
  * @param      lvertices       Scratch space of @ref NUM_EDGES elements per work item.
  */
 __kernel void generateElements(
@@ -180,11 +195,12 @@ __kernel void generateElements(
     __read_only image2d_t isoB,
     __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
-    __global const ulong * restrict keyTable,
+    __global const uint3 * restrict keyTable,
     uint z,
     float scale,
     float3 bias,
     uint2 offsets,
+    uint3 top,
     __local float3 *lvertices)
 {
     const uint gid = get_global_id(0);
@@ -241,7 +257,7 @@ __kernel void generateElements(
         vertex.xyz = lverts[dataTable[start.x + i]];
         vertex.w = as_float(vNext + i);
         vertices[vNext + i] = vertex;
-        vertexKeys[vNext + i] = cellKey + keyTable[start.x + i];
+        vertexKeys[vNext + i] = computeKey(2 * cell + keyTable[start.x + i], top);
     }
     for (uint i = 0; i < end.y - start.y; i++)
     {
@@ -254,15 +270,19 @@ __kernel void generateElements(
  * one is given an indicator of 1, while the others get an indicator of 0.
  *
  * @param[out] vertexUnique         1 for exactly one instance of each key, 0 elsewhere.
- * @param      keys                 Vertex keys.
+ * @param      vertexKeys           Vertex keys.
  *
- * @pre @a keys must be sorted such that equal keys are adjacent.
+ * @pre @a vertexKeys must be sorted such that equal keys are adjacent.
+ *
+ * @todo Investigate using @c __local to avoid two key reads (might not matter with a cache).
  */
 __kernel void countUniqueVertices(__global uint * restrict vertexUnique,
-                                  __global const ulong * restrict keys)
+                                  __global const ulong * restrict vertexKeys)
 {
     const uint gid = get_global_id(0);
-    bool last = (gid == get_global_size(0) - 1 || keys[gid] != keys[gid + 1]);
+    const ulong key = vertexKeys[gid];
+    const ulong nextKey = vertexKeys[gid + 1];
+    bool last = key != nextKey;
     vertexUnique[gid] = last ? 1 : 0;
 }
 
@@ -271,22 +291,41 @@ __kernel void countUniqueVertices(__global uint * restrict vertexUnique,
  * There is one work-item per input vertex.
  *
  * @param[out] outVertices     Output vertices, written as packed x,y,z triplets.
+ * @param[out] outKeys         Vertex keys corresponding to @a outVertices, only written for external vertices, and with the high bit stripped off.
  * @param[out] indexRemap      Table mapping original (pre-sorting) indices to output indices.
+ * @param[out] firstExternal   The first output position that contains an external vertex.
  * @param      vertexUnique    Scan of the table emitted by @ref countUniqueVertices.
  * @param      inVertices      Sorted vertices, with original ID stored in @c w.
+ * @param      inKeys          Vertex keys corresponding to @a inVertices (plus a sentinel @c ULONG_MAX).
+ * @param      minExternalKey  Vertex keys >= @a minExternalKey are considered to be external vertices.
  */
 __kernel void compactVertices(
     __global float * restrict outVertices,
+    __global ulong * restrict outKeys,
     __global uint * restrict indexRemap,
+    __global uint * firstExternal,
     __global const uint * restrict vertexUnique,
-    __global const float4 * restrict inVertices)
+    __global const float4 * restrict inVertices,
+    __global const ulong * restrict inKeys,
+    ulong minExternalKey)
 {
     const uint gid = get_global_id(0);
     const uint u = vertexUnique[gid];
-    float4 v = inVertices[gid];
-    if (u != vertexUnique[gid + 1])
+    const float4 v = inVertices[gid];
+    const ulong key = inKeys[gid];
+    const ulong nextKey = inKeys[gid + 1];
+    bool ext = key >= minExternalKey;
+    if (key != nextKey)
     {
         vstore3(v.xyz, u, outVertices);
+        if (ext)
+        {
+            outKeys[u] = key & (KEY_EXTERNAL_FLAG - 1);
+            if (u == 0)
+                *firstExternal = 0;
+        }
+        else if (nextKey >= minExternalKey)
+            *firstExternal = u + 1;
     }
     uint originalIndex = as_uint(v.w);
     indexRemap[originalIndex] = u;

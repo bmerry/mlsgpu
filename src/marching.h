@@ -102,17 +102,13 @@ private:
      */
     cl::Buffer dataTable;
     /**
-     * Buffer of ulong values, in ranges indexed by startTable. It contains
-     * biases to be added to the cell key to get a vertex key for each
-     * vertex generated in a cell.
-     *
-     * A vertex key is a 63-bit value with 3 21-bit fields, each of which is
-     * a 20.1 fixed-point representation. The three values (from LSB) give
-     * the x, y, z coordinates of the midpoint of the edge generating the
-     * vertex (in local coordinates). The cell key is simply the vertex
+     * Buffer of cl_uint3 values, in ranges indexed by startTable. It
+     * contains offsets added to the 3 parts of the cell key to get a vertex
+     * key for each vertex generated in a cell (prior to computing the three
+     * fields into a single ulong). The cell key is simply the vertex
      * key for the vertex at minimum-x/y/z corner.
      *
-     * @todo Make the range dynamic to be more friendly to the radix sort.
+     * Each value is in .1 fixed-point format.
      */
     cl::Buffer keyTable;
 
@@ -145,7 +141,7 @@ private:
     /**
      * Welded vertices. These are tightly packed @c float3 values.
      */
-    cl::Buffer vertices;
+    cl::Buffer weldedVertices;
 
     /**
      * Indices. Before welding, these are local (0-based) and index the @ref unweldedVertices
@@ -157,8 +153,15 @@ private:
 
     /**
      * Sort keys corresponding from @ref unweldedVertices.
+     *
+     * There is an additional sentinel at the end with value @c ULONG_MAX.
      */
-    cl::Buffer vertexKeys;
+    cl::Buffer unweldedVertexKeys;
+
+    /**
+     * Sort keys corresponding to @ref weldedVertices. Only defined for external vertices.
+     */
+    cl::Buffer weldedVertexKeys;
 
     /**
      * Indicator for whether each unwelded vertex is unique. It is then scanned
@@ -173,6 +176,12 @@ private:
      * indices. It combines the sorting by key with the compaction.
      */
     cl::Buffer indexRemap;
+
+    /**
+     * Single @c cl_uint value containing the index in @c weldedVertices
+     * of the first external vertex.
+     */
+    cl::Buffer firstExternal;
 
     /**
      * The images holding two slices of the signed distance function.
@@ -335,7 +344,7 @@ private:
                               const std::vector<cl::Event> *events);
 
     /**
-     * Count the number of vertices and indices that will be generated
+     * Count the number of (unwelded) vertices and indices that will be generated
      * by each (compacted) cell. This function may wait for previous work,
      * but does its own work synchronously and so does not return an event.
      * On output, @ref viCount contains pairs of offsets into the vertex
@@ -362,7 +371,7 @@ private:
      * offsetting indices to be relative to the global set of vertices.
      *
      * The input vertices are in @ref unweldedVertices and @ref indices.
-     * The welded vertices are placed in @ref vertices, and the indices
+     * The welded vertices are placed in @ref weldedVertices, and the indices
      * are updated in-place. As a side effect, @ref vertexUnique and
      * @ref indexRemap are clobbered.
      *
