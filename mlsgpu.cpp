@@ -230,11 +230,11 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
 class OutputFunctor
 {
 private:
-    vector<cl_float3> &hVertices;
+    vector<cl_float> &hVertices;
     vector<boost::array<cl_uint, 3> > &hIndices;
 
 public:
-    OutputFunctor(vector<cl_float3> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
+    OutputFunctor(vector<cl_float> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
         : hVertices(hVertices), hIndices(hIndices) {}
 
     void operator()(const cl::CommandQueue &queue,
@@ -257,9 +257,9 @@ void OutputFunctor::operator()(const cl::CommandQueue &queue,
 
     std::size_t oldVertices = hVertices.size();
     std::size_t oldIndices = hIndices.size();
-    hVertices.resize(oldVertices + numVertices);
+    hVertices.resize(oldVertices + 3 * numVertices);
     hIndices.resize(oldIndices + numIndices / 3);
-    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * sizeof(cl_float3), &hVertices[oldVertices],
+    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, 3 * numVertices * sizeof(cl_float), &hVertices[oldVertices],
                             NULL, &last);
     wait[0] = last;
     queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
@@ -298,7 +298,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
     MlsFunctor input(context);
 
-    std::vector<cl_float3> hVertices;
+    std::vector<cl_float> hVertices;
     std::vector<boost::array<cl_uint, 3> > hIndices;
     OutputFunctor output(hVertices, hIndices);
 
@@ -321,17 +321,21 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
                 {
                     Timer timer;
-                    marching.generate(queue, input, output, sub, hVertices.size(), NULL);
+                    marching.generate(queue, input, output, sub, hVertices.size() / 3, NULL);
                     cout << "Process: " << timer.getElapsed() << endl;
                 }
             }
 
+    for (size_t i = 0; i < hIndices.size(); i++)
+        for (size_t j = 0; j < 3; j++)
+            assert(hIndices[i][j] < hVertices.size() / 3);
+
     FastPly::Writer writer;
-    writer.setNumVertices(hVertices.size());
-    writer.setNumTriangles(hIndices.size() / 3);
+    writer.setNumVertices(hVertices.size() / 3);
+    writer.setNumTriangles(hIndices.size());
     writer.open(out);
-    writer.writeVertices(0, hVertices.size(), &hVertices[0].s0);
-    writer.writeTriangles(0, hIndices.size() / 3, &hIndices[0][0]);
+    writer.writeVertices(0, hVertices.size() / 3, &hVertices[0]);
+    writer.writeTriangles(0, hIndices.size(), &hIndices[0][0]);
 }
 
 int main(int argc, char **argv)

@@ -23,8 +23,7 @@
 #include "testmain.h"
 #include "test_clh.h"
 #include "../src/marching.h"
-#include "../src/ply.h"
-#include "../src/ply_mesh.h"
+#include "../src/fast_ply.h"
 
 using namespace std;
 
@@ -135,11 +134,11 @@ void TestMarching::testConstructor()
 class OutputFunctor
 {
 private:
-    vector<cl_float3> &hVertices;
+    vector<cl_float> &hVertices;
     vector<boost::array<cl_uint, 3> > &hIndices;
 
 public:
-    OutputFunctor(vector<cl_float3> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
+    OutputFunctor(vector<cl_float> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
         : hVertices(hVertices), hIndices(hIndices) {}
 
     void operator()(const cl::CommandQueue &queue,
@@ -154,9 +153,9 @@ public:
 
         std::size_t oldVertices = hVertices.size();
         std::size_t oldIndices = hIndices.size();
-        hVertices.resize(oldVertices + numVertices);
+        hVertices.resize(oldVertices + numVertices * 3);
         hIndices.resize(oldIndices + numIndices / 3);
-        queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * sizeof(cl_float3), &hVertices[oldVertices],
+        queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * 3 * sizeof(cl_float), &hVertices[oldVertices],
                                 NULL, &last);
         wait[0] = last;
         queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
@@ -185,20 +184,16 @@ void TestMarching::testSphere()
     Marching marching(context, device, maxWidth, maxHeight);
     SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
 
-    std::vector<cl_float3> hVertices;
+    std::vector<cl_float> hVertices;
     std::vector<boost::array<cl_uint, 3> > hIndices;
 
     OutputFunctor output(hVertices, hIndices);
     marching.generate(queue, input, output, grid, 0, NULL);
 
-    std::filebuf out;
-    out.open("sphere.ply", ios::out | ios::binary);
-    PLY::Writer writer(PLY::FILE_FORMAT_LITTLE_ENDIAN, &out);
-    writer.addElement(PLY::makeElementRangeWriter(
-            hVertices.begin(), hVertices.end(), hVertices.size(),
-            PLY::VertexFetcher()));
-    writer.addElement(PLY::makeElementRangeWriter(
-            hIndices.begin(), hIndices.end(), hIndices.size(),
-            PLY::TriangleFetcher()));
-    writer.write();
+    FastPly::Writer writer;
+    writer.setNumVertices(hVertices.size() / 3);
+    writer.setNumTriangles(hIndices.size());
+    writer.open("sphere.ply");
+    writer.writeVertices(0, hVertices.size() / 3, &hVertices[0]);
+    writer.writeTriangles(0, hIndices.size(), &hIndices[0][0]);
 }

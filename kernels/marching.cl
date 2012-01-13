@@ -262,8 +262,17 @@ __kernel void countUniqueVertices(__global uint * restrict vertexUnique,
     vertexUnique[gid] = last ? 1 : 0;
 }
 
+/**
+ * Copy the unique vertices to a new array and generate a remapping table.
+ * There is one work-item per input vertex.
+ *
+ * @param[out] outVertices     Output vertices, written as packed x,y,z triplets.
+ * @param[out] indexRemap      Table mapping original (pre-sorting) indices to output indices.
+ * @param      vertexUnique    Scan of the table emitted by @ref countUniqueVertices.
+ * @param      inVertices      Sorted vertices, with original ID stored in @c w.
+ */
 __kernel void compactVertices(
-    __global float3 * restrict outVertices,
+    __global float * restrict outVertices,
     __global uint * restrict indexRemap,
     __global const uint * restrict vertexUnique,
     __global const float4 * restrict inVertices)
@@ -273,12 +282,19 @@ __kernel void compactVertices(
     float4 v = inVertices[gid];
     if (u != vertexUnique[gid + 1])
     {
-        outVertices[u] = v.xyz;
+        vstore3(v.xyz, u, outVertices);
     }
     uint originalIndex = as_uint(v.w);
     indexRemap[originalIndex] = u;
 }
 
+/**
+ * Apply an index remapping table to the indices. There is one work-item
+ * per index.
+ * @param[in,out]    indices      Indices to rewrite.
+ * @param            indexRemap   Remapping table to apply.
+ * @param            offset       Additional offset to add after remapping.
+ */
 __kernel void reindex(
     __global uint *indices,
     __global const uint * restrict indexRemap,

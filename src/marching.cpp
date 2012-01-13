@@ -248,7 +248,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
     unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
     vertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
-    vertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_float3));
+    vertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
     indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
 
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");

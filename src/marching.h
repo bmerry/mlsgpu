@@ -143,7 +143,7 @@ private:
     cl::Buffer unweldedVertices;
 
     /**
-     * Welded vertices. These are @c float3 values.
+     * Welded vertices. These are tightly packed @c float3 values.
      */
     cl::Buffer vertices;
 
@@ -257,7 +257,8 @@ public:
      *
      * The vertices and indices returned will correspond, but the indices will
      * be suitably offset so that they index the concatenation of all the vertices
-     * passed to the callback.
+     * passed to the callback. The vertices are in tightly packed cl_float triplets
+     * (x,y,z) while the indices are in tightly packed cl_uint index triplets.
      */
     typedef boost::function<void(const cl::CommandQueue &,
                                  const cl::Buffer &vertices,
