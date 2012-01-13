@@ -7,6 +7,10 @@
 /// Number of edges in a cell
 #define NUM_EDGES 19
 
+/// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
+#define KEY_AXIS_BITS 21
+#define KEY_AXIS_MASK ((1U << KEY_AXIS_BITS) - 1)
+
 __constant sampler_t nearest = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
 
 /**
@@ -229,7 +233,7 @@ __kernel void generateElements(
     ushort2 start = startTable[code];
     ushort2 end = startTable[code + 1];
 
-    ulong cellKey = ((ulong) cell.z << 43) | ((ulong) cell.y << 22) | ((ulong) cell.x << 1);
+    ulong cellKey = ((ulong) cell.z << (2 * KEY_AXIS_BITS + 1)) | ((ulong) cell.y << (KEY_AXIS_BITS + 1)) | ((ulong) cell.x << 1);
 
     for (uint i = 0; i < end.x - start.x; i++)
     {
