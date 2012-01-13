@@ -25,8 +25,6 @@
 #include "src/logging.h"
 #include "src/timer.h"
 #include "src/fast_ply.h"
-#include "src/ply.h"
-#include "src/ply_mesh.h"
 #include "src/splat.h"
 #include "src/files.h"
 #include "src/grid.h"
@@ -152,9 +150,9 @@ static void loadInputSplats(InputIterator first, InputIterator last, std::vector
             out.resize(pos + reader.numVertices());
             reader.readVertices(0, reader.numVertices(), &out[pos]);
         }
-        catch (PLY::FormatError &e)
+        catch (FastPly::FormatError &e)
         {
-            throw PLY::FormatError(in->filename + ": " + e.what());
+            throw FastPly::FormatError(in->filename + ": " + e.what());
         }
     }
     BOOST_FOREACH(Splat &splat, out)
@@ -270,7 +268,7 @@ void OutputFunctor::operator()(const cl::CommandQueue &queue,
         *event = last;
 }
 
-static void run(const cl::Context &context, const cl::Device &device, streambuf *out, const po::variables_map &vm)
+static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
 {
     const unsigned int subsampling = 2;
     const unsigned int maxLevels = 8;
@@ -328,14 +326,12 @@ static void run(const cl::Context &context, const cl::Device &device, streambuf 
                 }
             }
 
-    PLY::Writer writer(PLY::FILE_FORMAT_LITTLE_ENDIAN, out);
-    writer.addElement(PLY::makeElementRangeWriter(
-            hVertices.begin(), hVertices.end(), hVertices.size(),
-            PLY::VertexFetcher()));
-    writer.addElement(PLY::makeElementRangeWriter(
-            hIndices.begin(), hIndices.end(), hIndices.size(),
-            PLY::TriangleFetcher()));
-    writer.write();
+    FastPly::Writer writer;
+    writer.setNumVertices(hVertices.size());
+    writer.setNumTriangles(hIndices.size() / 3);
+    writer.open(out);
+    writer.writeVertices(0, hVertices.size(), &hVertices[0].s0);
+    writer.writeTriangles(0, hIndices.size() / 3, &hIndices[0][0]);
 }
 
 int main(int argc, char **argv)
@@ -358,15 +354,12 @@ int main(int argc, char **argv)
 
     try
     {
-        boost::scoped_ptr<OutputFile> outFile;
-        if (vm.count(Option::outputFile))
+        if (!vm.count(Option::outputFile))
         {
-            const string &outFilename = vm[Option::outputFile].as<string>();
-            outFile.reset(new OutputFile(outFilename));
+            cerr << "Output file must be specified\n";
+            return 2;
         }
-        else
-            outFile.reset(new OutputFile());
-        run(context, device, outFile->buffer, vm);
+        run(context, device, vm[Option::outputFile].as<string>(), vm);
     }
     catch (ios::failure &e)
     {
