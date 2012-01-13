@@ -18,6 +18,7 @@
 #include <ostream>
 #include <string>
 #include <vector>
+#include <utility>
 #include <tr1/cstdint>
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/stream.hpp>
@@ -130,6 +131,9 @@ private:
 class Writer
 {
 public:
+    /// Constructor
+    Writer();
+
     /// Size capable of holding maximum supported file size
     typedef boost::iostreams::mapped_file_source::size_type size_type;
 
@@ -158,6 +162,16 @@ public:
     void open(const std::string &filename);
 
     /**
+     * Allocate storage in memory and write the header to it.
+     * This version is primarily aimed at testing, to avoid
+     * writing to file and reading back in.
+     *
+     * The memory is allocated with <code>new[]</code>, and
+     * the caller is responsible for freeing it with <code>delete[]</code>.
+     */
+    std::pair<char *, size_type> open();
+
+    /**
      * Determines whether @ref open has been successfully called.
      */
     bool isOpen();
@@ -181,16 +195,26 @@ public:
     void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
 
 private:
+    /// Bytes per vertex
     static const size_type vertexSize = 3 * sizeof(float);
+    /// Bytes per triangle
     static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
 
+    /// Storage for comments until they can be written by @ref open.
     std::vector<std::string> comments;
-    size_type numVertices, numTriangles;
-    char *vertexPtr;
-    char *trianglePtr;
+    size_type numVertices;              /// Number of vertices (defaults to zero)
+    size_type numTriangles;             /// Number of triangles (defaults to zero)
+    char *vertexPtr;                    /// Pointer to storage for the first vertex
+    char *trianglePtr;                  /// Pointer to storage for the first triangle
+
+    /**
+     * The memory mapping backed by the output file. When using the in-memory
+     * version, the pointer is NULL.
+     */
     boost::scoped_ptr<boost::iostreams::mapped_file_sink> mapping;
 
-    void writeHeader(std::ostream &o);
+    /// Returns the header based on stored values
+    std::string makeHeader();
 };
 
 } // namespace FastPly

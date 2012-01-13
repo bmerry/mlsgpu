@@ -20,6 +20,7 @@
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/foreach.hpp>
 #include "fast_ply.h"
 #include "splat.h"
 #include "errors.h"
@@ -328,6 +329,8 @@ Reader::Reader(const char *data, size_type size)
 }
 
 
+Writer::Writer() : vertexPtr(NULL), trianglePtr(NULL) {}
+
 void Writer::addComment(const std::string &comment)
 {
     MLSGPU_ASSERT(!isOpen(), std::runtime_error);
@@ -346,8 +349,9 @@ void Writer::setNumTriangles(size_type numTriangles)
     this->numTriangles = numTriangles;
 }
 
-void Writer::writeHeader(std::ostream &out)
+std::string Writer::makeHeader()
 {
+    std::ostringstream out;
     out.exceptions(std::ios::failbit | std::ios::badbit);
     out << "ply\n";
     if (cpuLittleEndian())
@@ -357,43 +361,64 @@ void Writer::writeHeader(std::ostream &out)
     else
         throw std::runtime_error("CPU is neither big- nor little-endian");
 
+    BOOST_FOREACH(const std::string &s, comments)
+    {
+        out << "comment " << s << '\n';
+    }
+
     out << "element vertex " << numVertices << '\n'
-        << "property float x\n"
-        << "property float y\n"
-        << "property float z\n"
+        << "property float32 x\n"
+        << "property float32 y\n"
+        << "property float32 z\n"
         << "element face " << numTriangles << '\n'
         << "property list uint8 uint32 vertex_indices\n"
         << "end_header";
     /* Pad out the header to a multiple of 4 bytes, so that all the vertices will
      * be nicely aligned (leaving 1 byte for the \n).
      */
-    while (out.tellp() != -1 && ((std::streamoff(out.tellp()) + 1U) % sizeof(float) != 0))
+    while ((out.str().size() + 1) % sizeof(float) != 0)
         out << ' ';
     out << '\n';
+    return out.str();
 }
 
 void Writer::open(const std::string &filename)
 {
     MLSGPU_ASSERT(!isOpen(), std::runtime_error);
 
-    std::ostringstream headerStream;
-    writeHeader(headerStream);
-    const std::string &header = headerStream.str();
+    std::string header = makeHeader();
 
     boost::iostreams::mapped_file_params params(filename);
     params.mode = std::ios_base::out;
     // TODO: check for overflow here
     params.new_file_size = header.size() + numVertices * vertexSize + numTriangles * triangleSize;
     mapping.reset(new boost::iostreams::mapped_file_sink(params));
-    std::memcpy(mapping->data(), header.data(), header.size());
 
+    std::memcpy(mapping->data(), header.data(), header.size());
     vertexPtr = mapping->data() + header.size();
     trianglePtr = vertexPtr + numVertices * vertexSize;
 }
 
+std::pair<char *, Writer::size_type> Writer::open()
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+
+    const std::string header = makeHeader();
+
+    size_type size = header.size() + numVertices * vertexSize + numTriangles * triangleSize;
+    char *data = new char[size];
+
+    /* Code below here must not throw */
+    std::memcpy(data, header.data(), header.size());
+    vertexPtr = data + header.size();
+    trianglePtr = vertexPtr + numVertices * vertexSize;
+
+    return std::make_pair(data, size);
+}
+
 bool Writer::isOpen()
 {
-    return mapping.get() != NULL;
+    return vertexPtr != NULL;
 }
 
 void Writer::writeVertices(size_type first, size_type count, const float *data)
