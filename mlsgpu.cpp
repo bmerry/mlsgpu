@@ -160,6 +160,7 @@ static void loadInputSplats(InputIterator first, InputIterator last, std::vector
     BOOST_FOREACH(Splat &splat, out)
     {
         splat.radius *= smooth;
+        splat.quality = 1.0 / (splat.radius * splat.radius);
     }
 }
 
