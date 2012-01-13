@@ -26,7 +26,6 @@
 #include "src/timer.h"
 #include "src/fast_ply.h"
 #include "src/splat.h"
-#include "src/files.h"
 #include "src/grid.h"
 #include "src/splat_tree_cl.h"
 #include "src/marching.h"
@@ -112,28 +111,24 @@ static po::variables_map processOptions(int argc, char **argv)
             cout << desc << '\n';
             exit(0);
         }
+
+        if (!vm.count(Option::inputFile))
+        {
+            cerr << "At least one input file must be specified\n\n" << desc << '\n';
+            exit(1);
+        }
+        if (!vm.count(Option::outputFile))
+        {
+            cerr << "An output file must be specified\n\n" << desc << '\n';
+            exit(1);
+        }
+
         return vm;
     }
     catch (po::error &e)
     {
         cerr << e.what() << "\n\n" << desc << '\n';
         exit(1);
-    }
-}
-
-static void makeInputFiles(boost::ptr_vector<InputFile> &inFiles, const po::variables_map &vm)
-{
-    if (vm.count(Option::inputFile))
-    {
-        vector<string> inFilenames = vm[Option::inputFile].as<vector<string> >();
-        BOOST_FOREACH(const string &filename, inFilenames)
-        {
-            inFiles.push_back(new InputFile(filename));
-        }
-    }
-    else
-    {
-        inFiles.push_back(new InputFile());
     }
 }
 
@@ -145,14 +140,14 @@ static void loadInputSplats(InputIterator first, InputIterator last, std::vector
     {
         try
         {
-            FastPly::Reader reader(in->filename);
+            FastPly::Reader reader(*in);
             size_t pos = out.size();
             out.resize(pos + reader.numVertices());
             reader.readVertices(0, reader.numVertices(), &out[pos]);
         }
         catch (FastPly::FormatError &e)
         {
-            throw FastPly::FormatError(in->filename + ": " + e.what());
+            throw FastPly::FormatError(*in + ": " + e.what());
         }
     }
     BOOST_FOREACH(Splat &splat, out)
@@ -164,9 +159,8 @@ static void loadInputSplats(InputIterator first, InputIterator last, std::vector
 
 static void loadInputSplats(const po::variables_map &vm, std::vector<Splat> &out, float smooth)
 {
-    boost::ptr_vector<InputFile> inFiles;
-    makeInputFiles(inFiles, vm);
-    loadInputSplats(inFiles.begin(), inFiles.end(), out, smooth);
+    const vector<string> &inputs = vm[Option::inputFile].as<vector<string> >();
+    loadInputSplats(inputs.begin(), inputs.end(), out, smooth);
 }
 
 /**
@@ -358,11 +352,6 @@ int main(int argc, char **argv)
 
     try
     {
-        if (!vm.count(Option::outputFile))
-        {
-            cerr << "Output file must be specified\n";
-            return 2;
-        }
         run(context, device, vm[Option::outputFile].as<string>(), vm);
     }
     catch (ios::failure &e)
