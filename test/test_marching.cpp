@@ -16,12 +16,15 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <cstddef>
 #include <vector>
-#include <CL/cl.hpp>
+#include <map>
+#include <string>
 #include <cmath>
 #include <fstream>
 #include <boost/array.hpp>
+#include <CL/cl.hpp>
 #include "testmain.h"
 #include "test_clh.h"
+#include "../src/clh.h"
 #include "../src/marching.h"
 #include "../src/fast_ply.h"
 
@@ -108,6 +111,8 @@ class TestMarching : public CLH::Test::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestMarching);
     CPPUNIT_TEST(testConstructor);
+    CPPUNIT_TEST(testComputeKey);
+    // CPPUNIT_TEST(testCompactVertices);
     CPPUNIT_TEST(testSphere);
     CPPUNIT_TEST_SUITE_END();
 
@@ -116,7 +121,15 @@ private:
     template<typename T>
     vector<T> bufferToVector(const cl::Buffer &buffer);
 
+    /// Build a vertex key
+    static cl_ulong makeKey(cl_uint x, cl_uint y, cl_uint z, bool external);
+    /// Wrapper that calls @ref computeKey and returns result
+    cl_ulong callComputeKey(cl::Kernel &kernel,
+                            cl_uint cx, cl_uint cy, cl_uint cz,
+                            cl_uint tx, cl_uint ty, cl_uint tz);
+
     void testConstructor();    ///< Basic sanity tests on the tables
+    void testComputeKey();     ///< Test @ref computeKey helper function
     void testSphere();         ///< Builds a sphere
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMarching, TestSet::perCommit());
@@ -163,6 +176,52 @@ void TestMarching::testConstructor()
             CPPUNIT_ASSERT(dataTable[j] < ev - sv);
         }
     }
+}
+
+cl_ulong TestMarching::makeKey(cl_uint x, cl_uint y, cl_uint z, bool external)
+{
+    cl_ulong ans = (cl_ulong(z) << 42) | (cl_ulong(y) << 21) | (cl_ulong(x));
+    if (external)
+        ans |= cl_ulong(1) << 63;
+    return ans;
+}
+
+cl_ulong TestMarching::callComputeKey(
+    cl::Kernel &kernel,
+    cl_uint cx, cl_uint cy, cl_uint cz,
+    cl_uint tx, cl_uint ty, cl_uint tz)
+{
+    cl_ulong ans = 0;
+    cl_uint3 coords = {{ cx, cy, cz }};
+    cl_uint3 top = {{ tx, ty, tz }};
+    cl::Buffer out(context, CL_MEM_WRITE_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(cl_ulong), &ans);
+
+    kernel.setArg(0, out);
+    kernel.setArg(1, coords);
+    kernel.setArg(2, top);
+    queue.enqueueTask(kernel);
+    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_ulong), &ans);
+    return ans;
+}
+
+void TestMarching::testComputeKey()
+{
+    map<string, string> defines;
+    defines["UNIT_TESTS"] = "1";
+    cl::Program program = CLH::build(context, "kernels/marching.cl", defines);
+    cl::Kernel kernel(program, "testComputeKey");
+
+    CPPUNIT_ASSERT_EQUAL(makeKey(0, 0, 0, true),    callComputeKey(kernel, 0, 0, 0, 32, 32, 32));
+    CPPUNIT_ASSERT_EQUAL(makeKey(1, 2, 3, false),   callComputeKey(kernel, 1, 2, 3, 32, 32, 32));
+    CPPUNIT_ASSERT_EQUAL(makeKey(0, 4, 5, true),    callComputeKey(kernel, 0, 4, 5, 32, 32, 32));
+    CPPUNIT_ASSERT_EQUAL(makeKey(6, 0, 7, true),    callComputeKey(kernel, 6, 0, 7, 32, 32, 32));
+    CPPUNIT_ASSERT_EQUAL(makeKey(9, 5, 0, false),   callComputeKey(kernel, 9, 5, 0, 32, 32, 32));
+    CPPUNIT_ASSERT_EQUAL(makeKey(30, 1, 2, true),   callComputeKey(kernel, 30, 1, 2, 30, 40, 50));
+    CPPUNIT_ASSERT_EQUAL(makeKey(5, 40, 3, true),   callComputeKey(kernel, 5, 40, 3, 30, 40, 50));
+    CPPUNIT_ASSERT_EQUAL(makeKey(1, 2, 50, true),   callComputeKey(kernel, 1, 2, 50, 30, 40, 50));
+    CPPUNIT_ASSERT_EQUAL(makeKey(1, 2, 40, false),  callComputeKey(kernel, 1, 2, 40, 30, 40, 50));
+    CPPUNIT_ASSERT_EQUAL(makeKey(1, 2, 30, false),  callComputeKey(kernel, 1, 2, 30, 30, 40, 50));
+    CPPUNIT_ASSERT_EQUAL(makeKey(30, 40, 50, true), callComputeKey(kernel, 30, 40, 50, 30, 40, 50));
 }
 
 void TestMarching::testSphere()

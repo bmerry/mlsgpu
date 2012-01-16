@@ -47,14 +47,14 @@ class TestMarching;
 class Marching
 {
     friend class TestMarching;
-private:
+public:
+    static const unsigned int MAX_CELL_VERTICES = 13; ///< Maximum vertices generated per cell
+    static const unsigned int MAX_CELL_INDICES = 36;  ///< Maximum triangles generated per cell
     static const unsigned int NUM_CUBES = 256;      ///< Number of possible vertex codes for a cube (2^vertices)
     static const unsigned int NUM_EDGES = 19;       ///< Number of edges in each cube
     static const unsigned int NUM_TETRAHEDRA = 6;   ///< Number of tetrahedra in each cube
 
-    static const unsigned int MAX_CELL_VERTICES = 13; ///< Maximum vertices generated per cell
-    static const unsigned int MAX_CELL_INDICES = 36;  ///< Maximum triangles generated per cell
-
+private:
     /**
      * The vertices incident on each edge. It is important that the vertex indices
      * are in order in each edge.

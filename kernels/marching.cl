@@ -152,9 +152,14 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
 #define INTERP(a, b) \
     interp(iso[a], iso[b], cellf, (float3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (float3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
+/**
+ * Computes a key for coordinates. See @ref generateVertices for the definition.
+ * @param coords           Coordinates in .1 fixed-point format.
+ * @param top              Coordinates that indicate an external vertices in .1 fixed-point format.
+ */
 ulong computeKey(uint3 coords, uint3 top)
 {
-    ulong key = ((ulong) coords.z << (2 * KEY_AXIS_BITS + 1)) | ((ulong) coords.y << (KEY_AXIS_BITS + 1)) | ((ulong) coords.x << 1);
+    ulong key = ((ulong) coords.z << (2 * KEY_AXIS_BITS)) | ((ulong) coords.y << (KEY_AXIS_BITS)) | ((ulong) coords.x);
     if (any(coords.xy == 0U) || any(coords == top))
         key |= KEY_EXTERNAL_FLAG;
     return key;
@@ -346,3 +351,16 @@ __kernel void reindex(
     const uint gid = get_global_id(0);
     indices[gid] = indexRemap[indices[gid]] + offset;
 }
+
+/*******************************************************************************
+ * Test code only below here.
+ *******************************************************************************/
+
+#if UNIT_TESTS
+
+__kernel void testComputeKey(__global ulong *out, uint3 coords, uint3 top)
+{
+    *out = computeKey(coords, top);
+}
+
+#endif /* UNIT_TESTS */
