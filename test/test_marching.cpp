@@ -67,6 +67,40 @@ public:
     }
 };
 
+class OutputFunctor
+{
+private:
+    vector<cl_float> &hVertices;
+    vector<boost::array<cl_uint, 3> > &hIndices;
+
+public:
+    OutputFunctor(vector<cl_float> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
+        : hVertices(hVertices), hIndices(hIndices) {}
+
+    void operator()(const cl::CommandQueue &queue,
+                    const cl::Buffer &vertices,
+                    const cl::Buffer &indices,
+                    std::size_t numVertices,
+                    std::size_t numIndices,
+                    cl::Event *event) const
+    {
+        cl::Event last;
+        std::vector<cl::Event> wait(1);
+
+        std::size_t oldVertices = hVertices.size();
+        std::size_t oldIndices = hIndices.size();
+        hVertices.resize(oldVertices + numVertices * 3);
+        hIndices.resize(oldIndices + numIndices / 3);
+        queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * 3 * sizeof(cl_float), &hVertices[oldVertices],
+                                NULL, &last);
+        wait[0] = last;
+        queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
+                                &wait, &last);
+        if (event != NULL)
+            *event = last;
+    }
+};
+
 /**
  * Tests for @ref Marching.
  */
@@ -130,40 +164,6 @@ void TestMarching::testConstructor()
         }
     }
 }
-
-class OutputFunctor
-{
-private:
-    vector<cl_float> &hVertices;
-    vector<boost::array<cl_uint, 3> > &hIndices;
-
-public:
-    OutputFunctor(vector<cl_float> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
-        : hVertices(hVertices), hIndices(hIndices) {}
-
-    void operator()(const cl::CommandQueue &queue,
-                    const cl::Buffer &vertices,
-                    const cl::Buffer &indices,
-                    std::size_t numVertices,
-                    std::size_t numIndices,
-                    cl::Event *event) const
-    {
-        cl::Event last;
-        std::vector<cl::Event> wait(1);
-
-        std::size_t oldVertices = hVertices.size();
-        std::size_t oldIndices = hIndices.size();
-        hVertices.resize(oldVertices + numVertices * 3);
-        hIndices.resize(oldIndices + numIndices / 3);
-        queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * 3 * sizeof(cl_float), &hVertices[oldVertices],
-                                NULL, &last);
-        wait[0] = last;
-        queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
-                                &wait, &last);
-        if (event != NULL)
-            *event = last;
-    }
-};
 
 void TestMarching::testSphere()
 {
