@@ -462,7 +462,7 @@ void Marching::generate(
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
     cl_uint2 offsets = { {0, 0} };
-    cl_uint3 top = { {2 * width, 2 * height, 0} };
+    cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
 
     input(queue, *images[1], 0, events, &last);
     wait[0] = last;
@@ -486,14 +486,14 @@ void Marching::generate(
                 /* Too much information in this layer to just append. Ship out
                  * what we have before processing this layer.
                  */
-                std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, z, output, &wait, &last);
+                std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, z - 1, output, &wait, &last);
                 wait.resize(1);
                 wait[0] = last;
 
                 indexOffset += numWelded;
                 offsets.s0 = 0;
                 offsets.s1 = 0;
-                top.z = z;
+                top.z = 2 * (z - 1);
 
                 /* We'd better have enough room to process one layer at a time.
                  */
@@ -523,7 +523,7 @@ void Marching::generate(
     }
     if (offsets.s0 > 0)
     {
-        std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, depth, output, &wait, &last);
+        std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, depth - 1, output, &wait, &last);
         wait.resize(1);
         wait[0] = last;
         indexOffset += numWelded;

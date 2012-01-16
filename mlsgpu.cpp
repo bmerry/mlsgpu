@@ -18,6 +18,7 @@
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/array.hpp>
 #include <boost/ref.hpp>
+#include <tr1/unordered_map>
 #include <iostream>
 #include <map>
 #include <vector>
@@ -245,6 +246,8 @@ public:
 
     void validate() const;
 
+    void weld();
+
     void operator()(const cl::CommandQueue &queue,
                     const cl::Buffer &vertices,
                     const cl::Buffer &vertexKeys,
@@ -285,6 +288,7 @@ void OutputFunctor::operator()(const cl::CommandQueue &queue,
     std::size_t numTriangles = numIndices / 3;
     hInternalVertices.resize(oldIV + numInternalVertices);
     hExternalVertices.resize(oldEV + numExternalVertices);
+    hExternalKeys.resize(oldEV + numExternalVertices);
     hIndices.resize(oldTriangles + numTriangles);
     // TODO: revisit dependency tracking to allow overlaps
     queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint),
@@ -292,6 +296,7 @@ void OutputFunctor::operator()(const cl::CommandQueue &queue,
                             NULL, &indicesEvent);
     last = indicesEvent;
     wait[0] = last;
+    queue.flush(); // Start the read in the background
     if (numInternalVertices > 0)
     {
         queue.enqueueReadBuffer(vertices, CL_FALSE, 0, 3 * numInternalVertices * sizeof(cl_float),
@@ -306,6 +311,13 @@ void OutputFunctor::operator()(const cl::CommandQueue &queue,
                                 3 * numExternalVertices * sizeof(cl_float),
                                 &hExternalVertices[oldEV][0],
                                 &wait, &last);
+        wait[0] = last;
+        queue.enqueueReadBuffer(vertexKeys, CL_FALSE,
+                                numInternalVertices * sizeof(cl_ulong),
+                                numExternalVertices * sizeof(cl_ulong),
+                                &hExternalKeys[oldEV],
+                                &wait, &last);
+        wait[0] = last;
     }
     if (event != NULL)
         *event = last;
@@ -323,6 +335,40 @@ void OutputFunctor::operator()(const cl::CommandQueue &queue,
                 hIndices[i][j] += iOffset;
             else
                 hIndices[i][j] = ~(hIndices[i][j] + eOffset);
+}
+
+void OutputFunctor::weld()
+{
+    /* TODO: weld as we go? */
+    std::size_t unwelded = hExternalVertices.size();
+    std::size_t welded = 0;
+
+    std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
+    vector<cl_uint> remap(unwelded);
+    for (size_t i = 0; i < unwelded; i++)
+    {
+        std::tr1::unordered_map<cl_ulong, cl_uint>::iterator pos;
+        pos = keyMap.find(hExternalKeys[i]);
+        if (pos == keyMap.end())
+        {
+            keyMap[hExternalKeys[i]] = welded;
+            hExternalVertices[welded] = hExternalVertices[i];
+            remap[i] = welded;
+            welded++;
+        }
+        else
+        {
+            remap[i] = pos->second;
+        }
+    }
+    hExternalVertices.resize(welded);
+    for (size_t i = 0; i < hIndices.size(); i++)
+        for (int j = 0; j < 3; j++)
+        {
+            cl_uint &index = hIndices[i][j];
+            if (~index < unwelded)
+                index = ~remap[~index];
+        }
 }
 
 void OutputFunctor::write(const std::string &out)
@@ -377,9 +423,9 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     OutputFunctor output;
 
     /* TODO: partition splats */
-    for (unsigned int bz = 0; bz <= cells[2]; bz += maxCells)
-        for (unsigned int by = 0; by <= cells[1]; by += maxCells)
-            for (unsigned int bx = 0; bx <= cells[0]; bx += maxCells)
+    for (unsigned int bz = 0; bz < cells[2]; bz += maxCells)
+        for (unsigned int by = 0; by < cells[1]; by += maxCells)
+            for (unsigned int bx = 0; bx < cells[0]; bx += maxCells)
             {
                 cl_uint3 keyOffset = {{ bx, by, bz }};
                 Grid sub = grid.subGrid(bx, bx + maxCells,
@@ -403,6 +449,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
             }
 
     output.validate();
+    output.weld();
     output.write(out);
 }
 
