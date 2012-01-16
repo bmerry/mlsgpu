@@ -363,6 +363,7 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
 std::size_t Marching::shipOut(const cl::CommandQueue &queue,
                               std::size_t indexOffset,
                               const cl_uint2 &sizes,
+                              cl_uint zMax,
                               const OutputFunctor &output,
                               const std::vector<cl::Event> *events,
                               cl::Event *event)
@@ -400,8 +401,7 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     // TODO: should we be sorting key/value pairs? The values are going to end up moving
     // twice, and most of them will be eliminated entirely! However, sorting them does
     // give later passes better spatial locality and fewer indirections.
-    // TODO: actually compute minExternalKey
-    cl_ulong minExternalKey = CL_ULONG_MAX;
+    cl_ulong minExternalKey = cl_ulong(zMax) << (2 * KEY_AXIS_BITS + 1);
     compactVerticesKernel.setArg(7, minExternalKey);
     queue.enqueueNDRangeKernel(compactVerticesKernel,
                                cl::NullRange,
@@ -476,7 +476,7 @@ void Marching::generate(
                 /* Too much information in this layer to just append. Ship out
                  * what we have before processing this layer.
                  */
-                std::size_t numWelded = shipOut(queue, indexOffset, offsets, output, &wait, &last);
+                std::size_t numWelded = shipOut(queue, indexOffset, offsets, z, output, &wait, &last);
                 wait.resize(1);
                 wait[0] = last;
 
@@ -513,7 +513,7 @@ void Marching::generate(
     }
     if (offsets.s0 > 0)
     {
-        std::size_t numWelded = shipOut(queue, indexOffset, offsets, output, &wait, &last);
+        std::size_t numWelded = shipOut(queue, indexOffset, offsets, depth, output, &wait, &last);
         wait.resize(1);
         wait[0] = last;
         indexOffset += numWelded;

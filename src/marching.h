@@ -228,6 +228,9 @@ private:
     void makeTables();
 
 public:
+    /// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
+    static const int KEY_AXIS_BITS = 21;
+
     /**
      * The function type to pass to @ref generate for sampling the isofunction.
      * An invocation of this function must enqueue commands to generate
@@ -378,6 +381,7 @@ private:
      * @param queue           Command queue to use for enqueuing work.
      * @param indexOffset     Value added to all indices.
      * @param sizes           Number of vertices and indices in input.
+     * @param zMax            Maximum potential z value of vertices (not cells).
      * @param output          Functor to which the welded geometry is passed.
      * @param events          Events to wait for before starting (may be @c NULL).
      * @param event           Event to wait for before returning (may be @c NULL).
@@ -385,6 +389,7 @@ private:
     std::size_t shipOut(const cl::CommandQueue &queue,
                         std::size_t indexOffset,
                         const cl_uint2 &sizes,
+                        cl_uint zMax,
                         const OutputFunctor &output,
                         const std::vector<cl::Event> *events,
                         cl::Event *event);
