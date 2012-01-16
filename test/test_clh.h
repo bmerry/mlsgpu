@@ -34,6 +34,15 @@ protected:
 
     void setUpCL();                ///< Create context, etc.
     void tearDownCL();             ///< Release context, etc.
+
+    /**
+     * Create a buffer which contains 0xDEADBEEF repeated throughout.
+     *
+     * @param flags    Flags to pass to CL (do not specify @c CL_MEM_COPY_HOST_PTR or @c CL_MEM_USE_HOST_PTR).
+     * @param size     The buffer size.
+     * @return The initialized buffer.
+     */
+    cl::Buffer createBuffer(cl_mem_flags flags, ::size_t size);
 };
 
 /**

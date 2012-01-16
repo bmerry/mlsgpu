@@ -112,7 +112,7 @@ class TestMarching : public CLH::Test::TestFixture
     CPPUNIT_TEST_SUITE(TestMarching);
     CPPUNIT_TEST(testConstructor);
     CPPUNIT_TEST(testComputeKey);
-    // CPPUNIT_TEST(testCompactVertices);
+    CPPUNIT_TEST(testCompactVertices);
     CPPUNIT_TEST(testSphere);
     CPPUNIT_TEST_SUITE_END();
 
@@ -121,6 +121,10 @@ private:
     template<typename T>
     vector<T> bufferToVector(const cl::Buffer &buffer);
 
+    /// Read the contents of a vector and return it (synchronously) as a buffer.
+    template<typename T>
+    cl::Buffer vectorToBuffer(cl_mem_flags flags, const vector<T> &v);
+
     /// Build a vertex key
     static cl_ulong makeKey(cl_uint x, cl_uint y, cl_uint z, bool external);
     /// Wrapper that calls @ref computeKey and returns result
@@ -128,9 +132,31 @@ private:
                             cl_uint cx, cl_uint cy, cl_uint cz,
                             cl_uint tx, cl_uint ty, cl_uint tz);
 
-    void testConstructor();    ///< Basic sanity tests on the tables
-    void testComputeKey();     ///< Test @ref computeKey helper function
-    void testSphere();         ///< Builds a sphere
+    /**
+     * Wrapper that calls @ref compactVertices and returns the results in host memory.
+     * The output vectors are completely overwritten, so the incoming contents have
+     * no effect.
+     *
+     * @param kernel            The @ref compactVertices kernel.
+     * @param outSize           Entries to allocate for output vertices.
+     * @param remapSize         Entries to allocate in the index remap table.
+     */
+    void callCompactVertices(
+        cl::Kernel &kernel,
+        size_t outSize, size_t remapSize,
+        vector<cl_float> &outVertices,
+        vector<cl_ulong> &outKeys,
+        vector<cl_uint> &indexRemap,
+        cl_uint &firstExternal,
+        const vector<cl_uint> &vertexUnique,
+        const vector<cl_float4> &inVertices,
+        const vector<cl_ulong> &inKeys,
+        cl_ulong minExternalKey);
+
+    void testConstructor();     ///< Basic sanity tests on the tables
+    void testComputeKey();      ///< Test @ref computeKey helper function
+    void testCompactVertices(); ///< Test @ref compactVertices kernel
+    void testSphere();          ///< Builds a sphere
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMarching, TestSet::perCommit());
 
@@ -142,6 +168,13 @@ vector<T> TestMarching::bufferToVector(const cl::Buffer &buffer)
     vector<T> ans(size / sizeof(T));
     queue.enqueueReadBuffer(buffer, CL_TRUE, 0, size, &ans[0]);
     return ans;
+}
+
+template<typename T>
+cl::Buffer TestMarching::vectorToBuffer(cl_mem_flags flags, const vector<T> &v)
+{
+    size_t size = v.size() * sizeof(T);
+    return cl::Buffer(context, flags | CL_MEM_COPY_HOST_PTR, size, (void *) (&v[0]));
 }
 
 void TestMarching::testConstructor()
@@ -222,6 +255,130 @@ void TestMarching::testComputeKey()
     CPPUNIT_ASSERT_EQUAL(makeKey(1, 2, 40, false),  callComputeKey(kernel, 1, 2, 40, 30, 40, 50));
     CPPUNIT_ASSERT_EQUAL(makeKey(1, 2, 30, false),  callComputeKey(kernel, 1, 2, 30, 30, 40, 50));
     CPPUNIT_ASSERT_EQUAL(makeKey(30, 40, 50, true), callComputeKey(kernel, 30, 40, 50, 30, 40, 50));
+}
+
+void TestMarching::callCompactVertices(
+    cl::Kernel &kernel,
+    size_t outSize, size_t remapSize,
+    vector<cl_float> &outVertices,
+    vector<cl_ulong> &outKeys,
+    vector<cl_uint> &indexRemap,
+    cl_uint &firstExternal,
+    const vector<cl_uint> &vertexUnique,
+    const vector<cl_float4> &inVertices,
+    const vector<cl_ulong> &inKeys,
+    cl_ulong minExternalKey)
+{
+    const size_t inSize = inVertices.size();
+    cl::Buffer dOutVertices   = createBuffer(CL_MEM_WRITE_ONLY, outSize * (3 * sizeof(cl_float)));
+    cl::Buffer dOutKeys       = createBuffer(CL_MEM_WRITE_ONLY, outSize * sizeof(cl_ulong));
+    cl::Buffer dIndexRemap    = createBuffer(CL_MEM_WRITE_ONLY, remapSize * sizeof(cl_uint));
+    cl::Buffer dFirstExternal = createBuffer(CL_MEM_WRITE_ONLY, sizeof(cl_uint));
+    cl::Buffer dVertexUnique  = vectorToBuffer(CL_MEM_READ_ONLY, vertexUnique);
+    cl::Buffer dInVertices    = vectorToBuffer(CL_MEM_READ_ONLY, inVertices);
+    cl::Buffer dInKeys        = vectorToBuffer(CL_MEM_READ_ONLY, inKeys);
+
+    kernel.setArg(0, dOutVertices);
+    kernel.setArg(1, dOutKeys);
+    kernel.setArg(2, dIndexRemap);
+    kernel.setArg(3, dFirstExternal);
+    kernel.setArg(4, dVertexUnique);
+    kernel.setArg(5, dInVertices);
+    kernel.setArg(6, dInKeys);
+    kernel.setArg(7, minExternalKey);
+    queue.enqueueNDRangeKernel(kernel,
+                               cl::NullRange,
+                               cl::NDRange(inSize),
+                               cl::NullRange);
+    outVertices = bufferToVector<cl_float>(dOutVertices);
+    outKeys = bufferToVector<cl_ulong>(dOutKeys);
+    indexRemap = bufferToVector<cl_uint>(dIndexRemap);
+    queue.enqueueReadBuffer(dFirstExternal, CL_TRUE, 0, sizeof(cl_uint), &firstExternal);
+}
+
+static inline cl_float uintAsFloat(cl_uint x)
+{
+    cl_float y;
+    memcpy(&y, &x, sizeof(y));
+    return y;
+}
+
+void TestMarching::testCompactVertices()
+{
+    const cl_ulong externalBit = cl_ulong(1) << 63;
+    const cl_ulong hInKeys[6] = { 100, 100, 200, externalBit | 50, externalBit | 50, CL_ULONG_MAX };
+    const cl_uint hVertexUnique[6] = { 0, 0, 1, 2, 2, 3 };
+    const cl_uint ids[5] = { 4, 1, 2, 3, 0 };
+
+    vector<cl_float> outVertices;
+    vector<cl_ulong> outKeys;
+    vector<cl_uint> indexRemap;
+    cl_uint firstExternal;
+    vector<cl_uint> vertexUnique(hVertexUnique, hVertexUnique + 6);
+    vector<cl_float4> inVertices(5);
+    vector<cl_ulong> inKeys(hInKeys, hInKeys + 6);
+
+    for (int i = 0; i < 5; i++)
+    {
+        inVertices[i].x = i;
+        inVertices[i].y = i + 1;
+        inVertices[i].z = i + 2;
+        inVertices[i].w = uintAsFloat(ids[i]);
+    }
+
+    Marching marching(context, device, 2, 2);
+    callCompactVertices(marching.compactVerticesKernel, 3, 5,
+                        outVertices, outKeys, indexRemap, firstExternal,
+                        vertexUnique, inVertices, inKeys, 200);
+
+    CPPUNIT_ASSERT_EQUAL(1.0f, outVertices[0]);
+    CPPUNIT_ASSERT_EQUAL(2.0f, outVertices[3]);
+    CPPUNIT_ASSERT_EQUAL(4.0f, outVertices[6]);
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(0xDEADBEEFDEADBEEFull), outKeys[0]); // should not be overwritten
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(200), outKeys[1]);
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(50), outKeys[2]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[1]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(1), indexRemap[2]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[3]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[4]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(1), firstExternal);
+
+    // Same thing, but with all vertices external
+    callCompactVertices(marching.compactVerticesKernel, 3, 5,
+                        outVertices, outKeys, indexRemap, firstExternal,
+                        vertexUnique, inVertices, inKeys, 100);
+
+    CPPUNIT_ASSERT_EQUAL(1.0f, outVertices[0]);
+    CPPUNIT_ASSERT_EQUAL(2.0f, outVertices[3]);
+    CPPUNIT_ASSERT_EQUAL(4.0f, outVertices[6]);
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(100), outKeys[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(200), outKeys[1]);
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(50), outKeys[2]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[1]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(1), indexRemap[2]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[3]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[4]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), firstExternal);
+
+    // Same again, but with all vertices internal
+    callCompactVertices(marching.compactVerticesKernel, 3, 5,
+                        outVertices, outKeys, indexRemap, firstExternal,
+                        vertexUnique, inVertices, inKeys, externalBit | 60);
+
+    CPPUNIT_ASSERT_EQUAL(1.0f, outVertices[0]);
+    CPPUNIT_ASSERT_EQUAL(2.0f, outVertices[3]);
+    CPPUNIT_ASSERT_EQUAL(4.0f, outVertices[6]);
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(0xDEADBEEFDEADBEEFull), outKeys[0]); // should not be overwritten
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(0xDEADBEEFDEADBEEFull), outKeys[1]); // should not be overwritten
+    CPPUNIT_ASSERT_EQUAL(cl_ulong(0xDEADBEEFDEADBEEFull), outKeys[2]); // should not be overwritten
+    CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[1]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(1), indexRemap[2]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[3]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[4]);
+    CPPUNIT_ASSERT_EQUAL(cl_uint(3), firstExternal);
 }
 
 void TestMarching::testSphere()

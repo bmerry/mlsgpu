@@ -15,7 +15,9 @@
 #include <cppunit/TestFixture.h>
 #include <CL/cl.hpp>
 #include <boost/program_options.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <cstdlib>
+#include <algorithm>
 #include "testmain.h"
 #include "test_clh.h"
 #include "../src/clh.h"
@@ -46,6 +48,14 @@ void Mixin::tearDownCL()
     context = NULL;
     device = NULL;
     queue = NULL;
+}
+
+cl::Buffer Mixin::createBuffer(cl_mem_flags flags, ::size_t size)
+{
+    ::size_t words = (size + 3) / 4;
+    boost::scoped_array<cl_uint> data(new cl_uint[words]);
+    fill(data.get(), data.get() + words, 0xDEADBEEF);
+    return cl::Buffer(context, flags | CL_MEM_COPY_HOST_PTR, size, data.get());
 }
 
 void TestFixture::setUp()
