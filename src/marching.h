@@ -317,8 +317,11 @@ public:
      * @param input          Generates slices of the function (see @ref InputFunctor).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param grid           Sampling grid.
+     * @param keyOffset      XYZ values to add to vertex keys of external vertices.
      * @param indexOffset    Bias to add to all indices.
      * @param events         Previous events to wait for (can be @c NULL).
+     *
+     * @note @a keyOffset is specified in integer units, not fixed-point.
      *
      * @pre The number of vertices in @a grid must not exceed the dimensions
      * passed to the constructor.
@@ -327,6 +330,7 @@ public:
                   const InputFunctor &input,
                   const OutputFunctor &output,
                   const Grid &grid,
+                  const cl_uint3 &keyOffset,
                   std::size_t indexOffset,
                   const std::vector<cl::Event> *events = NULL);
 
@@ -387,6 +391,7 @@ private:
      * @ref indexRemap are clobbered.
      *
      * @param queue           Command queue to use for enqueuing work.
+     * @param keyOffset       Value added to keys (see @ref generate for details).
      * @param indexOffset     Value added to all indices.
      * @param sizes           Number of vertices and indices in input.
      * @param zMax            Maximum potential z value of vertices (not cells).
@@ -395,6 +400,7 @@ private:
      * @param event           Event to wait for before returning (may be @c NULL).
      */
     std::size_t shipOut(const cl::CommandQueue &queue,
+                        const cl_uint3 &keyOffset,
                         std::size_t indexOffset,
                         const cl_uint2 &sizes,
                         cl_uint zMax,

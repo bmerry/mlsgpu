@@ -303,6 +303,7 @@ __kernel void countUniqueVertices(__global uint * restrict vertexUnique,
  * @param      inVertices      Sorted vertices, with original ID stored in @c w.
  * @param      inKeys          Vertex keys corresponding to @a inVertices (plus a sentinel @c ULONG_MAX).
  * @param      minExternalKey  Vertex keys >= @a minExternalKey are considered to be external vertices.
+ * @param      keyOffset       Value added to keys on output (after comparison with @a minExternalKey).
  */
 __kernel void compactVertices(
     __global float * restrict outVertices,
@@ -312,7 +313,8 @@ __kernel void compactVertices(
     __global const uint * restrict vertexUnique,
     __global const float4 * restrict inVertices,
     __global const ulong * restrict inKeys,
-    ulong minExternalKey)
+    ulong minExternalKey,
+    ulong keyOffset)
 {
     const uint gid = get_global_id(0);
     const uint u = vertexUnique[gid];
@@ -325,7 +327,7 @@ __kernel void compactVertices(
         vstore3(v.xyz, u, outVertices);
         if (ext)
         {
-            outKeys[u] = key & (KEY_EXTERNAL_FLAG - 1);
+            outKeys[u] = (key & (KEY_EXTERNAL_FLAG - 1)) + keyOffset;
             if (u == 0)
                 *firstExternal = 0;
         }

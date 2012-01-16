@@ -305,6 +305,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         for (unsigned int by = 0; by <= cells[1]; by += maxCells)
             for (unsigned int bx = 0; bx <= cells[0]; bx += maxCells)
             {
+                cl_uint3 keyOffset = {{ bx, by, bz }};
                 Grid sub = grid.subGrid(bx, bx + maxCells,
                                         by, by + maxCells,
                                         bz, bz + maxCells);
@@ -319,7 +320,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
                 {
                     Timer timer;
-                    marching.generate(queue, input, output, sub, hVertices.size() / 3, NULL);
+                    marching.generate(queue, input, output, sub, keyOffset, hVertices.size() / 3, NULL);
                     cout << "Process: " << timer.getElapsed() << endl;
                 }
             }

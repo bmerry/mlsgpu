@@ -288,6 +288,7 @@ void TestMarching::callCompactVertices(
     kernel.setArg(5, dInVertices);
     kernel.setArg(6, dInKeys);
     kernel.setArg(7, minExternalKey);
+    kernel.setArg(8, cl_ulong(0));
     queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
                                cl::NDRange(inSize),
@@ -406,7 +407,8 @@ void TestMarching::testSphere()
     std::vector<boost::array<cl_uint, 3> > hIndices;
 
     OutputFunctor output(hVertices, hIndices);
-    marching.generate(queue, input, output, grid, 0, NULL);
+    cl_uint3 keyOffset = {{ 0, 0, 0 }};
+    marching.generate(queue, input, output, grid, keyOffset, 0, NULL);
 
     FastPly::Writer writer;
     writer.setNumVertices(hVertices.size() / 3);

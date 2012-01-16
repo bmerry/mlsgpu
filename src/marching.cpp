@@ -361,6 +361,7 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
 }
 
 std::size_t Marching::shipOut(const cl::CommandQueue &queue,
+                              const cl_uint3 &keyOffset,
                               std::size_t indexOffset,
                               const cl_uint2 &sizes,
                               cl_uint zMax,
@@ -402,7 +403,12 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     // twice, and most of them will be eliminated entirely! However, sorting them does
     // give later passes better spatial locality and fewer indirections.
     cl_ulong minExternalKey = cl_ulong(zMax) << (2 * KEY_AXIS_BITS + 1);
+    cl_ulong keyOffsetL =
+        (cl_ulong(keyOffset.z) << (2 * KEY_AXIS_BITS + 1))
+        | (cl_ulong(keyOffset.y) << (KEY_AXIS_BITS + 1))
+        | (cl_ulong(keyOffset.x) << 1);
     compactVerticesKernel.setArg(7, minExternalKey);
+    compactVerticesKernel.setArg(8, keyOffsetL);
     queue.enqueueNDRangeKernel(compactVerticesKernel,
                                cl::NullRange,
                                cl::NDRange(sizes.s0),
@@ -432,6 +438,7 @@ void Marching::generate(
     const InputFunctor &input,
     const OutputFunctor &output,
     const Grid &grid,
+    const cl_uint3 &keyOffset,
     std::size_t indexOffset,
     const std::vector<cl::Event> *events)
 {
@@ -479,7 +486,7 @@ void Marching::generate(
                 /* Too much information in this layer to just append. Ship out
                  * what we have before processing this layer.
                  */
-                std::size_t numWelded = shipOut(queue, indexOffset, offsets, z, output, &wait, &last);
+                std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, z, output, &wait, &last);
                 wait.resize(1);
                 wait[0] = last;
 
@@ -516,7 +523,7 @@ void Marching::generate(
     }
     if (offsets.s0 > 0)
     {
-        std::size_t numWelded = shipOut(queue, indexOffset, offsets, depth, output, &wait, &last);
+        std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, depth, output, &wait, &last);
         wait.resize(1);
         wait[0] = last;
         indexOffset += numWelded;
