@@ -410,15 +410,18 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
                                &wait, &last);
     wait[0] = last;
 
+    cl_uint hFirstExternal;
+    queue.enqueueReadBuffer(firstExternal, CL_FALSE, 0, sizeof(cl_uint), &hFirstExternal, &wait, NULL);
+
     reindexKernel.setArg(2, (cl_uint) indexOffset);
     queue.enqueueNDRangeKernel(reindexKernel,
                                cl::NullRange,
                                cl::NDRange(sizes.s1),
                                cl::NullRange,
                                &wait, &last);
-    queue.finish(); // wait for readback of numWelded
+    queue.finish(); // wait for readback of numWelded and firstExternal
 
-    output(queue, weldedVertices, indices, numWelded, sizes.s1, &last);
+    output(queue, weldedVertices, weldedVertexKeys, indices, numWelded, hFirstExternal, sizes.s1, &last);
     if (event != NULL)
         *event = last;
     return numWelded;

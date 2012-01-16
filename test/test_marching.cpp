@@ -82,8 +82,10 @@ public:
 
     void operator()(const cl::CommandQueue &queue,
                     const cl::Buffer &vertices,
+                    const cl::Buffer &vertexKeys,
                     const cl::Buffer &indices,
                     std::size_t numVertices,
+                    std::size_t numInternalVertices,
                     std::size_t numIndices,
                     cl::Event *event) const
     {

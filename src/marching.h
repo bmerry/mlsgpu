@@ -271,11 +271,19 @@ public:
      * be suitably offset so that they index the concatenation of all the vertices
      * passed to the callback. The vertices are in tightly packed cl_float triplets
      * (x,y,z) while the indices are in tightly packed cl_uint index triplets.
+     *
+     * The vertices are partitioned into internal and external vertices, with the
+     * internal ones first. @a numInternalVertices indicates the position of the split.
+     * For the external vertices, @a vertexKeys gives the keys, which can be used by
+     * the caller to weld external vertices together. @a vertexKeys is indexed in the
+     * same way as @a vertices, but the keys for internal vertices are undefined.
      */
     typedef boost::function<void(const cl::CommandQueue &,
                                  const cl::Buffer &vertices,
+                                 const cl::Buffer &vertexKeys,
                                  const cl::Buffer &indices,
                                  std::size_t numVertices,
+                                 std::size_t numInternalVertices,
                                  std::size_t numIndices,
                                  cl::Event *event)> OutputFunctor;
 
