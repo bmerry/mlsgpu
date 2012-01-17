@@ -330,12 +330,48 @@ Reader::Reader(const char *data, size_type size)
         throw FormatError("Input source is too small to contain its vertices");
 }
 
-
-namespace internal
+bool WriterBase::isOpen() const
 {
+    return isOpen_;
+}
 
-template<typename SizeType>
-std::string WriterBase<SizeType>::makeHeader()
+void WriterBase::addComment(const std::string &comment)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    comments.push_back(comment);
+}
+
+void WriterBase::setNumVertices(size_type numVertices)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    this->numVertices = numVertices;
+}
+
+void WriterBase::setNumTriangles(size_type numTriangles)
+{
+    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    this->numTriangles = numTriangles;
+}
+
+WriterBase::WriterBase() : comments(), numVertices(0), numTriangles(0), isOpen_(false) {}
+WriterBase::~WriterBase() {}
+
+WriterBase::size_type WriterBase::getNumVertices() const
+{
+    return numVertices;
+}
+
+WriterBase::size_type WriterBase::getNumTriangles() const
+{
+    return numTriangles;
+}
+
+void WriterBase::setOpen()
+{
+    isOpen_ = true;
+}
+
+std::string WriterBase::makeHeader()
 {
     std::ostringstream out;
     out.exceptions(std::ios::failbit | std::ios::badbit);
@@ -368,7 +404,6 @@ std::string WriterBase<SizeType>::makeHeader()
     return out.str();
 }
 
-} // namespace internal
 
 MmapWriter::MmapWriter() : vertexPtr(NULL), trianglePtr(NULL) {}
 
@@ -427,6 +462,11 @@ void MmapWriter::writeTriangles(size_type first, size_type count, const std::tr1
         *ptr = 3;
         memcpy(ptr + 1, data, 3 * sizeof(data[0]));
     }
+}
+
+bool MmapWriter::supportsOutOfOrder() const
+{
+    return true;
 }
 
 void StreamWriter::open(const std::string &filename)
@@ -501,6 +541,11 @@ void StreamWriter::writeTriangles(size_type first, size_type count, const std::t
         count -= triangles;
         nextTriangle += triangles;
     }
+}
+
+bool StreamWriter::supportsOutOfOrder() const
+{
+    return false;
 }
 
 } // namespace FastPly

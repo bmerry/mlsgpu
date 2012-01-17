@@ -25,7 +25,6 @@
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
-#include "errors.h"
 
 class Splat;
 class TestFastPlyReader;
@@ -106,54 +105,74 @@ private:
     void readHeader(std::istream &in); ///< Does the heavy lifting of parsing the header
 };
 
-namespace internal
-{
-
 /// Common code shared by @ref MmapWriter and @ref StreamWriter
-template<typename SizeType>
 class WriterBase
 {
 public:
     /// Size capable of holding maximum supported file size
-    typedef SizeType size_type;
+    typedef std::tr1::uintmax_t size_type;
 
     /**
      * Determines whether @ref open has been successfully called.
      */
-    bool isOpen()
-    {
-        return isOpen_;
-    }
+    bool isOpen() const;
 
     /**
      * Add a comment to be written by @ref open.
      * @pre @ref open has not yet been successfully called.
      */
-    void addComment(const std::string &comment)
-    {
-        MLSGPU_ASSERT(!isOpen(), std::runtime_error);
-        comments.push_back(comment);
-    }
+    void addComment(const std::string &comment);
 
     /**
      * Set the number of vertices that will be in the file.
      * @pre @ref open has not yet been successfully called.
      */
-    void setNumVertices(size_type numVertices)
-    {
-        MLSGPU_ASSERT(!isOpen(), std::runtime_error);
-        this->numVertices = numVertices;
-    }
+    void setNumVertices(size_type numVertices);
 
     /**
      * Set the number of indices that will be in the file.
      * @pre @ref open has not yet been successfully called.
      */
-    void setNumTriangles(size_type numTriangles)
-    {
-        MLSGPU_ASSERT(!isOpen(), std::runtime_error);
-        this->numTriangles = numTriangles;
-    }
+    void setNumTriangles(size_type numTriangles);
+
+    /**
+     * Create the file and write the header.
+     * @pre @ref open has not yet been successfully called.
+     */
+    virtual void open(const std::string &filename) = 0;
+
+    /**
+     * Allocate storage in memory and write the header to it.
+     * This version is primarily aimed at testing, to avoid
+     * writing to file and reading back in.
+     *
+     * The memory is allocated with <code>new[]</code>, and
+     * the caller is responsible for freeing it with <code>delete[]</code>.
+     */
+    virtual std::pair<char *, size_type> open() = 0;
+
+    /**
+     * Write a range of vertices.
+     * @param first          Index of first vertex to write.
+     * @param count          Number of vertices to write.
+     * @param data           Array of <code>float[3]</code> values.
+     * @pre @a first + @a count <= @a numVertices.
+     */
+    virtual void writeVertices(size_type first, size_type count, const float *data) = 0;
+
+    /**
+     * Write a range of triangles.
+     * @param first          Index of first triangle to write.
+     * @param count          Number of triangles to write.
+     * @param data           Array of <code>uint32_t[3]</code> values containing indices.
+     * @pre @a first + @a count <= @a numTriangles.
+     */
+    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data) = 0;
+
+    /**
+     * Whether the class supports writing the data out-of-order.
+     */
+    virtual bool supportsOutOfOrder() const = 0;
 
 protected:
     /// Bytes per vertex
@@ -161,18 +180,16 @@ protected:
     /// Bytes per triangle
     static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
 
-    WriterBase() : comments(), numVertices(0), numTriangles(0), isOpen_(false) {}
+    WriterBase();
+    virtual ~WriterBase();
 
-    size_type getNumVertices() const { return numVertices; }
-    size_type getNumTriangles() const { return numTriangles; }
+    size_type getNumVertices() const;
+    size_type getNumTriangles() const;
 
     /// Returns the header based on stored values
     std::string makeHeader();
 
-    void setOpen()
-    {
-        isOpen_ = true;
-    }
+    void setOpen();
 
 private:
     /// Storage for comments until they can be written by @ref open.
@@ -181,8 +198,6 @@ private:
     size_type numTriangles;             ///< Number of triangles (defaults to zero)
     bool isOpen_;                       ///< Whether the file has been opened
 };
-
-} // namespace internal
 
 /**
  * PLY file writer that only supports one format.
@@ -212,48 +227,17 @@ private:
  * @bug Due to the way Boost creates the file, it will have the executable bit
  * set on POSIX systems.
  */
-class MmapWriter : public internal::WriterBase<boost::iostreams::mapped_file_source::size_type>
+class MmapWriter : public WriterBase
 {
 public:
-    /// Indicates that this model supports out-of-order writing.
-    static const bool outOfOrder = true;
-
     /// Constructor
     MmapWriter();
 
-    /**
-     * Create the file and write the header.
-     * @pre @ref open has not yet been successfully called.
-     */
-    void open(const std::string &filename);
-
-    /**
-     * Allocate storage in memory and write the header to it.
-     * This version is primarily aimed at testing, to avoid
-     * writing to file and reading back in.
-     *
-     * The memory is allocated with <code>new[]</code>, and
-     * the caller is responsible for freeing it with <code>delete[]</code>.
-     */
-    std::pair<char *, size_type> open();
-
-    /**
-     * Write a range of vertices.
-     * @param first          Index of first vertex to write.
-     * @param count          Number of vertices to write.
-     * @param data           Array of <code>float[3]</code> values.
-     * @pre @a first + @a count <= @a numVertices.
-     */
-    void writeVertices(size_type first, size_type count, const float *data);
-
-    /**
-     * Write a range of triangles.
-     * @param first          Index of first triangle to write.
-     * @param count          Number of triangles to write.
-     * @param data           Array of <code>uint32_t[3]</code> values containing indices.
-     * @pre @a first + @a count <= @a numTriangles.
-     */
-    void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual void open(const std::string &filename);
+    virtual std::pair<char *, size_type> open();
+    virtual void writeVertices(size_type first, size_type count, const float *data);
+    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual bool supportsOutOfOrder() const;
 
 private:
     char *vertexPtr;                    /// Pointer to storage for the first vertex
@@ -277,48 +261,17 @@ private:
  * The advantage over @ref MmapWriter is that it does not require
  * a large virtual address space.
  */
-class StreamWriter : public internal::WriterBase<std::tr1::uintmax_t>
+class StreamWriter : public WriterBase
 {
 public:
-    /// Indicates that this model does not support out-of-order writing.
-    static const bool outOfOrder = false;
-
     /// Constructor
     StreamWriter() : nextVertex(0), nextTriangle(0) {}
 
-    /**
-     * Create the file and write the header.
-     * @pre @ref open has not yet been successfully called.
-     */
-    void open(const std::string &filename);
-
-    /**
-     * Allocate storage in memory and write the header to it.
-     * This version is primarily aimed at testing, to avoid
-     * writing to file and reading back in.
-     *
-     * The memory is allocated with <code>new[]</code>, and
-     * the caller is responsible for freeing it with <code>delete[]</code>.
-     */
-    std::pair<char *, size_type> open();
-
-    /**
-     * Write a range of vertices.
-     * @param first          Index of first vertex to write.
-     * @param count          Number of vertices to write.
-     * @param data           Array of <code>float[3]</code> values.
-     * @pre @a first + @a count <= @a numVertices.
-     */
-    void writeVertices(size_type first, size_type count, const float *data);
-
-    /**
-     * Write a range of triangles.
-     * @param first          Index of first triangle to write.
-     * @param count          Number of triangles to write.
-     * @param data           Array of <code>uint32_t[3]</code> values containing indices.
-     * @pre @a first + @a count <= @a numTriangles.
-     */
-    void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual void open(const std::string &filename);
+    virtual std::pair<char *, size_type> open();
+    virtual void writeVertices(size_type first, size_type count, const float *data);
+    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual bool supportsOutOfOrder() const;
 
 private:
     /**

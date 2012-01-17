@@ -18,7 +18,9 @@
 #include <string>
 #include <vector>
 #include <boost/array.hpp>
+#include <tr1/unordered_map>
 #include "marching.h"
+#include "src/fast_ply.h"
 
 /**
  * Output collector for @ref Marching that does not do any welding of
@@ -108,8 +110,7 @@ public:
      *
      * @pre @ref finalize() has been called.
      */
-    template<typename Writer>
-    void write(Writer &writer, const std::string &filename) const;
+    void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
 /**
@@ -150,8 +151,10 @@ private:
 public:
     static const unsigned int numPasses = 1;
 
-    std::size_t numVertices() const;
-    std::size_t numTriangles() const;
+    typedef std::size_t size_type;
+
+    size_type numVertices() const;
+    size_type numTriangles() const;
 
     Marching::OutputFunctor outputFunctor(unsigned int pass);
     void finalize();
@@ -160,29 +163,97 @@ public:
     bool isManifold() const;
 #endif
 
-    template<typename Writer>
-    void write(Writer &writer, const std::string &filename) const;
+    void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
-template<typename Writer>
-void SimpleMesh::write(Writer &writer, const std::string &filename) const
+/**
+ * Three-pass collector that can handle very large meshes by writing
+ * the geometry to file as it is produced. It requires an out-of-order
+ * writer, and requires the writer to be provided up front.
+ *
+ * The three passes are:
+ * 1. Counting, and assigning the key mapping to detect duplicate external
+ *    vertices.
+ * 2. Write the vertices.
+ * 3. Write the indices.
+ *
+ * Unlike @ref WeldMesh, the external vertices are written out as they come in
+ * (immediately after the internal vertices for the corresponding chunk), which
+ * avoids the need to buffer them up until the end. The only unbounded memory is
+ * for the key map.
+ *
+ * See @ref SimpleMesh for documentation of the public interface.
+ *
+ * @todo Investigate using some template magic to use only two passes when using
+ * an out-of-order writer, or extend @ref StreamWriter to use seeking to support
+ * out-of-order operations.
+ */
+class BigMesh
 {
-    writer.setNumVertices(vertices.size());
-    writer.setNumTriangles(triangles.size());
-    writer.open(filename);
-    writer.writeVertices(0, vertices.size(), &vertices[0][0]);
-    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
-}
+public:
+    typedef FastPly::WriterBase::size_type size_type;
 
-template<typename Writer>
-void WeldMesh::write(Writer &writer, const std::string &filename) const
-{
-    writer.setNumVertices(internalVertices.size() + externalVertices.size());
-    writer.setNumTriangles(triangles.size());
-    writer.open(filename);
-    writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
-    writer.writeVertices(internalVertices.size(), externalVertices.size(), &externalVertices[0][0]);
-    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
-}
+private:
+    FastPly::WriterBase &writer;
+    const std::string filename;
+
+    /// Maps external vertex keys to external indices
+    std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
+
+    size_type nVertices;
+    size_type nTriangles;
+
+    /// Implementation of the first-pass functor
+    void count(const cl::CommandQueue &queue,
+               const cl::Buffer &vertices,
+               const cl::Buffer &vertexKeys,
+               const cl::Buffer &indices,
+               std::size_t numVertices,
+               std::size_t numInternalVertices,
+               std::size_t numIndices,
+               cl::Event *event);
+
+    /// Implementation of the second-pass functor
+    void addVertices(const cl::CommandQueue &queue,
+                     const cl::Buffer &vertices,
+                     const cl::Buffer &vertexKeys,
+                     const cl::Buffer &indices,
+                     std::size_t numVertices,
+                     std::size_t numInternalVertices,
+                     std::size_t numIndices,
+                     cl::Event *event);
+
+    /// Implementation of the third-pass functor
+    void addTriangles(const cl::CommandQueue &queue,
+                      const cl::Buffer &vertices,
+                      const cl::Buffer &vertexKeys,
+                      const cl::Buffer &indices,
+                      std::size_t numVertices,
+                      std::size_t numInternalVertices,
+                      std::size_t numIndices,
+                      cl::Event *event);
+
+public:
+    static const unsigned int numPasses = 3;
+
+    /**
+     * Constructor. Unlike the in-core mesh types, the file information must
+     * be passed to the constructor so that results can be streamed into it.
+     *
+     * The file will be created on the second pass.
+     */
+    BigMesh(FastPly::WriterBase &writer, const std::string &filename);
+
+    size_type numVertices() const;
+    size_type numTriangles() const;
+
+    Marching::OutputFunctor outputFunctor(unsigned int pass);
+    void finalize();
+
+    /**
+     * Completes writing. The parameters must have the same values given to the constructor.
+     */
+    void write(FastPly::WriterBase &writer, const std::string &filename) const;
+};
 
 #endif /* MESH_H */

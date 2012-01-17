@@ -433,7 +433,7 @@ void TestFastPlyWriterBase<Writer>::testSimple()
     CPPUNIT_ASSERT(data.get() != NULL);
     CPPUNIT_ASSERT_EQUAL(headerSize + 87, size);
 
-    if (Writer::outOfOrder)
+    if (w.supportsOutOfOrder())
     {
         w.writeVertices(1, 2, vertices + 1 * 3);
         w.writeTriangles(1, 2, indices + 1 * 3);

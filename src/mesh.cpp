@@ -19,6 +19,7 @@
 #include <boost/bind/bind.hpp>
 #include <tr1/unordered_map>
 #include <cassert>
+#include <cstdlib>
 #include <utility>
 #include "mesh.h"
 #include "fast_ply.h"
@@ -160,6 +161,15 @@ bool SimpleMesh::isManifold() const
     return isManifold(vertices.size(), triangles);
 }
 #endif /* UNIT_TESTS */
+
+void SimpleMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+{
+    writer.setNumVertices(vertices.size());
+    writer.setNumTriangles(triangles.size());
+    writer.open(filename);
+    writer.writeVertices(0, vertices.size(), &vertices[0][0]);
+    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
+}
 
 Marching::OutputFunctor SimpleMesh::outputFunctor(unsigned int pass)
 {
@@ -319,6 +329,16 @@ bool WeldMesh::isManifold() const
 }
 #endif
 
+void WeldMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+{
+    writer.setNumVertices(internalVertices.size() + externalVertices.size());
+    writer.setNumTriangles(triangles.size());
+    writer.open(filename);
+    writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
+    writer.writeVertices(internalVertices.size(), externalVertices.size(), &externalVertices[0][0]);
+    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
+}
+
 Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
 {
     /* only one pass, so ignore it */
@@ -326,4 +346,99 @@ Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
     assert(pass == 0);
 
     return Marching::OutputFunctor(boost::bind(&WeldMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
+}
+
+
+BigMesh::BigMesh(FastPly::WriterBase &writer, const std::string &filename)
+    : writer(writer), filename(filename), nVertices(0), nTriangles(0)
+{
+}
+
+void BigMesh::count(const cl::CommandQueue &queue,
+                    const cl::Buffer &vertices,
+                    const cl::Buffer &vertexKeys,
+                    const cl::Buffer &indices,
+                    std::size_t numVertices,
+                    std::size_t numInternalVertices,
+                    std::size_t numIndices,
+                    cl::Event *event)
+{
+    nTriangles += numIndices / 3;
+    /* TODO:
+     * - retrieve external keys
+     * - enter each key into the hash table, counting how many are new
+     * - increment nVertices
+     */
+}
+
+void BigMesh::addVertices(const cl::CommandQueue &queue,
+                          const cl::Buffer &vertices,
+                          const cl::Buffer &vertexKeys,
+                          const cl::Buffer &indices,
+                          std::size_t numVertices,
+                          std::size_t numInternalVertices,
+                          std::size_t numIndices,
+                          cl::Event *event)
+{
+    /* TODO:
+     * - retrieve all the vertices
+     * - retrieve the external keys
+     * - for each external vertex, check whether it needs to be emitted in this block
+     *   (compact the externals at the same time)
+     * - write the vertices (need to track how many written so far!)
+     */
+}
+
+void BigMesh::addTriangles(const cl::CommandQueue &queue,
+                           const cl::Buffer &vertices,
+                           const cl::Buffer &vertexKeys,
+                           const cl::Buffer &indices,
+                           std::size_t numVertices,
+                           std::size_t numInternalVertices,
+                           std::size_t numIndices,
+                           cl::Event *event)
+{
+    /* TODO:
+     * - retrieve the indices
+     * - rewrite them using the hash table
+     * - emit them to file
+     */
+}
+
+BigMesh::size_type BigMesh::numVertices() const
+{
+    return nVertices;
+}
+
+BigMesh::size_type BigMesh::numTriangles() const
+{
+    return nTriangles;
+}
+
+Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
+{
+    switch (pass)
+    {
+    case 0:
+        return Marching::OutputFunctor(boost::bind(&BigMesh::count, this, _1, _2, _3, _4, _5, _6, _7, _8));
+    case 1:
+        writer.setNumVertices(nVertices);
+        writer.setNumTriangles(nTriangles);
+        writer.open(filename);
+        return Marching::OutputFunctor(boost::bind(&BigMesh::addVertices, this, _1, _2, _3, _4, _5, _6, _7, _8));
+    case 2:
+        return Marching::OutputFunctor(boost::bind(&BigMesh::addTriangles, this, _1, _2, _3, _4, _5, _6, _7, _8));
+    default:
+        abort();
+    }
+}
+
+void BigMesh::finalize()
+{
+}
+
+void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+{
+    assert(&writer == &this->writer);
+    assert(filename == this->filename);
 }
