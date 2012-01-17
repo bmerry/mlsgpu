@@ -33,9 +33,8 @@
  * -# Uses @ref numPasses to determine how many passes are required.
  * -# For each pass, call @ref outputFunctor to obtain a functor, then
  *    make as many calls to @ref Marching::generate as desired using this
- *    functor. Each call should set @a indexOffset to @ref numVertices(),
- *    and also set @a keyOffset so that vertex keys line up. Each pass
- *    must generate exactly the same vertices.
+ *    functor. Each call should set @a keyOffset so that vertex keys line up.
+ *    Each pass must generate exactly the same geometry.
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
  */
@@ -61,11 +60,6 @@ private:
 public:
     /// Number of passes required.
     static const unsigned int numPasses = 1;
-
-    /// Number of vertices captured so far.
-    std::size_t numVertices() const;
-    /// Number of triangles captured so far.
-    std::size_t numTriangles() const;
 
     /**
      * Retrieves a functor to be passed to @ref Marching::generate in a
@@ -153,9 +147,6 @@ public:
 
     typedef std::size_t size_type;
 
-    size_type numVertices() const;
-    size_type numTriangles() const;
-
     Marching::OutputFunctor outputFunctor(unsigned int pass);
     void finalize();
 
@@ -195,13 +186,11 @@ private:
     /// Maps external vertex keys to external indices
     std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
 
-    size_type nVertices;  ///< Number of vertices seen in first pass
-    size_type nTriangles; ///< Number of triangles seen in first pass
+    size_type nVertices;    ///< Number of vertices seen in first pass
+    size_type nTriangles;   ///< Number of triangles seen in first pass
 
     size_type nextVertex;   ///< Number of vertices written so far
     size_type nextTriangle; ///< Number of triangles written so far
-
-    size_type inVertices;   ///< Running total of vertices passed in to second pass
 
     /**
      * @name
@@ -245,9 +234,6 @@ public:
      * The file will be created on the second pass.
      */
     BigMesh(FastPly::WriterBase &writer, const std::string &filename);
-
-    size_type numVertices() const;
-    size_type numTriangles() const;
 
     Marching::OutputFunctor outputFunctor(unsigned int pass);
     void finalize();

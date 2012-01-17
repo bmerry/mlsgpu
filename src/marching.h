@@ -267,9 +267,10 @@ public:
      * not associated with the same command-queue, the callee is responsible for
      * ensuring that the work completes within finite time.
      *
-     * The vertices and indices returned will correspond, but the indices will
-     * be suitably offset so that they index the concatenation of all the vertices
-     * passed to the callback. The vertices are in tightly packed cl_float triplets
+     * The vertices and indices returned will correspond. The indices will be
+     * local i.e. an index of 0 indicates the initial element of @a vertices,
+     * regardless of how many previous vertices have been passed to the same
+     * functor. The vertices are in tightly packed cl_float triplets
      * (x,y,z) while the indices are in tightly packed cl_uint index triplets.
      *
      * The vertices are partitioned into internal and external vertices, with the
@@ -318,7 +319,6 @@ public:
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param grid           Sampling grid.
      * @param keyOffset      XYZ values to add to vertex keys of external vertices.
-     * @param indexOffset    Bias to add to all indices.
      * @param events         Previous events to wait for (can be @c NULL).
      *
      * @note @a keyOffset is specified in integer units, not fixed-point.
@@ -331,7 +331,6 @@ public:
                   const OutputFunctor &output,
                   const Grid &grid,
                   const cl_uint3 &keyOffset,
-                  std::size_t indexOffset,
                   const std::vector<cl::Event> *events = NULL);
 
 private:
@@ -392,21 +391,19 @@ private:
      *
      * @param queue           Command queue to use for enqueuing work.
      * @param keyOffset       Value added to keys (see @ref generate for details).
-     * @param indexOffset     Value added to all indices.
      * @param sizes           Number of vertices and indices in input.
      * @param zMax            Maximum potential z value of vertices (not cells).
      * @param output          Functor to which the welded geometry is passed.
      * @param events          Events to wait for before starting (may be @c NULL).
      * @param event           Event to wait for before returning (may be @c NULL).
      */
-    std::size_t shipOut(const cl::CommandQueue &queue,
-                        const cl_uint3 &keyOffset,
-                        std::size_t indexOffset,
-                        const cl_uint2 &sizes,
-                        cl_uint zMax,
-                        const OutputFunctor &output,
-                        const std::vector<cl::Event> *events,
-                        cl::Event *event);
+    void shipOut(const cl::CommandQueue &queue,
+                 const cl_uint3 &keyOffset,
+                 const cl_uint2 &sizes,
+                 cl_uint zMax,
+                 const OutputFunctor &output,
+                 const std::vector<cl::Event> *events,
+                 cl::Event *event);
 };
 
 #endif /* !MARCHING_H */

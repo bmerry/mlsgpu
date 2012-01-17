@@ -372,7 +372,7 @@ void TestMarching::testSphere()
 
     SimpleMesh mesh;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, 0, NULL);
+    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, NULL);
 
     mesh.finalize();
     FastPly::StreamWriter writer;
@@ -400,7 +400,7 @@ void TestMarching::testTruncatedSphere()
 
     WeldMesh mesh;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, 0, NULL);
+    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, NULL);
 
     mesh.finalize();
     FastPly::StreamWriter writer;

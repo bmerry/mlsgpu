@@ -360,14 +360,13 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
     return ans;
 }
 
-std::size_t Marching::shipOut(const cl::CommandQueue &queue,
-                              const cl_uint3 &keyOffset,
-                              std::size_t indexOffset,
-                              const cl_uint2 &sizes,
-                              cl_uint zMax,
-                              const OutputFunctor &output,
-                              const std::vector<cl::Event> *events,
-                              cl::Event *event)
+void Marching::shipOut(const cl::CommandQueue &queue,
+                       const cl_uint3 &keyOffset,
+                       const cl_uint2 &sizes,
+                       cl_uint zMax,
+                       const OutputFunctor &output,
+                       const std::vector<cl::Event> *events,
+                       cl::Event *event)
 {
     assert(sizes.s0 > 0);
 
@@ -419,7 +418,6 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     cl_uint hFirstExternal;
     queue.enqueueReadBuffer(firstExternal, CL_FALSE, 0, sizeof(cl_uint), &hFirstExternal, &wait, NULL);
 
-    reindexKernel.setArg(2, (cl_uint) indexOffset);
     queue.enqueueNDRangeKernel(reindexKernel,
                                cl::NullRange,
                                cl::NDRange(sizes.s1),
@@ -430,7 +428,6 @@ std::size_t Marching::shipOut(const cl::CommandQueue &queue,
     output(queue, weldedVertices, weldedVertexKeys, indices, numWelded, hFirstExternal, sizes.s1, &last);
     if (event != NULL)
         *event = last;
-    return numWelded;
 }
 
 void Marching::generate(
@@ -439,7 +436,6 @@ void Marching::generate(
     const OutputFunctor &output,
     const Grid &grid,
     const cl_uint3 &keyOffset,
-    std::size_t indexOffset,
     const std::vector<cl::Event> *events)
 {
     // Work group size for kernels that operate on compacted cells
@@ -486,11 +482,10 @@ void Marching::generate(
                 /* Too much information in this layer to just append. Ship out
                  * what we have before processing this layer.
                  */
-                std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, z - 1, output, &wait, &last);
+                shipOut(queue, keyOffset, offsets, z - 1, output, &wait, &last);
                 wait.resize(1);
                 wait[0] = last;
 
-                indexOffset += numWelded;
                 offsets.s0 = 0;
                 offsets.s1 = 0;
                 top.z = 2 * (z - 1);
@@ -523,10 +518,9 @@ void Marching::generate(
     }
     if (offsets.s0 > 0)
     {
-        std::size_t numWelded = shipOut(queue, keyOffset, indexOffset, offsets, depth - 1, output, &wait, &last);
+        shipOut(queue, keyOffset, offsets, depth - 1, output, &wait, &last);
         wait.resize(1);
         wait[0] = last;
-        indexOffset += numWelded;
     }
     queue.finish(); // will normally be finished already, but there may be corner cases
 }

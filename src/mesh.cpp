@@ -32,16 +32,6 @@
 # include <algorithm>
 #endif
 
-std::size_t SimpleMesh::numVertices() const
-{
-    return vertices.size();
-}
-
-std::size_t SimpleMesh::numTriangles() const
-{
-    return triangles.size();
-}
-
 void SimpleMesh::add(const cl::CommandQueue &queue,
                      const cl::Buffer &vertices,
                      const cl::Buffer &vertexKeys,
@@ -68,10 +58,17 @@ void SimpleMesh::add(const cl::CommandQueue &queue,
                             &this->vertices[oldVertices][0],
                             NULL, &last);
     wait[0] = last;
-    queue.enqueueReadBuffer(indices, CL_FALSE,
+    queue.enqueueReadBuffer(indices, CL_TRUE,
                             0, numTriangles * (3 * sizeof(cl_uint)),
                             &this->triangles[oldTriangles][0],
                             &wait, &last);
+    queue.flush();
+
+    /* Adjust the indices to be global */
+    for (std::size_t i = 0; i < numTriangles; i++)
+        for (unsigned int j = 0; j < 3; j++)
+            triangles[i][j] += oldVertices;
+
     if (event != NULL)
         *event = last;
 }
@@ -181,15 +178,6 @@ Marching::OutputFunctor SimpleMesh::outputFunctor(unsigned int pass)
     return Marching::OutputFunctor(boost::bind(&SimpleMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
 }
 
-std::size_t WeldMesh::numVertices() const
-{
-    return internalVertices.size() + externalVertices.size();
-}
-
-std::size_t WeldMesh::numTriangles() const
-{
-    return triangles.size();
-}
 
 void WeldMesh::add(const cl::CommandQueue &queue,
                    const cl::Buffer &vertices,
@@ -202,7 +190,6 @@ void WeldMesh::add(const cl::CommandQueue &queue,
 {
     std::size_t oldInternal = internalVertices.size();
     std::size_t oldExternal = externalVertices.size();
-    std::size_t oldVertices = oldInternal + oldExternal;
     std::size_t oldTriangles = triangles.size();
     std::size_t numExternal = numVertices - numInternal;
     std::size_t numTriangles = numIndices / 3;
@@ -249,21 +236,18 @@ void WeldMesh::add(const cl::CommandQueue &queue,
     }
 
     /* Rewrite indices to refer to the two separate arrays, at the same time
-     * applying ~ to the external indices to disambiguate them.  Note that
-     * these offsets will wrap around, but that is well-defined for unsigned
+     * applying ~ to the external indices to disambiguate them. Note that
+     * these offsets may wrap around, but that is well-defined for unsigned
      * values.
-     *
-     * Internal vertices are currently indexed starting at oldVertices,
-     * and external vertices are indexed starting at oldVertices + numInternal.
      */
     indicesEvent.wait();
-    cl_uint offsetInternal = oldInternal - oldVertices;
-    cl_uint offsetExternal = oldExternal - (oldVertices + numInternal);
+    cl_uint offsetInternal = oldInternal;
+    cl_uint offsetExternal = oldExternal - numInternal;
     for (std::size_t i = oldTriangles; i < oldTriangles + numTriangles; i++)
         for (unsigned int j = 0; j < 3; j++)
         {
             cl_uint &index = triangles[i][j];
-            if (index < oldVertices + numInternal)
+            if (index < numInternal)
                 index = (index + offsetInternal);
             else
                 index = ~(index + offsetExternal);
@@ -326,7 +310,7 @@ void WeldMesh::finalize()
 #if UNIT_TESTS
 bool WeldMesh::isManifold() const
 {
-    return SimpleMesh::isManifold(numVertices(), triangles);
+    return SimpleMesh::isManifold(internalVertices.size() + externalVertices.size(), triangles);
 }
 #endif
 
@@ -352,7 +336,7 @@ Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
 
 BigMesh::BigMesh(FastPly::WriterBase &writer, const std::string &filename)
     : writer(writer), filename(filename), nVertices(0), nTriangles(0),
-    nextVertex(0), nextTriangle(0), inVertices(0)
+    nextVertex(0), nextTriangle(0)
 {
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }
@@ -444,29 +428,17 @@ void BigMesh::add(const cl::CommandQueue &queue,
         for (unsigned int j = 0; j < 3; j++)
         {
             cl_uint &index = tmpTriangles[i][j];
-            cl_uint offset = index - inVertices;
-            assert(offset < numVertices);
-            if (offset < numInternalVertices)
-                index = nextVertex + offset;
+            assert(index < numVertices);
+            if (index < numInternalVertices)
+                index = nextVertex + index;
             else
-                index = keyMap[tmpKeys[offset - numInternalVertices]];
+                index = keyMap[tmpKeys[index - numInternalVertices]];
         }
 
     writer.writeVertices(nextVertex, numInternalVertices + newKeys, &tmpVertices[0][0]);
     writer.writeTriangles(nextTriangle, numTriangles, &tmpTriangles[0][0]);
     nextVertex += numInternalVertices + newKeys;
     nextTriangle += numTriangles;
-    inVertices += numVertices;
-}
-
-BigMesh::size_type BigMesh::numVertices() const
-{
-    return nVertices;
-}
-
-BigMesh::size_type BigMesh::numTriangles() const
-{
-    return nTriangles;
 }
 
 Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)

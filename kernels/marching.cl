@@ -343,15 +343,13 @@ __kernel void compactVertices(
  * per index.
  * @param[in,out]    indices      Indices to rewrite.
  * @param            indexRemap   Remapping table to apply.
- * @param            offset       Additional offset to add after remapping.
  */
 __kernel void reindex(
     __global uint *indices,
-    __global const uint * restrict indexRemap,
-    uint offset)
+    __global const uint * restrict indexRemap)
 {
     const uint gid = get_global_id(0);
-    indices[gid] = indexRemap[indices[gid]] + offset;
+    indices[gid] = indexRemap[indices[gid]];
 }
 
 /*******************************************************************************

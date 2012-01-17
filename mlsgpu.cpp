@@ -253,36 +253,40 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
     MlsFunctor input(context);
 
-    WeldMesh mesh;
+    FastPly::MmapWriter writer;
+    BigMesh mesh(writer, out);
 
     /* TODO: partition splats */
-    for (unsigned int bz = 0; bz < cells[2]; bz += maxCells)
-        for (unsigned int by = 0; by < cells[1]; by += maxCells)
-            for (unsigned int bx = 0; bx < cells[0]; bx += maxCells)
-            {
-                cl_uint3 keyOffset = {{ bx, by, bz }};
-                Grid sub = grid.subGrid(bx, bx + maxCells,
-                                        by, by + maxCells,
-                                        bz, bz + maxCells);
+    for (unsigned int pass = 0; pass < mesh.numPasses; pass++)
+    {
+        Marching::OutputFunctor output = mesh.outputFunctor(pass);
+        for (unsigned int bz = 0; bz < cells[2]; bz += maxCells)
+            for (unsigned int by = 0; by < cells[1]; by += maxCells)
+                for (unsigned int bx = 0; bx < cells[0]; bx += maxCells)
                 {
-                    Timer timer;
-                    tree.enqueueBuild(queue, &splats[0], splats.size(), sub, subsampling, CL_FALSE);
-                    queue.finish();
-                    cout << "Build: " << timer.getElapsed() << '\n';
-                }
+                    cl_uint3 keyOffset = {{ bx, by, bz }};
+                    Grid sub = grid.subGrid(bx, bx + maxCells,
+                                            by, by + maxCells,
+                                            bz, bz + maxCells);
+                    {
+                        Timer timer;
+                        tree.enqueueBuild(queue, &splats[0], splats.size(), sub, subsampling, CL_FALSE);
+                        queue.finish();
+                        cout << "Build: " << timer.getElapsed() << '\n';
+                    }
 
-                input.set(sub, tree, subsampling);
+                    input.set(sub, tree, subsampling);
 
-                {
-                    Timer timer;
-                    marching.generate(queue, input, mesh.outputFunctor(0), sub, keyOffset,
-                                      mesh.numVertices(), NULL);
-                    cout << "Process: " << timer.getElapsed() << endl;
+                    {
+                        Timer timer;
+                        marching.generate(queue, input, output, sub, keyOffset,
+                                          NULL);
+                        cout << "Process: " << timer.getElapsed() << endl;
+                    }
                 }
-            }
+    }
 
     mesh.finalize();
-    FastPly::StreamWriter writer;
     mesh.write(writer, out);
 }
 
