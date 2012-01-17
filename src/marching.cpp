@@ -503,7 +503,7 @@ void Marching::generate(
 
             generateElementsKernel.setArg(5, *images[0]);
             generateElementsKernel.setArg(6, *images[1]);
-            generateElementsKernel.setArg(10, cl_uint(z));
+            generateElementsKernel.setArg(10, cl_uint(z - 1));
             generateElementsKernel.setArg(11, gridScale);
             generateElementsKernel.setArg(12, gridBias);
             generateElementsKernel.setArg(13, offsets);
