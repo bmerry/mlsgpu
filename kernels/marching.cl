@@ -153,7 +153,7 @@ inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3
     interp(iso[a], iso[b], cellf, (float3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (float3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
 /**
- * Computes a key for coordinates. See @ref generateVertices for the definition.
+ * Computes a key for coordinates. See @ref generateElements for the definition.
  * @param coords           Coordinates in .1 fixed-point format.
  * @param top              Coordinates that indicate an external vertices in .1 fixed-point format.
  */

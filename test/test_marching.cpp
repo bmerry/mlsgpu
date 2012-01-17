@@ -106,6 +106,7 @@ private:
      * @param kernel            The @ref compactVertices kernel.
      * @param outSize           Entries to allocate for output vertices.
      * @param remapSize         Entries to allocate in the index remap table.
+     * @param outVertices, outKeys, indexRemap, firstExternal, vertexUnique, inVertices, inKeys, minExternalKey See @ref compactVertices.
      */
     void callCompactVertices(
         cl::Kernel &kernel,

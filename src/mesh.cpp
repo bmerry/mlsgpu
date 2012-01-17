@@ -121,6 +121,12 @@ void WeldMesh::add(const cl::CommandQueue &queue,
 
     queue.enqueueReadBuffer(indices, CL_FALSE, 0, numTriangles * (3 * sizeof(cl_uint)),
                             &triangles[oldTriangles][0], NULL, &indicesEvent);
+    queue.flush(); // Kick off this read-back in the background while we queue more.
+
+    /* Read back the vertex and key data. We don't need it now, so we just return
+     * an event for it.
+     * TODO: allow them to proceed in parallel.
+     */
     if (numInternal > 0)
     {
         queue.enqueueReadBuffer(vertices, CL_FALSE,
@@ -146,9 +152,10 @@ void WeldMesh::add(const cl::CommandQueue &queue,
         wait[0] = last;
     }
 
-    /* Rewrite indices to refer to the two separate arrays.
-     * Note that these offsets will wrap around, but that is
-     * well-defined for unsigned values.
+    /* Rewrite indices to refer to the two separate arrays, at the same time
+     * applying ~ to the external indices to disambiguate them.  Note that
+     * these offsets will wrap around, but that is well-defined for unsigned
+     * values.
      *
      * Internal vertices are currently indexed starting at oldVertices,
      * and external vertices are indexed starting at oldVertices + numInternal.
@@ -190,6 +197,7 @@ void WeldMesh::finalize()
             // New key, not seen before
             place[key] = welded;
             remap[i] = welded + internalVertices.size();
+            // Shuffle down the vertex data in-place
             externalVertices[welded] = externalVertices[i];
             welded++;
         }
@@ -199,7 +207,10 @@ void WeldMesh::finalize()
         }
     }
 
-    /* Rewrite all the indices */
+    /* Rewrite the indices that refer to external vertices
+     * (TODO: is it possible to partition these as well, to
+     * reduce the work?)
+     */
     for (std::size_t i = 0; i < triangles.size(); i++)
         for (unsigned int j = 0; j < 3; j++)
         {
