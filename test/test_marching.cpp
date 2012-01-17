@@ -26,7 +26,7 @@
 #include "test_clh.h"
 #include "../src/clh.h"
 #include "../src/marching.h"
-#include "../src/fast_ply.h"
+#include "../src/mesh.h"
 
 using namespace std;
 
@@ -67,42 +67,6 @@ public:
         cx(cx), cy(cy), cz(cz), radius(radius),
         sliceData(width * height)
     {
-    }
-};
-
-class OutputFunctor
-{
-private:
-    vector<cl_float> &hVertices;
-    vector<boost::array<cl_uint, 3> > &hIndices;
-
-public:
-    OutputFunctor(vector<cl_float> &hVertices, vector<boost::array<cl_uint, 3> > &hIndices)
-        : hVertices(hVertices), hIndices(hIndices) {}
-
-    void operator()(const cl::CommandQueue &queue,
-                    const cl::Buffer &vertices,
-                    const cl::Buffer &vertexKeys,
-                    const cl::Buffer &indices,
-                    std::size_t numVertices,
-                    std::size_t numInternalVertices,
-                    std::size_t numIndices,
-                    cl::Event *event) const
-    {
-        cl::Event last;
-        std::vector<cl::Event> wait(1);
-
-        std::size_t oldVertices = hVertices.size();
-        std::size_t oldIndices = hIndices.size();
-        hVertices.resize(oldVertices + numVertices * 3);
-        hIndices.resize(oldIndices + numIndices / 3);
-        queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * 3 * sizeof(cl_float), &hVertices[oldVertices],
-                                NULL, &last);
-        wait[0] = last;
-        queue.enqueueReadBuffer(indices, CL_FALSE, 0, numIndices * sizeof(cl_uint), &hIndices[oldIndices],
-                                &wait, &last);
-        if (event != NULL)
-            *event = last;
     }
 };
 
@@ -403,17 +367,10 @@ void TestMarching::testSphere()
     Marching marching(context, device, maxWidth, maxHeight);
     SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
 
-    std::vector<cl_float> hVertices;
-    std::vector<boost::array<cl_uint, 3> > hIndices;
-
-    OutputFunctor output(hVertices, hIndices);
+    SimpleMesh mesh;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, output, grid, keyOffset, 0, NULL);
+    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, 0, NULL);
 
-    FastPly::Writer writer;
-    writer.setNumVertices(hVertices.size() / 3);
-    writer.setNumTriangles(hIndices.size());
-    writer.open("sphere.ply");
-    writer.writeVertices(0, hVertices.size() / 3, &hVertices[0]);
-    writer.writeTriangles(0, hIndices.size(), &hIndices[0][0]);
+    mesh.finalize();
+    mesh.write("sphere.ply");
 }
