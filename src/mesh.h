@@ -2,6 +2,9 @@
  * @file
  *
  * Data structures for storing the output of @ref Marching.
+ *
+ * The classes in this file implement a common concept. The documentation
+ * can be found under @ref SimpleMesh.
  */
 
 #ifndef MESH_H
@@ -18,9 +21,12 @@
 #include "marching.h"
 
 /**
- * Abstract base class for meshes.
+ * Output collector for @ref Marching that does not do any welding of
+ * external vertices. It simply collects all the vertices into one vector
+ * and indices into another.
  *
- * The basic procedure for using an instance of this class is:
+ * This is one of several classes implementing the same interface.
+ * The basic procedure for using these classes is:
  * -# Instantiate it.
  * -# Uses @ref numPasses to determine how many passes are required.
  * -# For each pass, call @ref outputFunctor to obtain a functor, then
@@ -31,52 +37,7 @@
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
  */
-class MeshBase
-{
-public:
-    /// Number of passes required.
-    virtual unsigned int numPasses() const { return 1; }
-    /// Number of vertices captured so far.
-    virtual std::size_t numVertices() const = 0;
-    /// Number of triangles captured so far.
-    virtual std::size_t numTriangles() const = 0;
-
-    /**
-     * Retrieves a functor to be passed to @ref Marching::generate in a
-     * specific pass.
-     * Multi-pass subclasses may do finalization on a previous pass before
-     * returning the functor, so this function should only be called for
-     * pass @a pass once pass @a pass - 1 has completed.
-     *
-     * @pre @a pass is less than @ref numPasses().
-     */
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass) = 0;
-
-    /**
-     * Perform any final processing once the last pass has completed.
-     *
-     * @pre All passes have been executed.
-     */
-    virtual void finalize() {}
-
-    /**
-     * Writes the data to file.
-     *
-     * @throw std::ios_base::failure on I/O failure (including failure to open the file).
-     *
-     * @pre @ref finalize() has been called.
-     */
-    virtual void write(const std::string &filename) const = 0;
-
-    virtual ~MeshBase() {}
-};
-
-/**
- * Output collector for @ref Marching that does not do any welding of
- * external vertices. It simply collects all the vertices into one vector
- * and indices into another.
- */
-class SimpleMesh : public MeshBase
+class SimpleMesh
 {
 private:
     /// Storage for vertices
@@ -96,11 +57,42 @@ private:
              cl::Event *event);
 
 public:
-    virtual std::size_t numVertices() const;
-    virtual std::size_t numTriangles() const;
+    /// Number of passes required.
+    static const unsigned int numPasses = 1;
 
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
-    virtual void write(const std::string &filename) const;
+    /// Number of vertices captured so far.
+    std::size_t numVertices() const;
+    /// Number of triangles captured so far.
+    std::size_t numTriangles() const;
+
+    /**
+     * Retrieves a functor to be passed to @ref Marching::generate in a
+     * specific pass.
+     * Multi-pass classes may do finalization on a previous pass before
+     * returning the functor, so this function should only be called for
+     * pass @a pass once pass @a pass - 1 has completed.
+     *
+     * @pre @a pass is less than @ref numPasses().
+     */
+    Marching::OutputFunctor outputFunctor(unsigned int pass);
+
+    /**
+     * Perform any final processing once the last pass has completed.
+     *
+     * @pre All passes have been executed.
+     */
+    void finalize() {}
+
+    /**
+     * Writes the data to file. The writer passed in must not yet have been opened
+     * (this function will do that). The caller may optionally have set comments on it.
+     *
+     * @throw std::ios_base::failure on I/O failure (including failure to open the file).
+     *
+     * @pre @ref finalize() has been called.
+     */
+    template<typename Writer>
+    void write(Writer &writer, const std::string &filename) const;
 };
 
 /**
@@ -113,8 +105,10 @@ public:
  * the internal vector, or as the bit-inverse (~) of an index into
  * the external vector. The external indices are rewritten during
  * @ref finalize().
+ *
+ * See @ref SimpleMesh for documentation of the public interface.
  */
-class WeldMesh : public MeshBase
+class WeldMesh
 {
 private:
     /// Storage for internal vertices
@@ -137,12 +131,37 @@ private:
              cl::Event *event);
 
 public:
-    virtual std::size_t numVertices() const;
-    virtual std::size_t numTriangles() const;
+    static const unsigned int numPasses = 1;
 
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
-    virtual void finalize();
-    virtual void write(const std::string &filename) const;
+    std::size_t numVertices() const;
+    std::size_t numTriangles() const;
+
+    Marching::OutputFunctor outputFunctor(unsigned int pass);
+    void finalize();
+
+    template<typename Writer>
+    void write(Writer &writer, const std::string &filename) const;
 };
+
+template<typename Writer>
+void SimpleMesh::write(Writer &writer, const std::string &filename) const
+{
+    writer.setNumVertices(vertices.size());
+    writer.setNumTriangles(triangles.size());
+    writer.open(filename);
+    writer.writeVertices(0, vertices.size(), &vertices[0][0]);
+    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
+}
+
+template<typename Writer>
+void WeldMesh::write(Writer &writer, const std::string &filename) const
+{
+    writer.setNumVertices(internalVertices.size() + externalVertices.size());
+    writer.setNumTriangles(triangles.size());
+    writer.open(filename);
+    writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
+    writer.writeVertices(internalVertices.size(), externalVertices.size(), &externalVertices[0][0]);
+    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
+}
 
 #endif /* MESH_H */

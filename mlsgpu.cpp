@@ -282,7 +282,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
             }
 
     mesh.finalize();
-    mesh.write(out);
+    FastPly::StreamWriter writer;
+    mesh.write(writer, out);
 }
 
 int main(int argc, char **argv)

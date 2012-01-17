@@ -66,16 +66,6 @@ void SimpleMesh::add(const cl::CommandQueue &queue,
         *event = last;
 }
 
-void SimpleMesh::write(const std::string &filename) const
-{
-    FastPly::StreamWriter writer;
-    writer.setNumVertices(vertices.size());
-    writer.setNumTriangles(triangles.size());
-    writer.open(filename);
-    writer.writeVertices(0, vertices.size(), &vertices[0][0]);
-    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
-}
-
 Marching::OutputFunctor SimpleMesh::outputFunctor(unsigned int pass)
 {
     /* only one pass, so ignore it */
@@ -225,17 +215,6 @@ void WeldMesh::finalize()
     /* Throw away unneeded data. */
     std::vector<cl_ulong>().swap(externalKeys);
     externalVertices.resize(welded);
-}
-
-void WeldMesh::write(const std::string &filename) const
-{
-    FastPly::StreamWriter writer;
-    writer.setNumVertices(internalVertices.size() + externalVertices.size());
-    writer.setNumTriangles(triangles.size());
-    writer.open(filename);
-    writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
-    writer.writeVertices(internalVertices.size(), externalVertices.size(), &externalVertices[0][0]);
-    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
 }
 
 Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)

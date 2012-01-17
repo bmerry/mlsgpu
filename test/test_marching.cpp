@@ -27,6 +27,7 @@
 #include "../src/clh.h"
 #include "../src/marching.h"
 #include "../src/mesh.h"
+#include "../src/fast_ply.h"
 
 using namespace std;
 
@@ -373,5 +374,6 @@ void TestMarching::testSphere()
     marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, 0, NULL);
 
     mesh.finalize();
-    mesh.write("sphere.ply");
+    FastPly::StreamWriter writer;
+    mesh.write(writer, "sphere.ply");
 }
