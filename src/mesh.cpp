@@ -121,23 +121,30 @@ void WeldMesh::add(const cl::CommandQueue &queue,
 
     queue.enqueueReadBuffer(indices, CL_FALSE, 0, numTriangles * (3 * sizeof(cl_uint)),
                             &triangles[oldTriangles][0], NULL, &indicesEvent);
-    queue.enqueueReadBuffer(vertices, CL_FALSE,
-                            0,
-                            numInternal * (3 * sizeof(cl_float)),
-                            &internalVertices[oldInternal][0],
-                            NULL, &last);
-    wait[0] = last;
-    queue.enqueueReadBuffer(vertices, CL_FALSE,
-                            numInternal * (3 * sizeof(cl_float)),
-                            numExternal * (3 * sizeof(cl_float)),
-                            &externalVertices[oldExternal][0],
-                            &wait, &last);
-    wait[0] = last;
-    queue.enqueueReadBuffer(vertexKeys, CL_FALSE,
-                            numInternal * sizeof(cl_ulong),
-                            numExternal * sizeof(cl_ulong),
-                            &externalKeys[oldExternal],
-                            &wait, &last);
+    if (numInternal > 0)
+    {
+        queue.enqueueReadBuffer(vertices, CL_FALSE,
+                                0,
+                                numInternal * (3 * sizeof(cl_float)),
+                                &internalVertices[oldInternal][0],
+                                NULL, &last);
+        wait[0] = last;
+    }
+    if (numExternal > 0)
+    {
+        queue.enqueueReadBuffer(vertices, CL_FALSE,
+                                numInternal * (3 * sizeof(cl_float)),
+                                numExternal * (3 * sizeof(cl_float)),
+                                &externalVertices[oldExternal][0],
+                                &wait, &last);
+        wait[0] = last;
+        queue.enqueueReadBuffer(vertexKeys, CL_FALSE,
+                                numInternal * sizeof(cl_ulong),
+                                numExternal * sizeof(cl_ulong),
+                                &externalKeys[oldExternal],
+                                &wait, &last);
+        wait[0] = last;
+    }
 
     /* Rewrite indices to refer to the two separate arrays.
      * Note that these offsets will wrap around, but that is
