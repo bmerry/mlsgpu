@@ -24,6 +24,7 @@
 #include "mesh.h"
 #include "fast_ply.h"
 #include "logging.h"
+#include "errors.h"
 
 #if UNIT_TESTS
 # include <map>
@@ -350,8 +351,10 @@ Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
 
 
 BigMesh::BigMesh(FastPly::WriterBase &writer, const std::string &filename)
-    : writer(writer), filename(filename), nVertices(0), nTriangles(0)
+    : writer(writer), filename(filename), nVertices(0), nTriangles(0),
+    nextVertex(0), nextTriangle(0), inVertices(0)
 {
+    MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }
 
 void BigMesh::count(const cl::CommandQueue &queue,
@@ -363,46 +366,97 @@ void BigMesh::count(const cl::CommandQueue &queue,
                     std::size_t numIndices,
                     cl::Event *event)
 {
+    /* Unused parameters */
+    (void) vertices;
+    (void) indices;
+    (void) numIndices;
+
+    std::size_t numExternalVertices = numVertices - numInternalVertices;
     nTriangles += numIndices / 3;
-    /* TODO:
-     * - retrieve external keys
-     * - enter each key into the hash table, counting how many are new
-     * - increment nVertices
-     */
+
+    tmpKeys.resize(numExternalVertices);
+    queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
+                            numInternalVertices * sizeof(cl_ulong),
+                            numExternalVertices * sizeof(cl_ulong),
+                            &tmpKeys[0],
+                            NULL, event);
+
+    nVertices += numInternalVertices;
+
+    /* Build keyMap, counting how many external vertices are really new */
+    std::size_t newKeys = 0;
+    for (std::size_t i = 0; i < numExternalVertices; i++)
+    {
+        if (keyMap.insert(std::make_pair(tmpKeys[i], nVertices + newKeys)).second)
+            newKeys++;
+    }
+    nVertices += newKeys;
 }
 
-void BigMesh::addVertices(const cl::CommandQueue &queue,
-                          const cl::Buffer &vertices,
-                          const cl::Buffer &vertexKeys,
-                          const cl::Buffer &indices,
-                          std::size_t numVertices,
-                          std::size_t numInternalVertices,
-                          std::size_t numIndices,
-                          cl::Event *event)
+void BigMesh::add(const cl::CommandQueue &queue,
+                  const cl::Buffer &vertices,
+                  const cl::Buffer &vertexKeys,
+                  const cl::Buffer &indices,
+                  std::size_t numVertices,
+                  std::size_t numInternalVertices,
+                  std::size_t numIndices,
+                  cl::Event *event)
 {
-    /* TODO:
-     * - retrieve all the vertices
-     * - retrieve the external keys
-     * - for each external vertex, check whether it needs to be emitted in this block
-     *   (compact the externals at the same time)
-     * - write the vertices (need to track how many written so far!)
-     */
-}
+    cl::Event verticesEvent, indicesEvent;
+    std::size_t numExternalVertices = numVertices - numInternalVertices;
+    std::size_t numTriangles = numIndices / 3;
 
-void BigMesh::addTriangles(const cl::CommandQueue &queue,
-                           const cl::Buffer &vertices,
-                           const cl::Buffer &vertexKeys,
-                           const cl::Buffer &indices,
-                           std::size_t numVertices,
-                           std::size_t numInternalVertices,
-                           std::size_t numIndices,
-                           cl::Event *event)
-{
-    /* TODO:
-     * - retrieve the indices
-     * - rewrite them using the hash table
-     * - emit them to file
+    tmpVertices.resize(numVertices);
+    tmpKeys.resize(numExternalVertices);
+    tmpTriangles.resize(numTriangles);
+    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
+                            &tmpVertices[0][0], NULL, &verticesEvent);
+    queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
+                            numInternalVertices * sizeof(cl_ulong),
+                            numExternalVertices * sizeof(cl_ulong),
+                            &tmpKeys[0],
+                            NULL, event);
+    queue.enqueueReadBuffer(indices, CL_FALSE,
+                            0, numIndices * sizeof(cl_uint),
+                            &tmpTriangles[0][0],
+                            NULL, &indicesEvent);
+    queue.flush();
+
+    verticesEvent.wait();
+    std::size_t newKeys = 0;
+    for (std::size_t i = 0; i < numExternalVertices; i++)
+    {
+        const cl_uint pos = keyMap[tmpKeys[i]];
+        if (pos >= nextVertex)
+        {
+            assert(pos - nextVertex >= numInternalVertices
+                   && pos - nextVertex <= numInternalVertices + i);
+            tmpVertices[pos - nextVertex] = tmpVertices[numInternalVertices + i];
+            newKeys++;
+        }
+    }
+
+    /* TODO: store a vector for directly remapping indices to new indices,
+     * to avoid hash table lookups on the key.
      */
+    indicesEvent.wait();
+    for (std::size_t i = 0; i < numTriangles; i++)
+        for (unsigned int j = 0; j < 3; j++)
+        {
+            cl_uint &index = tmpTriangles[i][j];
+            cl_uint offset = index - inVertices;
+            assert(offset < numVertices);
+            if (offset < numInternalVertices)
+                index = nextVertex + offset;
+            else
+                index = keyMap[tmpKeys[offset - numInternalVertices]];
+        }
+
+    writer.writeVertices(nextVertex, numInternalVertices + newKeys, &tmpVertices[0][0]);
+    writer.writeTriangles(nextTriangle, numTriangles, &tmpTriangles[0][0]);
+    nextVertex += numInternalVertices + newKeys;
+    nextTriangle += numTriangles;
+    inVertices += numVertices;
 }
 
 BigMesh::size_type BigMesh::numVertices() const
@@ -422,12 +476,11 @@ Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
     case 0:
         return Marching::OutputFunctor(boost::bind(&BigMesh::count, this, _1, _2, _3, _4, _5, _6, _7, _8));
     case 1:
+        nextVertex = 0;
         writer.setNumVertices(nVertices);
         writer.setNumTriangles(nTriangles);
         writer.open(filename);
-        return Marching::OutputFunctor(boost::bind(&BigMesh::addVertices, this, _1, _2, _3, _4, _5, _6, _7, _8));
-    case 2:
-        return Marching::OutputFunctor(boost::bind(&BigMesh::addTriangles, this, _1, _2, _3, _4, _5, _6, _7, _8));
+        return Marching::OutputFunctor(boost::bind(&BigMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
     default:
         abort();
     }

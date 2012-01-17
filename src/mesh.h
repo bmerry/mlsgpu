@@ -167,15 +167,14 @@ public:
 };
 
 /**
- * Three-pass collector that can handle very large meshes by writing
+ * Two-pass collector that can handle very large meshes by writing
  * the geometry to file as it is produced. It requires an out-of-order
  * writer, and requires the writer to be provided up front.
  *
- * The three passes are:
+ * The two passes are:
  * 1. Counting, and assigning the key mapping to detect duplicate external
  *    vertices.
- * 2. Write the vertices.
- * 3. Write the indices.
+ * 2. Write the data.
  *
  * Unlike @ref WeldMesh, the external vertices are written out as they come in
  * (immediately after the internal vertices for the corresponding chunk), which
@@ -183,10 +182,6 @@ public:
  * for the key map.
  *
  * See @ref SimpleMesh for documentation of the public interface.
- *
- * @todo Investigate using some template magic to use only two passes when using
- * an out-of-order writer, or extend @ref StreamWriter to use seeking to support
- * out-of-order operations.
  */
 class BigMesh
 {
@@ -200,8 +195,25 @@ private:
     /// Maps external vertex keys to external indices
     std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
 
-    size_type nVertices;
-    size_type nTriangles;
+    size_type nVertices;  ///< Number of vertices seen in first pass
+    size_type nTriangles; ///< Number of triangles seen in first pass
+
+    size_type nextVertex;   ///< Number of vertices written so far
+    size_type nextTriangle; ///< Number of triangles written so far
+
+    size_type inVertices;   ///< Running total of vertices passed in to second pass
+
+    /**
+     * @name
+     * @{
+     * Temporary buffers for reading data from OpenCL.
+     * These are stored in the object so that memory can be recycled if
+     * possible, rather than thrashing the allocator.
+     */
+    std::vector<cl_ulong> tmpKeys;
+    std::vector<boost::array<cl_float, 3> > tmpVertices;
+    std::vector<boost::array<cl_uint, 3> > tmpTriangles;
+    /** @} */
 
     /// Implementation of the first-pass functor
     void count(const cl::CommandQueue &queue,
@@ -214,27 +226,17 @@ private:
                cl::Event *event);
 
     /// Implementation of the second-pass functor
-    void addVertices(const cl::CommandQueue &queue,
-                     const cl::Buffer &vertices,
-                     const cl::Buffer &vertexKeys,
-                     const cl::Buffer &indices,
-                     std::size_t numVertices,
-                     std::size_t numInternalVertices,
-                     std::size_t numIndices,
-                     cl::Event *event);
-
-    /// Implementation of the third-pass functor
-    void addTriangles(const cl::CommandQueue &queue,
-                      const cl::Buffer &vertices,
-                      const cl::Buffer &vertexKeys,
-                      const cl::Buffer &indices,
-                      std::size_t numVertices,
-                      std::size_t numInternalVertices,
-                      std::size_t numIndices,
-                      cl::Event *event);
+    void add(const cl::CommandQueue &queue,
+             const cl::Buffer &vertices,
+             const cl::Buffer &vertexKeys,
+             const cl::Buffer &indices,
+             std::size_t numVertices,
+             std::size_t numInternalVertices,
+             std::size_t numIndices,
+             cl::Event *event);
 
 public:
-    static const unsigned int numPasses = 3;
+    static const unsigned int numPasses = 2;
 
     /**
      * Constructor. Unlike the in-core mesh types, the file information must

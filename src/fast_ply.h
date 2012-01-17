@@ -260,6 +260,8 @@ private:
  *
  * The advantage over @ref MmapWriter is that it does not require
  * a large virtual address space.
+ *
+ * @todo Investigate using seek to support out-of-order writing.
  */
 class StreamWriter : public WriterBase
 {
