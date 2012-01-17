@@ -15,14 +15,17 @@
 #include <cstddef>
 #include <stdexcept>
 #include <istream>
+#include <fstream>
 #include <ostream>
 #include <string>
 #include <vector>
 #include <utility>
 #include <tr1/cstdint>
 #include <boost/iostreams/device/mapped_file.hpp>
+#include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include "errors.h"
 
 class Splat;
 class TestFastPlyReader;
@@ -103,6 +106,84 @@ private:
     void readHeader(std::istream &in); ///< Does the heavy lifting of parsing the header
 };
 
+namespace internal
+{
+
+/// Common code shared by @ref MmapWriter and @ref StreamWriter
+template<typename SizeType>
+class WriterBase
+{
+public:
+    /// Size capable of holding maximum supported file size
+    typedef SizeType size_type;
+
+    /**
+     * Determines whether @ref open has been successfully called.
+     */
+    bool isOpen()
+    {
+        return isOpen_;
+    }
+
+    /**
+     * Add a comment to be written by @ref open.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void addComment(const std::string &comment)
+    {
+        MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+        comments.push_back(comment);
+    }
+
+    /**
+     * Set the number of vertices that will be in the file.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void setNumVertices(size_type numVertices)
+    {
+        MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+        this->numVertices = numVertices;
+    }
+
+    /**
+     * Set the number of indices that will be in the file.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void setNumTriangles(size_type numTriangles)
+    {
+        MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+        this->numTriangles = numTriangles;
+    }
+
+protected:
+    /// Bytes per vertex
+    static const size_type vertexSize = 3 * sizeof(float);
+    /// Bytes per triangle
+    static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
+
+    WriterBase() : comments(), numVertices(0), numTriangles(0), isOpen_(false) {}
+
+    size_type getNumVertices() const { return numVertices; }
+    size_type getNumTriangles() const { return numTriangles; }
+
+    /// Returns the header based on stored values
+    std::string makeHeader();
+
+    void setOpen()
+    {
+        isOpen_ = true;
+    }
+
+private:
+    /// Storage for comments until they can be written by @ref open.
+    std::vector<std::string> comments;
+    size_type numVertices;              ///< Number of vertices (defaults to zero)
+    size_type numTriangles;             ///< Number of triangles (defaults to zero)
+    bool isOpen_;                       ///< Whether the file has been opened
+};
+
+} // namespace internal
+
 /**
  * PLY file writer that only supports one format.
  * The supported format has:
@@ -127,33 +208,18 @@ private:
  *
  * The final phase (writing of vertices and indices) is thread-safe, provided
  * that each thread is writing to a disjoint section of the file.
+ *
+ * @bug Due to the way Boost creates the file, it will have the executable bit
+ * set on POSIX systems.
  */
-class Writer
+class MmapWriter : public internal::WriterBase<boost::iostreams::mapped_file_source::size_type>
 {
 public:
+    /// Indicates that this model supports out-of-order writing.
+    static const bool outOfOrder = true;
+
     /// Constructor
-    Writer();
-
-    /// Size capable of holding maximum supported file size
-    typedef boost::iostreams::mapped_file_source::size_type size_type;
-
-    /**
-     * Add a comment to be written by @ref open.
-     * @pre @ref open has not yet been successfully called.
-     */
-    void addComment(const std::string &comment);
-
-    /**
-     * Set the number of vertices that will be in the file.
-     * @pre @ref open has not yet been successfully called.
-     */
-    void setNumVertices(size_type numVertices);
-
-    /**
-     * Set the number of indices that will be in the file.
-     * @pre @ref open has not yet been successfully called.
-     */
-    void setNumTriangles(size_type numTriangles);
+    MmapWriter();
 
     /**
      * Create the file and write the header.
@@ -170,11 +236,6 @@ public:
      * the caller is responsible for freeing it with <code>delete[]</code>.
      */
     std::pair<char *, size_type> open();
-
-    /**
-     * Determines whether @ref open has been successfully called.
-     */
-    bool isOpen();
 
     /**
      * Write a range of vertices.
@@ -195,15 +256,6 @@ public:
     void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
 
 private:
-    /// Bytes per vertex
-    static const size_type vertexSize = 3 * sizeof(float);
-    /// Bytes per triangle
-    static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
-
-    /// Storage for comments until they can be written by @ref open.
-    std::vector<std::string> comments;
-    size_type numVertices;              /// Number of vertices (defaults to zero)
-    size_type numTriangles;             /// Number of triangles (defaults to zero)
     char *vertexPtr;                    /// Pointer to storage for the first vertex
     char *trianglePtr;                  /// Pointer to storage for the first triangle
 
@@ -212,9 +264,73 @@ private:
      * version, the pointer is NULL.
      */
     boost::scoped_ptr<boost::iostreams::mapped_file_sink> mapping;
+};
 
-    /// Returns the header based on stored values
-    std::string makeHeader();
+/**
+ * PLY file writer that only supports one format and sequential writing.
+ * This class has exactly the same interface as @ref MmapWriter, but
+ * additional restrictions:
+ *  - All vertices must be written before any triangle.
+ *  - The vertex and triangle must be written exactly once.
+ *  - The vertices and triangles must be written in order.
+ *
+ * The advantage over @ref MmapWriter is that it does not require
+ * a large virtual address space.
+ */
+class StreamWriter : public internal::WriterBase<std::tr1::uintmax_t>
+{
+public:
+    /// Indicates that this model does not support out-of-order writing.
+    static const bool outOfOrder = false;
+
+    /// Constructor
+    StreamWriter() : nextVertex(0), nextTriangle(0) {}
+
+    /**
+     * Create the file and write the header.
+     * @pre @ref open has not yet been successfully called.
+     */
+    void open(const std::string &filename);
+
+    /**
+     * Allocate storage in memory and write the header to it.
+     * This version is primarily aimed at testing, to avoid
+     * writing to file and reading back in.
+     *
+     * The memory is allocated with <code>new[]</code>, and
+     * the caller is responsible for freeing it with <code>delete[]</code>.
+     */
+    std::pair<char *, size_type> open();
+
+    /**
+     * Write a range of vertices.
+     * @param first          Index of first vertex to write.
+     * @param count          Number of vertices to write.
+     * @param data           Array of <code>float[3]</code> values.
+     * @pre @a first + @a count <= @a numVertices.
+     */
+    void writeVertices(size_type first, size_type count, const float *data);
+
+    /**
+     * Write a range of triangles.
+     * @param first          Index of first triangle to write.
+     * @param count          Number of triangles to write.
+     * @param data           Array of <code>uint32_t[3]</code> values containing indices.
+     * @pre @a first + @a count <= @a numTriangles.
+     */
+    void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+
+private:
+    /**
+     * Output stream. It is wrapped in a smart pointer because the type depends
+     * on which open function was used.
+     */
+    boost::scoped_ptr<std::ostream> file;
+
+    /// Position in vertex sequence
+    size_type nextVertex;
+    /// Position in triangle sequence
+    size_type nextTriangle;
 };
 
 } // namespace FastPly

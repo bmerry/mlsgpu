@@ -358,29 +358,34 @@ void TestFastPlyReader::testReadVertices()
 }
 
 
-class TestFastPlyWriter : public CppUnit::TestFixture
+/**
+ * Abstract base class for testing the writers in the FastPly namespace.
+ */
+template<typename Writer>
+class TestFastPlyWriterBase : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestFastPlyWriter);
+    CPPUNIT_TEST_SUITE(TestFastPlyWriterBase<Writer>);
     CPPUNIT_TEST_EXCEPTION(testBadFilename, std::ios_base::failure);
     CPPUNIT_TEST(testSimple);
-    // CPPUNIT_TEST(testState);
-    // CPPUNIT_TEST(testOverrun);
-    CPPUNIT_TEST_SUITE_END();
+    CPPUNIT_TEST(testState);
+    CPPUNIT_TEST(testOverrun);
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
 public:
-    void testBadFilename();
-    void testSimple();
-    void testState();
-    void testOverrun();
+    void testBadFilename();   ///< Try to write to an invalid filename, check for error
+    void testSimple();        ///< Test normal operation
+    void testState();         ///< Test assertions that the file is/is not open
+    void testOverrun();       ///< Test writing beyond the end of the file
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyWriter, TestSet::perBuild());
 
-void TestFastPlyWriter::testBadFilename()
+template<typename Writer>
+void TestFastPlyWriterBase<Writer>::testBadFilename()
 {
     Writer w;
     w.open("/not_a_valid_filename/");
 }
 
-void TestFastPlyWriter::testSimple()
+template<typename Writer>
+void TestFastPlyWriterBase<Writer>::testSimple()
 {
     const float vertices[4 * 3] =
     {
@@ -414,7 +419,7 @@ void TestFastPlyWriter::testSimple()
         "element face 3\n"
         "property list uint8 uint32 vertex_indices\n"
         "end_header   \n";
-    const Writer::size_type headerSize = expectedHeader.size();
+    const typename Writer::size_type headerSize = expectedHeader.size();
 
     Writer w;
     w.addComment("my comment 1");
@@ -422,17 +427,28 @@ void TestFastPlyWriter::testSimple()
     w.setNumVertices(4);
     w.setNumTriangles(3);
 
-    pair<char *, Writer::size_type> range = w.open();
+    pair<char *, typename Writer::size_type> range = w.open();
     boost::scoped_array<char> data(range.first);
-    Writer::size_type size = range.second;
+    typename Writer::size_type size = range.second;
     CPPUNIT_ASSERT(data.get() != NULL);
     CPPUNIT_ASSERT_EQUAL(headerSize + 87, size);
 
-    w.writeVertices(1, 2, vertices + 1 * 3);
-    w.writeTriangles(1, 2, indices + 1 * 3);
-    w.writeVertices(0, 1, vertices);
-    w.writeTriangles(0, 1, indices);
-    w.writeVertices(3, 1, vertices + 3 * 3);
+    if (Writer::outOfOrder)
+    {
+        w.writeVertices(1, 2, vertices + 1 * 3);
+        w.writeTriangles(1, 2, indices + 1 * 3);
+        w.writeVertices(0, 1, vertices);
+        w.writeTriangles(0, 1, indices);
+        w.writeVertices(3, 1, vertices + 3 * 3);
+    }
+    else
+    {
+        w.writeVertices(0, 1, vertices);
+        w.writeVertices(1, 2, vertices + 1 * 3);
+        w.writeVertices(3, 1, vertices + 3 * 3);
+        w.writeTriangles(0, 1, indices);
+        w.writeTriangles(1, 2, indices + 1 * 3);
+    }
 
     CPPUNIT_ASSERT_EQUAL(expectedHeader, std::string(data.get(), headerSize));
     CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize, vertices, sizeof(vertices)));
@@ -442,4 +458,113 @@ void TestFastPlyWriter::testSimple()
     CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize + 62, indices + 3, 12));
     CPPUNIT_ASSERT_EQUAL(3, int(data[headerSize + 74]));
     CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize + 75, indices + 6, 12));
+}
+
+template<typename Writer>
+void TestFastPlyWriterBase<Writer>::testState()
+{
+    Writer w;
+
+    w.setNumVertices(2);
+    w.setNumTriangles(2);
+
+    CPPUNIT_ASSERT_THROW(w.writeVertices(0, 1, NULL), std::runtime_error);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, NULL), std::runtime_error);
+
+    pair<char *, typename Writer::size_type> range = w.open();
+    boost::scoped_array<char> data(range.first);
+
+    CPPUNIT_ASSERT_THROW(w.open(), std::runtime_error);
+    CPPUNIT_ASSERT_THROW(w.setNumVertices(3), std::runtime_error);
+    CPPUNIT_ASSERT_THROW(w.setNumTriangles(3), std::runtime_error);
+}
+
+template<typename Writer>
+void TestFastPlyWriterBase<Writer>::testOverrun()
+{
+    const float vertices[4 * 3] = {}; // content does not matter
+    const std::tr1::uint32_t indices[9] = {};
+
+    Writer w;
+    w.setNumVertices(4);
+    w.setNumTriangles(3);
+
+    pair<char *, typename Writer::size_type> range = w.open();
+    boost::scoped_array<char> data(range.first);
+
+    /* Just to check that normal writes work, and to
+     * to position a streaming writer.
+     */
+    w.writeVertices(0, 1, vertices);
+
+    /* The real test */
+    CPPUNIT_ASSERT_THROW(w.writeVertices(1, 4, vertices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeVertices(2, MmapWriter::size_type(-1), vertices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeVertices(MmapWriter::size_type(-1), 2, vertices), std::out_of_range);
+    w.writeVertices(1, 3, vertices);
+
+    w.writeTriangles(0, 2, indices);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(1, 3, indices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(2, MmapWriter::size_type(-1), indices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(MmapWriter::size_type(-1), 2, indices), std::out_of_range);
+}
+
+class TestMmapWriter : public TestFastPlyWriterBase<MmapWriter>
+{
+    CPPUNIT_TEST_SUB_SUITE(TestMmapWriter, TestFastPlyWriterBase<MmapWriter>);
+    CPPUNIT_TEST_SUITE_END();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMmapWriter, TestSet::perBuild());
+
+class TestStreamWriter : public TestFastPlyWriterBase<StreamWriter>
+{
+    CPPUNIT_TEST_SUB_SUITE(TestStreamWriter, TestFastPlyWriterBase<StreamWriter>);
+    CPPUNIT_TEST(testSequence);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testSequence();      ///< Test writing things out of order
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStreamWriter, TestSet::perBuild());
+
+void TestStreamWriter::testSequence()
+{
+    const float vertices[4 * 3] = {}; // content does not matter
+    const std::tr1::uint32_t indices[9] = {};
+
+    StreamWriter w;
+    w.setNumVertices(4);
+    w.setNumTriangles(3);
+
+    pair<char *, StreamWriter::size_type> range = w.open();
+    boost::scoped_array<char> data(range.first);
+
+    // Triangles before vertices
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, indices), std::runtime_error);
+    // Starting from non-zero vertex
+    CPPUNIT_ASSERT_THROW(w.writeVertices(1, 2, vertices), std::runtime_error);
+
+    w.writeVertices(0, 2, vertices);
+
+    // Triangles before finishing vertices
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, indices), std::runtime_error);
+    // Overwrite already-written
+    CPPUNIT_ASSERT_THROW(w.writeVertices(1, 2, vertices), std::runtime_error);
+    // Skip a vertex
+    CPPUNIT_ASSERT_THROW(w.writeVertices(3, 1, vertices), std::runtime_error);
+
+    w.writeVertices(2, 2, vertices);
+
+    // Starting from non-zero triangle
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(1, 1, indices), std::runtime_error);
+
+    w.writeTriangles(0, 1, indices);
+
+    // Overwrite
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, indices), std::runtime_error);
+    // Going back to vertices
+    CPPUNIT_ASSERT_THROW(w.writeVertices(3, 1, vertices), std::runtime_error);
+    // Skipping
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(2, 1, indices), std::runtime_error);
+
+    w.writeTriangles(1, 2, indices);
 }

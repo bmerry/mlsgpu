@@ -68,7 +68,7 @@ void SimpleMesh::add(const cl::CommandQueue &queue,
 
 void SimpleMesh::write(const std::string &filename) const
 {
-    FastPly::Writer writer;
+    FastPly::StreamWriter writer;
     writer.setNumVertices(vertices.size());
     writer.setNumTriangles(triangles.size());
     writer.open(filename);
@@ -229,7 +229,7 @@ void WeldMesh::finalize()
 
 void WeldMesh::write(const std::string &filename) const
 {
-    FastPly::Writer writer;
+    FastPly::StreamWriter writer;
     writer.setNumVertices(internalVertices.size() + externalVertices.size());
     writer.setNumTriangles(triangles.size());
     writer.open(filename);
