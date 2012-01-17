@@ -436,6 +436,7 @@ void StreamWriter::open(const std::string &filename)
     std::string header = makeHeader();
     file.reset(new std::ofstream(filename.c_str(), std::ios::out | std::ios::binary));
     file->exceptions(std::ios::failbit);
+    setOpen();
     *file << header;
 }
 
