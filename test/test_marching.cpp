@@ -81,6 +81,7 @@ class TestMarching : public CLH::Test::TestFixture
     CPPUNIT_TEST(testComputeKey);
     CPPUNIT_TEST(testCompactVertices);
     CPPUNIT_TEST(testSphere);
+    CPPUNIT_TEST(testTruncatedSphere);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -125,6 +126,7 @@ private:
     void testComputeKey();      ///< Test @ref computeKey helper function
     void testCompactVertices(); ///< Test @ref compactVertices kernel
     void testSphere();          ///< Builds a sphere
+    void testTruncatedSphere(); ///< Builds a sphere that is truncated by the bounding box
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMarching, TestSet::perCommit());
 
@@ -357,7 +359,6 @@ void TestMarching::testSphere()
     const std::size_t width = 71;
     const std::size_t height = 75;
     const std::size_t depth = 60;
-    cl::Event done;
 
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     Grid grid(ref, 1.0f, 0, width - 1, 0, height - 1, 0, depth - 1);
@@ -375,5 +376,34 @@ void TestMarching::testSphere()
 
     mesh.finalize();
     FastPly::StreamWriter writer;
+    CPPUNIT_ASSERT(mesh.isManifold());
     mesh.write(writer, "sphere.ply");
+}
+
+void TestMarching::testTruncatedSphere()
+{
+    const std::size_t maxWidth = 83;
+    const std::size_t maxHeight = 78;
+    const std::size_t width = 71;
+    const std::size_t height = 75;
+    const std::size_t depth = 60;
+
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    Grid grid(ref, 1.0f, 0, width - 1, 0, height - 1, 0, depth - 1);
+
+    // Replace the command queue with an out-of-order one, to ensure that the
+    // events are being handled correctly.
+    queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
+
+    Marching marching(context, device, maxWidth, maxHeight);
+    SphereFunc input(width, height, depth, 0.5f * width, 0.5f * height, 0.5f * depth, 42.0f);
+
+    WeldMesh mesh;
+    cl_uint3 keyOffset = {{ 0, 0, 0 }};
+    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, 0, NULL);
+
+    mesh.finalize();
+    FastPly::StreamWriter writer;
+    CPPUNIT_ASSERT(mesh.isManifold());
+    mesh.write(writer, "tsphere.ply");
 }

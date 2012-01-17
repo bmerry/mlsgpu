@@ -19,8 +19,16 @@
 #include <boost/bind/bind.hpp>
 #include <tr1/unordered_map>
 #include <cassert>
+#include <utility>
 #include "mesh.h"
 #include "fast_ply.h"
+#include "logging.h"
+
+#if UNIT_TESTS
+# include <map>
+# include <set>
+# include <algorithm>
+#endif
 
 std::size_t SimpleMesh::numVertices() const
 {
@@ -65,6 +73,93 @@ void SimpleMesh::add(const cl::CommandQueue &queue,
     if (event != NULL)
         *event = last;
 }
+
+#if UNIT_TESTS
+bool SimpleMesh::isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles)
+{
+    // List of edges opposite each vertex
+    std::vector<std::vector<std::pair<cl_uint, cl_uint> > > edges(numVertices);
+    for (std::size_t i = 0; i < triangles.size(); i++)
+    {
+        cl_uint indices[3] = {triangles[i][0], triangles[i][1], triangles[i][2]};
+        for (unsigned int j = 0; j < 3; j++)
+        {
+            assert(indices[0] < numVertices);
+            if (indices[0] == indices[1])
+            {
+                Log::log[Log::debug] << "Triangle " << i << " contains vertex " << indices[0] << " twice\n";
+                return false;
+            }
+            edges[indices[0]].push_back(std::make_pair(indices[1], indices[2]));
+            std::rotate(indices, indices + 1, indices + 3);
+        }
+    }
+
+    // Now check that the neighborhood of each vertex is a line or ring
+    for (std::size_t i = 0; i < numVertices; i++)
+    {
+        const std::vector<std::pair<cl_uint, cl_uint> > &neigh = edges[i];
+        if (neigh.empty())
+        {
+            // disallow isolated vertices
+            Log::log[Log::debug] << "Vertex " << i << " is isolated\n";
+            return false;
+        }
+        std::map<cl_uint, cl_uint> arrow; // maps .first to .second
+        std::set<cl_uint> seen; // .second that have been observed
+        for (std::size_t j = 0; j < neigh.size(); j++)
+        {
+            cl_uint x = neigh[j].first;
+            cl_uint y = neigh[j].second;
+            if (arrow.count(x))
+            {
+                Log::log[Log::debug] << "Edge " << i << " - " << x << " occurs twice with same winding\n";
+                return false;
+            }
+            arrow[x] = y;
+            if (seen.count(y))
+            {
+                Log::log[Log::debug] << "Edge " << y << " - " << i << " occurs twice with same winding\n";
+                return false;
+            }
+            seen.insert(y);
+        }
+
+        /* At this point, we have in-degree and out-degree of at most 1 for
+         * each vertex, so we have a collection of lines and rings.
+         */
+
+        // Look for a starting point for a line
+        cl_uint start = neigh[0].first;
+        for (std::size_t j = 0; j < neigh.size(); j++)
+        {
+            if (!seen.count(neigh[j].first))
+            {
+                start = neigh[j].first;
+                break;
+            }
+        }
+        std::size_t len = 0;
+        cl_uint cur = start;
+        do
+        {
+            cur = arrow[cur];
+            len++;
+        } while (arrow.count(cur) && cur != start);
+        if (len != neigh.size())
+        {
+            Log::log[Log::debug] << "Vertex " << i << " contains multiple boundaries\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SimpleMesh::isManifold() const
+{
+    return isManifold(vertices.size(), triangles);
+}
+#endif /* UNIT_TESTS */
 
 Marching::OutputFunctor SimpleMesh::outputFunctor(unsigned int pass)
 {
@@ -216,6 +311,13 @@ void WeldMesh::finalize()
     std::vector<cl_ulong>().swap(externalKeys);
     externalVertices.resize(welded);
 }
+
+#if UNIT_TESTS
+bool WeldMesh::isManifold() const
+{
+    return SimpleMesh::isManifold(numVertices(), triangles);
+}
+#endif
 
 Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
 {

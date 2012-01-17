@@ -83,6 +83,23 @@ public:
      */
     void finalize() {}
 
+#if UNIT_TESTS
+    /**
+     * Determine whether the mesh is manifold (possibly with boundary).
+     *
+     * This is intended for test code, and so is not necessarily efficient.
+     *
+     * @pre @ref finalize() has already been called.
+     */
+    bool isManifold() const;
+
+    /**
+     * Internal implementation. It is public so that other classes can make
+     * use of it, but it is not intended to be called directly.
+     */
+    static bool isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles);
+#endif
+
     /**
      * Writes the data to file. The writer passed in must not yet have been opened
      * (this function will do that). The caller may optionally have set comments on it.
@@ -138,6 +155,10 @@ public:
 
     Marching::OutputFunctor outputFunctor(unsigned int pass);
     void finalize();
+
+#if UNIT_TESTS
+    bool isManifold() const;
+#endif
 
     template<typename Writer>
     void write(Writer &writer, const std::string &filename) const;
