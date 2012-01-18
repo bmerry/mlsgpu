@@ -17,6 +17,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/array.hpp>
+#include <boost/progress.hpp>
 #include <tr1/unordered_map>
 #include <iostream>
 #include <map>
@@ -239,13 +240,15 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     /* Round up to multiple of block size
      */
     unsigned int cells[3];
+    unsigned int chunks[3];
     for (unsigned int i = 0; i < 3; i++)
     {
         std::pair<int, int> extent = grid.getExtent(i);
-        cells[i] = (extent.second - extent.first + maxCells - 1) / maxCells * maxCells;
+        chunks[i] = (extent.second - extent.first + maxCells - 1) / maxCells;
+        cells[i] = chunks[i] * maxCells;
         grid.setExtent(i, extent.first, extent.first + cells[i]);
     }
-    cout << "Octree cells: " << cells[0] << " x " << cells[1] << " x " << cells[2] << "\n";
+    Log::log[Log::info] << "Octree cells: " << cells[0] << " x " << cells[1] << " x " << cells[2] << endl;
 
     cl::CommandQueue queue(context, device);
     SplatTreeCL tree(context, maxLevels, splats.size());
@@ -259,6 +262,9 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     /* TODO: partition splats */
     for (unsigned int pass = 0; pass < mesh.numPasses; pass++)
     {
+        Log::log[Log::info] << "Pass " << pass + 1 << endl;
+        boost::progress_display progress(chunks[0] * chunks[1] * chunks[2], Log::log[Log::info]);
+
         Marching::OutputFunctor output = mesh.outputFunctor(pass);
         for (unsigned int bz = 0; bz < cells[2]; bz += maxCells)
             for (unsigned int by = 0; by < cells[1]; by += maxCells)
@@ -272,7 +278,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
                         Timer timer;
                         tree.enqueueBuild(queue, &splats[0], splats.size(), sub, subsampling, CL_FALSE);
                         queue.finish();
-                        cout << "Build: " << timer.getElapsed() << '\n';
+                        Log::log[Log::debug] << "Build: " << timer.getElapsed() << '\n';
                     }
 
                     input.set(sub, tree, subsampling);
@@ -281,8 +287,9 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
                         Timer timer;
                         marching.generate(queue, input, output, sub, keyOffset,
                                           NULL);
-                        cout << "Process: " << timer.getElapsed() << endl;
+                        Log::log[Log::debug] << "Process: " << timer.getElapsed() << endl;
                     }
+                    ++progress;
                 }
     }
 
