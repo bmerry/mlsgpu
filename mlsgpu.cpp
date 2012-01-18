@@ -60,20 +60,109 @@ namespace Option
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
+
+    const char * const levels = "levels";
+    const char * const subsampling = "subsampling";
 };
 
 static void addCommonOptions(po::options_description &opts)
 {
     opts.add_options()
-        ("help,h",                "show help")
-        (Option::quiet,           "do not show informational messages");
+        ("help,h",                "Show help")
+        (Option::quiet,           "Do not show informational messages");
 }
 
 static void addFitOptions(po::options_description &opts)
 {
     opts.add_options()
-        (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "smoothing factor")
-        (Option::fitGrid,         po::value<double>()->default_value(0.01), "spacing of grid cells");
+        (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
+        (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells");
+}
+
+static void addAdvancedOptions(po::options_description &opts)
+{
+    po::options_description advanced("Advanced options");
+    advanced.add_options()
+        (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
+        (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree");
+    opts.add(advanced);
+}
+
+static void validateOptions(const cl::Device &device, const po::variables_map &vm)
+{
+    if (!vm.count(Option::inputFile))
+    {
+        cerr << "At least one input file must be specified.\n";
+        exit(1);
+    }
+    if (!vm.count(Option::outputFile))
+    {
+        cerr << "An output file must be specified.\n";
+        exit(1);
+    }
+
+    if (!Marching::validateDevice(device)
+        || !SplatTreeCL::validateDevice(device))
+    {
+        cerr << "This OpenCL device is not supported.\n";
+        exit(1);
+    }
+
+    int levels = vm[Option::levels].as<int>();
+    int subsampling = vm[Option::subsampling].as<int>();
+
+    int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
+    /* TODO make dynamic, considering maximum image sizes etc */
+    if (levels < 1 || levels > maxLevels)
+    {
+        cerr << "Value of --levels must be in the range 1 to " << maxLevels << ".\n";
+        exit(1);
+    }
+    if (subsampling < 0)
+    {
+        cerr << "Value of --subsampling must be non-negative.\n";
+        exit(1);
+    }
+    if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
+    {
+        cerr << "Sum of --subsampling and --levels is too large.\n";
+        exit(1);
+    }
+
+    /* Check that we have enough memory on the device. This is no guarantee against OOM, but
+     * we can at least turn down silly requests before wasting any time.
+     *
+     * TODO: get an actual value for maxSplats once we implement splat partitioning.
+     */
+    const std::size_t maxSplats = 3000000;
+    const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
+    std::pair<std::tr1::uint64_t, std::tr1::uint64_t> marchingMemory = Marching::deviceMemory(device, block, block);
+    std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxSplats);
+    const std::tr1::uint64_t total = marchingMemory.first + splatTreeMemory.first;
+    const std::tr1::uint64_t max = std::max(marchingMemory.second, splatTreeMemory.second);
+
+    const std::size_t deviceTotal = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
+    const std::size_t deviceMax = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
+    if (max > deviceMax)
+    {
+        cerr << "Arguments require an allocation of " << max << ",\n"
+            << "but the OpenCL device only supports up to " << deviceMax << ".\n"
+            << "Try reducing --levels or --subsampling.\n";
+        exit(1);
+    }
+    if (total > deviceTotal)
+    {
+        cerr << "Arguments require device memory of " << total << ",\n"
+            << "but the OpenCL device has " << deviceTotal << ".\n"
+            << "Try reducing --levels or --subsampling.\n";
+        exit(1);
+    }
+
+    Log::log[Log::info] << "About " << total / (1024 * 1024) << "MiB of device memory will be used.\n";
+    if (total > deviceTotal * 0.8)
+    {
+        Log::log[Log::warn] << "More than 80% of the device memory will be used.\n";
+    }
 }
 
 static po::variables_map processOptions(int argc, char **argv)
@@ -84,6 +173,7 @@ static po::variables_map processOptions(int argc, char **argv)
     po::options_description desc("General options");
     addCommonOptions(desc);
     addFitOptions(desc);
+    addAdvancedOptions(desc);
     desc.add_options()
         ("output-file,o",   po::value<string>(), "output file");
 
@@ -113,17 +203,6 @@ static po::variables_map processOptions(int argc, char **argv)
         {
             cout << desc << '\n';
             exit(0);
-        }
-
-        if (!vm.count(Option::inputFile))
-        {
-            cerr << "At least one input file must be specified\n\n" << desc << '\n';
-            exit(1);
-        }
-        if (!vm.count(Option::outputFile))
-        {
-            cerr << "An output file must be specified\n\n" << desc << '\n';
-            exit(1);
         }
 
         return vm;
@@ -226,10 +305,10 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
 
 static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
 {
-    const unsigned int subsampling = 2;
-    const unsigned int maxLevels = 8;
-    const unsigned int maxBlock = 1U << (maxLevels + subsampling - 1);
-    const unsigned int maxCells = maxBlock - 1;
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const int levels = vm[Option::levels].as<int>();
+    const unsigned int block = 1U << (levels + subsampling - 1);
+    const unsigned int blockCells = block - 1;
 
     float spacing = vm[Option::fitGrid].as<double>();
     float smooth = vm[Option::fitSmooth].as<double>();
@@ -244,15 +323,15 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     for (unsigned int i = 0; i < 3; i++)
     {
         std::pair<int, int> extent = grid.getExtent(i);
-        chunks[i] = (extent.second - extent.first + maxCells - 1) / maxCells;
-        cells[i] = chunks[i] * maxCells;
+        chunks[i] = (extent.second - extent.first + blockCells - 1) / blockCells;
+        cells[i] = chunks[i] * blockCells;
         grid.setExtent(i, extent.first, extent.first + cells[i]);
     }
     Log::log[Log::info] << "Octree cells: " << cells[0] << " x " << cells[1] << " x " << cells[2] << endl;
 
     cl::CommandQueue queue(context, device);
-    SplatTreeCL tree(context, maxLevels, splats.size());
-    Marching marching(context, device, maxBlock, maxBlock);
+    SplatTreeCL tree(context, levels, splats.size());
+    Marching marching(context, device, block, block);
 
     MlsFunctor input(context);
 
@@ -266,14 +345,14 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         boost::progress_display progress(chunks[0] * chunks[1] * chunks[2], Log::log[Log::info]);
 
         Marching::OutputFunctor output = mesh.outputFunctor(pass);
-        for (unsigned int bz = 0; bz < cells[2]; bz += maxCells)
-            for (unsigned int by = 0; by < cells[1]; by += maxCells)
-                for (unsigned int bx = 0; bx < cells[0]; bx += maxCells)
+        for (unsigned int bz = 0; bz < cells[2]; bz += blockCells)
+            for (unsigned int by = 0; by < cells[1]; by += blockCells)
+                for (unsigned int bx = 0; bx < cells[0]; bx += blockCells)
                 {
                     cl_uint3 keyOffset = {{ bx, by, bz }};
-                    Grid sub = grid.subGrid(bx, bx + maxCells,
-                                            by, by + maxCells,
-                                            bz, bz + maxCells);
+                    Grid sub = grid.subGrid(bx, bx + blockCells,
+                                            by, by + blockCells,
+                                            bz, bz + blockCells);
                     {
                         Timer timer;
                         tree.enqueueBuild(queue, &splats[0], splats.size(), sub, subsampling, CL_FALSE);
@@ -312,6 +391,8 @@ int main(int argc, char **argv)
         exit(1);
     }
     Log::log[Log::info] << "Using device " << device.getInfo<CL_DEVICE_NAME>() << "\n";
+
+    validateOptions(device, vm);
 
     cl::Context context = CLH::makeContext(device);
 

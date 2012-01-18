@@ -16,10 +16,18 @@
 #include <utility>
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <limits>
+#include <tr1/cstdint>
 #include "clh.h"
 #include "marching.h"
 #include "grid.h"
 #include "errors.h"
+
+/* Definitions of constants */
+const int Marching::KEY_AXIS_BITS;
+const int Marching::MAX_DIMENSION_LOG2;
+const std::size_t Marching::MAX_DIMENSION;
 
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
 {
@@ -221,6 +229,76 @@ void Marching::makeTables()
                             hKeyTable.size() * sizeof(hKeyTable[0]), &hKeyTable[0]);
 }
 
+bool Marching::validateDevice(const cl::Device &device)
+{
+    if (!device.getInfo<CL_DEVICE_IMAGE_SUPPORT>())
+        return false;
+    return true;
+}
+
+std::pair<std::tr1::uint64_t, std::tr1::uint64_t> Marching::deviceMemory(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight)
+{
+    MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
+    (void) device; // not currently used, but should be used to determine usage of clcpp
+
+    // The asserts above guarantee that these will not overflow
+    const std::tr1::uint64_t numCells = (maxWidth - 1) * (maxHeight - 1);
+    const std::tr1::uint64_t numCorners = maxWidth * maxHeight;
+    std::size_t fixed = 0; // constant memory
+    std::size_t cells = 0; // scales with number of cells
+    std::size_t corners = 0; // scales with number of corners
+
+    // Keep this in sync with the actual allocations below
+
+    // for (unsigned int i = 0; i < 2; i++)
+    //     backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
+    corners += 2 * sizeof(cl_float);
+
+    // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
+    cells += sizeof(cl_uint2);
+
+    // occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
+    cells += sizeof(cl_uint); fixed += sizeof(cl_uint);
+
+    // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
+    cells += sizeof(cl_uint2); fixed += sizeof(cl_uint2);
+
+    // vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
+    cells += MAX_CELL_VERTICES * sizeof(cl_uint); fixed += sizeof(cl_uint);
+
+    // indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
+    cells += MAX_CELL_VERTICES * sizeof(cl_uint);
+
+    // unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
+    cells += MAX_CELL_VERTICES * sizeof(cl_float4);
+
+    // unweldedVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_ulong));
+    cells += MAX_CELL_VERTICES * sizeof(cl_ulong); fixed += sizeof(cl_ulong);
+
+    // weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
+    cells += MAX_CELL_VERTICES * 3 * sizeof(cl_float);
+
+    // weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
+    cells += MAX_CELL_VERTICES * sizeof(cl_ulong);
+
+    // indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
+    cells += MAX_CELL_INDICES * sizeof(cl_uint);
+
+    // firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
+    fixed += sizeof(cl_uint);
+
+    // Temporary space for the sorter
+    cells += MAX_CELL_VERTICES * sizeof(cl_float4) + MAX_CELL_VERTICES * sizeof(cl_ulong);
+    fixed += sizeof(cl_ulong);
+
+    // TODO: constant space needed for tables, and temporaries for the sorter and scanners
+
+    std::tr1::uint64_t total = cells * numCells + corners * numCorners + fixed;
+    std::tr1::uint64_t max = numCells * MAX_CELL_VERTICES * sizeof(cl_float4);
+    return std::make_pair(total, max);
+}
+
 Marching::Marching(const cl::Context &context, const cl::Device &device,
                    size_t maxWidth, size_t maxHeight)
 :
@@ -229,16 +307,16 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2)),
     sortVertices(context, device, clcpp::TYPE_ULONG, clcpp::Type(clcpp::TYPE_FLOAT, 4))
 {
-    MLSGPU_ASSERT(maxWidth >= 2, std::invalid_argument);
-    MLSGPU_ASSERT(maxHeight >= 2, std::invalid_argument);
+    MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
         backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
-    vertexSpace = sliceCells * MAX_CELL_VERTICES * 2;
-    indexSpace = sliceCells * MAX_CELL_INDICES * 2;
+    vertexSpace = sliceCells * MAX_CELL_VERTICES;
+    indexSpace = sliceCells * MAX_CELL_INDICES;
 
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
     occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));

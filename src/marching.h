@@ -13,6 +13,8 @@
 #include <CL/cl.hpp>
 #include <cstddef>
 #include <vector>
+#include <utility>
+#include <tr1/cstdint>
 #include <boost/function.hpp>
 #include <clcpp/clcpp.h>
 #include "grid.h"
@@ -50,9 +52,24 @@ class Marching
 public:
     static const unsigned int MAX_CELL_VERTICES = 13; ///< Maximum vertices generated per cell
     static const unsigned int MAX_CELL_INDICES = 36;  ///< Maximum triangles generated per cell
-    static const unsigned int NUM_CUBES = 256;      ///< Number of possible vertex codes for a cube (2^vertices)
-    static const unsigned int NUM_EDGES = 19;       ///< Number of edges in each cube
-    static const unsigned int NUM_TETRAHEDRA = 6;   ///< Number of tetrahedra in each cube
+    static const unsigned int NUM_CUBES = 256;        ///< Number of possible vertex codes for a cube (2^vertices)
+    static const unsigned int NUM_EDGES = 19;         ///< Number of edges in each cube
+    static const unsigned int NUM_TETRAHEDRA = 6;     ///< Number of tetrahedra in each cube
+    /// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
+    static const int KEY_AXIS_BITS = 21;
+    /// Logarithm base 2 of @ref MAX_DIMENSION.
+    static const int MAX_DIMENSION_LOG2 = 13;
+    /**
+     * Maximum size that is legal to pass to the constructor for @a maxWidth or
+     * @a maxHeight.  This does not guarantee that it will be possible to
+     * allocate sufficient memory, but asking for more will fail without even
+     * trying.
+     *
+     * The current value is chosen on the basis that it is the minimum value of
+     * @c CL_DEVICE_IMAGE2D_MAX_WIDTH. It could be raised if necessary, but for
+     * current usage there is little point.
+     */
+    static const std::size_t MAX_DIMENSION = 1U << MAX_DIMENSION_LOG2;
 
 private:
     /**
@@ -230,8 +247,24 @@ private:
     void makeTables();
 
 public:
-    /// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
-    static const int KEY_AXIS_BITS = 21;
+    /**
+     * Checks whether a device is suitable for use with this class. At the time
+     * of writing, the only requirement is that images are supported.
+     */
+    static bool validateDevice(const cl::Device &device);
+
+    /**
+     * Estimates the device memory required for particular values of the
+     * constructor arguments. This is intended to fairly accurately reflect
+     * memory allocated in buffers and images, but excludes all overheads for
+     * fragmentation, alignment, parameters, programs, command buffers etc.
+     *
+     * @param device, maxWidth, maxHeight  Parameters that would be passed to the constructor.
+     * @return A pair containing total memory required and the largest single allocation.
+     *
+     * @pre @a maxWidth and @a maxHeight do not exceed @ref MAX_DIMENSION.
+     */
+    static std::pair<std::tr1::uint64_t, std::tr1::uint64_t> deviceMemory(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight);
 
     /**
      * The function type to pass to @ref generate for sampling the isofunction.
@@ -303,7 +336,8 @@ public:
      * @param device         Device for which kernels are to be compiled.
      * @param maxWidth, maxHeight Maximum X, Y dimensions of the provided sampling grid.
      *
-     * @pre @a maxWidth and @a maxHeight are all at least 2.
+     * @pre
+     * - @a maxWidth and @a maxHeight are both between 2 and @ref MAX_DIMENSION.
      */
     Marching(const cl::Context &context, const cl::Device &device,
              std::size_t maxWidth, std::size_t maxHeight);

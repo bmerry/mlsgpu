@@ -12,6 +12,7 @@
 #endif
 
 #include <CL/cl.hpp>
+#include <utility>
 #include <boost/noncopyable.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include "splat_tree.h"
@@ -41,6 +42,24 @@ public:
      * sort keys.
      */
     typedef std::tr1::uint32_t code_type;
+
+    /**
+     * The maximum legal value for @a maxLevels passed to the constructor. This
+     * value is the maximum that will allow the size of the start array to be
+     * represented in a 32-bit integer. On a 64-bit system it could probably be
+     * made larger, but only with significant changes to the kernel code to use
+     * 64-bit values for @ref code_type.
+     */
+    static const std::size_t MAX_LEVELS = 10;
+
+    /**
+     * The maximum number of splats that can be specified as @a maxSplats.
+     * This number cannot necessarily be allocated, but it allows for
+     * each splat to generate 8 entries plus the same number of jumps in the
+     * command table, and still have jumps be encoded as negative values in @a
+     * command_type.
+     */
+    static const std::size_t MAX_SPLATS = 0x7FFFFFFF / 16;
 
 private:
     /// OpenCL context used to create buffers.
@@ -146,12 +165,33 @@ private:
 
 public:
     /**
+     * Checks whether the device can support this class at all. At the time of
+     * writing, this just means that it needs image support.
+     */
+    static bool validateDevice(const cl::Device &device);
+
+    /**
+     * Estimates the total memory needed and the largest single allocation, based on the
+     * constructor arguments.
+     *
+     * @pre
+     * - 1 <= @a maxLevels <= @ref MAX_LEVELS
+     * - 1 <= @a maxSplats <= @ref MAX_SPLATS.
+     */
+    static std::pair<std::tr1::uint64_t, std::tr1::uint64_t> deviceMemory(
+        const cl::Device &device, std::size_t maxLevels, std::size_t maxSplats);
+
+    /**
      * Constructor. This allocates the maximum supported sizes for all the
      * buffers necessary, but does not populate them.
      *
      * @param context   OpenCL context used to create buffers, images etc.
-     * @param maxLevels Maximum number of octree levels (maximum dimension is 2^@a maxLevels).
+     * @param maxLevels Maximum number of octree levels (maximum dimension is 2^<sup>@a maxLevels - 1</sup>).
      * @param maxSplats Maximum number of splats supported.
+     *
+     * @pre
+     * - 1 <= @a maxLevels <= @ref MAX_LEVELS
+     * - 1 <= @a maxSplats <= @ref MAX_SPLATS.
      */
     SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats);
 

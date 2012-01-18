@@ -17,22 +17,75 @@
 #include <tr1/cstdint>
 #include <limits>
 #include <vector>
+#include <tr1/cstdint>
 #include "splat_tree_cl.h"
 #include "splat.h"
 #include "grid.h"
 #include "clh.h"
+#include "errors.h"
+
+/* Definitions of constants */
+const std::size_t SplatTreeCL::MAX_LEVELS;
+const std::size_t SplatTreeCL::MAX_SPLATS;
+
+bool SplatTreeCL::validateDevice(const cl::Device &device)
+{
+    if (!device.getInfo<CL_DEVICE_IMAGE_SUPPORT>())
+        return false;
+    return true;
+}
+
+std::pair<std::tr1::uint64_t, std::tr1::uint64_t> SplatTreeCL::deviceMemory(
+    const cl::Device &device, const std::size_t maxLevels, const std::size_t maxSplats)
+{
+    /* Not currently used, although it should be to determine constant overheads in
+     * the clcpp primitives.
+     */
+    (void) device;
+
+    MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
+    MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
+    std::tr1::uint64_t ans = 0;
+    const std::tr1::uint64_t splats = maxSplats;
+    const std::tr1::uint64_t start = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+
+    // Keep this up to date with the actual allocations below
+
+    // splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
+    ans += splats * sizeof(Splat);
+    // start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
+    ans += start * sizeof(command_type);
+    // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
+    ans += start * sizeof(command_type);
+    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
+    ans += splats * 16 * sizeof(command_type);
+    // commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
+    ans += splats * 8 * sizeof(command_type);
+    // entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
+    ans += splats * 8 * sizeof(code_type);
+    // entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
+    ans += splats * 8 * sizeof(command_type);
+
+    // Temporary storage for the sort
+    ans += splats * 8 * sizeof(code_type); // keys
+    ans += splats * 8 * sizeof(command_type); // values
+
+    // TODO: add in constant overheads for the scan and sort primitives
+
+    std::tr1::uint64_t max = std::max(splats * std::max(16 * sizeof(command_type), sizeof(Splat)),
+                                 start * sizeof(command_type));
+    return std::make_pair(ans, max);
+}
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)
     : maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
     sort(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clcpp::TYPE_UINT, clcpp::TYPE_INT),
     scan(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clcpp::TYPE_UINT)
 {
-    if (maxSplats > std::size_t(std::numeric_limits<command_type>::max() / 16))
-        throw std::out_of_range("maxSplats is too large");
-    if (maxLevels * 3 >= std::numeric_limits<code_type>::digits - 1)
-        throw std::out_of_range("maxLevels is too large");
+    MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
+    MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
 
-    std::size_t maxStart = (std::size_t(1) << (3 * maxLevels)) / 7;
+    std::size_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
     splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
     start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
