@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * Implementation of @ref MeshBase subclasses.
+ * Data structures for storing the output of @ref Marching.
  */
 
 #if HAVE_CONFIG_H
@@ -30,51 +30,8 @@
 # include <map>
 # include <set>
 # include <algorithm>
-#endif
 
-void SimpleMesh::add(const cl::CommandQueue &queue,
-                     const cl::Buffer &vertices,
-                     const cl::Buffer &vertexKeys,
-                     const cl::Buffer &indices,
-                     std::size_t numVertices,
-                     std::size_t numInternalVertices,
-                     std::size_t numIndices,
-                     cl::Event *event)
-{
-    /* Unused parameters */
-    (void) numInternalVertices;
-    (void) vertexKeys;
-
-    std::size_t oldVertices = this->vertices.size();
-    std::size_t oldTriangles = this->triangles.size();
-    std::size_t numTriangles = numIndices / 3;
-    this->vertices.resize(oldVertices + numVertices);
-    this->triangles.resize(oldTriangles + numTriangles);
-
-    std::vector<cl::Event> wait(1);
-    cl::Event last;
-    queue.enqueueReadBuffer(vertices, CL_FALSE,
-                            0, numVertices * (3 * sizeof(cl_float)),
-                            &this->vertices[oldVertices][0],
-                            NULL, &last);
-    wait[0] = last;
-    queue.enqueueReadBuffer(indices, CL_TRUE,
-                            0, numTriangles * (3 * sizeof(cl_uint)),
-                            &this->triangles[oldTriangles][0],
-                            &wait, &last);
-    queue.flush();
-
-    /* Adjust the indices to be global */
-    for (std::size_t i = 0; i < numTriangles; i++)
-        for (unsigned int j = 0; j < 3; j++)
-            triangles[i][j] += oldVertices;
-
-    if (event != NULL)
-        *event = last;
-}
-
-#if UNIT_TESTS
-bool SimpleMesh::isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles)
+bool MeshBase::isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles)
 {
     // List of edges opposite each vertex
     std::vector<std::vector<std::pair<cl_uint, cl_uint> > > edges(numVertices);
@@ -154,9 +111,53 @@ bool SimpleMesh::isManifold(std::size_t numVertices, const std::vector<boost::ar
     return true;
 }
 
+#endif /* UNIT_TESTS */
+
+void SimpleMesh::add(const cl::CommandQueue &queue,
+                     const cl::Buffer &vertices,
+                     const cl::Buffer &vertexKeys,
+                     const cl::Buffer &indices,
+                     std::size_t numVertices,
+                     std::size_t numInternalVertices,
+                     std::size_t numIndices,
+                     cl::Event *event)
+{
+    /* Unused parameters */
+    (void) numInternalVertices;
+    (void) vertexKeys;
+
+    std::size_t oldVertices = this->vertices.size();
+    std::size_t oldTriangles = this->triangles.size();
+    std::size_t numTriangles = numIndices / 3;
+    this->vertices.resize(oldVertices + numVertices);
+    this->triangles.resize(oldTriangles + numTriangles);
+
+    std::vector<cl::Event> wait(1);
+    cl::Event last;
+    queue.enqueueReadBuffer(vertices, CL_FALSE,
+                            0, numVertices * (3 * sizeof(cl_float)),
+                            &this->vertices[oldVertices][0],
+                            NULL, &last);
+    wait[0] = last;
+    queue.enqueueReadBuffer(indices, CL_TRUE,
+                            0, numTriangles * (3 * sizeof(cl_uint)),
+                            &this->triangles[oldTriangles][0],
+                            &wait, &last);
+    queue.flush();
+
+    /* Adjust the indices to be global */
+    for (std::size_t i = 0; i < numTriangles; i++)
+        for (unsigned int j = 0; j < 3; j++)
+            triangles[i][j] += oldVertices;
+
+    if (event != NULL)
+        *event = last;
+}
+
+#if UNIT_TESTS
 bool SimpleMesh::isManifold() const
 {
-    return isManifold(vertices.size(), triangles);
+    return MeshBase::isManifold(vertices.size(), triangles);
 }
 #endif /* UNIT_TESTS */
 
@@ -310,7 +311,7 @@ void WeldMesh::finalize()
 #if UNIT_TESTS
 bool WeldMesh::isManifold() const
 {
-    return SimpleMesh::isManifold(internalVertices.size() + externalVertices.size(), triangles);
+    return MeshBase::isManifold(internalVertices.size() + externalVertices.size(), triangles);
 }
 #endif
 

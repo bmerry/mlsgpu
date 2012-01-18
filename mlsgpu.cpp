@@ -260,7 +260,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     BigMesh mesh(writer, out);
 
     /* TODO: partition splats */
-    for (unsigned int pass = 0; pass < mesh.numPasses; pass++)
+    for (unsigned int pass = 0; pass < mesh.numPasses(); pass++)
     {
         Log::log[Log::info] << "Pass " << pass + 1 << endl;
         boost::progress_display progress(chunks[0] * chunks[1] * chunks[2], Log::log[Log::info]);

@@ -23,12 +23,9 @@
 #include "src/fast_ply.h"
 
 /**
- * Output collector for @ref Marching that does not do any welding of
- * external vertices. It simply collects all the vertices into one vector
- * and indices into another.
+ * Abstract base class for output collectors for @ref Marching.
  *
- * This is one of several classes implementing the same interface.
- * The basic procedure for using these classes is:
+ * The basic procedure for using one of these classes is:
  * -# Instantiate it.
  * -# Uses @ref numPasses to determine how many passes are required.
  * -# For each pass, call @ref outputFunctor to obtain a functor, then
@@ -38,7 +35,74 @@
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
  */
-class SimpleMesh
+class MeshBase
+{
+protected:
+#if UNIT_TESTS
+    /**
+     * Internal implementation of manifold testing.
+     * @param numVertices The number of vertices.
+     * @param triangles   Indices indexing the range [0, @a numVertices).
+     */
+    static bool isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles);
+#endif
+
+public:
+    /// Number of passes required.
+    virtual unsigned int numPasses() const = 0;
+
+    /**
+     * Retrieves a functor to be passed to @ref Marching::generate in a
+     * specific pass.
+     * Multi-pass classes may do finalization on a previous pass before
+     * returning the functor, so this function should only be called for
+     * pass @a pass once pass @a pass - 1 has completed. It must also
+     * only be called once per pass.
+     *
+     * @pre @a pass is less than @ref numPasses().
+     */
+    virtual Marching::OutputFunctor outputFunctor(unsigned int pass) = 0;
+
+    /**
+     * Perform any final processing once the last pass has completed.
+     *
+     * @pre All passes have been executed.
+     */
+    virtual void finalize() {}
+
+#if UNIT_TESTS
+    /**
+     * Determine whether the mesh is manifold (possibly with boundary).
+     *
+     * This is intended for test code, and so is not necessarily efficient.
+     * It also need not be implemented by all classes. If unimplemented, it
+     * must return false (the default implementation provides this).
+     *
+     * A mesh is considered non-manifold if it has out-of-range indices or
+     * isolated vertices (not part of any triangle).
+     *
+     * @pre @ref finalize() has already been called.
+     */
+    virtual bool isManifold() const { return false; }
+#endif
+
+    /**
+     * Writes the data to file. The writer passed in must not yet have been opened
+     * (this function will do that). The caller may optionally have set comments on it.
+     *
+     * @throw std::ios_base::failure on I/O failure (including failure to open the file).
+     *
+     * @pre @ref finalize() has been called.
+     */
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const = 0;
+};
+
+/**
+ * Output collector for @ref Marching that does not do any welding of
+ * external vertices. It simply collects all the vertices into one vector
+ * and indices into another.
+ */
+class SimpleMesh : public MeshBase
 {
 private:
     /// Storage for vertices
@@ -58,53 +122,14 @@ private:
              cl::Event *event);
 
 public:
-    /// Number of passes required.
-    static const unsigned int numPasses = 1;
-
-    /**
-     * Retrieves a functor to be passed to @ref Marching::generate in a
-     * specific pass.
-     * Multi-pass classes may do finalization on a previous pass before
-     * returning the functor, so this function should only be called for
-     * pass @a pass once pass @a pass - 1 has completed.
-     *
-     * @pre @a pass is less than @ref numPasses().
-     */
-    Marching::OutputFunctor outputFunctor(unsigned int pass);
-
-    /**
-     * Perform any final processing once the last pass has completed.
-     *
-     * @pre All passes have been executed.
-     */
-    void finalize() {}
+    virtual unsigned int numPasses() const { return 1; }
+    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
 
 #if UNIT_TESTS
-    /**
-     * Determine whether the mesh is manifold (possibly with boundary).
-     *
-     * This is intended for test code, and so is not necessarily efficient.
-     *
-     * @pre @ref finalize() has already been called.
-     */
-    bool isManifold() const;
-
-    /**
-     * Internal implementation. It is public so that other classes can make
-     * use of it, but it is not intended to be called directly.
-     */
-    static bool isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles);
+    virtual bool isManifold() const;
 #endif
 
-    /**
-     * Writes the data to file. The writer passed in must not yet have been opened
-     * (this function will do that). The caller may optionally have set comments on it.
-     *
-     * @throw std::ios_base::failure on I/O failure (including failure to open the file).
-     *
-     * @pre @ref finalize() has been called.
-     */
-    void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
 /**
@@ -117,10 +142,8 @@ public:
  * the internal vector, or as the bit-inverse (~) of an index into
  * the external vector. The external indices are rewritten during
  * @ref finalize().
- *
- * See @ref SimpleMesh for documentation of the public interface.
  */
-class WeldMesh
+class WeldMesh : public MeshBase
 {
 private:
     /// Storage for internal vertices
@@ -143,18 +166,15 @@ private:
              cl::Event *event);
 
 public:
-    static const unsigned int numPasses = 1;
-
-    typedef std::size_t size_type;
-
-    Marching::OutputFunctor outputFunctor(unsigned int pass);
-    void finalize();
+    virtual unsigned int numPasses() const { return 1; }
+    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
+    virtual void finalize();
 
 #if UNIT_TESTS
-    bool isManifold() const;
+    virtual bool isManifold() const;
 #endif
 
-    void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
 /**
@@ -171,15 +191,12 @@ public:
  * (immediately after the internal vertices for the corresponding chunk), which
  * avoids the need to buffer them up until the end. The only unbounded memory is
  * for the key map.
- *
- * See @ref SimpleMesh for documentation of the public interface.
  */
-class BigMesh
+class BigMesh : public MeshBase
 {
-public:
+private:
     typedef FastPly::WriterBase::size_type size_type;
 
-private:
     FastPly::WriterBase &writer;
     const std::string filename;
 
@@ -225,7 +242,7 @@ private:
              cl::Event *event);
 
 public:
-    static const unsigned int numPasses = 2;
+    virtual unsigned int numPasses() const { return 2; }
 
     /**
      * Constructor. Unlike the in-core mesh types, the file information must
@@ -235,13 +252,13 @@ public:
      */
     BigMesh(FastPly::WriterBase &writer, const std::string &filename);
 
-    Marching::OutputFunctor outputFunctor(unsigned int pass);
-    void finalize();
+    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
+    virtual void finalize();
 
     /**
      * Completes writing. The parameters must have the same values given to the constructor.
      */
-    void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
 #endif /* MESH_H */

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <fstream>
 #include <boost/array.hpp>
+#include <boost/ref.hpp>
 #include <CL/cl.hpp>
 #include "testmain.h"
 #include "test_clh.h"
@@ -72,6 +73,40 @@ public:
 };
 
 /**
+ * Function object that alternates positive and negative on every cell.
+ */
+class AlternatingFunc
+{
+private:
+    std::size_t width, height;
+    vector<float> sliceData;
+
+public:
+    void operator()(const cl::CommandQueue &queue, const cl::Image2D &slice,
+                    cl_uint z,
+                    const std::vector<cl::Event> *events,
+                    cl::Event *event)
+    {
+        for (cl_uint y = 0; y < height; y++)
+            for (cl_uint x = 0; x < width; x++)
+            {
+                sliceData[y * width + x] = ((x ^ y ^ z) & 1) ? 1.0f : -1.0f;
+            }
+
+        cl::size_t<3> origin, region;
+        origin[0] = 0; origin[1] = 0; origin[2] = 0;
+        region[0] = width; region[1] = height; region[2] = 1;
+        queue.enqueueWriteImage(slice, CL_FALSE, origin, region, width * sizeof(float), 0, &sliceData[0],
+                                events, event);
+    }
+
+    AlternatingFunc(std::size_t width, std::size_t height)
+        : width(width), height(height), sliceData(width * height)
+    {
+    }
+};
+
+/**
  * Tests for @ref Marching.
  */
 class TestMarching : public CLH::Test::TestFixture
@@ -82,6 +117,7 @@ class TestMarching : public CLH::Test::TestFixture
     CPPUNIT_TEST(testCompactVertices);
     CPPUNIT_TEST(testSphere);
     CPPUNIT_TEST(testTruncatedSphere);
+    CPPUNIT_TEST(testAlternating);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -122,11 +158,21 @@ private:
         const vector<cl_ulong> &inKeys,
         cl_ulong minExternalKey);
 
+    /**
+     * Generate a mesh using an input functor, validate that it is manifold,
+     * and write it to file.
+     */
+    void testGenerate(
+        std::size_t maxWidth, std::size_t maxHeight,
+        std::size_t width, std::size_t height, std::size_t depth,
+        const Marching::InputFunctor &input, const std::string &filename);
+
     void testConstructor();     ///< Basic sanity tests on the tables
     void testComputeKey();      ///< Test @ref computeKey helper function
     void testCompactVertices(); ///< Test @ref compactVertices kernel
     void testSphere();          ///< Builds a sphere
     void testTruncatedSphere(); ///< Builds a sphere that is truncated by the bounding box
+    void testAlternating();     ///< Build a structure with lots of geometry
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMarching, TestSet::perCommit());
 
@@ -352,14 +398,12 @@ void TestMarching::testCompactVertices()
     CPPUNIT_ASSERT_EQUAL(cl_uint(3), firstExternal);
 }
 
-void TestMarching::testSphere()
+void TestMarching::testGenerate(
+    std::size_t maxWidth, std::size_t maxHeight,
+    std::size_t width, std::size_t height, std::size_t depth,
+    const Marching::InputFunctor &input,
+    const std::string &filename)
 {
-    const std::size_t maxWidth = 83;
-    const std::size_t maxHeight = 78;
-    const std::size_t width = 71;
-    const std::size_t height = 75;
-    const std::size_t depth = 60;
-
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     Grid grid(ref, 1.0f, 0, width - 1, 0, height - 1, 0, depth - 1);
 
@@ -368,16 +412,27 @@ void TestMarching::testSphere()
     queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 
     Marching marching(context, device, maxWidth, maxHeight);
-    SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
-
-    SimpleMesh mesh;
+    WeldMesh mesh;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
     marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, NULL);
 
     mesh.finalize();
     FastPly::StreamWriter writer;
     CPPUNIT_ASSERT(mesh.isManifold());
-    mesh.write(writer, "sphere.ply");
+    mesh.write(writer, filename);
+}
+
+void TestMarching::testSphere()
+{
+    const std::size_t maxWidth = 83;
+    const std::size_t maxHeight = 78;
+    const std::size_t width = 71;
+    const std::size_t height = 75;
+    const std::size_t depth = 60;
+
+    SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
+    testGenerate(maxWidth, maxHeight, width, height, depth,
+                 boost::ref(input), "sphere.ply");
 }
 
 void TestMarching::testTruncatedSphere()
@@ -388,22 +443,18 @@ void TestMarching::testTruncatedSphere()
     const std::size_t height = 75;
     const std::size_t depth = 60;
 
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 1.0f, 0, width - 1, 0, height - 1, 0, depth - 1);
-
-    // Replace the command queue with an out-of-order one, to ensure that the
-    // events are being handled correctly.
-    queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
-
-    Marching marching(context, device, maxWidth, maxHeight);
     SphereFunc input(width, height, depth, 0.5f * width, 0.5f * height, 0.5f * depth, 42.0f);
+    testGenerate(maxWidth, maxHeight, width, height, depth,
+                 boost::ref(input), "tsphere.ply");
+}
 
-    WeldMesh mesh;
-    cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, NULL);
+void TestMarching::testAlternating()
+{
+    const std::size_t width = 32;
+    const std::size_t height = 32;
+    const std::size_t depth = 32;
 
-    mesh.finalize();
-    FastPly::StreamWriter writer;
-    CPPUNIT_ASSERT(mesh.isManifold());
-    mesh.write(writer, "tsphere.ply");
+    AlternatingFunc input(width, height);
+    testGenerate(width, height, width, height, depth,
+                 boost::ref(input), "alternating.ply");
 }
