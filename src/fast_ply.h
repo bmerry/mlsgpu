@@ -152,6 +152,14 @@ public:
     virtual std::pair<char *, size_type> open() = 0;
 
     /**
+     * Flush all data to the file and close it.
+     *
+     * After doing this, it is possible to open a new file, although the
+     * comments will not be reset.
+     */
+    virtual void close() = 0;
+
+    /**
      * Write a range of vertices.
      * @param first          Index of first vertex to write.
      * @param count          Number of vertices to write.
@@ -189,7 +197,8 @@ protected:
     /// Returns the header based on stored values
     std::string makeHeader();
 
-    void setOpen();
+    /// Sets the flag indicating whether the file is open
+    void setOpen(bool open);
 
 private:
     /// Storage for comments until they can be written by @ref open.
@@ -235,6 +244,7 @@ public:
 
     virtual void open(const std::string &filename);
     virtual std::pair<char *, size_type> open();
+    virtual void close();
     virtual void writeVertices(size_type first, size_type count, const float *data);
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
     virtual bool supportsOutOfOrder() const;
@@ -251,41 +261,39 @@ private:
 };
 
 /**
- * PLY file writer that only supports one format and sequential writing.
- * This class has exactly the same interface as @ref MmapWriter, but
- * additional restrictions:
- *  - All vertices must be written before any triangle.
- *  - The vertex and triangle must be written exactly once.
- *  - The vertices and triangles must be written in order.
- *
- * The advantage over @ref MmapWriter is that it does not require
- * a large virtual address space.
- *
- * @todo Investigate using seek to support out-of-order writing.
+ * PLY file writer that only supports one format.
+ * This class has exactly the same interface as @ref MmapWriter, and allows for
+ * out-of-order writing. The advantage over @ref MmapWriter is that it does not
+ * require a large virtual address space. However, it is potentially less
+ * efficient.
  */
 class StreamWriter : public WriterBase
 {
 public:
     /// Constructor
-    StreamWriter() : nextVertex(0), nextTriangle(0) {}
+    StreamWriter() {}
 
     virtual void open(const std::string &filename);
     virtual std::pair<char *, size_type> open();
+    virtual void close();
     virtual void writeVertices(size_type first, size_type count, const float *data);
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
     virtual bool supportsOutOfOrder() const;
 
 private:
+    /// Code shared by both @c open methods.
+    void openCommon(const std::string &header);
+
     /**
      * Output stream. It is wrapped in a smart pointer because the type depends
      * on which open function was used.
      */
     boost::scoped_ptr<std::ostream> file;
 
-    /// Position in vertex sequence
-    size_type nextVertex;
-    /// Position in triangle sequence
-    size_type nextTriangle;
+    /// Position in file where vertices start
+    boost::iostreams::stream_offset vertexOffset;
+    /// Position in file where triangles start
+    boost::iostreams::stream_offset triangleOffset;
 };
 
 } // namespace FastPly

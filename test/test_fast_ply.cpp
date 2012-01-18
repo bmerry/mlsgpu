@@ -449,6 +449,7 @@ void TestFastPlyWriterBase<Writer>::testSimple()
         w.writeTriangles(0, 1, indices);
         w.writeTriangles(1, 2, indices + 1 * 3);
     }
+    w.close();
 
     CPPUNIT_ASSERT_EQUAL(expectedHeader, std::string(data.get(), headerSize));
     CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize, vertices, sizeof(vertices)));
@@ -519,52 +520,8 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMmapWriter, TestSet::perBuild());
 class TestStreamWriter : public TestFastPlyWriterBase<StreamWriter>
 {
     CPPUNIT_TEST_SUB_SUITE(TestStreamWriter, TestFastPlyWriterBase<StreamWriter>);
-    CPPUNIT_TEST(testSequence);
     CPPUNIT_TEST_SUITE_END();
 public:
     void testSequence();      ///< Test writing things out of order
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStreamWriter, TestSet::perBuild());
-
-void TestStreamWriter::testSequence()
-{
-    const float vertices[4 * 3] = {}; // content does not matter
-    const std::tr1::uint32_t indices[9] = {};
-
-    StreamWriter w;
-    w.setNumVertices(4);
-    w.setNumTriangles(3);
-
-    pair<char *, StreamWriter::size_type> range = w.open();
-    boost::scoped_array<char> data(range.first);
-
-    // Triangles before vertices
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, indices), std::runtime_error);
-    // Starting from non-zero vertex
-    CPPUNIT_ASSERT_THROW(w.writeVertices(1, 2, vertices), std::runtime_error);
-
-    w.writeVertices(0, 2, vertices);
-
-    // Triangles before finishing vertices
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, indices), std::runtime_error);
-    // Overwrite already-written
-    CPPUNIT_ASSERT_THROW(w.writeVertices(1, 2, vertices), std::runtime_error);
-    // Skip a vertex
-    CPPUNIT_ASSERT_THROW(w.writeVertices(3, 1, vertices), std::runtime_error);
-
-    w.writeVertices(2, 2, vertices);
-
-    // Starting from non-zero triangle
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(1, 1, indices), std::runtime_error);
-
-    w.writeTriangles(0, 1, indices);
-
-    // Overwrite
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, indices), std::runtime_error);
-    // Going back to vertices
-    CPPUNIT_ASSERT_THROW(w.writeVertices(3, 1, vertices), std::runtime_error);
-    // Skipping
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(2, 1, indices), std::runtime_error);
-
-    w.writeTriangles(1, 2, indices);
-}

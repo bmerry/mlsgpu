@@ -366,9 +366,9 @@ WriterBase::size_type WriterBase::getNumTriangles() const
     return numTriangles;
 }
 
-void WriterBase::setOpen()
+void WriterBase::setOpen(bool open)
 {
-    isOpen_ = true;
+    isOpen_ = open;
 }
 
 std::string WriterBase::makeHeader()
@@ -423,7 +423,7 @@ void MmapWriter::open(const std::string &filename)
     vertexPtr = mapping->data() + header.size();
     trianglePtr = vertexPtr + getNumVertices() * vertexSize;
 
-    setOpen();
+    setOpen(true);
 }
 
 std::pair<char *, MmapWriter::size_type> MmapWriter::open()
@@ -440,8 +440,14 @@ std::pair<char *, MmapWriter::size_type> MmapWriter::open()
     vertexPtr = data + header.size();
     trianglePtr = vertexPtr + getNumVertices() * vertexSize;
 
-    setOpen();
+    setOpen(true);
     return std::make_pair(data, size);
+}
+
+void MmapWriter::close()
+{
+    mapping.reset();
+    setOpen(false);
 }
 
 void MmapWriter::writeVertices(size_type first, size_type count, const float *data)
@@ -469,15 +475,23 @@ bool MmapWriter::supportsOutOfOrder() const
     return true;
 }
 
+void StreamWriter::openCommon(const std::string &header)
+{
+    file->exceptions(std::ios::failbit | std::ios::badbit);
+    *file << header;
+
+    vertexOffset = header.size();
+    triangleOffset = vertexOffset + getNumVertices() * vertexSize;
+    setOpen(true);
+}
+
 void StreamWriter::open(const std::string &filename)
 {
     MLSGPU_ASSERT(!isOpen(), std::runtime_error);
 
     std::string header = makeHeader();
     file.reset(new std::ofstream(filename.c_str(), std::ios::out | std::ios::binary));
-    file->exceptions(std::ios::failbit);
-    setOpen();
-    *file << header;
+    openCommon(header);
 }
 
 std::pair<char *, StreamWriter::size_type> StreamWriter::open()
@@ -491,41 +505,38 @@ std::pair<char *, StreamWriter::size_type> StreamWriter::open()
     try
     {
         file.reset(new boost::iostreams::stream<boost::iostreams::array_sink>(data, size));
-        file->exceptions(std::ios::failbit);
-        *file << header;
+        openCommon(header);
+        return std::make_pair(data, size);
     }
     catch (std::exception &e)
     {
         delete[] data;
         throw;
     }
-    setOpen();
-    return std::make_pair(data, size);
+}
+
+void StreamWriter::close()
+{
+    file.reset();
+    setOpen(false);
 }
 
 void StreamWriter::writeVertices(size_type first, size_type count, const float *data)
 {
-    /* first is ignored in release builds, because we're writing sequentially */
-    (void) first;
-
     MLSGPU_ASSERT(isOpen(), std::runtime_error);
     MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-    MLSGPU_ASSERT(first == nextVertex && nextTriangle == 0, std::runtime_error);
 
+    file->seekp(boost::iostreams::offset_to_position(vertexOffset + first * vertexSize));
     /* Note: we're assuming that streamsize is big enough to hold anything we can hold in RAM */
     file->write(reinterpret_cast<const char *>(data), count * vertexSize);
-    nextVertex = first + count;
 }
 
 void StreamWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
 {
-    /* first is ignored in release builds, because we're writing sequentially */
-    (void) first;
-
     MLSGPU_ASSERT(isOpen(), std::runtime_error);
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-    MLSGPU_ASSERT(nextVertex == getNumVertices() && first == nextTriangle, std::runtime_error);
 
+    file->seekp(boost::iostreams::offset_to_position(triangleOffset + first * triangleSize));
     while (count > 0)
     {
         const unsigned int bufferTriangles = 256;
@@ -539,13 +550,12 @@ void StreamWriter::writeTriangles(size_type first, size_type count, const std::t
         }
         file->write(buffer, ptr - buffer);
         count -= triangles;
-        nextTriangle += triangles;
     }
 }
 
 bool StreamWriter::supportsOutOfOrder() const
 {
-    return false;
+    return true;
 }
 
 } // namespace FastPly

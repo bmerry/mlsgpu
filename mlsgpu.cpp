@@ -253,7 +253,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
     MlsFunctor input(context);
 
-    FastPly::MmapWriter writer;
+    FastPly::StreamWriter writer;
     BigMesh mesh(writer, out);
 
     /* TODO: partition splats */
