@@ -207,6 +207,14 @@ private:
      */
     cl::Image2D backingImages[2];
 
+    /**
+     * @name
+     * @{
+     * Temporary buffers used during sorting.
+     */
+    cl::Buffer tmpVertexKeys, tmpVertices;
+    /** @} */
+
     cl::Program program;                    ///< Program compiled from @ref marching.cl.
     cl::Kernel countOccupiedKernel;         ///< Kernel compiled from @ref countOccupied.
     cl::Kernel compactKernel;               ///< Kernel compiled from @ref compact.

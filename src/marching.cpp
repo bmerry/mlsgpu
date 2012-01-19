@@ -271,15 +271,13 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> Marching::deviceMemory(const c
     cells += MAX_CELL_VERTICES * sizeof(cl_uint);
 
     // unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
-    cells += MAX_CELL_VERTICES * sizeof(cl_float4);
-
     // unweldedVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_ulong));
+    cells += MAX_CELL_VERTICES * sizeof(cl_float4);
     cells += MAX_CELL_VERTICES * sizeof(cl_ulong); fixed += sizeof(cl_ulong);
 
     // weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
-    cells += MAX_CELL_VERTICES * 3 * sizeof(cl_float);
-
     // weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
+    cells += MAX_CELL_VERTICES * 3 * sizeof(cl_float);
     cells += MAX_CELL_VERTICES * sizeof(cl_ulong);
 
     // indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
@@ -288,9 +286,10 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> Marching::deviceMemory(const c
     // firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     fixed += sizeof(cl_uint);
 
-    // Temporary space for the sorter
-    cells += MAX_CELL_VERTICES * sizeof(cl_float4) + MAX_CELL_VERTICES * sizeof(cl_ulong);
-    fixed += sizeof(cl_ulong);
+    // tmpVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
+    // tmpVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
+    cells += MAX_CELL_VERTICES * sizeof(cl_ulong);
+    cells += MAX_CELL_VERTICES * sizeof(cl_float4);
 
     // TODO: constant space needed for tables, and temporaries for the sorter and scanners
 
@@ -318,6 +317,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     vertexSpace = sliceCells * MAX_CELL_VERTICES;
     indexSpace = sliceCells * MAX_CELL_INDICES;
 
+    // If these are updated, also update deviceMemory
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
     occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
@@ -329,6 +329,9 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
     indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
     firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
+    tmpVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
+    tmpVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
+    sortVertices.setTemporaryBuffers(tmpVertexKeys, tmpVertices);
 
     program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");

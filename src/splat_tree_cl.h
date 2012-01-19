@@ -100,6 +100,8 @@ private:
     cl::Buffer jumpPos;      ///< Position in command array of jump command for each key (-1 if not present)
     cl::Buffer entryKeys;    ///< Sort keys for entries
     cl::Buffer entryValues;  ///< Splat IDs for entries
+    cl::Buffer tmpKeys;      ///< Temporary space for sorting entryKeys
+    cl::Buffer tmpValues;    ///< Temporary space for sorting entryValues
     /** @} */
 
     std::size_t maxSplats;   ///< Maximum splats for which memory has been allocated
