@@ -21,10 +21,21 @@
 #include <cassert>
 #include <cstdlib>
 #include <utility>
+#include <map>
+#include <string>
 #include "mesh.h"
 #include "fast_ply.h"
 #include "logging.h"
 #include "errors.h"
+
+std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
+{
+    std::map<std::string, MeshType> ans;
+    ans["simple"] = SIMPLE_MESH;
+    ans["weld"] = WELD_MESH;
+    ans["big"] = BIG_MESH;
+    return ans;
+}
 
 #if UNIT_TESTS
 # include <map>
@@ -467,4 +478,16 @@ void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename) co
 {
     assert(&writer == &this->writer);
     assert(filename == this->filename);
+}
+
+
+MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename)
+{
+    switch (type)
+    {
+    case SIMPLE_MESH: return new SimpleMesh();
+    case WELD_MESH:   return new WeldMesh();
+    case BIG_MESH:    return new BigMesh(writer, filename);
+    }
+    return NULL; // should never be reached
 }

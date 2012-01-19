@@ -17,10 +17,32 @@
 
 #include <string>
 #include <vector>
+#include <map>
+#include <string>
 #include <boost/array.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
 #include "src/fast_ply.h"
+
+/**
+ * Enumeration of the supported mesh types
+ */
+enum MeshType
+{
+    SIMPLE_MESH,
+    WELD_MESH,
+    BIG_MESH
+};
+
+/**
+ * Wrapper around @ref MeshType for use with @ref Choice.
+ */
+class MeshTypeWrapper
+{
+public:
+    typedef MeshType type;
+    static std::map<std::string, MeshType> getNameMap();
+};
 
 /**
  * Abstract base class for output collectors for @ref Marching.
@@ -260,5 +282,10 @@ public:
      */
     virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
+
+/**
+ * Factory function to create a mesh of the specified type.
+ */
+MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename);
 
 #endif /* MESH_H */

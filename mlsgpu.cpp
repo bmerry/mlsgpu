@@ -33,6 +33,7 @@
 #include "src/marching.h"
 #include "src/mls.h"
 #include "src/mesh.h"
+#include "src/misc.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -63,13 +64,14 @@ namespace Option
 
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
+    const char * const mesh = "mesh";
 };
 
 static void addCommonOptions(po::options_description &opts)
 {
     opts.add_options()
         ("help,h",                "Show help")
-        (Option::quiet,           "Do not show informational messages");
+        ("quiet,q",               "Do not show informational messages");
 }
 
 static void addFitOptions(po::options_description &opts)
@@ -84,23 +86,13 @@ static void addAdvancedOptions(po::options_description &opts)
     po::options_description advanced("Advanced options");
     advanced.add_options()
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
-        (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree");
+        (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
+        (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)");
     opts.add(advanced);
 }
 
 static void validateOptions(const cl::Device &device, const po::variables_map &vm)
 {
-    if (!vm.count(Option::inputFile))
-    {
-        cerr << "At least one input file must be specified.\n";
-        exit(1);
-    }
-    if (!vm.count(Option::outputFile))
-    {
-        cerr << "An output file must be specified.\n";
-        exit(1);
-    }
-
     if (!Marching::validateDevice(device)
         || !SplatTreeCL::validateDevice(device))
     {
@@ -165,6 +157,12 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     }
 }
 
+static void usage(ostream &o, const po::options_description desc)
+{
+    o << "Usage: mlsgpu [options] -o output.ply input.ply [input.ply...]\n\n";
+    o << desc;
+}
+
 static po::variables_map processOptions(int argc, char **argv)
 {
     po::positional_options_description positional;
@@ -175,7 +173,7 @@ static po::variables_map processOptions(int argc, char **argv)
     addFitOptions(desc);
     addAdvancedOptions(desc);
     desc.add_options()
-        ("output-file,o",   po::value<string>(), "output file");
+        ("output-file,o",   po::value<string>()->required(), "output file");
 
     po::options_description clopts("OpenCL options");
     CLH::addOptions(clopts);
@@ -201,15 +199,23 @@ static po::variables_map processOptions(int argc, char **argv)
 
         if (vm.count(Option::help))
         {
-            cout << desc << '\n';
+            usage(cout, desc);
             exit(0);
+        }
+        /* Using ->required() on the option gives an unhelpful message */
+        if (!vm.count(Option::inputFile))
+        {
+            cerr << "At least one input file must be specified.\n\n";
+            usage(cerr, desc);
+            exit(1);
         }
 
         return vm;
     }
     catch (po::error &e)
     {
-        cerr << e.what() << "\n\n" << desc << '\n';
+        cerr << e.what() << "\n\n";
+        usage(cerr, desc);
         exit(1);
     }
 }
@@ -336,15 +342,16 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     MlsFunctor input(context);
 
     FastPly::StreamWriter writer;
-    BigMesh mesh(writer, out);
+    MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
+    boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, writer, out));
 
     /* TODO: partition splats */
-    for (unsigned int pass = 0; pass < mesh.numPasses(); pass++)
+    for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
     {
-        Log::log[Log::info] << "Pass " << pass + 1 << endl;
+        Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesh->numPasses() << endl;
         boost::progress_display progress(chunks[0] * chunks[1] * chunks[2], Log::log[Log::info]);
 
-        Marching::OutputFunctor output = mesh.outputFunctor(pass);
+        Marching::OutputFunctor output = mesh->outputFunctor(pass);
         for (unsigned int bz = 0; bz < cells[2]; bz += blockCells)
             for (unsigned int by = 0; by < cells[1]; by += blockCells)
                 for (unsigned int bx = 0; bx < cells[0]; bx += blockCells)
@@ -372,8 +379,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
                 }
     }
 
-    mesh.finalize();
-    mesh.write(writer, out);
+    mesh->finalize();
+    mesh->write(writer, out);
 }
 
 int main(int argc, char **argv)
