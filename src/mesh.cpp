@@ -370,12 +370,15 @@ void BigMesh::count(const cl::CommandQueue &queue,
     std::size_t numExternalVertices = numVertices - numInternalVertices;
     nTriangles += numIndices / 3;
 
-    tmpKeys.resize(numExternalVertices);
-    queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
-                            numInternalVertices * sizeof(cl_ulong),
-                            numExternalVertices * sizeof(cl_ulong),
-                            &tmpKeys[0],
-                            NULL, event);
+    if (numExternalVertices > 0)
+    {
+        tmpKeys.resize(numExternalVertices);
+        queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
+                                numInternalVertices * sizeof(cl_ulong),
+                                numExternalVertices * sizeof(cl_ulong),
+                                &tmpKeys[0],
+                                NULL, event);
+    }
 
     nVertices += numInternalVertices;
 
@@ -407,11 +410,14 @@ void BigMesh::add(const cl::CommandQueue &queue,
     tmpTriangles.resize(numTriangles);
     queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
                             &tmpVertices[0][0], NULL, &verticesEvent);
-    queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
-                            numInternalVertices * sizeof(cl_ulong),
-                            numExternalVertices * sizeof(cl_ulong),
-                            &tmpKeys[0],
-                            NULL, event);
+    if (numExternalVertices > 0)
+    {
+        queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
+                                numInternalVertices * sizeof(cl_ulong),
+                                numExternalVertices * sizeof(cl_ulong),
+                                &tmpKeys[0],
+                                NULL, event);
+    }
     queue.enqueueReadBuffer(indices, CL_FALSE,
                             0, numIndices * sizeof(cl_uint),
                             &tmpTriangles[0][0],
