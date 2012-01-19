@@ -152,12 +152,12 @@ void SimpleMesh::add(const cl::CommandQueue &queue,
     wait[0] = last;
     queue.enqueueReadBuffer(indices, CL_TRUE,
                             0, numTriangles * (3 * sizeof(cl_uint)),
-                            &this->triangles[oldTriangles][0],
+                            &triangles[oldTriangles][0],
                             &wait, &last);
     queue.flush();
 
     /* Adjust the indices to be global */
-    for (std::size_t i = 0; i < numTriangles; i++)
+    for (std::size_t i = oldTriangles; i < oldTriangles + numTriangles; i++)
         for (unsigned int j = 0; j < 3; j++)
             triangles[i][j] += oldVertices;
 
