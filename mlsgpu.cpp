@@ -65,6 +65,7 @@ namespace Option
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
     const char * const mesh = "mesh";
+    const char * const writer = "writer";
 };
 
 static void addCommonOptions(po::options_description &opts)
@@ -87,7 +88,8 @@ static void addAdvancedOptions(po::options_description &opts)
     advanced.add_options()
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
-        (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)");
+        (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)")
+        (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
 }
 
@@ -341,9 +343,10 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
     MlsFunctor input(context);
 
-    FastPly::StreamWriter writer;
+    FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
-    boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, writer, out));
+    boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
+    boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
 
     /* TODO: partition splats */
     for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
@@ -380,7 +383,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     }
 
     mesh->finalize();
-    mesh->write(writer, out);
+    mesh->write(*writer, out);
 }
 
 int main(int argc, char **argv)

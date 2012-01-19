@@ -418,7 +418,8 @@ void TestFastPlyWriterBase<Writer>::testSimple()
         "property float32 z\n"
         "element face 3\n"
         "property list uint8 uint32 vertex_indices\n"
-        "end_header   \n";
+        "comment padding:XX\n"
+        "end_header\n";
     const typename Writer::size_type headerSize = expectedHeader.size();
 
     Writer w;

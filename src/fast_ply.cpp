@@ -394,13 +394,19 @@ std::string WriterBase::makeHeader()
         << "property float32 z\n"
         << "element face " << numTriangles << '\n'
         << "property list uint8 uint32 vertex_indices\n"
-        << "end_header";
-    /* Pad out the header to a multiple of 4 bytes, so that all the vertices will
-     * be nicely aligned (leaving 1 byte for the \n).
+        << "comment padding:";
+    /* Use a comment to pad the header to a multiple of 4 bytes, so that the
+     * vertex data will be nicely aligned.
      */
-    while ((out.str().size() + 1) % sizeof(float) != 0)
-        out << ' ';
-    out << '\n';
+
+    std::size_t size = (int) out.tellp() + 12; /* 12 for \nend_header\n */
+    while (size % 4 != 0)
+    {
+        out << 'X';
+        size++;
+    }
+    out << "\nend_header\n";
+    assert(out.str().size() % 4 == 0);
     return out.str();
 }
 
@@ -556,6 +562,25 @@ void StreamWriter::writeTriangles(size_type first, size_type count, const std::t
 bool StreamWriter::supportsOutOfOrder() const
 {
     return true;
+}
+
+
+std::map<std::string, WriterType> WriterTypeWrapper::getNameMap()
+{
+    std::map<std::string, WriterType> ans;
+    ans["mmap"] = MMAP_WRITER;
+    ans["stream"] = STREAM_WRITER;
+    return ans;
+}
+
+WriterBase *createWriter(WriterType type)
+{
+    switch (type)
+    {
+    case MMAP_WRITER: return new MmapWriter();
+    case STREAM_WRITER: return new StreamWriter();
+    }
+    return NULL; // should never be reached
 }
 
 } // namespace FastPly

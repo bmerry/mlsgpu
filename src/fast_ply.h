@@ -17,6 +17,7 @@
 #include <istream>
 #include <fstream>
 #include <ostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <utility>
@@ -31,6 +32,22 @@ class TestFastPlyReader;
 
 namespace FastPly
 {
+
+enum WriterType
+{
+    MMAP_WRITER,
+    STREAM_WRITER
+};
+
+/**
+ * Wrapper around WriterType for use with @ref Choice.
+ */
+class WriterTypeWrapper
+{
+public:
+    typedef WriterType type;
+    static std::map<std::string, WriterType> getNameMap();
+};
 
 /**
  * An exception that is thrown when an invalid PLY file is encountered.
@@ -112,6 +129,8 @@ public:
     /// Size capable of holding maximum supported file size
     typedef std::tr1::uintmax_t size_type;
 
+    virtual ~WriterBase();
+
     /**
      * Determines whether @ref open has been successfully called.
      */
@@ -189,7 +208,6 @@ protected:
     static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
 
     WriterBase();
-    virtual ~WriterBase();
 
     size_type getNumVertices() const;
     size_type getNumTriangles() const;
@@ -295,6 +313,11 @@ private:
     /// Position in file where triangles start
     boost::iostreams::stream_offset triangleOffset;
 };
+
+/**
+ * Factory function to create a new writer of the specified type.
+ */
+WriterBase *createWriter(WriterType type);
 
 } // namespace FastPly
 
