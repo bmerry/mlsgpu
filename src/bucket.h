@@ -13,6 +13,7 @@
 #include <vector>
 #include <tr1/cstdint>
 #include <boost/function.hpp>
+#include <boost/ptr_container/ptr_array.hpp>
 #include "splat.h"
 #include "grid.h"
 #include "fast_ply.h"
@@ -134,10 +135,13 @@ public:
     iterator_type flush();
 };
 
-typedef boost::function<void(const std::vector<FastPly::Reader *> &, const std::vector<SplatRange> &, const Grid &)> BucketProcessor;
+typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, const std::vector<SplatRange> &, const Grid &)> BucketProcessor;
 
-void bucket(const std::vector<FastPly::Reader *> &files,
+void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Grid &bbox,
+            SplatRange::index_type maxSplats,
+            int maxCells,
+            std::size_t maxSplit,
             const BucketProcessor &process);
 
 template<typename OutputIterator>

@@ -112,7 +112,7 @@ public:
      * @param out              Target of copy.
      * @pre @a first + @a count <= @a numVertices.
      */
-    void readVertices(size_type first, size_type count, Splat *out);
+    void readVertices(size_type first, size_type count, Splat *out) const;
 private:
     /// The memory mapping, if constructed from a filename; otherwise @c NULL.
     boost::scoped_ptr<boost::iostreams::mapped_file_source> mapping;

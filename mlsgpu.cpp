@@ -34,6 +34,7 @@
 #include "src/mls.h"
 #include "src/mesh.h"
 #include "src/misc.h"
+#include "src/bucket.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -248,6 +249,18 @@ static void loadInputSplats(const po::variables_map &vm, std::vector<Splat> &out
     loadInputSplats(inputs.begin(), inputs.end(), out, smooth);
 }
 
+static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::variables_map &vm, float smooth)
+{
+    const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
+    files.clear();
+    files.reserve(names.size());
+    BOOST_FOREACH(const string &name, names)
+    {
+        FastPly::Reader *reader = new FastPly::Reader(name, smooth);
+        files.push_back(reader);
+    }
+}
+
 /**
  * Grid that encloses the bounding spheres of all the input splats.
  *
@@ -318,6 +331,12 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     vector<Splat> splats;
     loadInputSplats(vm, splats, smooth);
     Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
+
+    boost::ptr_vector<FastPly::Reader> files;
+    prepareInputs(files, vm, smooth);
+    // TODO: blockCells will be just less than a power of 2, so the
+    // actual calls will end up at almost half
+    bucket(files, grid, 100000, blockCells, 1000000, BucketProcessor());
 
     /* Round up to multiple of block size
      */

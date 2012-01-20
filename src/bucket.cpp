@@ -120,14 +120,14 @@ static inline S divUp(S a, T b)
 struct BucketParameters
 {
     /// Input files holding the raw splats
-    const std::vector<FastPly::Reader *> &files;
+    const boost::ptr_vector<FastPly::Reader> &files;
     const Grid &grid;                   ///< Bounding box for the entire region
     const BucketProcessor &process;     ///< Processing function
     SplatRange::index_type maxSplats;   ///< Maximum splats permitted for processing
     unsigned int maxCells;              ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
 
-    BucketParameters(const std::vector<FastPly::Reader *> &files, const Grid &grid,
+    BucketParameters(const boost::ptr_vector<FastPly::Reader> &files, const Grid &grid,
                      const BucketProcessor &process)
         : files(files), grid(grid), process(process) {}
 };
@@ -160,8 +160,8 @@ BucketState::BucketState(
         boost::array<std::size_t, 3> s;
         for (int i = 0; i < 3; i++)
             s[i] = divUp(dims[i], std::size_t(1) << (microShift + level));
-        counters[level] = boost::multi_array<SplatRangeCounter, 3>(s);
-        blockIds[level] = boost::multi_array<std::size_t, 3>(s);
+        counters[level].resize(s);
+        blockIds[level].resize(s);
         std::fill(blockIds[level].origin(),
                   blockIds[level].origin() + blockIds[level].num_elements(),
                   std::numeric_limits<std::size_t>::max());
@@ -206,7 +206,7 @@ static void forEachCell(const std::size_t dims[3], int levels, const Func &func)
 
 template<typename Func>
 static void forEachSplat(
-    const std::vector<FastPly::Reader *> &files,
+    const boost::ptr_vector<FastPly::Reader> &files,
     const std::vector<SplatRange> &ranges,
     const Func &func)
 {
@@ -222,8 +222,8 @@ static void forEachSplat(
         {
             SplatRange::size_type chunkSize = size;
             if (splatBufferSize < size)
-                size = splatBufferSize;
-            files[range.scan]->readVertices(start, chunkSize, buffer);
+                chunkSize = splatBufferSize;
+            files[range.scan].readVertices(start, chunkSize, buffer);
             for (std::size_t j = 0; j < chunkSize; j++)
             {
                 func(range.scan, start + j, buffer[j]);
@@ -329,7 +329,7 @@ static void bucketRecurse(const std::vector<SplatRange> &node,
 
 } // namespace
 
-void bucket(const std::vector<FastPly::Reader *> &files,
+void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Grid &bbox,
             SplatRange::index_type maxSplats,
             int maxCells,
@@ -342,7 +342,7 @@ void bucket(const std::vector<FastPly::Reader *> &files,
     root.reserve(files.size());
     for (size_t i = 0; i < files.size(); i++)
     {
-        const SplatRange::index_type vertices = files[i]->numVertices();
+        const SplatRange::index_type vertices = files[i].numVertices();
         numSplats += vertices;
         SplatRange::index_type start = 0;
         while (start < vertices)

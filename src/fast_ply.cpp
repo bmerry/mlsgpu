@@ -286,7 +286,7 @@ void Reader::readHeader(std::istream &in)
             throw FormatError(std::string("Property ") + propertyNames[i] + " not found");
 }
 
-void Reader::readVertices(size_type first, size_type count, Splat *out)
+void Reader::readVertices(size_type first, size_type count, Splat *out) const
 {
     MLSGPU_ASSERT(first <= vertexCount && first + count <= vertexCount, std::out_of_range);
 
