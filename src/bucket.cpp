@@ -93,30 +93,6 @@ std::tr1::uint64_t SplatRangeCounter::countSplats() const
 namespace
 {
 
-struct BucketParameters
-{
-    /// Input files holding the raw splats
-    const std::vector<FastPly::Reader *> &files;
-    SplatRange::index_type maxSplats;   ///< Maximum splats permitted for processing
-    unsigned int maxCells;              ///< Maximum cells along any dimension
-    std::size_t maxSplit;               ///< Maximum fan-out for recursion
-    const BucketProcessor &process;     ///< Processing function
-
-    BucketParameters(const std::vector<FastPly::Reader *> &files,
-                     const BucketProcessor &process)
-        : files(files), process(process) {}
-};
-
-struct BucketState
-{
-    std::size_t dims[3];
-    int levels;
-    std::vector<boost::multi_array<SplatRangeCounter, 3> > counters;
-    std::vector<boost::multi_array<std::size_t, 3> > blockIds;
-
-    BucketState(int levels);
-};
-
 /**
  * Multiply @a a and @a b, clamping the result to the maximum value of the type
  * instead of overflowing.
@@ -139,6 +115,57 @@ template<typename S, typename T>
 static inline S divUp(S a, T b)
 {
     return (a + b - 1) / b;
+}
+
+struct BucketParameters
+{
+    /// Input files holding the raw splats
+    const std::vector<FastPly::Reader *> &files;
+    const Grid &grid;                   ///< Bounding box for the entire region
+    const BucketProcessor &process;     ///< Processing function
+    SplatRange::index_type maxSplats;   ///< Maximum splats permitted for processing
+    unsigned int maxCells;              ///< Maximum cells along any dimension
+    std::size_t maxSplit;               ///< Maximum fan-out for recursion
+
+    BucketParameters(const std::vector<FastPly::Reader *> &files, const Grid &grid,
+                     const BucketProcessor &process)
+        : files(files), grid(grid), process(process) {}
+};
+
+struct BucketState
+{
+    const BucketParameters &params;
+    std::size_t dims[3];
+    int microShift;
+    int macroLevels;
+    std::vector<boost::multi_array<SplatRangeCounter, 3> > counters;
+    std::vector<boost::multi_array<std::size_t, 3> > blockIds;
+
+    BucketState(const BucketParameters &params, const std::size_t dims[3],
+                int microShift, int macroLevels);
+};
+
+BucketState::BucketState(
+    const BucketParameters &params, const std::size_t dims[3],
+    int microShift, int macroLevels)
+    : params(params), microShift(microShift), macroLevels(macroLevels),
+    counters(macroLevels), blockIds(macroLevels)
+{
+    this->dims[0] = dims[0];
+    this->dims[1] = dims[1];
+    this->dims[2] = dims[2];
+
+    for (int level = 0; level < macroLevels; level++)
+    {
+        boost::array<std::size_t, 3> s;
+        for (int i = 0; i < 3; i++)
+            s[i] = divUp(dims[i], std::size_t(1) << (microShift + level));
+        counters[level] = boost::multi_array<SplatRangeCounter, 3>(s);
+        blockIds[level] = boost::multi_array<std::size_t, 3>(s);
+        std::fill(blockIds[level].origin(),
+                  blockIds[level].origin() + blockIds[level].num_elements(),
+                  std::numeric_limits<std::size_t>::max());
+    }
 }
 
 template<typename Func>
@@ -174,7 +201,7 @@ static void forEachCell(const std::size_t dims[3], int levels, const Func &func)
     assert((std::size_t(1) << level) >= dims[2]);
 
     const std::size_t base[3] = {0, 0, 0};
-    forEachCell_r(dims, base, levels, func);
+    forEachCell_r(dims, base, level, func);
 }
 
 template<typename Func>
@@ -227,29 +254,50 @@ public:
 
 void CountSplat::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const
 {
-    forEachCell(state.dims, state.levels, boost::bind(&CountSplat::doCell, this, scan, id, splat, _1, _2));
+    forEachCell(state.dims, state.microShift + state.macroLevels,
+                boost::bind(&CountSplat::doCell, this, scan, id, splat, _1, _2));
 }
 
 bool CountSplat::doCell(
     SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat,
     const std::size_t base[3], int level) const
 {
-    // TODO
+    assert(level >= state.microShift);
+
+    std::size_t size = std::size_t(1) << level;
+    float lo[3], hi[3];
+
+    state.params.grid.getVertex(base[0], base[1], base[2], lo);
+    state.params.grid.getVertex(base[0] + size, base[1] + size, base[2] + size, hi);
+
+    // Bounding box test. We don't bother an exact sphere-box test
+    for (int i = 0; i < 3; i++)
+        if (splat.position[i] + splat.radius < lo[i]
+            || splat.position[i] - splat.radius > hi[i])
+            return false;
+
+    // Add to the counters
+    boost::array<std::size_t, 3> coords;
+    for (int i = 0; i < 3; i++)
+        coords[i] = base[i] >> level;
+    state.counters[level - state.microShift][coords[0]][coords[1]][coords[2]].append(scan, id);
+
+    // Recurse into children, unless we've reached microblock level
+    return level > state.microShift;
 }
 
 static void bucketRecurse(const std::vector<SplatRange> &node,
                           SplatRange::index_type numSplats,
-                          const Grid &bbox,
                           const BucketParameters &params)
 {
     std::size_t dims[3];
     for (int i = 0; i < 3; i++)
-        dims[i] = bbox.numCells(i);
+        dims[i] = params.grid.numCells(i);
     std::size_t maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
-        params.process(params.files, node, bbox);
+        params.process(params.files, node, params.grid);
     }
     else
     {
@@ -257,29 +305,23 @@ static void bucketRecurse(const std::vector<SplatRange> &node,
          * microblocks.
          */
         std::size_t microSize = 1;
+        int microShift = 0;
         std::size_t microBlocks;
         do
         {
             microSize *= 2;
+            microShift++;
             microBlocks = 1;
             for (int i = 0; i < 3; i++)
                 microBlocks = mulSat(microBlocks, divUp(dims[i], microSize));
         } while (microBlocks > params.maxSplit);
 
         /* Levels in octree-like structure */
-        int levels = 1;
-        while (microSize << (levels - 1) < maxDim)
-            levels++;
+        int macroLevels = 1;
+        while (microSize << (macroLevels - 1) < maxDim)
+            macroLevels++;
 
-        BucketState state(levels);
-        for (int level = 0; level < levels; level++)
-        {
-            boost::array<std::size_t, 3> s;
-            for (int i = 0; i < 3; i++)
-                s[i] = divUp(dims[i], microSize << level);
-            state.counters[level] = boost::multi_array<SplatRangeCounter, 3>(s);
-        }
-
+        BucketState state(params, dims, microShift, macroLevels);
         CountSplat countSplat(state);
         forEachSplat(params.files, node, countSplat);
     }
@@ -313,9 +355,9 @@ void bucket(const std::vector<FastPly::Reader *> &files,
         }
     }
 
-    BucketParameters params(files, process);
+    BucketParameters params(files, bbox, process);
     params.maxSplats = maxSplats;
     params.maxCells = maxCells;
     params.maxSplit = maxSplit;
-    bucketRecurse(root, numSplats, bbox, params);
+    bucketRecurse(root, numSplats, params);
 }
