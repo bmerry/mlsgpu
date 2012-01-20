@@ -12,6 +12,10 @@
 #endif
 #include <vector>
 #include <tr1/cstdint>
+#include <boost/function.hpp>
+#include "splat.h"
+#include "grid.h"
+#include "fast_ply.h"
 
 /**
  * Indexes a sequential range of splats from an input file.
@@ -19,6 +23,7 @@
  * This is intended to be POD that can be put in a @c stxxl::vector.
  *
  * @invariant @ref start + @ref size - 1 does not overflow @ref index_type.
+ * (maintained by constructor and by @ref append).
  */
 struct SplatRange
 {
@@ -40,6 +45,13 @@ struct SplatRange
      * Constructs a splat range with one splat.
      */
     SplatRange(scan_type scan, index_type splat);
+
+    /**
+     * Constructs a splat range with multiple splats.
+     *
+     * @pre @a start + @a size - 1 must fit within @ref index_type.
+     */
+    SplatRange(scan_type scan, index_type start, size_type size);
 
     /**
      * Attempts to extend this range with a new element.
@@ -121,6 +133,12 @@ public:
      */
     iterator_type flush();
 };
+
+typedef boost::function<void(const std::vector<FastPly::Reader *> &, const std::vector<SplatRange> &, const Grid &)> BucketProcessor;
+
+void bucket(const std::vector<FastPly::Reader *> &files,
+            const Grid &bbox,
+            const BucketProcessor &process);
 
 template<typename OutputIterator>
 SplatRangeCollector<OutputIterator>::SplatRangeCollector(iterator_type out)

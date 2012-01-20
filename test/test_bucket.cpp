@@ -46,12 +46,19 @@ void TestSplatRange::testConstructor()
 {
     SplatRange empty;
     SplatRange single(3, 6);
+    SplatRange range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x10);
 
     CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(0), empty.size);
 
-    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(1), single.size);
     CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(3), single.scan);
     CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(6), single.start);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(1), single.size);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(2), range.scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(0x10), range.size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(UINT64_C(0xFFFFFFFFFFFFFFF0)), range.start);
+
+    CPPUNIT_ASSERT_THROW(SplatRange(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x11), std::out_of_range);
 }
 
 void TestSplatRange::testAppendEmpty()
