@@ -9,8 +9,12 @@
 #endif
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
+#include <vector>
+#include <iterator>
 #include "testmain.h"
 #include "../src/bucket.h"
+
+using namespace std;
 
 /**
  * Tests for SplatRange.
@@ -160,4 +164,93 @@ void TestSplatRangeCounter::testSimple()
     c.append(5, 5);
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(4), c.countRanges());
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(7), c.countSplats());
+}
+
+class TestSplatRangeCollector : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestSplatRangeCollector);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testFlush);
+    CPPUNIT_TEST(testFlushEmpty);
+    CPPUNIT_TEST_SUITE_END();
+
+public:
+    void testSimple();            ///< Test basic functionality
+    void testFlush();             ///< Test flushing and continuing
+    void testFlushEmpty();        ///< Test flushing when nothing to flush
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatRangeCollector, TestSet::perBuild());
+
+void TestSplatRangeCollector::testSimple()
+{
+    vector<SplatRange> out;
+
+    {
+        SplatRangeCollector<back_insert_iterator<vector<SplatRange> > > c(back_inserter(out));
+        c.append(3, 5);
+        c.append(3, 6);
+        c.append(3, 6);
+        c.append(4, UINT64_C(0x123456781234));
+        c.append(5, 2);
+        c.append(5, 4);
+        c.append(5, 5);
+    }
+    CPPUNIT_ASSERT_EQUAL(4, int(out.size()));
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(3), out[0].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(2), out[0].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(5), out[0].start);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(4), out[1].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(1), out[1].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(UINT64_C(0x123456781234)), out[1].start);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(5), out[2].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(1), out[2].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(2), out[2].start);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(5), out[3].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(2), out[3].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(4), out[3].start);
+}
+
+void TestSplatRangeCollector::testFlush()
+{
+    vector<SplatRange> out;
+    SplatRangeCollector<back_insert_iterator<vector<SplatRange> > > c(back_inserter(out));
+
+    c.append(3, 5);
+    c.append(3, 6);
+    c.flush();
+
+    CPPUNIT_ASSERT_EQUAL(1, int(out.size()));
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(3), out[0].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(2), out[0].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(5), out[0].start);
+
+    c.append(3, 7);
+    c.append(4, 0);
+    c.flush();
+
+    CPPUNIT_ASSERT_EQUAL(3, int(out.size()));
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(3), out[0].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(2), out[0].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(5), out[0].start);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(3), out[1].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(1), out[1].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(7), out[1].start);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(4), out[2].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(1), out[2].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(0), out[2].start);
+}
+
+void TestSplatRangeCollector::testFlushEmpty()
+{
+    vector<SplatRange> out;
+    SplatRangeCollector<back_insert_iterator<vector<SplatRange> > > c(back_inserter(out));
+    c.flush();
+    CPPUNIT_ASSERT_EQUAL(0, int(out.size()));
 }
