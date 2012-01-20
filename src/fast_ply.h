@@ -81,11 +81,26 @@ public:
     /// Size capable of holding maximum supported file size
     typedef boost::iostreams::mapped_file_source::size_type size_type;
 
-    /// Construct from a file
-    explicit Reader(const std::string &filename);
+    /**
+     * Construct from a file.
+     * @param filename         File to open.
+     * @param smooth           Scale factor applied to radii as they're read.
+     * @throw std::ios_base::failure if the file could not be opened
+     * @throw FormatError if the file was malformed
+     */
+    explicit Reader(const std::string &filename, float smooth);
 
-    /// Construct from an existing memory range
-    Reader(const char *data, size_type size);
+    /**
+     * Construct from an existing memory range.
+     * This is primarily intended for testing.
+     * @param data             Start of memory region.
+     * @param size             Bytes in memory region.
+     * @param smooth           Scale factor applied to radii as they're read.
+     * @throw FormatError if the file was malformed
+     * @note The memory range must not be deleted or modified until the object
+     * is destroyed.
+     */
+    Reader(const char *data, size_type size, float smooth);
 
     /// Number of vertices in the file
     size_type numVertices() const { return vertexCount; }
@@ -101,6 +116,9 @@ public:
 private:
     /// The memory mapping, if constructed from a filename; otherwise @c NULL.
     boost::scoped_ptr<boost::iostreams::mapped_file_source> mapping;
+
+    /// Scale factor for radii
+    float smooth;
 
     /// Pointer to the start of the whole file.
     const char *filePtr;

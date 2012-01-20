@@ -110,103 +110,103 @@ void TestFastPlyReader::setContent(const string &header, size_t payloadBytes)
 void TestFastPlyReader::testEmpty()
 {
     setContent("");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadSignature()
 {
     setContent("ply no not really");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadFormatFormat()
 {
     setContent("ply\nformat binary_little_endiannotreally 1.0\nelement vertex 1\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadFormatVersion()
 {
     setContent("ply\nformat binary_little_endian 1.01\nelement vertex 1\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadFormatLength()
 {
     setContent("ply\nformat\nelement vertex 1\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadElementCount()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex -1\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadElementOverflow()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 123456789012345678901234567890\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadElementHex()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0xDEADBEEF\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadElementLength()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadPropertyLength()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int int int x\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadPropertyListLength()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty list int x\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadPropertyListType()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty list float int x\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadPropertyType()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int1 x\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testBadHeaderToken()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nfoo\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testEarlyProperty()
 {
     setContent("ply\nformat binary_little_endian 1.0\nproperty int x\nelement vertex 0\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testDuplicateProperty()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int x\nproperty float x\nend_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testMissingEnd()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int x\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testShortFile()
@@ -224,7 +224,7 @@ void TestFastPlyReader::testShortFile()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n", 29 * 5 - 1);
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testList()
@@ -242,7 +242,7 @@ void TestFastPlyReader::testList()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testNotFloat()
@@ -260,7 +260,7 @@ void TestFastPlyReader::testNotFloat()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testFormatAscii()
@@ -278,12 +278,12 @@ void TestFastPlyReader::testFormatAscii()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    Reader(content.data(), content.size());
+    Reader(content.data(), content.size(), 1.0f);
 }
 
 void TestFastPlyReader::testFileNotFound()
 {
-    Reader r("not_a_real_file.in");
+    Reader r("not_a_real_file.in", 1.0f);
 }
 
 void TestFastPlyReader::testReadHeader()
@@ -303,7 +303,7 @@ void TestFastPlyReader::testReadHeader()
         "property uint8 foo\n"
         "end_header\n";
     setContent(header);
-    Reader r(content.data(), content.size());
+    Reader r(content.data(), content.size(), 1.0f);
     CPPUNIT_ASSERT_EQUAL(31, int(r.vertexSize));
     CPPUNIT_ASSERT_EQUAL(5, int(r.vertexCount));
 
@@ -339,7 +339,7 @@ void TestFastPlyReader::testReadVertices()
     setContent(header, sizeof(vertices));
     copy((const char *) vertices, (const char *) vertices + sizeof(vertices), content.begin() + header.size());
 
-    Reader r(content.data(), content.size());
+    Reader r(content.data(), content.size(), 1.0f);
     Splat out[4] = {};
     r.readVertices(1, 3, out);
     CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting

@@ -293,17 +293,21 @@ void Reader::readVertices(size_type first, size_type count, Splat *out)
     const char *base = vertexPtr + first * vertexSize;
     for (size_type i = count; i > 0; i--, base += vertexSize, out++)
     {
+        float radius;
         std::memcpy(&out->position[0], base + offsets[X], sizeof(float));
         std::memcpy(&out->position[1], base + offsets[Y], sizeof(float));
         std::memcpy(&out->position[2], base + offsets[Z], sizeof(float));
-        std::memcpy(&out->radius,      base + offsets[RADIUS], sizeof(float));
+        std::memcpy(&radius,           base + offsets[RADIUS], sizeof(float));
         std::memcpy(&out->normal[0],   base + offsets[NX], sizeof(float));
         std::memcpy(&out->normal[1],   base + offsets[NY], sizeof(float));
         std::memcpy(&out->normal[2],   base + offsets[NZ], sizeof(float));
+        radius *= smooth;
+        out->radius = radius;
+        out->quality = 1.0 / (radius * radius);
     }
 }
 
-Reader::Reader(const std::string &filename)
+Reader::Reader(const std::string &filename, float smooth = 1.0f)
     : mapping(new boost::iostreams::mapped_file_source(filename)), filePtr(mapping->data())
 {
     /* Note: we have to wrap the mapping in an array_source because otherwise
@@ -316,9 +320,10 @@ Reader::Reader(const std::string &filename)
     vertexPtr = filePtr + offset;
     if ((mapping->size() - offset) / vertexSize < vertexCount)
         throw FormatError("File is too small to contain its vertices");
+    this->smooth = smooth;
 }
 
-Reader::Reader(const char *data, size_type size)
+Reader::Reader(const char *data, size_type size, float smooth)
     : filePtr(data)
 {
     boost::iostreams::array_source source(data, size);
@@ -328,6 +333,7 @@ Reader::Reader(const char *data, size_type size)
     vertexPtr = filePtr + offset;
     if ((size - offset) / vertexSize < vertexCount)
         throw FormatError("Input source is too small to contain its vertices");
+    this->smooth = smooth;
 }
 
 bool WriterBase::isOpen() const

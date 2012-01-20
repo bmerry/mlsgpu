@@ -230,7 +230,7 @@ static void loadInputSplats(InputIterator first, InputIterator last, std::vector
     {
         try
         {
-            FastPly::Reader reader(*in);
+            FastPly::Reader reader(*in, smooth);
             size_t pos = out.size();
             out.resize(pos + reader.numVertices());
             reader.readVertices(0, reader.numVertices(), &out[pos]);
@@ -239,11 +239,6 @@ static void loadInputSplats(InputIterator first, InputIterator last, std::vector
         {
             throw FastPly::FormatError(*in + ": " + e.what());
         }
-    }
-    BOOST_FOREACH(Splat &splat, out)
-    {
-        splat.radius *= smooth;
-        splat.quality = 1.0 / (splat.radius * splat.radius);
     }
 }
 
