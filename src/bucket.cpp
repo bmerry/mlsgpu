@@ -60,8 +60,11 @@ void SplatRangeCounter::append(SplatRange::scan_type scan, SplatRange::index_typ
     /* On the first call, the append will succeed (empty range), but we still
      * need to set ranges to 1 since this is the first real range.
      */
-    if (!current.append(scan, splat) || ranges == 0)
+    if (ranges == 0 || !current.append(scan, splat))
+    {
+        current = SplatRange(scan, splat);
         ranges++;
+    }
 }
 
 std::tr1::uint64_t SplatRangeCounter::countRanges() const

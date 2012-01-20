@@ -126,3 +126,38 @@ void TestSplatRange::testAppendNewScan()
     CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(4), range.scan);
     CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(UINT64_C(0x123456781234)), range.start);
 }
+
+
+class TestSplatRangeCounter : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestSplatRangeCounter);
+    CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testEmpty();           ///< Tests initial state
+    void testSimple();          ///< Tests state after various types of additions
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatRangeCounter, TestSet::perBuild());
+
+void TestSplatRangeCounter::testEmpty()
+{
+    SplatRangeCounter c;
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), c.countRanges());
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), c.countSplats());
+}
+
+void TestSplatRangeCounter::testSimple()
+{
+    SplatRangeCounter c;
+
+    c.append(3, 5);
+    c.append(3, 6);
+    c.append(3, 6);
+    c.append(4, 7);
+    c.append(5, 2);
+    c.append(5, 4);
+    c.append(5, 5);
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(4), c.countRanges());
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(7), c.countSplats());
+}
