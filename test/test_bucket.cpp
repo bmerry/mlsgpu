@@ -132,6 +132,9 @@ void TestSplatRange::testAppendNewScan()
 }
 
 
+/**
+ * Tests for @ref SplatRangeCounter.
+ */
 class TestSplatRangeCounter : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatRangeCounter);
@@ -166,6 +169,9 @@ void TestSplatRangeCounter::testSimple()
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(7), c.countSplats());
 }
 
+/**
+ * Tests for @ref SplatRangeCollector.
+ */
 class TestSplatRangeCollector : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatRangeCollector);
@@ -253,4 +259,62 @@ void TestSplatRangeCollector::testFlushEmpty()
     SplatRangeCollector<back_insert_iterator<vector<SplatRange> > > c(back_inserter(out));
     c.flush();
     CPPUNIT_ASSERT_EQUAL(0, int(out.size()));
+}
+
+
+/**
+ * Slow tests for SplatRangeCounter and SplatRangeCollector. These tests are
+ * designed to catch overflow conditions and hence necessarily involve running
+ * O(2^32) operations. They are thus nightly rather than per-build tests.
+ */
+class TestSplatRangeBig : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestSplatRangeBig);
+    CPPUNIT_TEST(testBigRange);
+    CPPUNIT_TEST(testManyRanges);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testBigRange();             ///< Throw more than 2^32 contiguous elements into a range
+    void testManyRanges();           ///< Create more than 2^32 separate ranges
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatRangeBig, TestSet::perNightly());
+
+void TestSplatRangeBig::testBigRange()
+{
+    vector<SplatRange> out;
+    SplatRangeCollector<back_insert_iterator<vector<SplatRange> > > c(back_inserter(out));
+    SplatRangeCounter counter;
+
+    for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
+    {
+        c.append(0, i);
+        counter.append(0, i);
+    }
+    c.flush();
+
+    CPPUNIT_ASSERT_EQUAL(2, int(out.size()));
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(2), counter.countRanges());
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countSplats());
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(0), out[0].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(0xFFFFFFFFu), out[0].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(0), out[0].start);
+
+    CPPUNIT_ASSERT_EQUAL(SplatRange::scan_type(0), out[1].scan);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::size_type(0x2345678Au), out[1].size);
+    CPPUNIT_ASSERT_EQUAL(SplatRange::index_type(0xFFFFFFFFu), out[1].start);
+}
+
+void TestSplatRangeBig::testManyRanges()
+{
+    SplatRangeCounter counter;
+
+    // We force each append to be a separate range by going up in steps of 2.
+    for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
+    {
+        counter.append(0, i * 2);
+    }
+
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countRanges());
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countSplats());
 }
