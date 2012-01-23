@@ -12,11 +12,29 @@
 #endif
 #include <vector>
 #include <tr1/cstdint>
+#include <stdexcept>
 #include <boost/function.hpp>
 #include <boost/ptr_container/ptr_array.hpp>
 #include "splat.h"
 #include "grid.h"
 #include "fast_ply.h"
+
+/**
+ * Error that is thrown if too many splats cover a single cell, making it
+ * impossible to satisfy the splat limit.
+ */
+class SplatDensityError : public std::runtime_error
+{
+private:
+    std::tr1::uint64_t cellSplats;   ///< Number of splats covering the affected cell
+
+public:
+    SplatDensityError(std::tr1::uint64_t cellSplats) :
+        std::runtime_error("Too many splats covering one cell"),
+        cellSplats(cellSplats) {}
+
+    std::tr1::uint64_t getCellSplats() const { return cellSplats; }
+};
 
 /**
  * Indexes a sequential range of splats from an input file.
@@ -156,7 +174,7 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
  * @param files         Files containing the splats.
  * @param spacing       The spacing between grid vertices.
  *
- * @pre There is at least one splat.
+ * @throw std::length_error if the files contain no splats.
  */
 Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
               float spacing);

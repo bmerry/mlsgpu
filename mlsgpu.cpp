@@ -49,6 +49,8 @@ namespace Option
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
 
+    const char * const maxSplats = "max-splats";
+    const char * const maxSplit = "max-split";
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
     const char * const mesh = "mesh";
@@ -75,6 +77,8 @@ static void addAdvancedOptions(po::options_description &opts)
     advanced.add_options()
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
+        (Option::maxSplats,    po::value<int>()->default_value(1000000), "Maximum splats per block")
+        (Option::maxSplit,     po::value<int>()->default_value(1000000), "Maximum fan-out in partitioning")
         (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
@@ -89,8 +93,10 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
         exit(1);
     }
 
-    int levels = vm[Option::levels].as<int>();
-    int subsampling = vm[Option::subsampling].as<int>();
+    const int levels = vm[Option::levels].as<int>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const std::size_t maxSplats = vm[Option::maxSplats].as<int>();
+    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
 
     int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
     /* TODO make dynamic, considering maximum image sizes etc */
@@ -104,6 +110,16 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
         cerr << "Value of --subsampling must be non-negative.\n";
         exit(1);
     }
+    if (maxSplats < 1)
+    {
+        cerr << "Value of --max-splats must be positive.\n";
+        exit(1);
+    }
+    if (maxSplit < 8)
+    {
+        cerr << "Value of --max-split must be at least 8.\n";
+        exit(1);
+    }
     if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
     {
         cerr << "Sum of --subsampling and --levels is too large.\n";
@@ -112,10 +128,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
 
     /* Check that we have enough memory on the device. This is no guarantee against OOM, but
      * we can at least turn down silly requests before wasting any time.
-     *
-     * TODO: get an actual value for maxSplats once we implement splat partitioning.
      */
-    const std::size_t maxSplats = 1000000;
     const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> marchingMemory = Marching::deviceMemory(device, block, block);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxSplats);
@@ -293,8 +306,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     const float smooth = vm[Option::fitSmooth].as<double>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
-    const std::size_t maxSplats = 1000000;
-    const std::size_t maxSplit = 1000000;
+    const std::size_t maxSplats = vm[Option::maxSplats].as<int>();
+    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -303,7 +316,16 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     prepareInputs(files, vm, smooth);
 
     BlockRun blockRun(context, device, maxSplats, blockCells, levels, subsampling);
-    const Grid grid = makeGrid(files, spacing);
+    Grid grid;
+    try
+    {
+        grid = makeGrid(files, spacing);
+    }
+    catch (std::length_error &e)
+    {
+        cerr << "At least one input point is required.\n";
+        exit(1);
+    }
     blockRun.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
@@ -359,6 +381,11 @@ int main(int argc, char **argv)
     catch (cl::Error &e)
     {
         cerr << "OpenCL error in " << e.what() << " (" << e.err() << ")\n";
+        return 1;
+    }
+    catch (SplatDensityError &e)
+    {
+        cerr << "The splats were too dense. Try passing --max-splats=" << e.getCellSplats() << "\n";
         return 1;
     }
 

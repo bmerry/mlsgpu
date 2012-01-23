@@ -35,6 +35,7 @@ typedef boost::numeric::converter<
     boost::numeric::def_overflow_handler,
     boost::numeric::Floor<float> > RoundDown;
 
+
 SplatRange::SplatRange() :
     scan(std::numeric_limits<scan_type>::max()),
     size(0),
@@ -484,6 +485,10 @@ static void bucketRecurse(SplatRangeConstIterator first,
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
         params.process(params.files, numSplats, first, last, params.grid);
+    }
+    else if (maxDim == 1)
+    {
+        throw SplatDensityError(numSplats); // can't subdivide a 1x1x1 cell
     }
     else
     {
