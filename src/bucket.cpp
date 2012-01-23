@@ -16,9 +16,24 @@
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/foreach.hpp>
+#include <boost/ref.hpp>
+#include <boost/numeric/conversion/converter.hpp>
 #include "splat.h"
 #include "bucket.h"
 #include "errors.h"
+
+typedef boost::numeric::converter<
+    int,
+    float,
+    boost::numeric::conversion_traits<int, float>,
+    boost::numeric::def_overflow_handler,
+    boost::numeric::Ceil<float> > RoundUp;
+typedef boost::numeric::converter<
+    int,
+    float,
+    boost::numeric::conversion_traits<int, float>,
+    boost::numeric::def_overflow_handler,
+    boost::numeric::Floor<float> > RoundDown;
 
 SplatRange::SplatRange() :
     scan(std::numeric_limits<scan_type>::max()),
@@ -299,7 +314,7 @@ static void forEachSplat(
             files[range.scan].readVertices(start, chunkSize, buffer);
             for (std::size_t j = 0; j < chunkSize; j++)
             {
-                func(range.scan, start + j, buffer[j]);
+                boost::unwrap_ref(func)(range.scan, start + j, buffer[j]);
             }
             size -= chunkSize;
             start += chunkSize;
@@ -548,18 +563,13 @@ static void bucketRecurse(SplatRangeConstIterator first,
     }
 }
 
-} // namespace
-
-void bucket(const boost::ptr_vector<FastPly::Reader> &files,
-            const Grid &bbox,
-            SplatRange::index_type maxSplats,
-            int maxCells,
-            std::size_t maxSplit,
-            const BucketProcessor &process)
+/* Create a root bucket will all splats in it */
+static SplatRange::index_type makeRoot(
+    const boost::ptr_vector<FastPly::Reader> &files,
+    std::vector<SplatRange> &root)
 {
-    /* Create a root bucket will all splats in it */
-    std::vector<SplatRange> root;
     SplatRange::index_type numSplats = 0;
+    root.clear();
     root.reserve(files.size());
     for (size_t i = 0; i < files.size(); i++)
     {
@@ -575,10 +585,87 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             start += size;
         }
     }
+    return numSplats;
+}
+
+struct MakeGrid
+{
+    bool first;
+    float low[3];
+    float bboxMin[3];
+    float bboxMax[3];
+
+    MakeGrid() : first(true) {}
+    void operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat);
+};
+
+void MakeGrid::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat)
+{
+    (void) scan;
+    (void) id;
+
+    const float radius = splat.radius;
+    if (first)
+    {
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            low[i] = splat.position[i];
+            bboxMin[i] = low[i] - radius;
+            bboxMax[i] = low[i] + radius;
+        }
+        first = false;
+    }
+    else
+    {
+        for (unsigned int j = 0; j < 3; j++)
+        {
+            float p = splat.position[j];
+            low[j] = std::min(low[j], p);
+            bboxMin[j] = std::min(bboxMin[j], p - radius);
+            bboxMax[j] = std::max(bboxMax[j], p + radius);
+        }
+    }
+}
+
+} // namespace
+
+void bucket(const boost::ptr_vector<FastPly::Reader> &files,
+            const Grid &bbox,
+            SplatRange::index_type maxSplats,
+            int maxCells,
+            std::size_t maxSplit,
+            const BucketProcessor &process)
+{
+    /* Create a root bucket will all splats in it */
+    std::vector<SplatRange> root;
+    SplatRange::index_type numSplats = makeRoot(files, root);
 
     BucketParameters params(files, bbox, process, maxSplats, maxCells, maxSplit);
     params.maxSplats = maxSplats;
     params.maxCells = maxCells;
     params.maxSplit = maxSplit;
     bucketRecurse(root.begin(), root.end(), numSplats, params);
+}
+
+Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
+              float spacing)
+{
+    std::vector<SplatRange> root;
+    SplatRange::index_type numSplats = makeRoot(files, root);
+    if (numSplats == 0)
+        throw std::length_error("Must be at least one splat");
+
+    MakeGrid state;
+    forEachSplat(files, root.begin(), root.end(), boost::ref(state));
+
+    int extents[3][2];
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float l = (state.bboxMin[i] - state.low[i]) / spacing;
+        float h = (state.bboxMax[i] - state.low[i]) / spacing;
+        extents[i][0] = RoundDown::convert(l);
+        extents[i][1] = RoundUp::convert(h);
+    }
+    return Grid(state.low, spacing,
+                extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }

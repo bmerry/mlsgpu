@@ -145,6 +145,22 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             std::size_t maxSplit,
             const BucketProcessor &process);
 
+/**
+ * Grid that encloses the bounding spheres of all the input splats.
+ *
+ * The grid is constructed as follows:
+ *  -# The bounding box of the sample points is found, ignoring influence regions.
+ *  -# The lower bound is used as the grid reference point.
+ *  -# The grid extends are set to cover the full bounding box.
+ *
+ * @param files         Files containing the splats.
+ * @param spacing       The spacing between grid vertices.
+ *
+ * @pre There is at least one splat.
+ */
+Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
+              float spacing);
+
 template<typename OutputIterator>
 SplatRangeCollector<OutputIterator>::SplatRangeCollector(iterator_type out)
     : current(), out(out)

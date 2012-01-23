@@ -15,7 +15,6 @@
 #include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
-#include <boost/numeric/conversion/converter.hpp>
 #include <boost/array.hpp>
 #include <boost/progress.hpp>
 #include <tr1/unordered_map>
@@ -38,19 +37,6 @@
 
 namespace po = boost::program_options;
 using namespace std;
-
-typedef boost::numeric::converter<
-    int,
-    float,
-    boost::numeric::conversion_traits<int, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Ceil<float> > RoundUp;
-typedef boost::numeric::converter<
-    int,
-    float,
-    boost::numeric::conversion_traits<int, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Floor<float> > RoundDown;
 
 namespace Option
 {
@@ -129,7 +115,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
      *
      * TODO: get an actual value for maxSplats once we implement splat partitioning.
      */
-    const std::size_t maxSplats = 3000000;
+    const std::size_t maxSplats = 1000000;
     const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> marchingMemory = Marching::deviceMemory(device, block, block);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxSplats);
@@ -223,32 +209,6 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
-template<typename InputIterator>
-static void loadInputSplats(InputIterator first, InputIterator last, std::vector<Splat> &out, float smooth)
-{
-    out.clear();
-    for (InputIterator in = first; in != last; ++in)
-    {
-        try
-        {
-            FastPly::Reader reader(*in, smooth);
-            size_t pos = out.size();
-            out.resize(pos + reader.numVertices());
-            reader.readVertices(0, reader.numVertices(), &out[pos]);
-        }
-        catch (FastPly::FormatError &e)
-        {
-            throw FastPly::FormatError(*in + ": " + e.what());
-        }
-    }
-}
-
-static void loadInputSplats(const po::variables_map &vm, std::vector<Splat> &out, float smooth)
-{
-    const vector<string> &inputs = vm[Option::inputFile].as<vector<string> >();
-    loadInputSplats(inputs.begin(), inputs.end(), out, smooth);
-}
-
 static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::variables_map &vm, float smooth)
 {
     const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
@@ -261,150 +221,101 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
     }
 }
 
-/**
- * Grid that encloses the bounding spheres of all the input splats.
- *
- * The grid is constructed as follows:
- *  -# The bounding box of the sample points is found, ignoring influence regions.
- *  -# The lower bound is used as the grid reference point.
- *  -# The grid extends are set to cover the full bounding box.
- *
- * @param first, last   Iterator range for the splats.
- * @param spacing       The spacing between grid vertices.
- *
- * @pre The iterator range is not empty.
- */
-template<typename ForwardIterator>
-static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
+class BlockRun
 {
-    MLSGPU_ASSERT(first != last, std::invalid_argument);
+private:
+    const cl::CommandQueue queue;
+    SplatTreeCL tree;
+    MlsFunctor input;
+    Marching marching;
+    Marching::OutputFunctor output;
+    Grid fullGrid;
+    int subsampling;
 
-    float low[3];
-    float bboxMin[3];
-    float bboxMax[3];
+public:
+    BlockRun(const cl::Context &context, const cl::Device &device,
+             std::size_t maxSplats, std::size_t maxCells,
+             int levels, int subsampling);
+    void operator()(const boost::ptr_vector<FastPly::Reader> &files, SplatRange::index_type numSplats, SplatRangeConstIterator first, SplatRangeConstIterator last, const Grid &grid);
 
-    // Load the first splat
-    {
-        const float radius = first->radius;
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            low[i] = first->position[i];
-            bboxMin[i] = low[i] - radius;
-            bboxMax[i] = low[i] + radius;
-        }
-    }
-    first++;
+    void setGrid(const Grid &grid) { this->fullGrid = grid; }
+    void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
+};
 
-    for (ForwardIterator i = first; i != last; ++i)
-    {
-        const float radius = i->radius;
-        for (unsigned int j = 0; j < 3; j++)
-        {
-            float p = i->position[j];
-            low[j] = min(low[j], p);
-            bboxMin[j] = min(bboxMin[j], p - radius);
-            bboxMax[j] = max(bboxMax[j], p + radius);
-        }
-    }
-
-    int extents[3][2];
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        float l = (bboxMin[i] - low[i]) / spacing;
-        float h = (bboxMax[i] - low[i]) / spacing;
-        extents[i][0] = RoundDown::convert(l);
-        extents[i][1] = RoundUp::convert(h);
-    }
-    return Grid(low, spacing,
-                extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
+BlockRun::BlockRun(
+    const cl::Context &context, const cl::Device &device,
+    std::size_t maxSplats, std::size_t maxCells,
+    int levels, int subsampling)
+    : queue(context, device),
+    tree(context, levels, maxSplats),
+    input(context),
+    marching(context, device, maxCells + 1, maxCells + 1),
+    subsampling(subsampling)
+{
 }
 
-static void showBucket(const boost::ptr_vector<FastPly::Reader> &files, SplatRange::index_type numSplats, SplatRangeConstIterator first, SplatRangeConstIterator last, const Grid &grid)
+void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, SplatRange::index_type numSplats, SplatRangeConstIterator first, SplatRangeConstIterator last, const Grid &grid)
 {
+    cl_uint3 keyOffset;
     for (int i = 0; i < 3; i++)
+        keyOffset.s[i] = grid.getExtent(i).first - fullGrid.getExtent(i).first;
+
+    // TODO: use mapping to transfer the data directly into a buffer
+    vector<Splat> splats(numSplats);
+    std::size_t pos = 0;
+    for (SplatRangeConstIterator i = first; i != last; i++)
     {
-        const pair<int, int> e = grid.getExtent(i);
-        if (i > 0) cout << " x ";
-        cout << "[" << e.first << "," << e.second << "]";
+        files[i->scan].readVertices(i->start, i->size, &splats[pos]);
+        pos += i->size;
     }
-    cout << ": " << numSplats << " splats in " << last - first << " ranges\n";
+
+    {
+        Timer timer;
+        tree.enqueueBuild(queue, &splats[0], numSplats, grid, subsampling, CL_FALSE);
+        queue.finish();
+        Log::log[Log::debug] << "build: " << timer.getElapsed() << '\n';
+    }
+
+    input.set(grid, tree, subsampling);
+
+    {
+        Timer timer;
+        marching.generate(queue, input, output, grid, keyOffset, NULL);
+        Log::log[Log::debug] << "process: " << timer.getElapsed() << endl;
+    }
 }
 
 static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
 {
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
+    const float spacing = vm[Option::fitGrid].as<double>();
+    const float smooth = vm[Option::fitSmooth].as<double>();
+    const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
+    const MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
+    const std::size_t maxSplats = 1000000;
+    const std::size_t maxSplit = 1000000;
+
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    float spacing = vm[Option::fitGrid].as<double>();
-    float smooth = vm[Option::fitSmooth].as<double>();
-    vector<Splat> splats;
-    loadInputSplats(vm, splats, smooth);
-    Grid grid = makeGrid(splats.begin(), splats.end(), spacing);
-
     boost::ptr_vector<FastPly::Reader> files;
     prepareInputs(files, vm, smooth);
-    // TODO: blockCells will be just less than a power of 2, so the
-    // actual calls will end up at almost half
-    bucket(files, grid, 1000000, blockCells, 1000000, showBucket);
 
-    /* Round up to multiple of block size
-     */
-    unsigned int cells[3];
-    unsigned int chunks[3];
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        std::pair<int, int> extent = grid.getExtent(i);
-        chunks[i] = (extent.second - extent.first + blockCells - 1) / blockCells;
-        cells[i] = chunks[i] * blockCells;
-        grid.setExtent(i, extent.first, extent.first + cells[i]);
-    }
-    Log::log[Log::info] << "Octree cells: " << cells[0] << " x " << cells[1] << " x " << cells[2] << endl;
+    BlockRun blockRun(context, device, maxSplats, blockCells, levels, subsampling);
+    const Grid grid = makeGrid(files, spacing);
+    blockRun.setGrid(grid);
 
-    cl::CommandQueue queue(context, device);
-    SplatTreeCL tree(context, levels, splats.size());
-    Marching marching(context, device, block, block);
-
-    MlsFunctor input(context);
-
-    FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
-
-    /* TODO: partition splats */
     for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
     {
         Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesh->numPasses() << endl;
-        boost::progress_display progress(chunks[0] * chunks[1] * chunks[2], Log::log[Log::info]);
 
-        Marching::OutputFunctor output = mesh->outputFunctor(pass);
-        for (unsigned int bz = 0; bz < cells[2]; bz += blockCells)
-            for (unsigned int by = 0; by < cells[1]; by += blockCells)
-                for (unsigned int bx = 0; bx < cells[0]; bx += blockCells)
-                {
-                    cl_uint3 keyOffset = {{ bx, by, bz }};
-                    Grid sub = grid.subGrid(bx, bx + blockCells,
-                                            by, by + blockCells,
-                                            bz, bz + blockCells);
-                    {
-                        Timer timer;
-                        tree.enqueueBuild(queue, &splats[0], splats.size(), sub, subsampling, CL_FALSE);
-                        queue.finish();
-                        Log::log[Log::debug] << "Build: " << timer.getElapsed() << '\n';
-                    }
-
-                    input.set(sub, tree, subsampling);
-
-                    {
-                        Timer timer;
-                        marching.generate(queue, input, output, sub, keyOffset,
-                                          NULL);
-                        Log::log[Log::debug] << "Process: " << timer.getElapsed() << endl;
-                    }
-                    ++progress;
-                }
+        blockRun.setOutput(mesh->outputFunctor(pass));
+        // TODO: blockCells will be just less than a power of 2, so the
+        // actual calls will end up at almost half
+        bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
     }
 
     mesh->finalize();

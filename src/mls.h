@@ -75,13 +75,16 @@ public:
      *
      * @pre
      * - @a tree was constructed with the same @a grid and @a subsamplingShift.
-     * - The width and height of @a grid (in vertices) are multiples of the corresponding
-     *   elements of @ref wgs.
      */
     void set(const Grid &grid, const SplatTreeCL &tree, unsigned int subsamplingShift);
 
     /**
      * Function object callback for use with @ref Marching.
+     *
+     * @pre The memory allocated for slice must be padded up to the multiple of
+     * the work group size.
+     *
+     * @bug This isn't currently queryable.
      */
     void operator()(const cl::CommandQueue &queue,
                     const cl::Image2D &slice,
