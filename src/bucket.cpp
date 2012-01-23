@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <utility>
+#include <cassert>
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/foreach.hpp>
@@ -245,6 +246,7 @@ BucketState::CellState &BucketState::getCellState(const Cell &cell)
     boost::array<std::size_t, 3> coords;
     for (int i = 0; i < 3; i++)
         coords[i] = cell.base[i] >> cell.level;
+    assert(cell.level >= microShift && std::size_t(cell.level) < microShift + cellStates.size());
     return cellStates[cell.level - microShift](coords);
 }
 
@@ -253,6 +255,7 @@ const BucketState::CellState &BucketState::getCellState(const Cell &cell) const
     boost::array<std::size_t, 3> coords;
     for (int i = 0; i < 3; i++)
         coords[i] = cell.base[i] >> cell.level;
+    assert(cell.level >= microShift && std::size_t(cell.level) < microShift + cellStates.size());
     return cellStates[cell.level - microShift](coords);
 }
 

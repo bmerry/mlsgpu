@@ -125,6 +125,12 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
         cerr << "Sum of --subsampling and --levels is too large.\n";
         exit(1);
     }
+    const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
+    if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
+    {
+        cerr << "Sum of --subsampling and --levels it too small.\n";
+        exit(1);
+    }
 
     /* Check that we have enough memory on the device. This is no guarantee against OOM, but
      * we can at least turn down silly requests before wasting any time.
@@ -273,6 +279,17 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Splat
     for (int i = 0; i < 3; i++)
         keyOffset.s[i] = grid.getExtent(i).first - fullGrid.getExtent(i).first;
 
+    /* We need to round up the tree size to a multiple of the granularity used for MLS. */
+    Grid expandedGrid = grid;
+    for (int i = 0; i < 2; i++)
+    {
+        pair<int, int> e = grid.getExtent(i);
+        int v = e.second - e.first + 1;
+        int w = MlsFunctor::wgs[i];
+        v = (v + w - 1) / w * w;
+        expandedGrid.setExtent(i, e.first, e.first + v - 1);
+    }
+
     // TODO: use mapping to transfer the data directly into a buffer
     vector<Splat> splats(numSplats);
     std::size_t pos = 0;
@@ -284,16 +301,16 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Splat
 
     {
         Timer timer;
-        tree.enqueueBuild(queue, &splats[0], numSplats, grid, subsampling, CL_FALSE);
+        tree.enqueueBuild(queue, &splats[0], numSplats, expandedGrid, subsampling, CL_FALSE);
         queue.finish();
         Log::log[Log::debug] << "build: " << timer.getElapsed() << '\n';
     }
 
-    input.set(grid, tree, subsampling);
+    input.set(expandedGrid, tree, subsampling);
 
     {
         Timer timer;
-        marching.generate(queue, input, output, grid, keyOffset, NULL);
+        marching.generate(queue, input, output, expandedGrid, keyOffset, NULL);
         Log::log[Log::debug] << "process: " << timer.getElapsed() << endl;
     }
 }

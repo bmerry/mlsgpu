@@ -30,6 +30,9 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
 
 void MlsFunctor::set(const Grid &grid, const SplatTreeCL &tree, unsigned int subsamplingShift)
 {
+    MLSGPU_ASSERT(grid.numVertices(0) % wgs[0] == 0, std::invalid_argument);
+    MLSGPU_ASSERT(grid.numVertices(1) % wgs[1] == 0, std::invalid_argument);
+
     cl_float3 gridBias3;
     grid.getVertex(0, 0, 0, gridBias3.s);
 
@@ -48,8 +51,8 @@ void MlsFunctor::set(const Grid &grid, const SplatTreeCL &tree, unsigned int sub
     kernel.setArg(5, gridBias);
     kernel.setArg(6, 3 * subsamplingShift);
 
-    dims[0] = (grid.numVertices(0) + wgs[0] - 1) / wgs[0] * wgs[0];
-    dims[1] = (grid.numVertices(1) + wgs[1] - 1) / wgs[1] * wgs[1];
+    dims[0] = grid.numVertices(0);
+    dims[1] = grid.numVertices(1);
 }
 
 void MlsFunctor::operator()(
