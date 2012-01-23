@@ -319,6 +319,17 @@ static Grid makeGrid(ForwardIterator first, ForwardIterator last, float spacing)
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
 
+static void showBucket(const boost::ptr_vector<FastPly::Reader> &files, SplatRange::index_type numSplats, SplatRangeConstIterator first, SplatRangeConstIterator last, const Grid &grid)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        const pair<int, int> e = grid.getExtent(i);
+        if (i > 0) cout << " x ";
+        cout << "[" << e.first << "," << e.second << "]";
+    }
+    cout << ": " << numSplats << " splats in " << last - first << " ranges\n";
+}
+
 static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
 {
     const int subsampling = vm[Option::subsampling].as<int>();
@@ -336,7 +347,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     prepareInputs(files, vm, smooth);
     // TODO: blockCells will be just less than a power of 2, so the
     // actual calls will end up at almost half
-    bucket(files, grid, 100000, blockCells, 1000000, BucketProcessor());
+    bucket(files, grid, 1000000, blockCells, 1000000, showBucket);
 
     /* Round up to multiple of block size
      */

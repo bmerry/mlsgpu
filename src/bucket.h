@@ -135,7 +135,8 @@ public:
     iterator_type flush();
 };
 
-typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, const std::vector<SplatRange> &, const Grid &)> BucketProcessor;
+typedef std::vector<SplatRange>::const_iterator SplatRangeConstIterator;
+typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, SplatRange::index_type, SplatRangeConstIterator, SplatRangeConstIterator, const Grid &)> BucketProcessor;
 
 void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Grid &bbox,

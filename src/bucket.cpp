@@ -12,10 +12,10 @@
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
+#include <utility>
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/foreach.hpp>
-#include <boost/bind.hpp>
 #include "splat.h"
 #include "bucket.h"
 #include "errors.h"
@@ -117,6 +117,47 @@ static inline S divUp(S a, T b)
     return (a + b - 1) / b;
 }
 
+/**
+ * A cube with power-of-two side lengths.
+ */
+struct Cell
+{
+    std::size_t base[3];       ///< Coordinates of lower-left-bottom corner
+    int level;                 ///< Log base two of the side length
+
+    /// Default constructor: does not initialize anything.
+    Cell() {}
+
+    Cell(const std::size_t base[3], int level) : level(level)
+    {
+        for (unsigned int i = 0; i < 3; i++)
+            this->base[i] = base[i];
+    }
+
+    Cell(std::size_t x, std::size_t y, std::size_t z, int level) : level(level)
+    {
+        base[0] = x;
+        base[1] = y;
+        base[2] = z;
+    }
+};
+
+static bool splatCellIntersect(const Splat &splat, const Cell &cell, const Grid &grid)
+{
+    std::size_t size = std::size_t(1) << cell.level;
+    float lo[3], hi[3];
+
+    grid.getVertex(cell.base[0], cell.base[1], cell.base[2], lo);
+    grid.getVertex(cell.base[0] + size, cell.base[1] + size, cell.base[2] + size, hi);
+
+    // Bounding box test. We don't bother an exact sphere-box test
+    for (int i = 0; i < 3; i++)
+        if (splat.position[i] + splat.radius < lo[i]
+            || splat.position[i] - splat.radius > hi[i])
+            return false;
+    return true;
+}
+
 struct BucketParameters
 {
     /// Input files holding the raw splats
@@ -128,28 +169,47 @@ struct BucketParameters
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
 
     BucketParameters(const boost::ptr_vector<FastPly::Reader> &files, const Grid &grid,
-                     const BucketProcessor &process)
-        : files(files), grid(grid), process(process) {}
+                     const BucketProcessor &process, SplatRange::index_type maxSplats,
+                     unsigned int maxCells, std::size_t maxSplit)
+        : files(files), grid(grid), process(process),
+        maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit) {}
 };
+
+static const std::size_t BAD_BLOCK = std::size_t(-1);
 
 struct BucketState
 {
+    struct CellState
+    {
+        SplatRangeCounter counter;
+        std::size_t blockId;
+
+        CellState() : blockId(BAD_BLOCK) {}
+    };
+
     const BucketParameters &params;
     std::size_t dims[3];
     int microShift;
     int macroLevels;
-    std::vector<boost::multi_array<SplatRangeCounter, 3> > counters;
-    std::vector<boost::multi_array<std::size_t, 3> > blockIds;
+    std::vector<boost::multi_array<CellState, 3> > cellStates;
+    std::vector<Cell> picked;
+    std::vector<std::tr1::uint64_t> pickedOffset;
+    std::tr1::uint64_t nextOffset;
+
+    std::vector<SplatRangeCollector<std::vector<SplatRange>::iterator> > childCur;
 
     BucketState(const BucketParameters &params, const std::size_t dims[3],
                 int microShift, int macroLevels);
+
+    CellState &getCellState(const Cell &cell);
+    const CellState &getCellState(const Cell &cell) const;
 };
 
 BucketState::BucketState(
     const BucketParameters &params, const std::size_t dims[3],
     int microShift, int macroLevels)
     : params(params), microShift(microShift), macroLevels(macroLevels),
-    counters(macroLevels), blockIds(macroLevels)
+    cellStates(macroLevels), nextOffset(0)
 {
     this->dims[0] = dims[0];
     this->dims[1] = dims[1];
@@ -160,32 +220,44 @@ BucketState::BucketState(
         boost::array<std::size_t, 3> s;
         for (int i = 0; i < 3; i++)
             s[i] = divUp(dims[i], std::size_t(1) << (microShift + level));
-        counters[level].resize(s);
-        blockIds[level].resize(s);
-        std::fill(blockIds[level].origin(),
-                  blockIds[level].origin() + blockIds[level].num_elements(),
-                  std::numeric_limits<std::size_t>::max());
+        cellStates[level].resize(s);
     }
 }
 
-template<typename Func>
-static void forEachCell_r(const std::size_t dims[3], const std::size_t base[3], int level, const Func &func)
+BucketState::CellState &BucketState::getCellState(const Cell &cell)
 {
-    if (func(base, level))
+    boost::array<std::size_t, 3> coords;
+    for (int i = 0; i < 3; i++)
+        coords[i] = cell.base[i] >> cell.level;
+    return cellStates[cell.level - microShift](coords);
+}
+
+const BucketState::CellState &BucketState::getCellState(const Cell &cell) const
+{
+    boost::array<std::size_t, 3> coords;
+    for (int i = 0; i < 3; i++)
+        coords[i] = cell.base[i] >> cell.level;
+    return cellStates[cell.level - microShift](coords);
+}
+
+template<typename Func>
+static void forEachCell_r(const std::size_t dims[3], const Cell &cell, const Func &func)
+{
+    if (func(cell))
     {
-        if (level > 0)
+        if (cell.level > 0)
         {
-            const std::size_t half = std::size_t(1) << (level - 1);
+            const std::size_t half = std::size_t(1) << (cell.level - 1);
             for (int i = 0; i < 8; i++)
             {
-                const std::size_t base2[3] =
+                const std::size_t base[3] =
                 {
-                    base[0] + (i & 1 ? half : 0),
-                    base[1] + (i & 2 ? half : 0),
-                    base[2] + (i & 4 ? half : 0)
+                    cell.base[0] + (i & 1 ? half : 0),
+                    cell.base[1] + (i & 2 ? half : 0),
+                    cell.base[2] + (i & 4 ? half : 0)
                 };
-                if (base2[0] < dims[0] && base2[1] < dims[1] && base2[2] < dims[2])
-                    forEachCell_r(dims, base2, level - 1, func);
+                if (base[0] < dims[0] && base[1] < dims[1] && base[2] < dims[2])
+                    forEachCell_r(dims, Cell(base, cell.level - 1), func);
             }
         }
     }
@@ -200,21 +272,22 @@ static void forEachCell(const std::size_t dims[3], int levels, const Func &func)
     assert((std::size_t(1) << level) >= dims[1]);
     assert((std::size_t(1) << level) >= dims[2]);
 
-    const std::size_t base[3] = {0, 0, 0};
-    forEachCell_r(dims, base, level, func);
+    forEachCell_r(dims, Cell(0, 0, 0, level), func);
 }
 
 template<typename Func>
 static void forEachSplat(
     const boost::ptr_vector<FastPly::Reader> &files,
-    const std::vector<SplatRange> &ranges,
+    SplatRangeConstIterator first,
+    SplatRangeConstIterator last,
     const Func &func)
 {
     static const std::size_t splatBufferSize = 8192;
 
     /* First pass over the splats: count things up */
-    BOOST_FOREACH(const SplatRange &range, ranges)
+    for (SplatRangeConstIterator it = first; it != last; ++it)
     {
+        const SplatRange &range = *it;
         Splat buffer[splatBufferSize];
         SplatRange::size_type size = range.size;
         SplatRange::index_type start = range.start;
@@ -243,50 +316,148 @@ class CountSplat
 private:
     BucketState &state;
 
+    /**
+     * Functor for @ref forEachCell that enters a single splat into the counters in the
+     * hierarchy.
+     */
+    class CountOneSplat
+    {
+    private:
+        BucketState &state;
+        SplatRange::scan_type scan;
+        SplatRange::index_type id;
+        const Splat &splat;
+
+    public:
+        CountOneSplat(BucketState &state, SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat)
+            : state(state), scan(scan), id(id), splat(splat) {}
+
+        bool operator()(const Cell &cell) const;
+    };
+
 public:
     CountSplat(BucketState &state) : state(state) {};
 
     void operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const;
-    bool doCell(
-        SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat,
-        const std::size_t base[3], int level) const;
 };
 
 void CountSplat::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const
 {
-    forEachCell(state.dims, state.microShift + state.macroLevels,
-                boost::bind(&CountSplat::doCell, this, scan, id, splat, _1, _2));
+    CountOneSplat helper(state, scan, id, splat);
+    forEachCell(state.dims, state.microShift + state.macroLevels, helper);
 }
 
-bool CountSplat::doCell(
-    SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat,
-    const std::size_t base[3], int level) const
+bool CountSplat::CountOneSplat::operator()(const Cell &cell) const
 {
-    assert(level >= state.microShift);
+    assert(cell.level >= state.microShift);
 
-    std::size_t size = std::size_t(1) << level;
-    float lo[3], hi[3];
-
-    state.params.grid.getVertex(base[0], base[1], base[2], lo);
-    state.params.grid.getVertex(base[0] + size, base[1] + size, base[2] + size, hi);
-
-    // Bounding box test. We don't bother an exact sphere-box test
-    for (int i = 0; i < 3; i++)
-        if (splat.position[i] + splat.radius < lo[i]
-            || splat.position[i] - splat.radius > hi[i])
-            return false;
+    if (!splatCellIntersect(splat, cell, state.params.grid))
+        return false;
 
     // Add to the counters
-    boost::array<std::size_t, 3> coords;
-    for (int i = 0; i < 3; i++)
-        coords[i] = base[i] >> level;
-    state.counters[level - state.microShift][coords[0]][coords[1]][coords[2]].append(scan, id);
+    state.getCellState(cell).counter.append(scan, id);
 
     // Recurse into children, unless we've reached microblock level
-    return level > state.microShift;
+    return cell.level > state.microShift;
 }
 
-static void bucketRecurse(const std::vector<SplatRange> &node,
+/**
+ * Functor for @ref forEachCell that chooses which cells to make blocks
+ * out of. A cell is chosen if it contains few enough splats and is
+ * small enough, or if it is a microblock. Otherwise it is split.
+ *
+ * 
+ */
+class PickCells
+{
+private:
+    BucketState &state;
+public:
+    PickCells(BucketState &state) : state(state) {}
+    bool operator()(const Cell &cell) const;
+};
+
+bool PickCells::operator()(const Cell &cell) const
+{
+    std::size_t size = std::size_t(1) << cell.level;
+    BucketState::CellState &cs = state.getCellState(cell);
+
+    // Skip completely empty regions
+    if (cs.counter.countSplats() == 0)
+        return false;
+
+    if (cell.level == state.microShift
+        || (size <= state.params.maxCells && cs.counter.countSplats() <= state.params.maxSplats))
+    {
+        cs.blockId = state.picked.size();
+        state.picked.push_back(cell);
+        state.pickedOffset.push_back(state.nextOffset);
+        state.nextOffset += cs.counter.countRanges();
+        return false; // no more recursion required
+    }
+    else
+        return true;
+}
+
+/**
+ * Functor for @ref forEachSplat that places splat information into the allocated buckets.
+ */
+class BucketSplats
+{
+private:
+    BucketState &state;
+
+    /**
+     * Functor for @ref forEachCell that enters one splat into the relevant cells.
+     */
+    class BucketOneSplat
+    {
+    private:
+        BucketState &state;
+        SplatRange::scan_type scan;
+        SplatRange::index_type id;
+        const Splat &splat;
+
+    public:
+        BucketOneSplat(BucketState &state, SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat)
+            : state(state), scan(scan), id(id), splat(splat) {}
+
+        bool operator()(const Cell &cell) const;
+    };
+public:
+    BucketSplats(BucketState &state) : state(state) {}
+
+    void operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const;
+};
+
+bool BucketSplats::BucketOneSplat::operator()(const Cell &cell) const
+{
+    assert(cell.level >= state.microShift);
+
+    if (!splatCellIntersect(splat, cell, state.params.grid))
+        return false;
+
+    BucketState::CellState &cs = state.getCellState(cell);
+    if (cs.blockId == BAD_BLOCK)
+    {
+        return true; // this cell is too coarse, so refine recursively
+    }
+    else
+    {
+        assert(cs.blockId < state.childCur.size());
+        state.childCur[cs.blockId].append(scan, id);
+        return false;
+    }
+}
+
+void BucketSplats::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const
+{
+    BucketOneSplat helper(state, scan, id, splat);
+    forEachCell(state.dims, state.microShift + state.macroLevels, helper);
+}
+
+static void bucketRecurse(SplatRangeConstIterator first,
+                          SplatRangeConstIterator last,
                           SplatRange::index_type numSplats,
                           const BucketParameters &params)
 {
@@ -297,7 +468,7 @@ static void bucketRecurse(const std::vector<SplatRange> &node,
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
-        params.process(params.files, node, params.grid);
+        params.process(params.files, numSplats, first, last, params.grid);
     }
     else
     {
@@ -321,9 +492,59 @@ static void bucketRecurse(const std::vector<SplatRange> &node,
         while (microSize << (macroLevels - 1) < maxDim)
             macroLevels++;
 
-        BucketState state(params, dims, microShift, macroLevels);
-        CountSplat countSplat(state);
-        forEachSplat(params.files, node, countSplat);
+        std::vector<SplatRange> childRanges;
+        std::vector<std::tr1::uint64_t> savedOffset;
+        std::vector<Cell> savedPicked;
+        std::vector<SplatRange::index_type> savedNumSplats;
+        std::size_t numPicked;
+        /* Open a scope so that we can destroy the BucketState later */
+        {
+            BucketState state(params, dims, microShift, macroLevels);
+            /* Create histogram */
+            forEachSplat(params.files, first, last, CountSplat(state));
+            /* Select cells to bucket splats into */
+            forEachCell(state.dims, state.microShift + state.macroLevels, PickCells(state));
+            /* Do the bucketing.
+             */
+            // Add sentinel for easy extraction of subranges
+            state.pickedOffset.push_back(state.nextOffset);
+            childRanges.resize(state.nextOffset);
+            numPicked = state.picked.size();
+            state.childCur.reserve(numPicked);
+            for (std::size_t i = 0; i < numPicked; i++)
+                state.childCur.push_back(SplatRangeCollector<std::vector<SplatRange>::iterator>(
+                        childRanges.begin() + state.pickedOffset[i]));
+            forEachSplat(params.files, first, last, BucketSplats(state));
+            for (std::size_t i = 0; i < numPicked; i++)
+                state.childCur[i].flush();
+
+            /* Bucketing is complete but we have a lot of memory allocated that we
+             * don't need for the recursive step. Copy it outside this scope then
+             * close the scope to destroy state.
+             */
+            savedPicked.swap(state.picked);
+            savedOffset.swap(state.pickedOffset);
+            savedNumSplats.reserve(numPicked);
+            for (std::size_t i = 0; i < numPicked; i++)
+                savedNumSplats.push_back(state.getCellState(savedPicked[i]).counter.countSplats());
+        }
+
+        /* Now recurse into the chosen cells */
+        for (std::size_t i = 0; i < numPicked; i++)
+        {
+            const Cell &cell = savedPicked[i];
+            std::size_t size = std::size_t(1) << cell.level;
+            Grid childGrid = params.grid.subGrid(
+                cell.base[0], cell.base[0] + size,
+                cell.base[1], cell.base[1] + size,
+                cell.base[2], cell.base[2] + size);
+            BucketParameters childParams(params.files, childGrid, params.process,
+                                         params.maxSplats, params.maxCells, params.maxSplit);
+            bucketRecurse(childRanges.begin() + savedOffset[i],
+                          childRanges.begin() + savedOffset[i + 1],
+                          savedNumSplats[i],
+                          childParams);
+        }
     }
 }
 
@@ -355,9 +576,9 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
         }
     }
 
-    BucketParameters params(files, bbox, process);
+    BucketParameters params(files, bbox, process, maxSplats, maxCells, maxSplit);
     params.maxSplats = maxSplats;
     params.maxCells = maxCells;
     params.maxSplit = maxSplit;
-    bucketRecurse(root, numSplats, params);
+    bucketRecurse(root.begin(), root.end(), numSplats, params);
 }
