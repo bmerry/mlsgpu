@@ -295,9 +295,11 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Splat
     std::size_t pos = 0;
     for (SplatRangeConstIterator i = first; i != last; i++)
     {
+        assert(pos + i->size <= numSplats);
         files[i->scan].readVertices(i->start, i->size, &splats[pos]);
         pos += i->size;
     }
+    assert(pos == numSplats);
 
     {
         Timer timer;
@@ -310,7 +312,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Splat
 
     {
         Timer timer;
-        marching.generate(queue, input, output, expandedGrid, keyOffset, NULL);
+        marching.generate(queue, input, output, grid, keyOffset, NULL);
         Log::log[Log::debug] << "process: " << timer.getElapsed() << endl;
     }
 }
@@ -402,7 +404,7 @@ int main(int argc, char **argv)
     }
     catch (SplatDensityError &e)
     {
-        cerr << "The splats were too dense. Try passing --max-splats=" << e.getCellSplats() << "\n";
+        cerr << "The splats were too dense. Try passing a higher value for --max-splats.\n";
         return 1;
     }
 

@@ -285,7 +285,7 @@ static void forEachCell_r(const std::size_t dims[3], const Cell &cell, const Fun
 template<typename Func>
 static void forEachCell(const std::size_t dims[3], int levels, const Func &func)
 {
-    assert(levels >= 1);
+    assert(levels >= 1 && levels <= std::numeric_limits<std::size_t>::digits);
     int level = levels - 1;
     assert((std::size_t(1) << level) >= dims[0]);
     assert((std::size_t(1) << level) >= dims[1]);
@@ -500,15 +500,17 @@ static void bucketRecurse(SplatRangeConstIterator first,
          */
         std::size_t microSize = 1;
         int microShift = 0;
-        std::size_t microBlocks;
-        do
+        std::size_t microBlocks = 1;
+        for (int i = 0; i < 3; i++)
+            microBlocks = mulSat(microBlocks, divUp(dims[i], microSize));
+        while (microBlocks > params.maxSplit)
         {
             microSize *= 2;
             microShift++;
             microBlocks = 1;
             for (int i = 0; i < 3; i++)
                 microBlocks = mulSat(microBlocks, divUp(dims[i], microSize));
-        } while (microBlocks > params.maxSplit);
+        }
 
         /* Levels in octree-like structure */
         int macroLevels = 1;
