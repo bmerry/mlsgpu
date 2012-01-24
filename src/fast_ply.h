@@ -92,7 +92,7 @@ public:
 
     /**
      * Construct from an existing memory range.
-     * This is primarily intended for testing.
+     * This is primarily intended for testing this class.
      * @param data             Start of memory region.
      * @param size             Bytes in memory region.
      * @param smooth           Scale factor applied to radii as they're read.

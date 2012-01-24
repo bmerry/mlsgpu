@@ -514,6 +514,13 @@ static void bucketRecurse(RangeConstIterator first,
             const internal::Cell &cell = savedPicked[i];
             internal::Cell::size_type lower[3], upper[3];
             cell.getCorners(lower, upper);
+            // Clip the cell to the grid
+            for (int j = 0; j < 3; j++)
+            {
+                internal::Cell::size_type limit = params.grid.numCells(j);
+                upper[j] = std::min(upper[j], limit);
+                assert(lower[j] < upper[j]);
+            }
             Grid childGrid = params.grid.subGrid(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
             BucketParameters childParams(params.files, childGrid, params.process,

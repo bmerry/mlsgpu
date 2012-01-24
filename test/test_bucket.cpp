@@ -11,6 +11,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <boost/bind.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
+#include <boost/smart_ptr/shared_array.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/foreach.hpp>
 #include <boost/ref.hpp>
@@ -20,6 +21,8 @@
 #include <algorithm>
 #include <utility>
 #include <limits>
+#include <sstream>
+#include <cstring>
 #include "testmain.h"
 #include "../src/bucket.h"
 #include "../src/bucket_internal.h"
@@ -27,6 +30,86 @@
 using namespace std;
 using namespace Bucket;
 using namespace Bucket::internal;
+
+static Splat makeSplat(float x, float y, float z, float radius)
+{
+    Splat splat;
+    splat.position[0] = x;
+    splat.position[1] = y;
+    splat.position[2] = z;
+    splat.radius = radius;
+    splat.normal[0] = 1.0f;
+    splat.normal[1] = 0.0f;
+    splat.normal[2] = 0.0f;
+    return splat;
+}
+
+/**
+ * Helper wrapper for generating a reader that will return specified splats.
+ * The caller must maintain the lifetime of the returned pointers. The
+ * character pointer must be deleted with <code>delete[]</code> only after
+ * the reader is deleted.
+ */
+template<typename ForwardIterator>
+pair<FastPly::Reader *, char *> makeReader(ForwardIterator first, ForwardIterator last, float smooth = 1.0f)
+{
+    size_t n = distance(first, last);
+    ostringstream headerStream;
+    headerStream <<
+        "ply\n"
+        "format binary_little_endian 1.0\n"
+        "element vertex " << n << "\n"
+        "property float32 x\n"
+        "property float32 y\n"
+        "property float32 z\n"
+        "property float32 nx\n"
+        "property float32 ny\n"
+        "property float32 nz\n"
+        "property float32 radius\n"
+        "end_header\n";
+    const string header = headerStream.str();
+    size_t bytes = header.size() + n * sizeof(Splat);
+
+    char * data = new char[bytes];
+    copy(header.begin(), header.end(), data);
+    char *pos = data + header.size();
+    for (ForwardIterator i = first; i != last; ++i)
+    {
+        const Splat &splat = *i;
+        float fields[7];
+        fields[0] = splat.position[0];
+        fields[1] = splat.position[1];
+        fields[2] = splat.position[2];
+        fields[3] = splat.normal[0];
+        fields[4] = splat.normal[1];
+        fields[5] = splat.normal[2];
+        fields[6] = splat.radius;
+        memcpy(pos, fields, sizeof(fields));
+        pos += sizeof(fields);
+    }
+
+    try
+    {
+        FastPly::Reader *reader = new FastPly::Reader(data, bytes, smooth);
+        return make_pair(reader, data);
+    }
+    catch (exception &e)
+    {
+        delete[] data;
+        throw;
+    }
+}
+
+static bool gridsIntersect(const Grid &a, const Grid &b)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        if (a.getExtent(i).second <= b.getExtent(i).first
+            || b.getExtent(i).second <= a.getExtent(i).first)
+            return false;
+    }
+    return true;
+}
 
 /**
  * Tests for Range.
@@ -430,7 +513,7 @@ class TestForEachSplat : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE_END();
 private:
     typedef pair<Range::scan_type, Range::index_type> Id;
-    vector<vector<char> > fileData;
+    vector<boost::shared_array<char> > fileData;
     boost::ptr_vector<FastPly::Reader> files;
 
     void splatFunc(Range::scan_type scan, Range::index_type id, const Splat &splat, vector<Id> &out);
@@ -456,35 +539,16 @@ void TestForEachSplat::setUp()
     CppUnit::TestFixture::setUp();
     int size = 100000;
     int nFiles = 5;
-    string header =
-        "ply\n"
-        "format binary_little_endian 1.0\n"
-        "element vertex 100000\n"
-        "property float32 x\n"
-        "property float32 y\n"
-        "property float32 z\n"
-        "property float32 nx\n"
-        "property float32 ny\n"
-        "property float32 nz\n"
-        "property float32 radius\n"
-        "end_header\n";
 
-    fileData.resize(nFiles);
+    fileData.clear();
     for (int i = 0; i < nFiles; i++)
     {
-        boost::scoped_array<float> values(new float[size * 7]);
-        fill(values.get(), values.get() + size * 7, 0.0f);
+        boost::scoped_array<Splat> splats(new Splat[size]);
         for (int j = 0; j < size; j++)
-        {
-            values[j * 7 + 0] = i;
-            values[j * 7 + 1] = j;
-        }
-
-        copy(header.begin(), header.end(), back_inserter(fileData[i]));
-        copy(reinterpret_cast<const char *>(values.get()),
-             reinterpret_cast<const char *>(values.get() + size * 7),
-             back_inserter(fileData[i]));
-        files.push_back(new FastPly::Reader(&fileData[i][0], fileData[i].size(), 2.0f));
+            splats[j] = makeSplat(i, j, 0.0f, 1.0f);
+        pair<FastPly::Reader *, char *> r = makeReader(splats.get(), splats.get() + size);
+        files.push_back(r.first);
+        fileData.push_back(boost::shared_array<char>(r.second));
     }
 }
 
@@ -539,11 +603,7 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatCellIntersect, TestSet::perBuild(
 
 void TestSplatCellIntersect::testSimple()
 {
-    Splat splat;
-    splat.position[0] = 10.0f;
-    splat.position[1] = 20.0f;
-    splat.position[2] = 30.0f;
-    splat.radius = 3.0f;
+    Splat splat = makeSplat(10.0f, 20.0f, 30.0f, 3.0f);
 
     // Only the lower grid extent matters. The lower corner of the
     // grid is at -8.0f, -2.0f, 2.0f with spacing 2.0f.
@@ -556,4 +616,288 @@ void TestSplatCellIntersect::testSimple()
     CPPUNIT_ASSERT(!splatCellIntersect(splat, Cell(4, 6, 9, 1), grid));
     // Cell covers (10,20,30)-(12,22,32) (entirely inside bounding box)
     CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(9, 11, 14, 0), grid));
+}
+
+/// Test for @ref Bucket::bucket.
+class TestBucket : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestBucket);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testDensityError);
+    CPPUNIT_TEST(testMultiLevel);
+    CPPUNIT_TEST(testFlat);
+    CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    struct Block
+    {
+        Grid grid;
+        Range::index_type numSplats;
+        vector<Range> ranges;
+    };
+
+    vector<boost::shared_array<char> > fileData;
+    boost::ptr_vector<FastPly::Reader> files;
+
+    void setupSimple();
+
+    void validate(const boost::ptr_vector<FastPly::Reader> &files, const Grid &fullGrid,
+                  const vector<Block> &blocks, std::size_t maxSplats, int maxCells);
+
+    static void bucketFunc(
+        vector<Block> &blocks,
+        const boost::ptr_vector<FastPly::Reader> &files,
+        Range::index_type numSplats,
+        RangeConstIterator first,
+        RangeConstIterator last,
+        const Grid &grid);
+
+public:
+    void testSimple();            ///< Test basic usage
+    void testDensityError();      ///< Test that @ref Bucket::DensityError is thrown correctly
+    void testMultiLevel();        ///< Test recursion of @c bucketRecurse works
+    void testFlat();              ///< Top level already meets the requirements
+    void testEmpty();             ///< Edge case with zero splats inside the grid
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBucket, TestSet::perBuild());
+
+void TestBucket::bucketFunc(
+    vector<Block> &blocks,
+    const boost::ptr_vector<FastPly::Reader> &files,
+    Range::index_type numSplats,
+    RangeConstIterator first,
+    RangeConstIterator last,
+    const Grid &grid)
+{
+    (void) files;
+    blocks.push_back(Block());
+    Block &block = blocks.back();
+    block.numSplats = numSplats;
+    block.grid = grid;
+    copy(first, last, back_inserter(block.ranges));
+}
+
+void TestBucket::validate(
+    const boost::ptr_vector<FastPly::Reader> &files,
+    const Grid &fullGrid,
+    const vector<Block> &blocks,
+    std::size_t maxSplats,
+    int maxCells)
+{
+    // TODO: also need to check that the blocks are no smaller than necessary
+
+    /* To check that we haven't left out any part of a splat, we add up the
+     * areas of the intersections with the blocks and check that it adds up to
+     * the full bounding box of the splat.
+     */
+    vector<vector<double> > areas(files.size());
+    for (std::size_t i = 0; i < files.size(); i++)
+    {
+        areas[i].resize(files[i].numVertices());
+    }
+
+    /* First validate each individual block */
+    BOOST_FOREACH(const Block &block, blocks)
+    {
+        CPPUNIT_ASSERT(block.numSplats <= maxSplats);
+        CPPUNIT_ASSERT(block.grid.numCells(0) <= maxCells);
+        CPPUNIT_ASSERT(block.grid.numCells(1) <= maxCells);
+        CPPUNIT_ASSERT(block.grid.numCells(2) <= maxCells);
+        CPPUNIT_ASSERT(block.numSplats > 0);
+        /* The grid must be a subgrid of the original */
+        CPPUNIT_ASSERT_EQUAL(fullGrid.getSpacing(), block.grid.getSpacing());
+        for (int i = 0; i < 3; i++)
+        {
+            CPPUNIT_ASSERT_EQUAL(fullGrid.getReference()[i], block.grid.getReference()[i]);
+            pair<int, int> fullExtent = fullGrid.getExtent(i);
+            pair<int, int> extent = block.grid.getExtent(i);
+            CPPUNIT_ASSERT(fullExtent.first <= extent.first);
+            CPPUNIT_ASSERT(fullExtent.second >= extent.second);
+        }
+
+        Range::index_type numSplats = 0;
+        /* Checks that
+         * - The splat count must be correct
+         * - There must be no empty ranges
+         * - The splat IDs should be increasing and ranges should be properly coalesced.
+         * - The splats all intersect the block.
+         *
+         * At the same time, we accumulate the intersection area.
+         */
+        float worldLower[3];
+        float worldUpper[3];
+        block.grid.getVertex(0, 0, 0, worldLower);
+        block.grid.getVertex(
+            block.grid.numCells(0),
+            block.grid.numCells(1),
+            block.grid.numCells(2), worldUpper);
+        for (std::size_t i = 0; i < block.ranges.size(); i++)
+        {
+            const Range &range = block.ranges[i];
+            numSplats += range.size;
+            CPPUNIT_ASSERT(range.size > 0);
+            if (i > 0)
+            {
+                const Range &prev = block.ranges[i - 1];
+                // This will fail for input files with >2^32 points, but we aren't testing those
+                // yet.
+                CPPUNIT_ASSERT(range.scan > prev.scan
+                               || (range.scan == prev.scan && range.start > prev.start + prev.size));
+            }
+
+            for (Range::index_type j = range.start; j < range.start + range.size; j++)
+            {
+                Splat splat;
+                files[range.scan].readVertices(j, 1, &splat);
+                double area = 1.0;
+                for (int k = 0; k < 3; k++)
+                {
+                    float lower = splat.position[k] - splat.radius;
+                    float upper = splat.position[k] + splat.radius;
+                    lower = max(lower, worldLower[k]);
+                    upper = min(upper, worldUpper[k]);
+                    CPPUNIT_ASSERT(lower <= upper);
+                    area *= (upper - lower);
+                }
+                areas[range.scan][j] += area;
+            }
+        }
+        CPPUNIT_ASSERT_EQUAL(numSplats, block.numSplats);
+    }
+
+    /* Check that the blocks do not overlap */
+    for (std::size_t b1 = 0; b1 < blocks.size(); b1++)
+        for (std::size_t b2 = b1 + 1; b2 < blocks.size(); b2++)
+        {
+            CPPUNIT_ASSERT(!gridsIntersect(blocks[b1].grid, blocks[b2].grid));
+        }
+
+    /* Check that each splat is fully covered */
+    for (Range::scan_type scan = 0; scan < files.size(); scan++)
+        for (Range::index_type id = 0; id < files[scan].numVertices(); id++)
+        {
+            Splat splat;
+            files[scan].readVertices(id, 1, &splat);
+            double area = 8.0 * splat.radius * splat.radius * splat.radius;
+            CPPUNIT_ASSERT_DOUBLES_EQUAL(area, areas[scan][id], 1e-6);
+        }
+}
+
+void TestBucket::setupSimple()
+{
+    /* To make this easy to visualise, all splats are placed on a single Z plane.
+     * This plane is along a major boundary, so each block can be expected to
+     * appear twice (once on each side of the boundary).
+     */
+    const float z = 10.0f;
+    vector<vector<Splat> > splats(3);
+
+    splats[0].push_back(makeSplat(10.0f, 20.0f, z, 2.0f));
+    splats[0].push_back(makeSplat(30.0f, 17.0f, z, 1.0f));
+    splats[0].push_back(makeSplat(32.0f, 12.0f, z, 1.0f));
+    splats[0].push_back(makeSplat(32.0f, 18.0f, z, 1.0f));
+    splats[0].push_back(makeSplat(37.0f, 18.0f, z, 1.0f));
+    splats[0].push_back(makeSplat(35.0f, 16.0f, z, 3.0f));
+
+    splats[1].push_back(makeSplat(12.0f, 37.0f, z, 1.0f));
+    splats[1].push_back(makeSplat(13.0f, 37.0f, z, 1.0f));
+    splats[1].push_back(makeSplat(12.0f, 38.0f, z, 1.0f));
+    splats[1].push_back(makeSplat(13.0f, 38.0f, z, 1.0f));
+    splats[1].push_back(makeSplat(17.0f, 32.0f, z, 1.0f));
+    splats[2].push_back(makeSplat(18.0f, 33.0f, z, 1.0f));
+    // [2] above is intentional, to mix things up a big
+
+    splats[2].push_back(makeSplat(25.0f, 45.0f, z, 4.0f));
+
+    for (std::size_t i = 0; i < splats.size(); i++)
+    {
+        pair<FastPly::Reader *, char *> r = makeReader(splats[i].begin(), splats[i].end());
+        files.push_back(r.first);
+        fileData.push_back(boost::shared_array<char>(r.second));
+    }
+}
+
+void TestBucket::testSimple()
+{
+    setupSimple();
+
+    const float ref[3] = {-10.0f, 0.0f, 10.0f};
+    Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
+    vector<Block> blocks;
+    const int maxSplats = 5;
+    const int maxCells = 8;
+    const int maxSplit = 1000000;
+    bucket(files, grid, maxSplats, maxCells, maxSplit,
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+    validate(files, grid, blocks, maxSplats, maxCells);
+
+    // 11 was found by inspecting the output and checking the
+    // blocks by hand
+    CPPUNIT_ASSERT_EQUAL(11, int(blocks.size()));
+}
+
+void TestBucket::testDensityError()
+{
+    setupSimple();
+
+    const float ref[3] = {-10.0f, 0.0f, 10.0f};
+    Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
+    vector<Block> blocks;
+    const int maxSplats = 1;
+    const int maxCells = 8;
+    const int maxSplit = 1000000;
+    CPPUNIT_ASSERT_THROW(
+        bucket(files, grid, maxSplats, maxCells, maxSplit,
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5)),
+        DensityError);
+}
+
+void TestBucket::testFlat()
+{
+    setupSimple();
+
+    const float ref[3] = {-10.0f, 0.0f, 10.0f};
+    Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
+    vector<Block> blocks;
+    const int maxSplats = 15;
+    const int maxCells = 32;
+    const int maxSplit = 1000000;
+    bucket(files, grid, maxSplats, maxCells, maxSplit,
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+    validate(files, grid, blocks, maxSplats, maxCells);
+
+    CPPUNIT_ASSERT_EQUAL(1, int(blocks.size()));
+}
+
+void TestBucket::testEmpty()
+{
+    const float ref[3] = {-10.0f, 0.0f, 10.0f};
+    Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
+    vector<Block> blocks;
+    const int maxSplats = 5;
+    const int maxCells = 8;
+    const int maxSplit = 1000000;
+    bucket(files, grid, maxSplats, maxCells, maxSplit,
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+    CPPUNIT_ASSERT(blocks.empty());
+}
+
+void TestBucket::testMultiLevel()
+{
+    setupSimple();
+
+    const float ref[3] = {-10.0f, 0.0f, 10.0f};
+    Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
+    vector<Block> blocks;
+    const int maxSplats = 5;
+    const int maxCells = 8;
+    const int maxSplit = 8;
+    bucket(files, grid, maxSplats, maxCells, maxSplit,
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+    validate(files, grid, blocks, maxSplats, maxCells);
+
+    // 11 was found by inspecting the output and checking the
+    // blocks by hand
+    CPPUNIT_ASSERT_EQUAL(11, int(blocks.size()));
 }
