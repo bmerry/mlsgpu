@@ -19,6 +19,9 @@
 #include "grid.h"
 #include "fast_ply.h"
 
+/**
+ * Bucketing of large numbers of splats into blocks.
+ */
 namespace Bucket
 {
 
@@ -49,8 +52,11 @@ public:
  */
 struct Range
 {
+    /// Type used to index the list of files
     typedef std::tr1::uint32_t scan_type;
+    /// Type used to specify the length of a range
     typedef std::tr1::uint32_t size_type;
+    /// Type used to index a splat within a file
     typedef std::tr1::uint64_t index_type;
 
     /* Note: the order of these is carefully chosen for alignment */

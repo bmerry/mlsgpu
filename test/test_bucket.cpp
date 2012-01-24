@@ -10,8 +10,15 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <boost/bind.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/foreach.hpp>
+#include <boost/ref.hpp>
+#include <string>
 #include <vector>
 #include <iterator>
+#include <algorithm>
+#include <utility>
 #include "testmain.h"
 #include "../src/bucket.h"
 #include "../src/bucket_internal.h"
@@ -144,7 +151,7 @@ void TestRange::testAppendNewScan()
 
 
 /**
- * Tests for @ref RangeCounter.
+ * Tests for @ref Bucket::internal::RangeCounter.
  */
 class TestRangeCounter : public CppUnit::TestFixture
 {
@@ -181,7 +188,7 @@ void TestRangeCounter::testSimple()
 }
 
 /**
- * Tests for @ref RangeCollector.
+ * Tests for @ref Bucket::internal::RangeCollector.
  */
 class TestRangeCollector : public CppUnit::TestFixture
 {
@@ -274,9 +281,10 @@ void TestRangeCollector::testFlushEmpty()
 
 
 /**
- * Slow tests for RangeCounter and RangeCollector. These tests are
- * designed to catch overflow conditions and hence necessarily involve running
- * O(2^32) operations. They are thus nightly rather than per-build tests.
+ * Slow tests for Bucket::internal::RangeCounter and Bucket::internal::RangeCollector.
+ * These tests are designed to catch overflow conditions and hence necessarily
+ * involve running O(2^32) operations. They are thus nightly rather than
+ * per-build tests.
  */
 class TestRangeBig : public CppUnit::TestFixture
 {
@@ -336,7 +344,7 @@ std::ostream &operator<<(std::ostream &o, const Cell &cell)
 }
 
 /**
- * Test code for @ref forEachCell.
+ * Test code for @ref Bucket::internal::forEachCell.
  */
 class TestForEachCell : public CppUnit::TestFixture
 {
@@ -406,11 +414,108 @@ void TestForEachCell::testAsserts()
 }
 
 /**
- * Test code for @ref forEachSplat.
+ * Test code for @ref Bucket::internal::forEachSplat.
  */
 class TestForEachSplat : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestForEachSplat);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testEmpty);
     CPPUNIT_TEST_SUITE_END();
+private:
+    typedef pair<Range::scan_type, Range::index_type> Id;
+    vector<vector<char> > fileData;
+    boost::ptr_vector<FastPly::Reader> files;
+
+    void splatFunc(Range::scan_type scan, Range::index_type id, const Splat &splat, vector<Id> &out);
+public:
+    virtual void setUp();
+
+    void testSimple();
+    void testEmpty();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestForEachSplat, TestSet::perBuild());
+
+void TestForEachSplat::splatFunc(Range::scan_type scan, Range::index_type id, const Splat &splat, vector<Id> &out)
+{
+    // Check that the ID information we're given matches what we encoded into the splats
+    CPPUNIT_ASSERT_EQUAL(scan, Range::scan_type(splat.position[0]));
+    CPPUNIT_ASSERT_EQUAL(id, Range::index_type(splat.position[1]));
+
+    out.push_back(Id(scan, id));
+}
+
+void TestForEachSplat::setUp()
+{
+    CppUnit::TestFixture::setUp();
+    int size = 100000;
+    int nFiles = 5;
+    string header =
+        "ply\n"
+        "format binary_little_endian 1.0\n"
+        "element vertex 100000\n"
+        "property float32 x\n"
+        "property float32 y\n"
+        "property float32 z\n"
+        "property float32 nx\n"
+        "property float32 ny\n"
+        "property float32 nz\n"
+        "property float32 radius\n"
+        "end_header\n";
+
+    fileData.resize(nFiles);
+    for (int i = 0; i < nFiles; i++)
+    {
+        boost::scoped_array<float> values(new float[size * 7]);
+        fill(values.get(), values.get() + size * 7, 0.0f);
+        for (int j = 0; j < size; j++)
+        {
+            values[j * 7 + 0] = i;
+            values[j * 7 + 1] = j;
+        }
+
+        copy(header.begin(), header.end(), back_inserter(fileData[i]));
+        copy(reinterpret_cast<const char *>(values.get()),
+             reinterpret_cast<const char *>(values.get() + size * 7),
+             back_inserter(fileData[i]));
+        files.push_back(new FastPly::Reader(&fileData[i][0], fileData[i].size(), 2.0f));
+    }
+}
+
+void TestForEachSplat::testSimple()
+{
+    vector<Id> expected, actual;
+    vector<Range> ranges;
+
+    ranges.push_back(Range(0, 0));
+    ranges.push_back(Range(0, 2, 3));
+    ranges.push_back(Range(1, 2, 3));
+    ranges.push_back(Range(2, 100, 40000)); // Large range to test buffering
+
+    BOOST_FOREACH(const Range &range, ranges)
+    {
+        for (Range::index_type i = 0; i < range.size; ++i)
+        {
+            expected.push_back(Id(range.scan, range.start + i));
+        }
+    }
+
+    forEachSplat(files, ranges.begin(), ranges.end(),
+                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, _3, boost::ref(actual)));
+    CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
+    for (size_t i = 0; i < actual.size(); i++)
+    {
+        CPPUNIT_ASSERT_EQUAL(expected[i].first, actual[i].first);
+        CPPUNIT_ASSERT_EQUAL(expected[i].second, actual[i].second);
+    }
+}
+
+void TestForEachSplat::testEmpty()
+{
+    vector<Range> ranges;
+    vector<Id> actual;
+
+    forEachSplat(files, ranges.begin(), ranges.end(),
+                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, _3, boost::ref(actual)));
+    CPPUNIT_ASSERT(actual.empty());
+}

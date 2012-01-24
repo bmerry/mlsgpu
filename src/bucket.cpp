@@ -242,40 +242,8 @@ const BucketState::CellState &BucketState::getCellState(const internal::Cell &ce
     return cellStates[cell.level - microShift](coords);
 }
 
-template<typename Func>
-static void forEachSplat(
-    const boost::ptr_vector<FastPly::Reader> &files,
-    RangeConstIterator first,
-    RangeConstIterator last,
-    const Func &func)
-{
-    static const std::size_t splatBufferSize = 8192;
-
-    /* First pass over the splats: count things up */
-    for (RangeConstIterator it = first; it != last; ++it)
-    {
-        const Range &range = *it;
-        Splat buffer[splatBufferSize];
-        Range::size_type size = range.size;
-        Range::index_type start = range.start;
-        while (size != 0)
-        {
-            Range::size_type chunkSize = size;
-            if (splatBufferSize < size)
-                chunkSize = splatBufferSize;
-            files[range.scan].readVertices(start, chunkSize, buffer);
-            for (std::size_t j = 0; j < chunkSize; j++)
-            {
-                boost::unwrap_ref(func)(range.scan, start + j, buffer[j]);
-            }
-            size -= chunkSize;
-            start += chunkSize;
-        }
-    }
-}
-
 /**
- * Function object for use with forEachSplat that enters the splat
+ * Function object for use with @ref Bucket::internal::forEachSplat that enters the splat
  * into all corresponding counters in the tree.
  */
 class CountSplat
@@ -284,7 +252,7 @@ private:
     BucketState &state;
 
     /**
-     * Functor for @ref forEachCell that enters a single splat into the counters in the
+     * Functor for @ref Bucket::internal::forEachCell that enters a single splat into the counters in the
      * hierarchy.
      */
     class CountOneSplat
@@ -329,7 +297,7 @@ bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
 }
 
 /**
- * Functor for @ref forEachCell that chooses which cells to make blocks
+ * Functor for @ref Bucket::internal::forEachCell that chooses which cells to make blocks
  * out of. A cell is chosen if it contains few enough splats and is
  * small enough, or if it is a microblock. Otherwise it is split.
  *
@@ -367,7 +335,7 @@ bool PickCells::operator()(const internal::Cell &cell) const
 }
 
 /**
- * Functor for @ref forEachSplat that places splat information into the allocated buckets.
+ * Functor for @ref Bucket::internal::forEachSplat that places splat information into the allocated buckets.
  */
 class BucketSplats
 {
@@ -375,7 +343,7 @@ private:
     BucketState &state;
 
     /**
-     * Functor for @ref forEachCell that enters one splat into the relevant cells.
+     * Functor for @ref Bucket::internal::forEachCell that enters one splat into the relevant cells.
      */
     class BucketOneSplat
     {
@@ -474,7 +442,7 @@ static void bucketRecurse(RangeConstIterator first,
         {
             BucketState state(params, dims, microShift, macroLevels);
             /* Create histogram */
-            forEachSplat(params.files, first, last, CountSplat(state));
+            internal::forEachSplat(params.files, first, last, CountSplat(state));
             /* Select cells to bucket splats into */
             internal::forEachCell(state.dims, state.microShift + state.macroLevels, PickCells(state));
             /* Do the bucketing.
@@ -487,7 +455,7 @@ static void bucketRecurse(RangeConstIterator first,
             for (std::size_t i = 0; i < numPicked; i++)
                 state.childCur.push_back(internal::RangeCollector<std::vector<Range>::iterator>(
                         childRanges.begin() + state.pickedOffset[i]));
-            forEachSplat(params.files, first, last, BucketSplats(state));
+            internal::forEachSplat(params.files, first, last, BucketSplats(state));
             for (std::size_t i = 0; i < numPicked; i++)
                 state.childCur[i].flush();
 
@@ -614,7 +582,7 @@ Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
         throw std::length_error("Must be at least one splat");
 
     MakeGrid state;
-    forEachSplat(files, root.begin(), root.end(), boost::ref(state));
+    internal::forEachSplat(files, root.begin(), root.end(), boost::ref(state));
 
     int extents[3][2];
     for (unsigned int i = 0; i < 3; i++)

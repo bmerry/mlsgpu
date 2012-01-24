@@ -14,11 +14,18 @@
 #endif
 #include <tr1/cstdint>
 #include <cstddef>
+#include <boost/ref.hpp>
 #include "bucket.h"
 #include "errors.h"
+#include "fast_ply.h"
+#include "splat.h"
 
 namespace Bucket
 {
+
+/**
+ * Internal classes and functions for bucketing.
+ */
 namespace internal
 {
 
@@ -220,6 +227,46 @@ void forEachCell(const Cell::size_type dims[3], int levels, const Func &func)
     forEachCell_r(dims, Cell(0, 0, 0, level), func);
 }
 
+
+/**
+ * Iterate over all splats given be a collection of @ref Range, calling
+ * a user-provided function for each.
+ *
+ * @param files        Files references by the ranges.
+ * @param first, last  %Range of @ref Range objects.
+ * @param func         User-provided callback.
+ */
+template<typename Func>
+void forEachSplat(
+    const boost::ptr_vector<FastPly::Reader> &files,
+    RangeConstIterator first,
+    RangeConstIterator last,
+    const Func &func)
+{
+    // Maximum number of splats we read from a range.
+    static const std::size_t splatBufferSize = 8192;
+
+    for (RangeConstIterator it = first; it != last; ++it)
+    {
+        const Range &range = *it;
+        Splat buffer[splatBufferSize];
+        Range::size_type size = range.size;
+        Range::index_type start = range.start;
+        while (size != 0)
+        {
+            Range::size_type chunkSize = size;
+            if (splatBufferSize < size)
+                chunkSize = splatBufferSize;
+            files[range.scan].readVertices(start, chunkSize, buffer);
+            for (std::size_t j = 0; j < chunkSize; j++)
+            {
+                boost::unwrap_ref(func)(range.scan, start + j, buffer[j]);
+            }
+            size -= chunkSize;
+            start += chunkSize;
+        }
+    }
+}
 
 } // namespace internal
 } // namespace Bucket
