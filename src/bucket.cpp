@@ -21,6 +21,7 @@
 #include <boost/numeric/conversion/converter.hpp>
 #include "splat.h"
 #include "bucket.h"
+#include "bucket_internal.h"
 #include "errors.h"
 
 typedef boost::numeric::converter<

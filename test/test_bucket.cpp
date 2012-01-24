@@ -13,6 +13,7 @@
 #include <iterator>
 #include "testmain.h"
 #include "../src/bucket.h"
+#include "../src/bucket_internal.h"
 
 using namespace std;
 using namespace Bucket;
