@@ -11,6 +11,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <vector>
+#include <tr1/random>
 #include "testmain.h"
 #include "../src/splat.h"
 #include "../src/grid.h"
@@ -70,7 +71,7 @@ void TestSplatTree::testBuild()
     std::size_t numLevels;
     std::vector<command_type> commands;
     std::vector<command_type> start;
-    build(numLevels, commands, start, splats, grid);
+    build(numLevels, commands, start, splats, 9, 0, 1001, grid);
 
     const command_type expectedCommands[] =
     {
@@ -156,5 +157,73 @@ void TestSplatTree::testBuild()
                         expected = regions[i].start;
                 }
                 CPPUNIT_ASSERT_EQUAL(expected, start[idx]);
+            }
+}
+
+void TestSplatTree::testRandom()
+{
+    typedef SplatTree::command_type command_type;
+    typedef tr1::mt19937 engine_type;
+    typedef tr1::uniform_real<float> dist_type;
+    typedef tr1::variate_generator<engine_type &, dist_type> gen_type;
+    engine_type engine;
+
+    // These values are chosen from a real-world failure case
+    const int numSplats = 207;
+    const int maxSplats = 1000;
+    const int subsamplingShift = 2;
+    const int maxLevels = 8;
+    const int cells[3] = {31, 31, 16};
+    gen_type xyzGen[3] =
+    {
+        gen_type(engine, dist_type(-1.0f, cells[0] + 1.0f)),
+        gen_type(engine, dist_type(-1.0f, cells[1] + 1.0f)),
+        gen_type(engine, dist_type(-1.0f, cells[2] + 1.0f))
+    };
+    gen_type rGen(engine, dist_type(0.25f, 8.0f));
+
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    Grid grid(ref, 1.0f, 0, cells[0], 0, cells[1], 0, cells[2]);
+
+    vector<Splat> splats;
+    for (int i = 0; i < numSplats; i++)
+    {
+        addSplat(splats, xyzGen[0](), xyzGen[1](), xyzGen[2](), rGen());
+    }
+
+    std::size_t numLevels;
+    std::vector<command_type> commands;
+    std::vector<command_type> start;
+    build(numLevels, commands, start, splats, maxLevels, subsamplingShift, maxSplats, grid);
+
+    // Try each start value and check that it gives a terminating sequence of valid splat IDs
+    for (int z = 0; z <= cells[2]; z++)
+        for (int y = 0; y <= cells[1]; y++)
+            for (int x = 0; x <= cells[0]; x++)
+            {
+                unsigned int idx = SplatTree::makeCode(x, y, z);
+                CPPUNIT_ASSERT(idx < start.size());
+                if (start[idx] != -1)
+                {
+                    CPPUNIT_ASSERT(start[idx] >= 0 && size_t(start[idx]) < commands.size());
+                    command_type pos = start[idx];
+                    size_t steps = 0; // for detecting loops
+                    while (size_t(steps) <= commands.size())
+                    {
+                        command_type cmd = commands[pos];
+                        if (cmd == -1)
+                            break;
+                        else if (cmd < 0)
+                        {
+                            pos = -2 - cmd;
+                            CPPUNIT_ASSERT(size_t(pos) < commands.size());
+                            cmd = commands[pos];
+                        }
+                        CPPUNIT_ASSERT(cmd >= 0 && size_t(cmd) < splats.size());
+                        steps++;
+                        pos++;
+                    }
+                    CPPUNIT_ASSERT_MESSAGE("Infinite loop in command list", steps <= commands.size());
+                }
             }
 }

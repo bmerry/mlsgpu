@@ -44,7 +44,9 @@ protected:
         std::size_t &numLevels,
         std::vector<SplatTree::command_type> &commands,
         std::vector<SplatTree::command_type> &start,
-        const std::vector<Splat> &splats, const Grid &grid);
+        const std::vector<Splat> &splats,
+        int maxLevels, int subsamplingShift, std::size_t maxSplats,
+        const Grid &grid);
 
 private:
     cl::Program octreeProgram;  ///< Program compiled from @ref octree.cl.
@@ -165,11 +167,13 @@ void TestSplatTreeCL::build(
     std::size_t &numLevels,
     std::vector<SplatTree::command_type> &commands,
     std::vector<SplatTree::command_type> &start,
-    const std::vector<Splat> &splats, const Grid &grid)
+    const std::vector<Splat> &splats,
+    int maxLevels, int subsamplingShift, std::size_t maxSplats,
+    const Grid &grid)
 {
-    SplatTreeCL tree(context, 9, 1001);
+    SplatTreeCL tree(context, maxLevels, maxSplats);
     std::vector<cl::Event> events(1);
-    tree.enqueueBuild(queue, &splats[0], splats.size(), grid, 0, CL_FALSE, NULL, NULL, &events[0]);
+    tree.enqueueBuild(queue, &splats[0], splats.size(), grid, subsamplingShift, CL_FALSE, NULL, NULL, &events[0]);
 
     std::size_t commandsSize = tree.getCommands().getInfo<CL_MEM_SIZE>();
     std::size_t startSize = tree.getStart().getInfo<CL_MEM_SIZE>();
