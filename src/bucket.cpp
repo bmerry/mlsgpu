@@ -86,6 +86,44 @@ bool Range::append(scan_type scan, index_type splat)
 namespace internal
 {
 
+Cell::Cell(const size_type base[3], int level) : level(level)
+{
+    MLSGPU_ASSERT(level < std::numeric_limits<size_type>::digits, std::out_of_range);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        MLSGPU_ASSERT(base[i] <= std::numeric_limits<size_type>::max() - (size_type(1) << level), std::out_of_range);
+        this->base[i] = base[i];
+    }
+}
+
+Cell::Cell(size_type x, size_type y, size_type z, int level) : level(level)
+{
+    base[0] = x;
+    base[1] = y;
+    base[2] = z;
+    MLSGPU_ASSERT(level < std::numeric_limits<size_type>::digits, std::out_of_range);
+    for (int i = 0; i < 3; i++)
+    {
+        MLSGPU_ASSERT(base[i] <= std::numeric_limits<size_type>::max() - (size_type(1) << level), std::out_of_range);
+    }
+}
+
+bool Cell::operator==(const Cell &c) const
+{
+    return base[0] == c.base[0] && base[1] == c.base[1] && base[2] == c.base[2]
+        && level == c.level;
+}
+
+void Cell::getCorners(size_type lower[3], size_type upper[3]) const
+{
+    size_type size = getSize();
+    for (int i = 0; i < 3; i++)
+    {
+        lower[i] = base[i];
+        upper[i] = base[i] + size;
+    }
+}
+
 RangeCounter::RangeCounter() : ranges(0), splats(0), current()
 {
 }
@@ -111,6 +149,23 @@ std::tr1::uint64_t RangeCounter::countRanges() const
 std::tr1::uint64_t RangeCounter::countSplats() const
 {
     return splats;
+}
+
+bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid)
+{
+    Cell::size_type lower[3], upper[3];
+    cell.getCorners(lower, upper);
+    float lo[3], hi[3];
+
+    grid.getVertex(lower[0], lower[1], lower[2], lo);
+    grid.getVertex(upper[0], upper[1], upper[2], hi);
+
+    // Bounding box test. We don't bother with an exact sphere-box test
+    for (int i = 0; i < 3; i++)
+        if (splat.position[i] + splat.radius < lo[i]
+            || splat.position[i] - splat.radius > hi[i])
+            return false;
+    return true;
 }
 
 } // namespace internal
@@ -140,22 +195,6 @@ template<typename S, typename T>
 static inline S divUp(S a, T b)
 {
     return (a + b - 1) / b;
-}
-
-static bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid)
-{
-    std::size_t size = std::size_t(1) << cell.level;
-    float lo[3], hi[3];
-
-    grid.getVertex(cell.base[0], cell.base[1], cell.base[2], lo);
-    grid.getVertex(cell.base[0] + size, cell.base[1] + size, cell.base[2] + size, hi);
-
-    // Bounding box test. We don't bother an exact sphere-box test
-    for (int i = 0; i < 3; i++)
-        if (splat.position[i] + splat.radius < lo[i]
-            || splat.position[i] - splat.radius > hi[i])
-            return false;
-    return true;
 }
 
 struct BucketParameters
@@ -188,7 +227,7 @@ struct BucketState
     };
 
     const BucketParameters &params;
-    std::size_t dims[3];
+    internal::Cell::size_type dims[3];
     int microShift;
     int macroLevels;
     std::vector<boost::multi_array<CellState, 3> > cellStates;
@@ -198,7 +237,7 @@ struct BucketState
 
     std::vector<internal::RangeCollector<std::vector<Range>::iterator> > childCur;
 
-    BucketState(const BucketParameters &params, const std::size_t dims[3],
+    BucketState(const BucketParameters &params, const internal::Cell::size_type dims[3],
                 int microShift, int macroLevels);
 
     CellState &getCellState(const internal::Cell &cell);
@@ -206,7 +245,7 @@ struct BucketState
 };
 
 BucketState::BucketState(
-    const BucketParameters &params, const std::size_t dims[3],
+    const BucketParameters &params, const internal::Cell::size_type dims[3],
     int microShift, int macroLevels)
     : params(params), microShift(microShift), macroLevels(macroLevels),
     cellStates(macroLevels), nextOffset(0)
@@ -217,29 +256,29 @@ BucketState::BucketState(
 
     for (int level = 0; level < macroLevels; level++)
     {
-        boost::array<std::size_t, 3> s;
+        boost::array<internal::Cell::size_type, 3> s;
         for (int i = 0; i < 3; i++)
-            s[i] = divUp(dims[i], std::size_t(1) << (microShift + level));
+            s[i] = divUp(dims[i], internal::Cell::size_type(1) << (microShift + level));
         cellStates[level].resize(s);
     }
 }
 
 BucketState::CellState &BucketState::getCellState(const internal::Cell &cell)
 {
-    boost::array<std::size_t, 3> coords;
+    boost::array<internal::Cell::size_type, 3> coords;
     for (int i = 0; i < 3; i++)
-        coords[i] = cell.base[i] >> cell.level;
-    assert(cell.level >= microShift && std::size_t(cell.level) < microShift + cellStates.size());
-    return cellStates[cell.level - microShift](coords);
+        coords[i] = cell.getBase()[i] >> cell.getLevel();
+    assert(microShift <= cell.getLevel() && cell.getLevel() < int(microShift + cellStates.size()));
+    return cellStates[cell.getLevel() - microShift](coords);
 }
 
 const BucketState::CellState &BucketState::getCellState(const internal::Cell &cell) const
 {
-    boost::array<std::size_t, 3> coords;
+    boost::array<internal::Cell::size_type, 3> coords;
     for (int i = 0; i < 3; i++)
-        coords[i] = cell.base[i] >> cell.level;
-    assert(cell.level >= microShift && std::size_t(cell.level) < microShift + cellStates.size());
-    return cellStates[cell.level - microShift](coords);
+        coords[i] = cell.getBase()[i] >> cell.getLevel();
+    assert(microShift <= cell.getLevel() && cell.getLevel() < int(microShift + cellStates.size()));
+    return cellStates[cell.getLevel() - microShift](coords);
 }
 
 /**
@@ -284,7 +323,7 @@ void CountSplat::operator()(Range::scan_type scan, Range::index_type id, const S
 
 bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
 {
-    assert(cell.level >= state.microShift);
+    assert(cell.getLevel() >= state.microShift);
 
     if (!splatCellIntersect(splat, cell, state.params.grid))
         return false;
@@ -293,7 +332,7 @@ bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
     state.getCellState(cell).counter.append(scan, id);
 
     // Recurse into children, unless we've reached microblock level
-    return cell.level > state.microShift;
+    return cell.getLevel() > state.microShift;
 }
 
 /**
@@ -314,15 +353,14 @@ public:
 
 bool PickCells::operator()(const internal::Cell &cell) const
 {
-    std::size_t size = std::size_t(1) << cell.level;
     BucketState::CellState &cs = state.getCellState(cell);
 
     // Skip completely empty regions
     if (cs.counter.countSplats() == 0)
         return false;
 
-    if (cell.level == state.microShift
-        || (size <= state.params.maxCells && cs.counter.countSplats() <= state.params.maxSplats))
+    if (cell.getLevel() == state.microShift
+        || (cell.getSize() <= state.params.maxCells && cs.counter.countSplats() <= state.params.maxSplats))
     {
         cs.blockId = state.picked.size();
         state.picked.push_back(cell);
@@ -367,7 +405,7 @@ public:
 
 bool BucketSplats::BucketOneSplat::operator()(const internal::Cell &cell) const
 {
-    assert(cell.level >= state.microShift);
+    assert(cell.getLevel() >= state.microShift);
 
     if (!splatCellIntersect(splat, cell, state.params.grid))
         return false;
@@ -396,10 +434,10 @@ static void bucketRecurse(RangeConstIterator first,
                           Range::index_type numSplats,
                           const BucketParameters &params)
 {
-    std::size_t dims[3];
+    internal::Cell::size_type dims[3];
     for (int i = 0; i < 3; i++)
         dims[i] = params.grid.numCells(i);
-    std::size_t maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
+    internal::Cell::size_type maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
@@ -414,18 +452,18 @@ static void bucketRecurse(RangeConstIterator first,
         /* Pick a power-of-two size such that we don't exceed maxSplit
          * microblocks.
          */
-        std::size_t microSize = 1;
+        internal::Cell::size_type microSize = 1;
         int microShift = 0;
         std::size_t microBlocks = 1;
         for (int i = 0; i < 3; i++)
-            microBlocks = mulSat(microBlocks, divUp(dims[i], microSize));
+            microBlocks = mulSat(microBlocks, std::size_t(divUp(dims[i], microSize)));
         while (microBlocks > params.maxSplit)
         {
             microSize *= 2;
             microShift++;
             microBlocks = 1;
             for (int i = 0; i < 3; i++)
-                microBlocks = mulSat(microBlocks, divUp(dims[i], microSize));
+                microBlocks = mulSat(microBlocks, std::size_t(divUp(dims[i], microSize)));
         }
 
         /* Levels in octree-like structure */
@@ -474,11 +512,10 @@ static void bucketRecurse(RangeConstIterator first,
         for (std::size_t i = 0; i < numPicked; i++)
         {
             const internal::Cell &cell = savedPicked[i];
-            std::size_t size = std::size_t(1) << cell.level;
+            internal::Cell::size_type lower[3], upper[3];
+            cell.getCorners(lower, upper);
             Grid childGrid = params.grid.subGrid(
-                cell.base[0], cell.base[0] + size,
-                cell.base[1], cell.base[1] + size,
-                cell.base[2], cell.base[2] + size);
+                lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
             BucketParameters childParams(params.files, childGrid, params.process,
                                          params.maxSplats, params.maxCells, params.maxSplit);
             bucketRecurse(childRanges.begin() + savedOffset[i],

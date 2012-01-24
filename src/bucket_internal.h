@@ -15,10 +15,12 @@
 #include <tr1/cstdint>
 #include <cstddef>
 #include <boost/ref.hpp>
+#include <boost/array.hpp>
 #include "bucket.h"
 #include "errors.h"
 #include "fast_ply.h"
 #include "splat.h"
+#include "grid.h"
 
 namespace Bucket
 {
@@ -32,33 +34,53 @@ namespace internal
 /**
  * A cube with power-of-two side lengths.
  */
-struct Cell
+class Cell
 {
-    typedef std::size_t size_type;
-    size_type base[3];         ///< Coordinates of lower-left-bottom corner
-    int level;                 ///< Log base two of the side length
+public:
+    /**
+     * Type used to represent cell coordinates. Note that there is no point
+     * in this being wider than the type used by @ref Grid.
+     */
+    typedef unsigned int size_type;
 
     /// Default constructor: does not initialize anything.
     Cell() {}
 
-    Cell(const size_type base[3], int level) : level(level)
-    {
-        for (unsigned int i = 0; i < 3; i++)
-            this->base[i] = base[i];
-    }
+    /**
+     * Constructor from an array.
+     * @param base     Coordinates of minimum corner.
+     * @param level    Log base two of the side length.
+     * @pre The coordinates of the maximum corner do not overflow @ref size_type.
+     */
 
-    Cell(size_type x, size_type y, size_type z, int level) : level(level)
-    {
-        base[0] = x;
-        base[1] = y;
-        base[2] = z;
-    }
+    Cell(const size_type base[3], int level);
 
-    bool operator==(const Cell &c) const
-    {
-        return base[0] == c.base[0] && base[1] == c.base[1] && base[2] == c.base[2]
-            && level == c.level;
-    }
+    /**
+     * Constructor from scalars.
+     * @param x,y,z    Coordinates of minimum corner.
+     * @param level    Log base two of the side length.
+     * @pre The coordinates of the maximum corner do not overflow @ref size_type.
+     */
+    Cell(size_type x, size_type y, size_type z, int level);
+
+    /// Equality comparison operator
+    bool operator==(const Cell &c) const;
+
+    /// Get the log base 2 of the side length
+    int getLevel() const { return level; }
+
+    /// Get the side length
+    size_type getSize() const { return size_type(1) << level; }
+
+    /// Get the lower corner
+    const size_type *getBase() const { return base; }
+
+    /// Get the bounding corners
+    void getCorners(size_type lower[3], size_type upper[3]) const;
+
+private:
+    size_type base[3];         ///< Coordinates of lower-left-bottom corner
+    int level;                 ///< Log base two of the side length
 };
 
 /**
@@ -180,19 +202,19 @@ void forEachCell_r(const Cell::size_type dims[3], const Cell &cell, const Func &
 {
     if (func(cell))
     {
-        if (cell.level > 0)
+        if (cell.getLevel() > 0)
         {
-            const Cell::size_type half = Cell::size_type(1) << (cell.level - 1);
+            const Cell::size_type half = cell.getSize() / 2;
             for (int i = 0; i < 8; i++)
             {
                 const Cell::size_type base[3] =
                 {
-                    cell.base[0] + (i & 1 ? half : 0),
-                    cell.base[1] + (i & 2 ? half : 0),
-                    cell.base[2] + (i & 4 ? half : 0)
+                    cell.getBase()[0] + (i & 1 ? half : 0),
+                    cell.getBase()[1] + (i & 2 ? half : 0),
+                    cell.getBase()[2] + (i & 4 ? half : 0)
                 };
                 if (base[0] < dims[0] && base[1] < dims[1] && base[2] < dims[2])
-                    forEachCell_r(dims, Cell(base, cell.level - 1), func);
+                    forEachCell_r(dims, Cell(base, cell.getLevel() - 1), func);
             }
         }
     }
@@ -267,6 +289,8 @@ void forEachSplat(
         }
     }
 }
+
+bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid);
 
 } // namespace internal
 } // namespace Bucket
