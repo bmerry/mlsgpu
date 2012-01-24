@@ -36,28 +36,30 @@ typedef boost::numeric::converter<
     boost::numeric::def_overflow_handler,
     boost::numeric::Floor<float> > RoundDown;
 
+namespace Bucket
+{
 
-SplatRange::SplatRange() :
+Range::Range() :
     scan(std::numeric_limits<scan_type>::max()),
     size(0),
     start(std::numeric_limits<index_type>::max())
 {
 }
 
-SplatRange::SplatRange(scan_type scan, index_type splat) :
+Range::Range(scan_type scan, index_type splat) :
     scan(scan),
     size(1),
     start(splat)
 {
 }
 
-SplatRange::SplatRange(scan_type scan, index_type start, size_type size)
+Range::Range(scan_type scan, index_type start, size_type size)
     : scan(scan), size(size), start(start)
 {
     MLSGPU_ASSERT(size == 0 || start <= std::numeric_limits<index_type>::max() - size + 1, std::out_of_range);
 }
 
-bool SplatRange::append(scan_type scan, index_type splat)
+bool Range::append(scan_type scan, index_type splat)
 {
     if (size == 0)
     {
@@ -80,11 +82,14 @@ bool SplatRange::append(scan_type scan, index_type splat)
     return true;
 }
 
-SplatRangeCounter::SplatRangeCounter() : ranges(0), splats(0), current()
+namespace internal
+{
+
+RangeCounter::RangeCounter() : ranges(0), splats(0), current()
 {
 }
 
-void SplatRangeCounter::append(SplatRange::scan_type scan, SplatRange::index_type splat)
+void RangeCounter::append(Range::scan_type scan, Range::index_type splat)
 {
     splats++;
     /* On the first call, the append will succeed (empty range), but we still
@@ -92,20 +97,22 @@ void SplatRangeCounter::append(SplatRange::scan_type scan, SplatRange::index_typ
      */
     if (ranges == 0 || !current.append(scan, splat))
     {
-        current = SplatRange(scan, splat);
+        current = Range(scan, splat);
         ranges++;
     }
 }
 
-std::tr1::uint64_t SplatRangeCounter::countRanges() const
+std::tr1::uint64_t RangeCounter::countRanges() const
 {
     return ranges;
 }
 
-std::tr1::uint64_t SplatRangeCounter::countSplats() const
+std::tr1::uint64_t RangeCounter::countSplats() const
 {
     return splats;
 }
+
+} // namespace internal
 
 namespace
 {
@@ -180,13 +187,13 @@ struct BucketParameters
     /// Input files holding the raw splats
     const boost::ptr_vector<FastPly::Reader> &files;
     const Grid &grid;                   ///< Bounding box for the entire region
-    const BucketProcessor &process;     ///< Processing function
-    SplatRange::index_type maxSplats;   ///< Maximum splats permitted for processing
+    const Processor &process;           ///< Processing function
+    Range::index_type maxSplats;        ///< Maximum splats permitted for processing
     unsigned int maxCells;              ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
 
     BucketParameters(const boost::ptr_vector<FastPly::Reader> &files, const Grid &grid,
-                     const BucketProcessor &process, SplatRange::index_type maxSplats,
+                     const Processor &process, Range::index_type maxSplats,
                      unsigned int maxCells, std::size_t maxSplit)
         : files(files), grid(grid), process(process),
         maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit) {}
@@ -198,7 +205,7 @@ struct BucketState
 {
     struct CellState
     {
-        SplatRangeCounter counter;
+        internal::RangeCounter counter;
         std::size_t blockId;
 
         CellState() : blockId(BAD_BLOCK) {}
@@ -213,7 +220,7 @@ struct BucketState
     std::vector<std::tr1::uint64_t> pickedOffset;
     std::tr1::uint64_t nextOffset;
 
-    std::vector<SplatRangeCollector<std::vector<SplatRange>::iterator> > childCur;
+    std::vector<internal::RangeCollector<std::vector<Range>::iterator> > childCur;
 
     BucketState(const BucketParameters &params, const std::size_t dims[3],
                 int microShift, int macroLevels);
@@ -297,22 +304,22 @@ static void forEachCell(const std::size_t dims[3], int levels, const Func &func)
 template<typename Func>
 static void forEachSplat(
     const boost::ptr_vector<FastPly::Reader> &files,
-    SplatRangeConstIterator first,
-    SplatRangeConstIterator last,
+    RangeConstIterator first,
+    RangeConstIterator last,
     const Func &func)
 {
     static const std::size_t splatBufferSize = 8192;
 
     /* First pass over the splats: count things up */
-    for (SplatRangeConstIterator it = first; it != last; ++it)
+    for (RangeConstIterator it = first; it != last; ++it)
     {
-        const SplatRange &range = *it;
+        const Range &range = *it;
         Splat buffer[splatBufferSize];
-        SplatRange::size_type size = range.size;
-        SplatRange::index_type start = range.start;
+        Range::size_type size = range.size;
+        Range::index_type start = range.start;
         while (size != 0)
         {
-            SplatRange::size_type chunkSize = size;
+            Range::size_type chunkSize = size;
             if (splatBufferSize < size)
                 chunkSize = splatBufferSize;
             files[range.scan].readVertices(start, chunkSize, buffer);
@@ -343,12 +350,12 @@ private:
     {
     private:
         BucketState &state;
-        SplatRange::scan_type scan;
-        SplatRange::index_type id;
+        Range::scan_type scan;
+        Range::index_type id;
         const Splat &splat;
 
     public:
-        CountOneSplat(BucketState &state, SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat)
+        CountOneSplat(BucketState &state, Range::scan_type scan, Range::index_type id, const Splat &splat)
             : state(state), scan(scan), id(id), splat(splat) {}
 
         bool operator()(const Cell &cell) const;
@@ -357,10 +364,10 @@ private:
 public:
     CountSplat(BucketState &state) : state(state) {};
 
-    void operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const;
+    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
 
-void CountSplat::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const
+void CountSplat::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
 {
     CountOneSplat helper(state, scan, id, splat);
     forEachCell(state.dims, state.microShift + state.macroLevels, helper);
@@ -433,12 +440,12 @@ private:
     {
     private:
         BucketState &state;
-        SplatRange::scan_type scan;
-        SplatRange::index_type id;
+        Range::scan_type scan;
+        Range::index_type id;
         const Splat &splat;
 
     public:
-        BucketOneSplat(BucketState &state, SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat)
+        BucketOneSplat(BucketState &state, Range::scan_type scan, Range::index_type id, const Splat &splat)
             : state(state), scan(scan), id(id), splat(splat) {}
 
         bool operator()(const Cell &cell) const;
@@ -446,7 +453,7 @@ private:
 public:
     BucketSplats(BucketState &state) : state(state) {}
 
-    void operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const;
+    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
 
 bool BucketSplats::BucketOneSplat::operator()(const Cell &cell) const
@@ -469,15 +476,15 @@ bool BucketSplats::BucketOneSplat::operator()(const Cell &cell) const
     }
 }
 
-void BucketSplats::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat) const
+void BucketSplats::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
 {
     BucketOneSplat helper(state, scan, id, splat);
     forEachCell(state.dims, state.microShift + state.macroLevels, helper);
 }
 
-static void bucketRecurse(SplatRangeConstIterator first,
-                          SplatRangeConstIterator last,
-                          SplatRange::index_type numSplats,
+static void bucketRecurse(RangeConstIterator first,
+                          RangeConstIterator last,
+                          Range::index_type numSplats,
                           const BucketParameters &params)
 {
     std::size_t dims[3];
@@ -491,7 +498,7 @@ static void bucketRecurse(SplatRangeConstIterator first,
     }
     else if (maxDim == 1)
     {
-        throw SplatDensityError(numSplats); // can't subdivide a 1x1x1 cell
+        throw DensityError(numSplats); // can't subdivide a 1x1x1 cell
     }
     else
     {
@@ -517,10 +524,10 @@ static void bucketRecurse(SplatRangeConstIterator first,
         while (microSize << (macroLevels - 1) < maxDim)
             macroLevels++;
 
-        std::vector<SplatRange> childRanges;
+        std::vector<Range> childRanges;
         std::vector<std::tr1::uint64_t> savedOffset;
         std::vector<Cell> savedPicked;
-        std::vector<SplatRange::index_type> savedNumSplats;
+        std::vector<Range::index_type> savedNumSplats;
         std::size_t numPicked;
         /* Open a scope so that we can destroy the BucketState later */
         {
@@ -537,7 +544,7 @@ static void bucketRecurse(SplatRangeConstIterator first,
             numPicked = state.picked.size();
             state.childCur.reserve(numPicked);
             for (std::size_t i = 0; i < numPicked; i++)
-                state.childCur.push_back(SplatRangeCollector<std::vector<SplatRange>::iterator>(
+                state.childCur.push_back(internal::RangeCollector<std::vector<Range>::iterator>(
                         childRanges.begin() + state.pickedOffset[i]));
             forEachSplat(params.files, first, last, BucketSplats(state));
             for (std::size_t i = 0; i < numPicked; i++)
@@ -574,24 +581,24 @@ static void bucketRecurse(SplatRangeConstIterator first,
 }
 
 /* Create a root bucket will all splats in it */
-static SplatRange::index_type makeRoot(
+static Range::index_type makeRoot(
     const boost::ptr_vector<FastPly::Reader> &files,
-    std::vector<SplatRange> &root)
+    std::vector<Range> &root)
 {
-    SplatRange::index_type numSplats = 0;
+    Range::index_type numSplats = 0;
     root.clear();
     root.reserve(files.size());
     for (size_t i = 0; i < files.size(); i++)
     {
-        const SplatRange::index_type vertices = files[i].numVertices();
+        const Range::index_type vertices = files[i].numVertices();
         numSplats += vertices;
-        SplatRange::index_type start = 0;
+        Range::index_type start = 0;
         while (start < vertices)
         {
-            SplatRange::size_type size = std::numeric_limits<SplatRange::size_type>::max();
+            Range::size_type size = std::numeric_limits<Range::size_type>::max();
             if (start + size > vertices)
                 size = vertices - start;
-            root.push_back(SplatRange(i, start, size));
+            root.push_back(Range(i, start, size));
             start += size;
         }
     }
@@ -606,10 +613,10 @@ struct MakeGrid
     float bboxMax[3];
 
     MakeGrid() : first(true) {}
-    void operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat);
+    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat);
 };
 
-void MakeGrid::operator()(SplatRange::scan_type scan, SplatRange::index_type id, const Splat &splat)
+void MakeGrid::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat)
 {
     (void) scan;
     (void) id;
@@ -641,14 +648,14 @@ void MakeGrid::operator()(SplatRange::scan_type scan, SplatRange::index_type id,
 
 void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Grid &bbox,
-            SplatRange::index_type maxSplats,
+            Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
-            const BucketProcessor &process)
+            const Processor &process)
 {
     /* Create a root bucket will all splats in it */
-    std::vector<SplatRange> root;
-    SplatRange::index_type numSplats = makeRoot(files, root);
+    std::vector<Range> root;
+    Range::index_type numSplats = makeRoot(files, root);
 
     BucketParameters params(files, bbox, process, maxSplats, maxCells, maxSplit);
     params.maxSplats = maxSplats;
@@ -660,8 +667,8 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
 Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
               float spacing)
 {
-    std::vector<SplatRange> root;
-    SplatRange::index_type numSplats = makeRoot(files, root);
+    std::vector<Range> root;
+    Range::index_type numSplats = makeRoot(files, root);
     if (numSplats == 0)
         throw std::length_error("Must be at least one splat");
 
@@ -679,3 +686,5 @@ Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
     return Grid(state.low, spacing,
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
+
+} // namespace Bucket

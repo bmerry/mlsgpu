@@ -255,7 +255,7 @@ public:
     BlockRun(const cl::Context &context, const cl::Device &device,
              std::size_t maxSplats, std::size_t maxCells,
              int levels, int subsampling);
-    void operator()(const boost::ptr_vector<FastPly::Reader> &files, SplatRange::index_type numSplats, SplatRangeConstIterator first, SplatRangeConstIterator last, const Grid &grid);
+    void operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
 
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
@@ -273,7 +273,7 @@ BlockRun::BlockRun(
 {
 }
 
-void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, SplatRange::index_type numSplats, SplatRangeConstIterator first, SplatRangeConstIterator last, const Grid &grid)
+void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid)
 {
     cl_uint3 keyOffset;
     for (int i = 0; i < 3; i++)
@@ -293,7 +293,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Splat
     // TODO: use mapping to transfer the data directly into a buffer
     vector<Splat> splats(numSplats);
     std::size_t pos = 0;
-    for (SplatRangeConstIterator i = first; i != last; i++)
+    for (Bucket::RangeConstIterator i = first; i != last; i++)
     {
         assert(pos + i->size <= numSplats);
         files[i->scan].readVertices(i->start, i->size, &splats[pos]);
@@ -338,7 +338,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     Grid grid;
     try
     {
-        grid = makeGrid(files, spacing);
+        grid = Bucket::makeGrid(files, spacing);
     }
     catch (std::length_error &e)
     {
@@ -356,7 +356,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         blockRun.setOutput(mesh->outputFunctor(pass));
         // TODO: blockCells will be just less than a power of 2, so the
         // actual calls will end up at almost half
-        bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
+        Bucket::bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
     }
 
     mesh->finalize();
@@ -402,7 +402,7 @@ int main(int argc, char **argv)
         cerr << "OpenCL error in " << e.what() << " (" << e.err() << ")\n";
         return 1;
     }
-    catch (SplatDensityError &e)
+    catch (Bucket::DensityError &e)
     {
         cerr << "The splats were too dense. Try passing a higher value for --max-splats.\n";
         return 1;

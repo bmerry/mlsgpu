@@ -19,17 +19,20 @@
 #include "grid.h"
 #include "fast_ply.h"
 
+namespace Bucket
+{
+
 /**
  * Error that is thrown if too many splats cover a single cell, making it
  * impossible to satisfy the splat limit.
  */
-class SplatDensityError : public std::runtime_error
+class DensityError : public std::runtime_error
 {
 private:
     std::tr1::uint64_t cellSplats;   ///< Number of splats covering the affected cell
 
 public:
-    SplatDensityError(std::tr1::uint64_t cellSplats) :
+    DensityError(std::tr1::uint64_t cellSplats) :
         std::runtime_error("Too many splats covering one cell"),
         cellSplats(cellSplats) {}
 
@@ -44,7 +47,7 @@ public:
  * @invariant @ref start + @ref size - 1 does not overflow @ref index_type.
  * (maintained by constructor and by @ref append).
  */
-struct SplatRange
+struct Range
 {
     typedef std::tr1::uint32_t scan_type;
     typedef std::tr1::uint32_t size_type;
@@ -58,19 +61,19 @@ struct SplatRange
     /**
      * Constructs an empty scan range.
      */
-    SplatRange();
+    Range();
 
     /**
      * Constructs a splat range with one splat.
      */
-    SplatRange(scan_type scan, index_type splat);
+    Range(scan_type scan, index_type splat);
 
     /**
      * Constructs a splat range with multiple splats.
      *
      * @pre @a start + @a size - 1 must fit within @ref index_type.
      */
-    SplatRange(scan_type scan, index_type start, size_type size);
+    Range(scan_type scan, index_type start, size_type size);
 
     /**
      * Attempts to extend this range with a new element.
@@ -81,24 +84,27 @@ struct SplatRange
     bool append(scan_type scan, index_type splat);
 };
 
+namespace internal
+{
+
 /**
  * Tracks how many ranges are needed to encode a list of splats and
  * how many splats are in the list. It will match the actual number
- * written by @ref SplatRangeCollector.
+ * written by @ref RangeCollector.
  */
-class SplatRangeCounter
+class RangeCounter
 {
 private:
     std::tr1::uint64_t ranges;
     std::tr1::uint64_t splats;
-    SplatRange current;
+    Range current;
 
 public:
     /// Constructor
-    SplatRangeCounter();
+    RangeCounter();
 
     /// Adds a new splat to the virtual list.
-    void append(SplatRange::scan_type scan, SplatRange::index_type splat);
+    void append(Range::scan_type scan, Range::index_type splat);
 
     /// Returns the number of ranges that would be required to encode the provided splats.
     std::tr1::uint64_t countRanges() const;
@@ -110,16 +116,16 @@ public:
 /**
  * Accepts a list of splat IDs and merges them into ranges which are then
  * output.
- * @param OutputIterator an output iterator that accepts assignments of @ref SplatRange.
+ * @param OutputIterator an output iterator that accepts assignments of @ref Range.
  */
 template<typename OutputIterator>
-class SplatRangeCollector
+class RangeCollector
 {
 public:
     typedef OutputIterator iterator_type;
 
 private:
-    SplatRange current;
+    Range current;
     iterator_type out;
 
 public:
@@ -128,19 +134,19 @@ public:
      *
      * @param out     Output iterator to which completed ranges will be written.
      */
-    SplatRangeCollector(iterator_type out);
+    RangeCollector(iterator_type out);
 
     /**
      * Destructor. It will flush any buffered ranges.
      */
-    ~SplatRangeCollector();
+    ~RangeCollector();
 
     /**
      * Adds a new splat to the list.
      *
      * @return The output iterator after the update.
      */
-    iterator_type append(SplatRange::scan_type scan, SplatRange::index_type splat);
+    iterator_type append(Range::scan_type scan, Range::index_type splat);
 
     /**
      * Force any buffered ranges to be emitted. This is done implicitly
@@ -153,15 +159,17 @@ public:
     iterator_type flush();
 };
 
-typedef std::vector<SplatRange>::const_iterator SplatRangeConstIterator;
-typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, SplatRange::index_type, SplatRangeConstIterator, SplatRangeConstIterator, const Grid &)> BucketProcessor;
+} // namespace internal
+
+typedef std::vector<Range>::const_iterator RangeConstIterator;
+typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> Processor;
 
 void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Grid &bbox,
-            SplatRange::index_type maxSplats,
+            Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
-            const BucketProcessor &process);
+            const Processor &process);
 
 /**
  * Grid that encloses the bounding spheres of all the input splats.
@@ -179,38 +187,44 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
 Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
               float spacing);
 
+namespace internal
+{
+
 template<typename OutputIterator>
-SplatRangeCollector<OutputIterator>::SplatRangeCollector(iterator_type out)
+RangeCollector<OutputIterator>::RangeCollector(iterator_type out)
     : current(), out(out)
 {
 }
 
 template<typename OutputIterator>
-SplatRangeCollector<OutputIterator>::~SplatRangeCollector()
+RangeCollector<OutputIterator>::~RangeCollector()
 {
     flush();
 }
 
 template<typename OutputIterator>
-OutputIterator SplatRangeCollector<OutputIterator>::append(SplatRange::scan_type scan, SplatRange::index_type splat)
+OutputIterator RangeCollector<OutputIterator>::append(Range::scan_type scan, Range::index_type splat)
 {
     if (!current.append(scan, splat))
     {
         *out++ = current;
-        current = SplatRange(scan, splat);
+        current = Range(scan, splat);
     }
     return out;
 }
 
 template<typename OutputIterator>
-OutputIterator SplatRangeCollector<OutputIterator>::flush()
+OutputIterator RangeCollector<OutputIterator>::flush()
 {
     if (current.size > 0)
     {
         *out++ = current;
-        current = SplatRange();
+        current = Range();
     }
     return out;
 }
+
+} // namespace internal
+} // namespace Bucket
 
 #endif /* BUCKET_H */
