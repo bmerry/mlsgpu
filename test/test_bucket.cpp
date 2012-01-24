@@ -9,6 +9,7 @@
 #endif
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
+#include <boost/bind.hpp>
 #include <vector>
 #include <iterator>
 #include "testmain.h"
@@ -329,15 +330,80 @@ void TestRangeBig::testManyRanges()
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countSplats());
 }
 
+std::ostream &operator<<(std::ostream &o, const Cell &cell)
+{
+    return o << "Cell(" << cell.base[0] << ", " << cell.base[1] << ", " << cell.base[2] << ", " << cell.level << ")";
+}
+
 /**
  * Test code for @ref forEachCell.
  */
 class TestForEachCell : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestForEachCell);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testAsserts);
     CPPUNIT_TEST_SUITE_END();
+
+private:
+    vector<Cell> cells;
+    bool cellFunc(const Cell &cell);
+
+public:
+    void testSimple();          ///< Test normal usage
+    void testAsserts();         ///< Test the assertions of preconditions
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestForEachCell, TestSet::perBuild());
+
+bool TestForEachCell::cellFunc(const Cell &cell)
+{
+    cells.push_back(cell);
+    Cell::size_type size = 1U << cell.level;
+    return (cell.base[0] <= 2 && 2 < cell.base[0] + size
+        && cell.base[1] <= 1 && 1 < cell.base[1] + size
+        && cell.base[2] <= 4 && 4 < cell.base[2] + size);
+}
+
+void TestForEachCell::testSimple()
+{
+    const Cell::size_type dims[3] = {4, 4, 6};
+    forEachCell(dims, 4, boost::bind(&TestForEachCell::cellFunc, this, _1));
+    /* Note: the recursion order of forEachCell is not defined, so this
+     * test is constraining the implementation. It should be changed
+     * if necessary.
+     */
+    CPPUNIT_ASSERT_EQUAL(15, int(cells.size()));
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0, 3), cells[0]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0, 2), cells[1]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4, 2), cells[2]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4, 1), cells[3]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4, 1), cells[4]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4, 0), cells[5]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 4, 0), cells[6]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 4, 0), cells[7]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 4, 0), cells[8]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 5, 0), cells[9]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 5, 0), cells[10]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 5, 0), cells[11]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 5, 0), cells[12]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 2, 4, 1), cells[13]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 2, 4, 1), cells[14]);
+}
+
+// Not expected to ever be called - just to give a legal function pointer
+static bool dummyCellFunc(const Cell &cell)
+{
+    (void) cell;
+    return false;
+}
+
+void TestForEachCell::testAsserts()
+{
+    const Cell::size_type dims[3] = {4, 4, 6};
+    CPPUNIT_ASSERT_THROW(forEachCell(dims, 100, dummyCellFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachCell(dims, 0, dummyCellFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachCell(dims, 3, dummyCellFunc), std::invalid_argument);
+}
 
 /**
  * Test code for @ref forEachSplat.

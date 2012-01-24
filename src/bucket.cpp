@@ -142,32 +142,7 @@ static inline S divUp(S a, T b)
     return (a + b - 1) / b;
 }
 
-/**
- * A cube with power-of-two side lengths.
- */
-struct Cell
-{
-    std::size_t base[3];       ///< Coordinates of lower-left-bottom corner
-    int level;                 ///< Log base two of the side length
-
-    /// Default constructor: does not initialize anything.
-    Cell() {}
-
-    Cell(const std::size_t base[3], int level) : level(level)
-    {
-        for (unsigned int i = 0; i < 3; i++)
-            this->base[i] = base[i];
-    }
-
-    Cell(std::size_t x, std::size_t y, std::size_t z, int level) : level(level)
-    {
-        base[0] = x;
-        base[1] = y;
-        base[2] = z;
-    }
-};
-
-static bool splatCellIntersect(const Splat &splat, const Cell &cell, const Grid &grid)
+static bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid)
 {
     std::size_t size = std::size_t(1) << cell.level;
     float lo[3], hi[3];
@@ -217,7 +192,7 @@ struct BucketState
     int microShift;
     int macroLevels;
     std::vector<boost::multi_array<CellState, 3> > cellStates;
-    std::vector<Cell> picked;
+    std::vector<internal::Cell> picked;
     std::vector<std::tr1::uint64_t> pickedOffset;
     std::tr1::uint64_t nextOffset;
 
@@ -226,8 +201,8 @@ struct BucketState
     BucketState(const BucketParameters &params, const std::size_t dims[3],
                 int microShift, int macroLevels);
 
-    CellState &getCellState(const Cell &cell);
-    const CellState &getCellState(const Cell &cell) const;
+    CellState &getCellState(const internal::Cell &cell);
+    const CellState &getCellState(const internal::Cell &cell) const;
 };
 
 BucketState::BucketState(
@@ -249,7 +224,7 @@ BucketState::BucketState(
     }
 }
 
-BucketState::CellState &BucketState::getCellState(const Cell &cell)
+BucketState::CellState &BucketState::getCellState(const internal::Cell &cell)
 {
     boost::array<std::size_t, 3> coords;
     for (int i = 0; i < 3; i++)
@@ -258,48 +233,13 @@ BucketState::CellState &BucketState::getCellState(const Cell &cell)
     return cellStates[cell.level - microShift](coords);
 }
 
-const BucketState::CellState &BucketState::getCellState(const Cell &cell) const
+const BucketState::CellState &BucketState::getCellState(const internal::Cell &cell) const
 {
     boost::array<std::size_t, 3> coords;
     for (int i = 0; i < 3; i++)
         coords[i] = cell.base[i] >> cell.level;
     assert(cell.level >= microShift && std::size_t(cell.level) < microShift + cellStates.size());
     return cellStates[cell.level - microShift](coords);
-}
-
-template<typename Func>
-static void forEachCell_r(const std::size_t dims[3], const Cell &cell, const Func &func)
-{
-    if (func(cell))
-    {
-        if (cell.level > 0)
-        {
-            const std::size_t half = std::size_t(1) << (cell.level - 1);
-            for (int i = 0; i < 8; i++)
-            {
-                const std::size_t base[3] =
-                {
-                    cell.base[0] + (i & 1 ? half : 0),
-                    cell.base[1] + (i & 2 ? half : 0),
-                    cell.base[2] + (i & 4 ? half : 0)
-                };
-                if (base[0] < dims[0] && base[1] < dims[1] && base[2] < dims[2])
-                    forEachCell_r(dims, Cell(base, cell.level - 1), func);
-            }
-        }
-    }
-}
-
-template<typename Func>
-static void forEachCell(const std::size_t dims[3], int levels, const Func &func)
-{
-    assert(levels >= 1 && levels <= std::numeric_limits<std::size_t>::digits);
-    int level = levels - 1;
-    assert((std::size_t(1) << level) >= dims[0]);
-    assert((std::size_t(1) << level) >= dims[1]);
-    assert((std::size_t(1) << level) >= dims[2]);
-
-    forEachCell_r(dims, Cell(0, 0, 0, level), func);
 }
 
 template<typename Func>
@@ -359,7 +299,7 @@ private:
         CountOneSplat(BucketState &state, Range::scan_type scan, Range::index_type id, const Splat &splat)
             : state(state), scan(scan), id(id), splat(splat) {}
 
-        bool operator()(const Cell &cell) const;
+        bool operator()(const internal::Cell &cell) const;
     };
 
 public:
@@ -371,10 +311,10 @@ public:
 void CountSplat::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
 {
     CountOneSplat helper(state, scan, id, splat);
-    forEachCell(state.dims, state.microShift + state.macroLevels, helper);
+    internal::forEachCell(state.dims, state.microShift + state.macroLevels, helper);
 }
 
-bool CountSplat::CountOneSplat::operator()(const Cell &cell) const
+bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
 {
     assert(cell.level >= state.microShift);
 
@@ -401,10 +341,10 @@ private:
     BucketState &state;
 public:
     PickCells(BucketState &state) : state(state) {}
-    bool operator()(const Cell &cell) const;
+    bool operator()(const internal::Cell &cell) const;
 };
 
-bool PickCells::operator()(const Cell &cell) const
+bool PickCells::operator()(const internal::Cell &cell) const
 {
     std::size_t size = std::size_t(1) << cell.level;
     BucketState::CellState &cs = state.getCellState(cell);
@@ -449,7 +389,7 @@ private:
         BucketOneSplat(BucketState &state, Range::scan_type scan, Range::index_type id, const Splat &splat)
             : state(state), scan(scan), id(id), splat(splat) {}
 
-        bool operator()(const Cell &cell) const;
+        bool operator()(const internal::Cell &cell) const;
     };
 public:
     BucketSplats(BucketState &state) : state(state) {}
@@ -457,7 +397,7 @@ public:
     void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
 
-bool BucketSplats::BucketOneSplat::operator()(const Cell &cell) const
+bool BucketSplats::BucketOneSplat::operator()(const internal::Cell &cell) const
 {
     assert(cell.level >= state.microShift);
 
@@ -480,7 +420,7 @@ bool BucketSplats::BucketOneSplat::operator()(const Cell &cell) const
 void BucketSplats::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
 {
     BucketOneSplat helper(state, scan, id, splat);
-    forEachCell(state.dims, state.microShift + state.macroLevels, helper);
+    internal::forEachCell(state.dims, state.microShift + state.macroLevels, helper);
 }
 
 static void bucketRecurse(RangeConstIterator first,
@@ -527,7 +467,7 @@ static void bucketRecurse(RangeConstIterator first,
 
         std::vector<Range> childRanges;
         std::vector<std::tr1::uint64_t> savedOffset;
-        std::vector<Cell> savedPicked;
+        std::vector<internal::Cell> savedPicked;
         std::vector<Range::index_type> savedNumSplats;
         std::size_t numPicked;
         /* Open a scope so that we can destroy the BucketState later */
@@ -536,7 +476,7 @@ static void bucketRecurse(RangeConstIterator first,
             /* Create histogram */
             forEachSplat(params.files, first, last, CountSplat(state));
             /* Select cells to bucket splats into */
-            forEachCell(state.dims, state.microShift + state.macroLevels, PickCells(state));
+            internal::forEachCell(state.dims, state.microShift + state.macroLevels, PickCells(state));
             /* Do the bucketing.
              */
             // Add sentinel for easy extraction of subranges
@@ -565,7 +505,7 @@ static void bucketRecurse(RangeConstIterator first,
         /* Now recurse into the chosen cells */
         for (std::size_t i = 0; i < numPicked; i++)
         {
-            const Cell &cell = savedPicked[i];
+            const internal::Cell &cell = savedPicked[i];
             std::size_t size = std::size_t(1) << cell.level;
             Grid childGrid = params.grid.subGrid(
                 cell.base[0], cell.base[0] + size,
