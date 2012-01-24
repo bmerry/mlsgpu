@@ -197,11 +197,13 @@ void TestSplatTree::testRandom()
     build(numLevels, commands, start, splats, maxLevels, subsamplingShift, maxSplats, grid);
 
     // Try each start value and check that it gives a terminating sequence of valid splat IDs
-    for (int z = 0; z <= cells[2]; z++)
-        for (int y = 0; y <= cells[1]; y++)
-            for (int x = 0; x <= cells[0]; x++)
+    for (int z = 0; z <= cells[2]; z += 1 << subsamplingShift)
+        for (int y = 0; y <= cells[1]; y += 1 << subsamplingShift)
+            for (int x = 0; x <= cells[0]; x += 1 << subsamplingShift)
             {
-                unsigned int idx = SplatTree::makeCode(x, y, z);
+                unsigned int idx = SplatTree::makeCode(x >> subsamplingShift,
+                                                       y >> subsamplingShift,
+                                                       z >> subsamplingShift);
                 CPPUNIT_ASSERT(idx < start.size());
                 if (start[idx] != -1)
                 {

@@ -62,9 +62,6 @@ public:
     static const std::size_t MAX_SPLATS = 0x7FFFFFFF / 16;
 
 private:
-    /// OpenCL context used to create buffers.
-    cl::Context context;
-
     /// Program containing the internal kernels for building
     cl::Program program;
 
@@ -73,7 +70,8 @@ private:
      * @{
      * Kernels implementing the internal operations.
      */
-    cl::Kernel writeEntriesKernel, countCommandsKernel, writeSplatIdsKernel, writeStartKernel;
+    cl::Kernel writeEntriesKernel, countCommandsKernel, writeSplatIdsKernel;
+    cl::Kernel writeStartKernel, writeStartTopKernel;
     cl::Kernel fillKernel;
     /** @} */
 
@@ -145,12 +143,17 @@ private:
                               std::vector<cl::Event> *events,
                               cl::Event *event);
 
-    /// Wrapper to call @ref writeStart
+    /**
+     * Wrapper to call @ref writeStart or @ref writeStartTop.
+     * If @a havePrev is true, it calls @ref writeStart. Otherwise,
+     * @a prevOffset is ignored and @ref writeStartTop is called.
+     */
     void enqueueWriteStart(const cl::CommandQueue &queue,
                            const cl::Buffer &start,
                            const cl::Buffer &commands,
                            const cl::Buffer &jumpPos,
                            code_type curOffset,
+                           bool havePrev,
                            code_type prevOffset,
                            code_type numCodes,
                            std::vector<cl::Event> *events,

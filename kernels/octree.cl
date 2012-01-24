@@ -300,6 +300,34 @@ __kernel void writeStart(
 }
 
 /**
+ * Variant of @ref writeStart for the coarsest level. In this level,
+ * there is no previous level to chain to.
+ *
+ * @param[in,out]  start           Start array for previous and current level.
+ * @param[out]     commands        Command array in which to write jump commands.
+ * @param          jumpPos         Jump positions in command array, as written by @ref writeSplatIds.
+ * @param          curOffset       Offset added to code to get position in start array on current level.
+ */
+__kernel void writeStartTop(
+    __global int *start,
+    __global int *commands,
+    __global const uint *jumpPos,
+    uint curOffset)
+{
+    uint code = get_global_id(0);
+    uint pos = code + curOffset;
+    int jp = jumpPos[pos];
+    if (jp >= 0)
+    {
+        commands[jp] = -1;
+    }
+    else
+    {
+        start[pos] = -1;
+    }
+}
+
+/**
  * Fill a buffer with a constant value.
  */
 __kernel void fill(__global int *out, int value)

@@ -108,6 +108,7 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     writeSplatIdsKernel = cl::Kernel(program, "writeSplatIds");
     fillKernel = cl::Kernel(program, "fill");
     writeStartKernel = cl::Kernel(program, "writeStart");
+    writeStartTopKernel = cl::Kernel(program, "writeStartTop");
 }
 
 void SplatTreeCL::enqueueWriteEntries(
@@ -211,18 +212,21 @@ void SplatTreeCL::enqueueWriteStart(
     const cl::Buffer &commands,
     const cl::Buffer &jumpPos,
     code_type curOffset,
+    bool havePrev,
     code_type prevOffset,
     code_type numCodes,
     std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    writeStartKernel.setArg(0, start);
-    writeStartKernel.setArg(1, commands);
-    writeStartKernel.setArg(2, jumpPos);
-    writeStartKernel.setArg(3, curOffset);
-    writeStartKernel.setArg(4, prevOffset);
+    cl::Kernel &kernel = havePrev ? writeStartKernel : writeStartTopKernel;
+    kernel.setArg(0, start);
+    kernel.setArg(1, commands);
+    kernel.setArg(2, jumpPos);
+    kernel.setArg(3, curOffset);
+    if (havePrev)
+        kernel.setArg(4, prevOffset);
 
-    queue.enqueueNDRangeKernel(writeStartKernel,
+    queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
                                cl::NDRange(numCodes),
                                cl::NullRange,
@@ -267,7 +271,7 @@ void SplatTreeCL::enqueueBuild(
 
     // Copy splats to the GPU
     cl::Event myUploadEvent, writeEntriesEvent, sortEvent, countEvent, scanEvent,
-        writeSplatIdsEvent, levelEvent, fillStartEvent, fillJumpPosEvent;
+        writeSplatIdsEvent, levelEvent, fillJumpPosEvent;
     queue.enqueueWriteBuffer(this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
     queue.flush(); // Start the copy going while we do remaining queuing.
 
@@ -281,8 +285,6 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = countEvent;
     scan.enqueue(queue, commandMap, numEntries, &wait, &scanEvent);
     wait[0] = scanEvent;
-    enqueueFill(queue, start, 0, numStart, (command_type) -1, &wait, &fillStartEvent);
-    wait[0] = fillStartEvent; // TODO: fill jobs are semi-independent of others
     enqueueFill(queue, jumpPos, 0, numStart, (command_type) -1, &wait, &fillJumpPosEvent);
     wait[0] = fillJumpPosEvent;
     enqueueWriteSplatIds(queue, commands, start, jumpPos, commandMap, entryKeys, entryValues, numEntries, &wait, &writeSplatIdsEvent);
@@ -291,9 +293,11 @@ void SplatTreeCL::enqueueBuild(
     for (int i = maxShift; i >= int(minShift); i--)
     {
         std::size_t levelSize = std::size_t(1) << (3 * (maxShift - i));
+        bool havePrev = (i != int(maxShift));
         enqueueWriteStart(queue, start, commands, jumpPos,
                           levelOffsets[i],
-                          levelOffsets[std::min(i + 1, int(maxShift))],
+                          havePrev,
+                          havePrev ? levelOffsets[i + 1] : 0,
                           levelSize,
                           &wait, &levelEvent);
         wait[0] = levelEvent;
