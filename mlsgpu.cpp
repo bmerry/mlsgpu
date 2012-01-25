@@ -42,6 +42,7 @@ namespace Option
 {
     const char * const help = "help";
     const char * const quiet = "quiet";
+    const char * const debug = "debug";
 
     const char * const fitSmooth = "fit-smooth";
     const char * const fitGrid = "fit-grid";
@@ -61,7 +62,8 @@ static void addCommonOptions(po::options_description &opts)
 {
     opts.add_options()
         ("help,h",                "Show help")
-        ("quiet,q",               "Do not show informational messages");
+        ("quiet,q",               "Do not show informational messages")
+        (Option::debug,           "Show debug messages");
 }
 
 static void addFitOptions(po::options_description &opts)
@@ -301,18 +303,21 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
     }
     assert(pos == numSplats);
 
-    {
-        Timer timer;
-        tree.enqueueBuild(queue, &splats[0], numSplats, expandedGrid, subsampling, CL_FALSE);
-        queue.finish();
-        Log::log[Log::debug] << "build: " << timer.getElapsed() << '\n';
-    }
-
-    input.set(expandedGrid, tree, subsampling);
+    Log::log[Log::debug]
+        << "Block: "
+        << grid.numCells(0) << " x " << grid.numCells(1) << " x " << grid.numCells(2)
+        << " with " << numSplats << " splats\n";
 
     {
         Timer timer;
-        marching.generate(queue, input, output, grid, keyOffset, NULL);
+        cl::Event treeBuildEvent;
+        vector<cl::Event> wait(1);
+        tree.enqueueBuild(queue, &splats[0], numSplats, expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
+        wait[0] = treeBuildEvent;
+
+        input.set(expandedGrid, tree, subsampling);
+
+        marching.generate(queue, input, output, grid, keyOffset, &wait);
         Log::log[Log::debug] << "process: " << timer.getElapsed() << endl;
     }
 }
@@ -365,11 +370,13 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
 int main(int argc, char **argv)
 {
-    Log::log.setLevel(Log::info);
+    Log::log.setLevel(Log::debug);
 
     po::variables_map vm = processOptions(argc, argv);
     if (vm.count(Option::quiet))
         Log::log.setLevel(Log::warn);
+    else if (vm.count(Option::debug))
+        Log::log.setLevel(Log::debug);
 
     cl::Device device = CLH::findDevice(vm);
     if (!device())
