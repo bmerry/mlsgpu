@@ -245,6 +245,16 @@ T &Registry::getStatistic(const std::string &name)
     }
 }
 
+/**
+ * Retrieves a named statistic from the default registry.
+ * This is shorthand for <code>Registry::getInstance().getStatistic<T>(name)</code>.
+ */
+template<typename T>
+static inline T &getStatistic(const std::string &name)
+{
+    return Registry::getInstance().getStatistic<T>(name);
+}
+
 } // namespace Statistics
 
 #endif /* MLSGPU_STATISTICS_H */

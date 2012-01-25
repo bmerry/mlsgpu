@@ -17,6 +17,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/array.hpp>
 #include <boost/progress.hpp>
+#include <boost/io/ios_state.hpp>
 #include <tr1/unordered_map>
 #include <iostream>
 #include <map>
@@ -34,6 +35,8 @@
 #include "src/mesh.h"
 #include "src/misc.h"
 #include "src/bucket.h"
+#include "src/provenance.h"
+#include "src/statistics.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -43,12 +46,16 @@ namespace Option
     const char * const help = "help";
     const char * const quiet = "quiet";
     const char * const debug = "debug";
+    const char * const responseFile = "response-file";
 
     const char * const fitSmooth = "fit-smooth";
     const char * const fitGrid = "fit-grid";
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
+
+    const char * const statistics = "statistics";
+    const char * const statisticsFile = "statistics-file";
 
     const char * const maxSplats = "max-splats";
     const char * const maxSplit = "max-split";
@@ -63,7 +70,8 @@ static void addCommonOptions(po::options_description &opts)
     opts.add_options()
         ("help,h",                "Show help")
         ("quiet,q",               "Do not show informational messages")
-        (Option::debug,           "Show debug messages");
+        (Option::debug,           "Show debug messages")
+        (Option::responseFile,    "Read options from file");
 }
 
 static void addFitOptions(po::options_description &opts)
@@ -71,6 +79,15 @@ static void addFitOptions(po::options_description &opts)
     opts.add_options()
         (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
         (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells");
+}
+
+static void addStatisticsOptions(po::options_description &opts)
+{
+    po::options_description statistics("Statistics options");
+    statistics.add_options()
+        (Option::statistics,                          "Print information about internal statistics")
+        (Option::statisticsFile, po::value<string>(), "Direct statistics to file instead of stdout (implies --statistics)");
+    opts.add(statistics);
 }
 
 static void addAdvancedOptions(po::options_description &opts)
@@ -84,6 +101,51 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
+}
+
+string makeOptions(const po::variables_map &vm)
+{
+    ostringstream opts;
+    for (po::variables_map::const_iterator i = vm.begin(); i != vm.end(); ++i)
+    {
+        if (i->first == Option::inputFile)
+            continue; // these are output last
+        if (i->first == Option::responseFile)
+            continue; // this is not relevant to reproducing the results
+        const po::variable_value &param = i->second;
+        const boost::any &value = param.value();
+        if (param.empty()
+            || (value.type() == typeid(string) && param.as<string>().empty()))
+            opts << " --" << i->first;
+        else if (value.type() == typeid(vector<string>))
+        {
+            BOOST_FOREACH(const string &j, param.as<vector<string> >())
+            {
+                opts << " --" << i->first << '=' << j;
+            }
+        }
+        else
+        {
+            opts << " --" << i->first << '=';
+            if (value.type() == typeid(string))
+                opts << param.as<string>();
+            else if (value.type() == typeid(double))
+                opts << param.as<double>();
+            else if (value.type() == typeid(int))
+                opts << param.as<int>();
+            else if (value.type() == typeid(Choice<MeshTypeWrapper>))
+                opts << param.as<Choice<MeshTypeWrapper> >();
+            else if (value.type() == typeid(Choice<FastPly::WriterTypeWrapper>))
+                opts << param.as<Choice<FastPly::WriterTypeWrapper> >();
+            else
+                assert(!"Unhandled parameter type");
+        }
+    }
+    BOOST_FOREACH(const string &j, vm[Option::inputFile].as<vector<string> >())
+    {
+        opts << ' ' << j;
+    }
+    return opts.str();
 }
 
 static void validateOptions(const cl::Device &device, const po::variables_map &vm)
@@ -167,6 +229,29 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     }
 }
 
+void writeStatistics(const boost::program_options::variables_map &vm, bool force = false)
+{
+    if (force || vm.count(Option::statistics) || vm.count(Option::statisticsFile))
+    {
+        ostream *out;
+        ofstream outf;
+        if (vm.count(Option::statisticsFile))
+        {
+            const string &name = vm[Option::statisticsFile].as<string>();
+            outf.open(name.c_str());
+            out = &outf;
+        }
+        else
+        {
+            out = &std::cout;
+        }
+
+        boost::io::ios_exception_saver saver(*out);
+        out->exceptions(ios::failbit | ios::badbit);
+        *out << Statistics::Registry::getInstance();
+    }
+}
+
 static void usage(ostream &o, const po::options_description desc)
 {
     o << "Usage: mlsgpu [options] -o output.ply input.ply [input.ply...]\n\n";
@@ -181,6 +266,7 @@ static po::variables_map processOptions(int argc, char **argv)
     po::options_description desc("General options");
     addCommonOptions(desc);
     addFitOptions(desc);
+    addStatisticsOptions(desc);
     addAdvancedOptions(desc);
     desc.add_options()
         ("output-file,o",   po::value<string>()->required(), "output file");
@@ -205,6 +291,31 @@ static po::variables_map processOptions(int argc, char **argv)
                   .options(all)
                   .positional(positional)
                   .run(), vm);
+        if (vm.count(Option::responseFile))
+        {
+            const string &fname = vm[Option::responseFile].as<string>();
+            ifstream in(fname.c_str());
+            if (!in)
+            {
+                Log::log[Log::warn] << "Could not open `" << fname << "', ignoring\n";
+            }
+            else
+            {
+                vector<string> args;
+                copy(istream_iterator<string>(in), istream_iterator<string>(), back_inserter(args));
+                if (in.bad())
+                {
+                    Log::log[Log::warn] << "Error while reading from `" << fname << "'\n";
+                }
+                in.close();
+                po::store(po::command_line_parser(args)
+                          .style(po::command_line_style::default_style & ~po::command_line_style::allow_guessing)
+                          .options(all)
+                          .positional(positional)
+                          .run(), vm);
+            }
+        }
+
         po::notify(vm);
 
         if (vm.count(Option::help))
@@ -277,6 +388,8 @@ BlockRun::BlockRun(
 
 void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid)
 {
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+
     cl_uint3 keyOffset;
     for (int i = 0; i < 3; i++)
         keyOffset.s[i] = grid.getExtent(i).first - fullGrid.getExtent(i).first;
@@ -303,10 +416,10 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
     }
     assert(pos == numSplats);
 
-    Log::log[Log::debug]
-        << "Block: "
-        << grid.numCells(0) << " x " << grid.numCells(1) << " x " << grid.numCells(2)
-        << " with " << numSplats << " splats and " << last - first << " ranges\n";
+    registry.getStatistic<Statistics::Variable>("block.splats").add(numSplats);
+    registry.getStatistic<Statistics::Variable>("block.ranges").add(last - first);
+    registry.getStatistic<Statistics::Variable>("block.size").add
+        (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
 
     {
         Timer timer;
@@ -318,7 +431,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
         input.set(expandedGrid, tree, subsampling);
 
         marching.generate(queue, input, output, grid, keyOffset, &wait);
-        Log::log[Log::debug] << "process: " << timer.getElapsed() << endl;
+        registry.getStatistic<Statistics::Variable>("block.time").add(timer.getElapsed());
     }
 }
 
@@ -353,19 +466,34 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     blockRun.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
+    writer->addComment("mlsgpu version: " + provenanceVersion());
+    writer->addComment("mlsgpu variant: " + provenanceVariant());
+    writer->addComment("mlsgpu options:" + makeOptions(vm));
     boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
     for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
     {
+        Timer timer;
         Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesh->numPasses() << endl;
 
         blockRun.setOutput(mesh->outputFunctor(pass));
         // TODO: blockCells will be just less than a power of 2, so the
         // actual calls will end up at almost half
         Bucket::bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
+
+        ostringstream passName;
+        passName << "pass" << pass + 1 << ".time";
+        Statistics::getStatistic<Statistics::Variable>(passName.str()).add(timer.getElapsed());
     }
 
-    mesh->finalize();
-    mesh->write(*writer, out);
+    {
+        Timer timer;
+
+        mesh->finalize();
+        mesh->write(*writer, out);
+
+        Statistics::getStatistic<Statistics::Variable>("finalize.time").add(timer.getElapsed());
+    }
+    writeStatistics(vm);
 }
 
 int main(int argc, char **argv)

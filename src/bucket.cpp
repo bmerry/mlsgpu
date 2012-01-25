@@ -23,6 +23,8 @@
 #include "bucket.h"
 #include "bucket_internal.h"
 #include "errors.h"
+#include "statistics.h"
+#include "timer.h"
 
 typedef boost::numeric::converter<
     int,
@@ -698,6 +700,8 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
 Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
               float spacing)
 {
+    Timer timer;
+
     std::vector<Range> root;
     Range::index_type numSplats = makeRoot(files, root);
     if (numSplats == 0)
@@ -714,6 +718,8 @@ Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
         extents[i][0] = RoundDown::convert(l);
         extents[i][1] = RoundUp::convert(h);
     }
+
+    Statistics::getStatistic<Statistics::Variable>("makeGrid.time").add(timer.getElapsed());
     return Grid(state.low, spacing,
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
