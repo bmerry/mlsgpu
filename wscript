@@ -43,7 +43,7 @@ variants = {
     },
     'release':
     {
-        'debuginfo': True,
+        'debuginfo': False,
         'symbols': False,
         'optimize': True,
         'assertions': False,
