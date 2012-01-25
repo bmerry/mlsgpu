@@ -31,6 +31,10 @@ using namespace std;
 using namespace Bucket;
 using namespace Bucket::internal;
 
+/**
+ * Create a splat with given position and radius. The other fields
+ * are given arbitrary values.
+ */
 static Splat makeSplat(float x, float y, float z, float radius)
 {
     Splat splat;
@@ -456,35 +460,35 @@ bool TestForEachCell::cellFunc(const Cell &cell)
 
     const Cell::size_type *lower = cell.getLower();
     const Cell::size_type *upper = cell.getUpper();
-    return (lower[0] <= 2 && 2 < upper[0]
-        && lower[1] <= 1 && 1 < upper[1]
-        && lower[2] <= 4 && 4 < upper[2]);
+    return (lower[0] <= 20 && 20 < upper[0]
+        && lower[1] <= 10 && 10 < upper[1]
+        && lower[2] <= 40 && 40 < upper[2]);
 }
 
 void TestForEachCell::testSimple()
 {
-    const Cell::size_type dims[3] = {4, 4, 6};
-    forEachCell(dims, 1, 4, boost::bind(&TestForEachCell::cellFunc, this, _1));
+    const Cell::size_type dims[3] = {40, 35, 60};
+    forEachCell(dims, 10, 4, boost::bind(&TestForEachCell::cellFunc, this, _1));
     /* Note: the recursion order of forEachCell is not defined, so this
      * test is constraining the implementation. It should be changed
      * if necessary.
      */
     CPPUNIT_ASSERT_EQUAL(15, int(cells.size()));
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0,  8, 8, 8,  3), cells[0]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0,  4, 4, 4,  2), cells[1]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4,  4, 4, 8,  2), cells[2]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4,  2, 2, 6,  1), cells[3]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4,  4, 2, 6,  1), cells[4]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4,  3, 1, 5,  0), cells[5]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 4,  4, 1, 5,  0), cells[6]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 4,  3, 2, 5,  0), cells[7]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 4,  4, 2, 5,  0), cells[8]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 5,  3, 1, 6,  0), cells[9]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 5,  4, 1, 6,  0), cells[10]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 5,  3, 2, 6,  0), cells[11]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 5,  4, 2, 6,  0), cells[12]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 2, 4,  2, 4, 6,  1), cells[13]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 2, 4,  4, 4, 6,  1), cells[14]);
+    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0,  0,  80, 80, 80,  3), cells[0]);
+    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0,  0,  40, 40, 40,  2), cells[1]);
+    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0, 40,  40, 40, 80,  2), cells[2]);
+    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0, 40,  20, 20, 60,  1), cells[3]);
+    CPPUNIT_ASSERT_EQUAL(Cell(20,  0, 40,  40, 20, 60,  1), cells[4]);
+    CPPUNIT_ASSERT_EQUAL(Cell(20,  0, 40,  30, 10, 50,  0), cells[5]);
+    CPPUNIT_ASSERT_EQUAL(Cell(30,  0, 40,  40, 10, 50,  0), cells[6]);
+    CPPUNIT_ASSERT_EQUAL(Cell(20, 10, 40,  30, 20, 50,  0), cells[7]);
+    CPPUNIT_ASSERT_EQUAL(Cell(30, 10, 40,  40, 20, 50,  0), cells[8]);
+    CPPUNIT_ASSERT_EQUAL(Cell(20,  0, 50,  30, 10, 60,  0), cells[9]);
+    CPPUNIT_ASSERT_EQUAL(Cell(30,  0, 50,  40, 10, 60,  0), cells[10]);
+    CPPUNIT_ASSERT_EQUAL(Cell(20, 10, 50,  30, 20, 60,  0), cells[11]);
+    CPPUNIT_ASSERT_EQUAL(Cell(30, 10, 50,  40, 20, 60,  0), cells[12]);
+    CPPUNIT_ASSERT_EQUAL(Cell( 0, 20, 40,  20, 40, 60,  1), cells[13]);
+    CPPUNIT_ASSERT_EQUAL(Cell(20, 20, 40,  40, 40, 60,  1), cells[14]);
 }
 
 // Not expected to ever be called - just to give a legal function pointer

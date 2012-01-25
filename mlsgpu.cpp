@@ -306,7 +306,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
     Log::log[Log::debug]
         << "Block: "
         << grid.numCells(0) << " x " << grid.numCells(1) << " x " << grid.numCells(2)
-        << " with " << numSplats << " splats\n";
+        << " with " << numSplats << " splats and " << last - first << " ranges\n";
 
     {
         Timer timer;
