@@ -90,9 +90,68 @@ struct Range
     bool append(scan_type scan, index_type splat);
 };
 
+/**
+ * Type passed to @ref Processor to delimit a range of ranges.
+ */
 typedef std::vector<Range>::const_iterator RangeConstIterator;
+
+/**
+ * Type for callback function called by @ref bucket. The parameters are:
+ *  -# The list of files backing the splat ranges.
+ *  -# The number of splats in the bucket.
+ *  -# A [first, last) pair indicating a range of splat ranges in the bucket
+ *  -# A grid covering the spatial extent of the bucket.
+ * It is guaranteed that the number of splats will be non-zero (empty buckets
+ * are skipped). All splats that intersect the bucket will be passed, but
+ * the intersection test is conservative so there may be extras. The ranges
+ * will be ordered by scan so all splats from one scan are contiguous.
+ */
 typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> Processor;
 
+/**
+ * Subdivide a grid and the splats it contains into buckets with a maximum size
+ * and splat count, and call a user callback function for each. This function
+ * is designed to operate out-of-core and so very large inputs can be used.
+ *
+ * @param files      The files containing the splats. All splats are used.
+ * @param bbox       A grid which must completely enclose all the splats.
+ * @param maxSplats  The maximum number of splats that may occur in a bucket.
+ * @param maxCells   The maximum side length of a bucket, in grid cells.
+ * @param maxSplit   Maximum recursion fan-out. Larger values will usually
+ *                   give higher performance by reducing recursion depth,
+ *                   but at the cost of more memory.
+ * @param process    Processing function called for each non-empty bucket.
+ *
+ * @throw DensityError If any single grid cell conservatively intersects more
+ *                     than @a maxSplats splats.
+ *
+ * @note If any splat falls partially or completely outside of @a bbox, it
+ * is undefined whether it will be passed to the processing functions.
+ *
+ * @see @ref Processor.
+ *
+ * @internal
+ * The algorithm works recursively. At each level of recursion, it takes the
+ * current "cell" (which is a cuboid of grid cells), and subdivides it into
+ * "microblocks". Microblocks are chosen to be as small as possible (subject
+ * to @a maxSplit), but not smaller than determined by @a maxCells. Of course,
+ * if on entry to the recursion the cell is suitable for processing this
+ * is done immediately.
+ *
+ * The microblocks are arranged in an implicit, dense octree. The splats
+ * are then processed in several passes:
+ *  -# Each splat is accumulated into a counter for all octree nodes
+ *     it intersects, to determine the size of the node should it be
+ *     turned into a bucket.
+ *  -# The octree is walked top-down to identify buckets for passing to
+ *     the next level. A node is chosen if it satisfies @a maxCells and
+ *     @a maxSplats, or if it is a microblock. Otherwise it is subdivided.
+ *  -# Storage is allocated to hold all the splat ranges for the next
+ *     level of the octree.
+ *  -# The splats are reprocessed to place them into the storage (a single
+ *     splat may be stored in multiple buckets, if it crosses boundaries).
+ * The buckets are then processed recursively.
+ */
 void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Grid &bbox,
             Range::index_type maxSplats,
@@ -102,6 +161,7 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
 
 /**
  * Grid that encloses the bounding spheres of all the input splats.
+ * The resulting grid is suitable for passing to @ref bucket.
  *
  * The grid is constructed as follows:
  *  -# The bounding box of the sample points is found, ignoring influence regions.

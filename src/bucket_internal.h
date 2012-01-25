@@ -47,40 +47,57 @@ public:
     Cell() {}
 
     /**
-     * Constructor from an array.
-     * @param base     Coordinates of minimum corner.
-     * @param level    Log base two of the side length.
-     * @pre The coordinates of the maximum corner do not overflow @ref size_type.
+     * Constructor.
+     *
+     * @param lower    Coordinates of minimum corner.
+     * @param upper    Coordinates of maximum corner.
+     * @param level    Octree level.
+     * @pre The cell has positive side lengths.
      */
-
-    Cell(const size_type base[3], int level);
+    Cell(const size_type lower[3], const size_type upper[3], unsigned int level);
 
     /**
-     * Constructor from scalars.
-     * @param x,y,z    Coordinates of minimum corner.
-     * @param level    Log base two of the side length.
-     * @pre The coordinates of the maximum corner do not overflow @ref size_type.
+     * Constructor which is more convenient for building literals.
+     *
+     * @param lowerX,lowerY,lowerZ    Coordinates of minimum corner.
+     * @param upperX,upperY,upperZ    Coordinates of maximum corner.
+     * @param level                   Octree level.
+     * @pre The cell has positive side lengths.
      */
-    Cell(size_type x, size_type y, size_type z, int level);
+    Cell(size_type lowerX, size_type lowerY, size_type lowerZ,
+         size_type upperX, size_type upperY, size_type upperZ,
+         unsigned int level);
 
     /// Equality comparison operator
     bool operator==(const Cell &c) const;
 
-    /// Get the log base 2 of the side length
-    int getLevel() const { return level; }
+    /// Get the octree level
+    unsigned int getLevel() const { return level; }
 
-    /// Get the side length
-    size_type getSize() const { return size_type(1) << level; }
+    /// Get the side length on an axis
+    size_type getSize(int axis) const { return upper[axis] - lower[axis]; }
 
     /// Get the lower corner
-    const size_type *getBase() const { return base; }
+    const size_type *getLower() const { return lower; }
 
-    /// Get the bounding corners
-    void getCorners(size_type lower[3], size_type upper[3]) const;
+    /// Get the upper corner
+    const size_type *getUpper() const { return upper; }
+
+    /**
+     * Create a child cell in the octree.
+     * @pre level > 0 and idx < 8.
+     */
+    Cell child(unsigned int idx) const;
 
 private:
-    size_type base[3];         ///< Coordinates of lower-left-bottom corner
-    int level;                 ///< Log base two of the side length
+    size_type lower[3];         ///< Coordinates of lower-left-bottom corner
+    size_type upper[3];         ///< Coordinates of upper-right-top corner
+    /**
+     * Octree level. This has no direct effect on the spatial extent of the
+     * cell, but is used in finding corresponding indices in the octree. The
+     * level is zero for the finest (microblock) level of the octree.
+     */
+    unsigned int level;
 };
 
 /**
@@ -204,17 +221,13 @@ void forEachCell_r(const Cell::size_type dims[3], const Cell &cell, const Func &
     {
         if (cell.getLevel() > 0)
         {
-            const Cell::size_type half = cell.getSize() / 2;
-            for (int i = 0; i < 8; i++)
+            for (unsigned int i = 0; i < 8; i++)
             {
-                const Cell::size_type base[3] =
-                {
-                    cell.getBase()[0] + (i & 1 ? half : 0),
-                    cell.getBase()[1] + (i & 2 ? half : 0),
-                    cell.getBase()[2] + (i & 4 ? half : 0)
-                };
-                if (base[0] < dims[0] && base[1] < dims[1] && base[2] < dims[2])
-                    forEachCell_r(dims, Cell(base, cell.getLevel() - 1), func);
+                Cell child = cell.child(i);
+                if (child.getLower()[0] < dims[0]
+                    && child.getLower()[1] < dims[1]
+                    && child.getLower()[2] < dims[2])
+                    forEachCell_r(dims, child, func);
             }
         }
     }
@@ -229,24 +242,27 @@ void forEachCell_r(const Cell::size_type dims[3], const Cell &cell, const Func &
  * cells that do not at least partially intersect the rectangle defined by @a
  * dims will be skipped.
  *
- * @param dims     Dimensions of the most refined layer.
- * @param levels   Number of levels in the virtual octree.
- * @param func     User-provided functor.
+ * @param dims      Dimensions of the most refined layer, in grid cells.
+ * @param microSize Dimensions of the cubic cells in the most refined layer, in grid cells.
+ * @param levels    Number of levels in the virtual octree.
+ * @param func      User-provided functor.
  *
  * @pre
  * - @a levels is at least 1 and at most the number of bits in @c Cell::size_type
- * - The dimensions are each at most 2<sup>levels - 1</sup>.
+ * - The dimensions are each at most @a microSize * 2<sup>levels - 1</sup>.
  */
 template<typename Func>
-void forEachCell(const Cell::size_type dims[3], int levels, const Func &func)
+void forEachCell(const Cell::size_type dims[3], Cell::size_type microSize, unsigned int levels, const Func &func)
 {
-    MLSGPU_ASSERT(levels >= 1 && levels <= std::numeric_limits<Cell::size_type>::digits, std::invalid_argument);
+    MLSGPU_ASSERT(levels >= 1U
+                  && levels <= (unsigned int) std::numeric_limits<Cell::size_type>::digits, std::invalid_argument);
     int level = levels - 1;
-    MLSGPU_ASSERT((Cell::size_type(1) << level) >= dims[0], std::invalid_argument);
-    MLSGPU_ASSERT((Cell::size_type(1) << level) >= dims[1], std::invalid_argument);
-    MLSGPU_ASSERT((Cell::size_type(1) << level) >= dims[2], std::invalid_argument);
+    MLSGPU_ASSERT((dims[0] - 1) >> level < microSize, std::invalid_argument);
+    MLSGPU_ASSERT((dims[1] - 1) >> level < microSize, std::invalid_argument);
+    MLSGPU_ASSERT((dims[2] - 1) >> level < microSize, std::invalid_argument);
 
-    forEachCell_r(dims, Cell(0, 0, 0, level), func);
+    Cell::size_type size = microSize << level;
+    forEachCell_r(dims, Cell(0, 0, 0, size, size, size, level), func);
 }
 
 
@@ -290,6 +306,22 @@ void forEachSplat(
     }
 }
 
+/**
+ * Conservatively determines whether a Splat and a Cell intersect. This is
+ * the function that drives bucketing of splats into buckets. It is undefined
+ * whether a splat and cell that are tangent intersect or not.
+ *
+ * At the time of writing this is implemented with a bounding box test,
+ * but this is subject to change.
+ *
+ *
+ * @param splat         Splat to test.
+ * @param cell          Cell to test.
+ * @param grid          Grid used to determine transformation from grid
+ *                      coordinates to world coordinates (extents are ignored).
+ * @retval true if @a grid and @a cell intersect or are close to intersecting.
+ * @retval false if @a grid and @a cell definitely do not intersect.
+ */
 bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid);
 
 } // namespace internal

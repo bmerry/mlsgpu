@@ -425,9 +425,9 @@ void TestRangeBig::testManyRanges()
 std::ostream &operator<<(std::ostream &o, const Cell &cell)
 {
     return o << "Cell("
-        << cell.getBase()[0] << ", "
-        << cell.getBase()[1] << ", "
-        << cell.getBase()[2] << ", " << cell.getLevel() << ")";
+        << cell.getLower()[0] << ", "
+        << cell.getLower()[1] << ", "
+        << cell.getLower()[2] << ", " << cell.getLevel() << ")";
 }
 
 /**
@@ -454,8 +454,8 @@ bool TestForEachCell::cellFunc(const Cell &cell)
 {
     cells.push_back(cell);
 
-    Cell::size_type lower[3], upper[3];
-    cell.getCorners(lower, upper);
+    const Cell::size_type *lower = cell.getLower();
+    const Cell::size_type *upper = cell.getUpper();
     return (lower[0] <= 2 && 2 < upper[0]
         && lower[1] <= 1 && 1 < upper[1]
         && lower[2] <= 4 && 4 < upper[2]);
@@ -464,27 +464,27 @@ bool TestForEachCell::cellFunc(const Cell &cell)
 void TestForEachCell::testSimple()
 {
     const Cell::size_type dims[3] = {4, 4, 6};
-    forEachCell(dims, 4, boost::bind(&TestForEachCell::cellFunc, this, _1));
+    forEachCell(dims, 1, 4, boost::bind(&TestForEachCell::cellFunc, this, _1));
     /* Note: the recursion order of forEachCell is not defined, so this
      * test is constraining the implementation. It should be changed
      * if necessary.
      */
     CPPUNIT_ASSERT_EQUAL(15, int(cells.size()));
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0, 3), cells[0]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0, 2), cells[1]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4, 2), cells[2]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4, 1), cells[3]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4, 1), cells[4]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4, 0), cells[5]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 4, 0), cells[6]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 4, 0), cells[7]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 4, 0), cells[8]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 5, 0), cells[9]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 5, 0), cells[10]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 5, 0), cells[11]);
-    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 5, 0), cells[12]);
-    CPPUNIT_ASSERT_EQUAL(Cell(0, 2, 4, 1), cells[13]);
-    CPPUNIT_ASSERT_EQUAL(Cell(2, 2, 4, 1), cells[14]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0,  8, 8, 8,  3), cells[0]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 0,  4, 4, 4,  2), cells[1]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4,  4, 4, 8,  2), cells[2]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 0, 4,  2, 2, 6,  1), cells[3]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4,  4, 2, 6,  1), cells[4]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 4,  3, 1, 5,  0), cells[5]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 4,  4, 1, 5,  0), cells[6]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 4,  3, 2, 5,  0), cells[7]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 4,  4, 2, 5,  0), cells[8]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 0, 5,  3, 1, 6,  0), cells[9]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 0, 5,  4, 1, 6,  0), cells[10]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 1, 5,  3, 2, 6,  0), cells[11]);
+    CPPUNIT_ASSERT_EQUAL(Cell(3, 1, 5,  4, 2, 6,  0), cells[12]);
+    CPPUNIT_ASSERT_EQUAL(Cell(0, 2, 4,  2, 4, 6,  1), cells[13]);
+    CPPUNIT_ASSERT_EQUAL(Cell(2, 2, 4,  4, 4, 6,  1), cells[14]);
 }
 
 // Not expected to ever be called - just to give a legal function pointer
@@ -497,9 +497,9 @@ static bool dummyCellFunc(const Cell &cell)
 void TestForEachCell::testAsserts()
 {
     const Cell::size_type dims[3] = {4, 4, 6};
-    CPPUNIT_ASSERT_THROW(forEachCell(dims, 100, dummyCellFunc), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(forEachCell(dims, 0, dummyCellFunc), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(forEachCell(dims, 3, dummyCellFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachCell(dims, 1, 100, dummyCellFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachCell(dims, 1, 0, dummyCellFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachCell(dims, 1, 3, dummyCellFunc), std::invalid_argument);
 }
 
 /**
@@ -590,7 +590,7 @@ void TestForEachSplat::testEmpty()
     CPPUNIT_ASSERT(actual.empty());
 }
 
-/// Test for @ref Bucket::splatCellIntersect.
+/// Test for @ref Bucket::internal::splatCellIntersect.
 class TestSplatCellIntersect : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatCellIntersect);
@@ -611,11 +611,11 @@ void TestSplatCellIntersect::testSimple()
     Grid grid(ref, 2.0f, 1, 100, 4, 100, 6, 100);
 
     // Cell covers (0,10,20)-(8,18,28) in world space
-    CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(4, 6, 9, 2), grid));
+    CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(4, 6, 9, 8, 10, 13, 2), grid));
     // Cell covers (0,10,20)-(4,14,24) in world space
-    CPPUNIT_ASSERT(!splatCellIntersect(splat, Cell(4, 6, 9, 1), grid));
+    CPPUNIT_ASSERT(!splatCellIntersect(splat, Cell(4, 6, 9, 6, 8, 11, 1), grid));
     // Cell covers (10,20,30)-(12,22,32) (entirely inside bounding box)
-    CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(9, 11, 14, 0), grid));
+    CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(9, 11, 14, 10, 12, 15, 0), grid));
 }
 
 /// Test for @ref Bucket::bucket.
