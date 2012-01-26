@@ -164,23 +164,6 @@ std::tr1::uint64_t RangeCounter::countSplats() const
     return splats;
 }
 
-bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid)
-{
-    const Cell::size_type *lower = cell.getLower();
-    const Cell::size_type *upper = cell.getUpper();
-
-    float lo[3], hi[3];
-    grid.getVertex(lower[0], lower[1], lower[2], lo);
-    grid.getVertex(upper[0], upper[1], upper[2], hi);
-
-    // Bounding box test. We don't bother with an exact sphere-box test
-    for (int i = 0; i < 3; i++)
-        if (splat.position[i] + splat.radius < lo[i]
-            || splat.position[i] - splat.radius > hi[i])
-            return false;
-    return true;
-}
-
 } // namespace internal
 
 namespace
@@ -344,7 +327,7 @@ const BucketState::CellState &BucketState::getCellState(const internal::Cell &ce
 }
 
 /**
- * Function object for use with @ref Bucket::internal::forEachSplat that enters the splat
+ * Function object for use with @ref Bucket::internal::forEachSplatCell that enters the splat
  * into all corresponding counters in the tree.
  */
 class CountSplat
@@ -352,41 +335,15 @@ class CountSplat
 private:
     BucketState &state;
 
-    /**
-     * Functor for @ref Bucket::internal::forEachCell that enters a single splat into the counters in the
-     * hierarchy.
-     */
-    class CountOneSplat
-    {
-    private:
-        BucketState &state;
-        Range::scan_type scan;
-        Range::index_type id;
-        const Splat &splat;
-
-    public:
-        CountOneSplat(BucketState &state, Range::scan_type scan, Range::index_type id, const Splat &splat)
-            : state(state), scan(scan), id(id), splat(splat) {}
-
-        bool operator()(const internal::Cell &cell) const;
-    };
-
 public:
     CountSplat(BucketState &state) : state(state) {};
 
-    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
+    bool operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const;
 };
 
-void CountSplat::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
+bool CountSplat::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const
 {
-    CountOneSplat helper(state, scan, id, splat);
-    internal::forEachCell(state.dims, state.microSize, state.macroLevels, helper);
-}
-
-bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
-{
-    if (!splatCellIntersect(splat, cell, state.grid))
-        return false;
+    (void) splat;
 
     // Add to the counters
     state.getCellState(cell).counter.append(scan, id);
@@ -399,8 +356,6 @@ bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
  * Functor for @ref Bucket::internal::forEachCell that chooses which cells to make blocks
  * out of. A cell is chosen if it contains few enough splats and is
  * small enough, or if it is a microblock. Otherwise it is split.
- *
- * 
  */
 class PickCells
 {
@@ -436,40 +391,22 @@ bool PickCells::operator()(const internal::Cell &cell) const
 }
 
 /**
- * Functor for @ref Bucket::internal::forEachSplat that places splat information into the allocated buckets.
+ * Functor for @ref Bucket::internal::forEachSplatCell that places splat information into the allocated buckets.
  */
 class BucketSplats
 {
 private:
     BucketState &state;
 
-    /**
-     * Functor for @ref Bucket::internal::forEachCell that enters one splat into the relevant cells.
-     */
-    class BucketOneSplat
-    {
-    private:
-        BucketState &state;
-        Range::scan_type scan;
-        Range::index_type id;
-        const Splat &splat;
-
-    public:
-        BucketOneSplat(BucketState &state, Range::scan_type scan, Range::index_type id, const Splat &splat)
-            : state(state), scan(scan), id(id), splat(splat) {}
-
-        bool operator()(const internal::Cell &cell) const;
-    };
 public:
     BucketSplats(BucketState &state) : state(state) {}
 
-    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
+    bool operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const;
 };
 
-bool BucketSplats::BucketOneSplat::operator()(const internal::Cell &cell) const
+bool BucketSplats::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const
 {
-    if (!splatCellIntersect(splat, cell, state.grid))
-        return false;
+    (void) splat;
 
     BucketState::CellState &cs = state.getCellState(cell);
     if (cs.blockId == BAD_BLOCK)
@@ -482,12 +419,6 @@ bool BucketSplats::BucketOneSplat::operator()(const internal::Cell &cell) const
         state.childCur[cs.blockId].append(scan, id);
         return false;
     }
-}
-
-void BucketSplats::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
-{
-    BucketOneSplat helper(state, scan, id, splat);
-    internal::forEachCell(state.dims, state.microSize, state.macroLevels, helper);
 }
 
 /**
@@ -577,7 +508,7 @@ static void bucketRecurse(RangeConstIterator first,
         {
             BucketState state(params, grid, microSize, macroLevels);
             /* Create histogram */
-            internal::forEachSplat(params.files, first, last, CountSplat(state));
+            internal::forEachSplatCell(params.files, first, last, grid, state.microSize, state.macroLevels, CountSplat(state));
             /* Select cells to bucket splats into */
             internal::forEachCell(state.dims, state.microSize, state.macroLevels, PickCells(state));
             /* Do the bucketing.
@@ -590,7 +521,7 @@ static void bucketRecurse(RangeConstIterator first,
             for (std::size_t i = 0; i < numPicked; i++)
                 state.childCur.push_back(internal::RangeCollector<std::vector<Range>::iterator>(
                         childRanges.begin() + state.pickedOffset[i]));
-            internal::forEachSplat(params.files, first, last, BucketSplats(state));
+            internal::forEachSplatCell(params.files, first, last, grid, state.microSize, state.macroLevels, BucketSplats(state));
             for (std::size_t i = 0; i < numPicked; i++)
                 state.childCur[i].flush();
 

@@ -594,34 +594,6 @@ void TestForEachSplat::testEmpty()
     CPPUNIT_ASSERT(actual.empty());
 }
 
-/// Test for @ref Bucket::internal::splatCellIntersect.
-class TestSplatCellIntersect : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestSplatCellIntersect);
-    CPPUNIT_TEST(testSimple);
-    CPPUNIT_TEST_SUITE_END();
-public:
-    void testSimple();         ///< Test normal use cases
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatCellIntersect, TestSet::perBuild());
-
-void TestSplatCellIntersect::testSimple()
-{
-    Splat splat = makeSplat(10.0f, 20.0f, 30.0f, 3.0f);
-
-    // Only the lower grid extent matters. The lower corner of the
-    // grid is at -8.0f, -2.0f, 2.0f with spacing 2.0f.
-    const float ref[3] = {-10.0f, -10.0f, -10.0f};
-    Grid grid(ref, 2.0f, 1, 100, 4, 100, 6, 100);
-
-    // Cell covers (0,10,20)-(8,18,28) in world space
-    CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(4, 6, 9, 8, 10, 13, 2), grid));
-    // Cell covers (0,10,20)-(4,14,24) in world space
-    CPPUNIT_ASSERT(!splatCellIntersect(splat, Cell(4, 6, 9, 6, 8, 11, 1), grid));
-    // Cell covers (10,20,30)-(12,22,32) (entirely inside bounding box)
-    CPPUNIT_ASSERT(splatCellIntersect(splat, Cell(9, 11, 14, 10, 12, 15, 0), grid));
-}
-
 /// Test for @ref Bucket::bucket.
 class TestBucket : public CppUnit::TestFixture
 {

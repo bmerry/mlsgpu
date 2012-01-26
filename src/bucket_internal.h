@@ -265,6 +265,18 @@ void forEachCell(const Cell::size_type dims[3], Cell::size_type microSize, unsig
     forEachCell_r(dims, Cell(0, 0, 0, size, size, size, level), func);
 }
 
+/**
+ * Overload that takes a grid instead of explicit dimensions. The dimensions are taken from
+ * the number of cells along each dimension of the grid.
+ */
+template<typename Func>
+void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func)
+{
+    const Cell::size_type dims[3];
+    for (int i = 0; i < 3; i++)
+        dims[i] = grid.numCells(i);
+    forEachCell(dims, microSize, levels, func);
+}
 
 /**
  * Iterate over all splats given be a collection of @ref Range, calling
@@ -306,23 +318,89 @@ void forEachSplat(
     }
 }
 
+template<typename Func>
+class ForEachSplatCell
+{
+private:
+    const Grid &grid;
+    Cell::size_type dims[3];
+    Cell::size_type microSize;
+    unsigned int levels;
+    const Func &func;
+
+    class PerSplat
+    {
+    private:
+        Range::scan_type scan;
+        Range::index_type id;
+        const Splat &splat;
+        const Func &func;
+        float lower[3];      ///< Splat lower bound converted to grid coordinates
+        float upper[3];      ///< Splat upper bound converted to grid coordinates
+
+    public:
+        PerSplat(const Grid &grid, Range::scan_type scan, Range::index_type id, const Splat &splat, const Func &func)
+            : scan(scan), id(id), splat(splat), func(func)
+        {
+            float lo[3], hi[3];
+            for (int i = 0; i < 3; i++)
+            {
+                lo[i] = splat.position[i] - splat.radius;
+                hi[i] = splat.position[i] + splat.radius;
+            }
+            grid.worldToVertex(lo, lower);
+            grid.worldToVertex(hi, upper);
+        }
+
+        bool operator()(const Cell &cell) const
+        {
+            for (int i = 0; i < 3; i++)
+                if (upper[i] < cell.getLower()[i] || lower[i] > cell.getUpper()[i])
+                    return false;
+            return func(scan, id, splat, cell);
+        }
+    };
+
+public:
+    ForEachSplatCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func)
+        : grid(grid), microSize(microSize), levels(levels), func(func)
+    {
+        for (int i = 0; i < 3; i++)
+            dims[i] = grid.numCells(i);
+    }
+
+    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
+    {
+        PerSplat p(grid, scan, id, splat, func);
+        forEachCell(dims, microSize, levels, p);
+    }
+};
+
 /**
- * Conservatively determines whether a Splat and a Cell intersect. This is
- * the function that drives bucketing of splats into buckets. It is undefined
- * whether a splat and cell that are tangent intersect or not.
+ * Combination of @ref forEachSplat and @ref forEachCell that calls the user
+ * function for cells that are intersected by the splat. As for @ref forEachCell,
+ * the function may return @c false to prevent recursion into child cells.
  *
- * At the time of writing this is implemented with a bounding box test,
- * but this is subject to change.
+ * The function takes the arg
  *
- *
- * @param splat         Splat to test.
- * @param cell          Cell to test.
- * @param grid          Grid used to determine transformation from grid
- *                      coordinates to world coordinates (extents are ignored).
- * @retval true if @a grid and @a cell intersect or are close to intersecting.
- * @retval false if @a grid and @a cell definitely do not intersect.
+ * @param files        Files references by the ranges.
+ * @param first, last  %Range of @ref Range objects.
+ * @param grid         %Grid for transforming splat coordinates into grid coordinates.
+ * @param microSize    Dimensions of the cubic cells in the most refined layer, in grid cells.
+ * @param levels       Number of levels in the virtual octree.
+ * @param func         User-provided functor.
  */
-bool splatCellIntersect(const Splat &splat, const internal::Cell &cell, const Grid &grid);
+template<typename Func>
+void forEachSplatCell(
+    const boost::ptr_vector<FastPly::Reader> &files,
+    RangeConstIterator first,
+    RangeConstIterator last,
+    const Grid &grid, Cell::size_type microSize, unsigned int levels,
+    const Func &func)
+{
+    ForEachSplatCell<Func> f(grid, microSize, levels, func);
+    forEachSplat(files, first, last, f);
+}
 
 } // namespace internal
 } // namespace Bucket
