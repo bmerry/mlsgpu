@@ -128,6 +128,61 @@ public:
 };
 
 /**
+ * Statistic class that measures the maximum value a variable takes.
+ */
+template<typename T>
+class Peak : public Statistic
+{
+private:
+    T current;
+    T max;
+    bool hasValue;
+
+protected:
+    virtual void write(std::ostream &o) const
+    {
+        if (hasValue)
+            o << max;
+        else
+            o << "[no samples]";
+    }
+
+public:
+    Peak(const std::string &name) : Statistic(name), current(), max(), hasValue(false) {}
+
+    void add(T x)
+    {
+        if (!hasValue)
+            throw std::length_error("No samples");
+        set(current + x);
+    }
+
+    void set(T x)
+    {
+        current = x;
+        if (!hasValue || current > max)
+        {
+            max = current;
+            hasValue = true;
+        }
+    }
+
+    T get() const
+    {
+        if (!hasValue)
+            throw std::length_error("No samples");
+        return current;
+    }
+
+    T getMax() const
+    {
+        if (!hasValue)
+            throw std::length_error("No samples");
+        return max;
+    }
+};
+
+/**
  * @ref Timer subclass that reports elapsed time to a statistic
  * on destruction.
  */

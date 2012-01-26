@@ -215,16 +215,15 @@ struct BucketParameters
 {
     /// Input files holding the raw splats
     const boost::ptr_vector<FastPly::Reader> &files;
-    const Grid &grid;                   ///< Bounding box for the entire region
     const Processor &process;           ///< Processing function
     Range::index_type maxSplats;        ///< Maximum splats permitted for processing
     unsigned int maxCells;              ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
 
-    BucketParameters(const boost::ptr_vector<FastPly::Reader> &files, const Grid &grid,
+    BucketParameters(const boost::ptr_vector<FastPly::Reader> &files,
                      const Processor &process, Range::index_type maxSplats,
                      unsigned int maxCells, std::size_t maxSplit)
-        : files(files), grid(grid), process(process),
+        : files(files), process(process),
         maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit) {}
 };
 
@@ -256,7 +255,12 @@ struct BucketState
     };
 
     const BucketParameters &params;
-    /// Size (in grid cells) of the region being processed
+    /// Grid covering just the region being processed
+    const Grid &grid;
+    /**
+     * Size (in grid cells) of the region being processed.
+     * This is just a cache of grid.numCells for ease of passing to @ref internal::forEachCell.
+     */
     internal::Cell::size_type dims[3];
     /// Side length of a microblock
     internal::Cell::size_type microSize;
@@ -288,7 +292,7 @@ struct BucketState
      */
     std::vector<internal::RangeCollector<std::vector<Range>::iterator> > childCur;
 
-    BucketState(const BucketParameters &params, const internal::Cell::size_type dims[3],
+    BucketState(const BucketParameters &params, const Grid &grid,
                 internal::Cell::size_type microSize, int macroLevels);
 
     /// Retrieves a reference to an octree node
@@ -298,14 +302,13 @@ struct BucketState
 };
 
 BucketState::BucketState(
-    const BucketParameters &params, const internal::Cell::size_type dims[3],
+    const BucketParameters &params, const Grid &grid,
     internal::Cell::size_type microSize, int macroLevels)
-    : params(params), microSize(microSize), macroLevels(macroLevels),
+    : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
     cellStates(macroLevels), nextOffset(0)
 {
-    this->dims[0] = dims[0];
-    this->dims[1] = dims[1];
-    this->dims[2] = dims[2];
+    for (int i = 0; i < 3; i++)
+        this->dims[i] = grid.numCells(i);
 
     for (int level = 0; level < macroLevels; level++)
     {
@@ -382,7 +385,7 @@ void CountSplat::operator()(Range::scan_type scan, Range::index_type id, const S
 
 bool CountSplat::CountOneSplat::operator()(const internal::Cell &cell) const
 {
-    if (!splatCellIntersect(splat, cell, state.params.grid))
+    if (!splatCellIntersect(splat, cell, state.grid))
         return false;
 
     // Add to the counters
@@ -465,7 +468,7 @@ public:
 
 bool BucketSplats::BucketOneSplat::operator()(const internal::Cell &cell) const
 {
-    if (!splatCellIntersect(splat, cell, state.params.grid))
+    if (!splatCellIntersect(splat, cell, state.grid))
         return false;
 
     BucketState::CellState &cs = state.getCellState(cell);
@@ -508,19 +511,34 @@ static internal::Cell::size_type chooseMicroSize(
     return microSize;
 }
 
+/**
+ * Recursive implementation of @ref bucket.
+ *
+ * @param first,last      Range of ranges to process for this spatial region.
+ * @param numSplats       Number of splats encoded into [@a first, @a last).
+ * @param params          User parameters.
+ * @param recursionDepth  Number of higher-level @ref bucketRecurse invocations on the stack.
+ * @param totalRanges     Number of ranges held in memory across all levels of the recursion.
+ */
 static void bucketRecurse(RangeConstIterator first,
                           RangeConstIterator last,
                           Range::index_type numSplats,
-                          const BucketParameters &params)
+                          const Grid &grid,
+                          const BucketParameters &params,
+                          unsigned int recursionDepth,
+                          Range::index_type totalRanges)
 {
+    Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak").set(recursionDepth);
+    Statistics::getStatistic<Statistics::Peak<Range::index_type> >("bucket.totalRanges.peak").set(totalRanges);
+
     internal::Cell::size_type dims[3];
     for (int i = 0; i < 3; i++)
-        dims[i] = params.grid.numCells(i);
+        dims[i] = grid.numCells(i);
     internal::Cell::size_type maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
-        params.process(params.files, numSplats, first, last, params.grid);
+        params.process(params.files, numSplats, first, last, grid);
     }
     else if (maxDim == 1)
     {
@@ -557,7 +575,7 @@ static void bucketRecurse(RangeConstIterator first,
         std::size_t numPicked;
         /* Open a scope so that we can destroy the BucketState later */
         {
-            BucketState state(params, dims, microSize, macroLevels);
+            BucketState state(params, grid, microSize, macroLevels);
             /* Create histogram */
             internal::forEachSplat(params.files, first, last, CountSplat(state));
             /* Select cells to bucket splats into */
@@ -597,18 +615,18 @@ static void bucketRecurse(RangeConstIterator first,
             // Clip the cell to the grid
             for (int j = 0; j < 3; j++)
             {
-                internal::Cell::size_type limit = params.grid.numCells(j);
-                upper[j] = std::min(upper[j], limit);
+                upper[j] = std::min(upper[j], dims[j]);
                 assert(lower[j] < upper[j]);
             }
-            Grid childGrid = params.grid.subGrid(
+            Grid childGrid = grid.subGrid(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
-            BucketParameters childParams(params.files, childGrid, params.process,
-                                         params.maxSplats, params.maxCells, params.maxSplit);
             bucketRecurse(childRanges.begin() + savedOffset[i],
                           childRanges.begin() + savedOffset[i + 1],
                           savedNumSplats[i],
-                          childParams);
+                          childGrid,
+                          params,
+                          recursionDepth + 1,
+                          totalRanges + childRanges.size());
         }
     }
 }
@@ -690,11 +708,11 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
     std::vector<Range> root;
     Range::index_type numSplats = makeRoot(files, root);
 
-    BucketParameters params(files, bbox, process, maxSplats, maxCells, maxSplit);
+    BucketParameters params(files, process, maxSplats, maxCells, maxSplit);
     params.maxSplats = maxSplats;
     params.maxCells = maxCells;
     params.maxSplit = maxSplit;
-    bucketRecurse(root.begin(), root.end(), numSplats, params);
+    bucketRecurse(root.begin(), root.end(), numSplats, bbox, params, 0, root.size());
 }
 
 Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
