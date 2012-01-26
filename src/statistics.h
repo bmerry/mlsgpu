@@ -24,6 +24,7 @@
 #include <boost/noncopyable.hpp>
 #include <boost/iterator/iterator_adaptor.hpp>
 #include <boost/type_traits/remove_pointer.hpp>
+#include "timer.h"
 
 class TestStatistic;
 
@@ -124,6 +125,25 @@ public:
      * @throw std::length_error if less than two samples have been added.
      */
     double getVariance() const;                 ///< Return the sample variance
+};
+
+/**
+ * @ref Timer subclass that reports elapsed time to a statistic
+ * on destruction.
+ */
+class Timer : public ::Timer
+{
+private:
+    Variable &stat;
+
+public:
+    /// Constructor that will record in a named statistic in the default registry
+    explicit Timer(const std::string &name);
+    /// Constructor that will record to a specific statistic
+    explicit Timer(Variable &stat);
+
+    /// Destructor that records the elapsed time
+    ~Timer();
 };
 
 namespace internal

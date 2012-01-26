@@ -700,7 +700,7 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
 Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
               float spacing)
 {
-    Timer timer;
+    Statistics::Timer timer("makeGrid.time");
 
     std::vector<Range> root;
     Range::index_type numSplats = makeRoot(files, root);
@@ -719,7 +719,6 @@ Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
         extents[i][1] = RoundUp::convert(h);
     }
 
-    Statistics::getStatistic<Statistics::Variable>("makeGrid.time").add(timer.getElapsed());
     return Grid(state.low, spacing,
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }

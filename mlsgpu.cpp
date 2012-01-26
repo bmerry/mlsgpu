@@ -422,7 +422,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
         (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
 
     {
-        Timer timer;
+        Statistics::Timer timer("block.time");
         cl::Event treeBuildEvent;
         vector<cl::Event> wait(1);
         tree.enqueueBuild(queue, &splats[0], numSplats, expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
@@ -431,7 +431,6 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
         input.set(expandedGrid, tree, subsampling);
 
         marching.generate(queue, input, output, grid, keyOffset, &wait);
-        registry.getStatistic<Statistics::Variable>("block.time").add(timer.getElapsed());
     }
 }
 
@@ -472,26 +471,22 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
     for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
     {
-        Timer timer;
         Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesh->numPasses() << endl;
+        ostringstream passName;
+        passName << "pass" << pass + 1 << ".time";
+        Statistics::Timer timer(passName.str());
 
         blockRun.setOutput(mesh->outputFunctor(pass));
         // TODO: blockCells will be just less than a power of 2, so the
         // actual calls will end up at almost half
         Bucket::bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
-
-        ostringstream passName;
-        passName << "pass" << pass + 1 << ".time";
-        Statistics::getStatistic<Statistics::Variable>(passName.str()).add(timer.getElapsed());
     }
 
     {
-        Timer timer;
+        Statistics::Timer timer("finalize.time");
 
         mesh->finalize();
         mesh->write(*writer, out);
-
-        Statistics::getStatistic<Statistics::Variable>("finalize.time").add(timer.getElapsed());
     }
     writeStatistics(vm);
 }

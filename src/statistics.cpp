@@ -114,6 +114,20 @@ void Variable::write(std::ostream &o) const
     o << "[" << n << "]";
 }
 
+Timer::Timer(const std::string &name)
+    : stat(getStatistic<Variable>(name))
+{
+}
+
+Timer::Timer(Variable &stat)
+    : stat(stat)
+{
+}
+
+Timer::~Timer()
+{
+    stat.add(getElapsed());
+}
 
 Registry::Registry() : mutex()
 {
