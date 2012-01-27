@@ -176,7 +176,7 @@ def build(bld):
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],
-                lib = ['boost_program_options-mt', 'boost_iostreams-mt'])
+                lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
         def print_env(bld):
             print bld.env
         bld.add_post_fun(print_unit_tests)
