@@ -6,43 +6,89 @@
 # include <config.h>
 #endif
 #include <string>
+#include <climits>
+#include <algorithm>
+#include <limits>
+#include <cmath>
+#include <tr1/cmath>
 #include "ply.h"
 #include "splat.h"
 #include "misc.h"
 
-bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
+static const float BIG_MARKER = -1.0f;
+static const float MEDIUM_MARKER = -2.0f;
+static const float SMALL_MARKER = -3.0f;
+
+struct CompareSplatsInfo
 {
-    // bit-casts of the positions of a and b
-    std::tr1::uint32_t ap[3], bp[3];
+    int exps[3];
+    int maxExp;
+    int octant;
+
+    CompareSplatsInfo(const Splat &a);
+};
+
+CompareSplatsInfo::CompareSplatsInfo(const Splat &a)
+{
+    octant = 0;
     for (int i = 0; i < 3; i++)
     {
-        std::memcpy(&ap[i], &a.position[i], sizeof(ap[i]));
-        std::memcpy(&bp[i], &b.position[i], sizeof(bp[i]));
+        assert((std::tr1::isfinite)(a.position[i]));
+        std::tr1::frexp(a.position[i], &exps[i]);
+        octant = octant * 2 + (a.position[i] < 0.0f ? 1 : 0);
     }
-    for (int i = 31; i >= 0; i--)
-        for (int j = 0; j < 3; j++)
-        {
-            std::tr1::uint32_t as = floatToBits(a.position[j]) >> i;
-            std::tr1::uint32_t bs = floatToBits(b.position[j]) >> i;
-            if (as != bs)
-                return as < bs;
-        }
-    return a.radius < b.radius;
+    maxExp = *std::max_element(exps, exps + 3);
+}
+
+bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
+{
+    // We use special radii to indicate min_value and max_value, so we
+    // need to check for them here.
+    if (a.radius < 0.0f || b.radius < 0.0f)
+    {
+        float ar = a.radius < 0.0f ? a.radius : MEDIUM_MARKER;
+        float br = b.radius < 0.0f ? b.radius : MEDIUM_MARKER;
+        return ar < br;
+    }
+
+    CompareSplatsInfo ai(a);
+    CompareSplatsInfo bi(b);
+
+    // Keep the octants completely separate
+    if (ai.octant != bi.octant)
+        return ai.octant < bi.octant;
+
+    // If one has a bigger exponent, it will automatically win in
+    // an interleaved-bits comparison
+    if (ai.maxExp != bi.maxExp)
+        return ai.maxExp < bi.maxExp;
+
+    // Now scale everything up to be relative to the maximum exponent,
+    // discarding sign
+    std::tr1::uint32_t ap[3], bp[3], bd[3];
+    const int bits = std::numeric_limits<float>::digits;
+    for (int i = 0; i < 3; i++)
+    {
+        ap[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(a.position[i]), ai.maxExp - ai.exps[i] + bits);
+        bp[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(b.position[i]), bi.maxExp - bi.exps[i] + bits);
+        bd[i] = ap[i] ^ bp[i];
+    }
+
+    int axis = std::max_element(bd, bd + 3) - bd;
+    return ap[axis] < bp[axis];
 }
 
 Splat CompareSplatsMorton::min_value() const
 {
     Splat ans;
-    std::memset(&ans, 0, sizeof(ans));
-    ans.radius = -1.0f; // this makes it strictly smaller than any real splat
+    ans.radius = SMALL_MARKER;
     return ans;
 }
 
 Splat CompareSplatsMorton::max_value() const
 {
     Splat ans;
-    std::memset(&ans, 255, sizeof(ans));
-    // This is a NaN encoding of positions, so won't match any real splat
+    ans.radius = BIG_MARKER;
     return ans;
 }
 
