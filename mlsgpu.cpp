@@ -33,7 +33,7 @@
 #include "src/marching.h"
 #include "src/mls.h"
 #include "src/mesh.h"
-#include "src/misc.h"
+#include "src/options.h"
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"

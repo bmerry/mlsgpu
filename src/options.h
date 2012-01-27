@@ -1,11 +1,11 @@
 /**
  * @file
  *
- * Miscellaneous helper functions.
+ * Utilities for command-line option processing.
  */
 
-#ifndef MISC_H
-#define MISC_H
+#ifndef OPTIONS_H
+#define OPTIONS_H
 
 #if HAVE_CONFIG_H
 # include <config.h>
@@ -91,4 +91,4 @@ void validate(boost::any &v, const std::vector<std::string> &values,
         v = boost::any(Choice<EnumWrapper>(pos->second));
 }
 
-#endif /* !MISC_H */
+#endif /* !OPTIONS_H */
