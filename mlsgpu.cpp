@@ -23,6 +23,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include "src/misc.h"
 #include "src/clh.h"
 #include "src/logging.h"
 #include "src/timer.h"
@@ -401,7 +402,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
         pair<int, int> e = grid.getExtent(i);
         int v = e.second - e.first + 1;
         int w = MlsFunctor::wgs[i];
-        v = (v + w - 1) / w * w;
+        v = roundUp(v, w);
         expandedGrid.setExtent(i, e.first, e.first + v - 1);
     }
 

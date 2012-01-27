@@ -16,6 +16,7 @@
 #include "grid.h"
 #include "splat.h"
 #include "splat_tree.h"
+#include "misc.h"
 
 namespace
 {
@@ -82,19 +83,6 @@ static bool splatCellIntersect(const Splat &splat, const float c0[3], const floa
 
 void SplatTree::initialize()
 {
-    typedef boost::numeric::converter<
-        int,
-        float,
-        boost::numeric::conversion_traits<int, float>,
-        boost::numeric::def_overflow_handler,
-        boost::numeric::Ceil<float> > RoundUp;
-    typedef boost::numeric::converter<
-        int,
-        float,
-        boost::numeric::conversion_traits<int, float>,
-        boost::numeric::def_overflow_handler,
-        boost::numeric::Floor<float> > RoundDown;
-
     // Compute the number of levels and related data
     code_type dims[3];
     for (unsigned int i = 0; i < 3; i++)

@@ -25,19 +25,7 @@
 #include "errors.h"
 #include "statistics.h"
 #include "timer.h"
-
-typedef boost::numeric::converter<
-    int,
-    float,
-    boost::numeric::conversion_traits<int, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Ceil<float> > RoundUp;
-typedef boost::numeric::converter<
-    int,
-    float,
-    boost::numeric::conversion_traits<int, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Floor<float> > RoundDown;
+#include "misc.h"
 
 namespace Bucket
 {
@@ -168,30 +156,6 @@ std::tr1::uint64_t RangeCounter::countSplats() const
 
 namespace
 {
-
-/**
- * Multiply @a a and @a b, clamping the result to the maximum value of the type
- * instead of overflowing.
- *
- * @pre @a a and @a b are non-negative.
- */
-template<typename T>
-static inline T mulSat(T a, T b)
-{
-    if (a == 0 || std::numeric_limits<T>::max() / a >= b)
-        return a * b;
-    else
-        return std::numeric_limits<T>::max();
-}
-
-/**
- * Divide and round up.
- */
-template<typename S, typename T>
-static inline S divUp(S a, T b)
-{
-    return (a + b - 1) / b;
-}
 
 /// Contains static information used to process a cell.
 struct BucketParameters
