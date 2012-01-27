@@ -33,8 +33,20 @@ CompareSplatsInfo::CompareSplatsInfo(const Splat &a)
     octant = 0;
     for (int i = 0; i < 3; i++)
     {
+        /* Logically we'd like to extract the exponent with frexp, but it
+         * has a number of oddities:
+         * - the exponent extracted from 0.0 is 0, which is larger than the
+         *   exponent extracted from denorms
+         * - it is undefined for non-finite values.
+         * So we manually pull out the bits. This will give the same value for
+         * all denorms (unlike frexp), but for our purposes this does not
+         * matter as we only use the exponents to decide how to normalize
+         * everything.
+         */
+        assert(std::numeric_limits<float>::is_iec559);
+        std::tr1::uint32_t bits = floatToBits(a.position[i]);
+        exps[i] = ((bits >> 23) & 255) - 127;
         assert((std::tr1::isfinite)(a.position[i]));
-        std::tr1::frexp(a.position[i], &exps[i]);
         octant = octant * 2 + (a.position[i] < 0.0f ? 1 : 0);
     }
     maxExp = *std::max_element(exps, exps + 3);
@@ -69,8 +81,8 @@ bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
     const int bits = std::numeric_limits<float>::digits;
     for (int i = 0; i < 3; i++)
     {
-        ap[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(a.position[i]), ai.maxExp - ai.exps[i] + bits);
-        bp[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(b.position[i]), bi.maxExp - bi.exps[i] + bits);
+        ap[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(a.position[i]), bits - ai.maxExp);
+        bp[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(b.position[i]), bits - bi.maxExp);
         bd[i] = ap[i] ^ bp[i];
     }
 

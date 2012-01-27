@@ -28,8 +28,6 @@ struct Splat
  */
 class CompareSplatsMorton
 {
-private:
-
 public:
     bool operator()(const Splat &a, const Splat &b) const;
     Splat min_value() const;
