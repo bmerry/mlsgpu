@@ -23,6 +23,7 @@
 #include <limits>
 #include <sstream>
 #include <cstring>
+#include <tr1/cstdint>
 #include "testmain.h"
 #include "../src/bucket.h"
 #include "../src/bucket_internal.h"
@@ -127,7 +128,6 @@ class TestRange : public CppUnit::TestFixture
     CPPUNIT_TEST(testAppendMiddle);
     CPPUNIT_TEST(testAppendEnd);
     CPPUNIT_TEST(testAppendGap);
-    CPPUNIT_TEST(testAppendNewScan);
     CPPUNIT_TEST_SUITE_END();
 
 public:
@@ -137,27 +137,24 @@ public:
     void testAppendMiddle();         ///< Append to the middle of an existing range
     void testAppendEnd();            ///< Extend a range
     void testAppendGap();            ///< Append outside (and not adjacent) to an existing range
-    void testAppendNewScan();        ///< Append with a different scan
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRange, TestSet::perBuild());
 
 void TestRange::testConstructor()
 {
     Range empty;
-    Range single(3, 6);
-    Range range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x10);
+    Range single(6);
+    Range range(UINT64_C(0xFFFFFFFFFFFFFFF0), 0x10);
 
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0), empty.size);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), single.scan);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(6), single.start);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(1), single.size);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(2), range.scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10), range.size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0xFFFFFFFFFFFFFFF0)), range.start);
 
-    CPPUNIT_ASSERT_THROW(Range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x11), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(Range(UINT64_C(0xFFFFFFFFFFFFFFF0), 0x11), std::out_of_range);
 }
 
 void TestRange::testAppendEmpty()
@@ -165,75 +162,53 @@ void TestRange::testAppendEmpty()
     Range range;
     bool success;
 
-    success = range.append(3, 6);
+    success = range.append(6);
     CPPUNIT_ASSERT_EQUAL(true, success);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(1), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), range.scan);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(6), range.start);
 }
 
 void TestRange::testAppendOverflow()
 {
     Range range;
-    range.scan = 3;
     range.start = 0x90000000U;
     range.size = 0xFFFFFFFFU;
-    bool success = range.append(3, range.start + range.size);
+    bool success = range.append(range.start + range.size);
     CPPUNIT_ASSERT_EQUAL(false, success);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFU), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), range.scan);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(0x90000000U), range.start);
 }
 
 void TestRange::testAppendMiddle()
 {
     Range range;
-    range.scan = 4;
     range.start = UINT64_C(0x123456781234);
     range.size = 0x10000;
-    bool success = range.append(4, UINT64_C(0x12345678FFFF));
+    bool success = range.append(UINT64_C(0x12345678FFFF));
     CPPUNIT_ASSERT_EQUAL(true, success);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
 }
 
 void TestRange::testAppendEnd()
 {
     Range range;
-    range.scan = 4;
     range.start = UINT64_C(0x123456781234);
     range.size = 0x10000;
-    bool success = range.append(4, range.start + range.size);
+    bool success = range.append(range.start + range.size);
     CPPUNIT_ASSERT_EQUAL(true, success);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10001), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
 }
 
 void TestRange::testAppendGap()
 {
     Range range;
-    range.scan = 4;
     range.start = UINT64_C(0x123456781234);
     range.size = 0x10000;
-    bool success = range.append(4, range.start + range.size + 1);
+    bool success = range.append(range.start + range.size + 1);
     CPPUNIT_ASSERT_EQUAL(false, success);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendNewScan()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(5, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
 }
 
@@ -264,15 +239,14 @@ void TestRangeCounter::testSimple()
 {
     RangeCounter c;
 
-    c.append(3, 5);
-    c.append(3, 6);
-    c.append(3, 6);
-    c.append(4, 7);
-    c.append(5, 2);
-    c.append(5, 4);
-    c.append(5, 5);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(4), c.countRanges());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(7), c.countSplats());
+    c.append(5);
+    c.append(6);
+    c.append(6);
+    c.append(9);
+    c.append(10);
+    c.append(11 + uint64_t(UINT32_MAX) + 1);
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(3), c.countRanges());
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(6), c.countSplats());
 }
 
 /**
@@ -299,29 +273,25 @@ void TestRangeCollector::testSimple()
 
     {
         RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-        c.append(3, 5);
-        c.append(3, 6);
-        c.append(3, 6);
-        c.append(4, UINT64_C(0x123456781234));
-        c.append(5, 2);
-        c.append(5, 4);
-        c.append(5, 5);
+        c.append(5);
+        c.append(6);
+        c.append(6);
+        c.append(UINT64_C(0x123456781234));
+        c.append(2);
+        c.append(4);
+        c.append(5);
     }
     CPPUNIT_ASSERT_EQUAL(4, int(out.size()));
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[0].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(5), out[0].start);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), out[1].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[1].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), out[1].start);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[2].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[2].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(2), out[2].start);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[3].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[3].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(4), out[3].start);
 }
@@ -331,30 +301,26 @@ void TestRangeCollector::testFlush()
     vector<Range> out;
     RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
 
-    c.append(3, 5);
-    c.append(3, 6);
+    c.append(5);
+    c.append(6);
     c.flush();
 
     CPPUNIT_ASSERT_EQUAL(1, int(out.size()));
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[0].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(5), out[0].start);
 
-    c.append(3, 7);
-    c.append(4, 0);
+    c.append(7);
+    c.append(0);
     c.flush();
 
     CPPUNIT_ASSERT_EQUAL(3, int(out.size()));
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[0].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(5), out[0].start);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[1].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[1].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(7), out[1].start);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), out[2].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[2].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(0), out[2].start);
 }
@@ -394,8 +360,8 @@ void TestRangeBig::testBigRange()
 
     for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
     {
-        c.append(0, i);
-        counter.append(0, i);
+        c.append(i);
+        counter.append(i);
     }
     c.flush();
 
@@ -403,11 +369,9 @@ void TestRangeBig::testBigRange()
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(2), counter.countRanges());
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countSplats());
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(0), out[0].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFu), out[0].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(0), out[0].start);
 
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(0), out[1].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0x2345678Au), out[1].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(0xFFFFFFFFu), out[1].start);
 }
@@ -419,7 +383,7 @@ void TestRangeBig::testManyRanges()
     // We force each append to be a separate range by going up in steps of 2.
     for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
     {
-        counter.append(0, i * 2);
+        counter.append(i * 2);
     }
 
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countRanges());
@@ -434,9 +398,79 @@ std::ostream &operator<<(std::ostream &o, const Cell &cell)
         << cell.getLower()[2] << ", " << cell.getLevel() << ")";
 }
 
-/**
- * Test code for @ref Bucket::internal::forEachCell.
- */
+/// Tests for @ref Bucket::internal::FilesStream
+class TestFilesStream : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestFilesStream);
+    CPPUNIT_TEST(testConstructor);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testConstructor();       ///< Test the default constructor
+    void testSimple();            ///< Tests normal use
+    void testEmpty();             ///< Tests an empty stream
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFilesStream, TestSet::perBuild());
+
+void TestFilesStream::testConstructor()
+{
+    FilesStream<boost::ptr_vector<FastPly::Reader>::const_iterator> stream;
+    CPPUNIT_ASSERT(stream.empty());
+}
+
+void TestFilesStream::testSimple()
+{
+    /* Create files with indices encoded into the splats */
+    const unsigned int nFiles = 5;
+    const unsigned int sizes[nFiles] = {0, 5, 1, 0, 3};
+    std::vector<boost::shared_array<char> > fileData;
+    boost::ptr_vector<FastPly::Reader> files;
+    std::vector<Splat> expected;
+    for (unsigned int i = 0; i < nFiles; i++)
+    {
+        boost::scoped_array<Splat> splats(new Splat[sizes[i]]);
+        for (unsigned int j = 0; j < sizes[i]; j++)
+        {
+            splats[j] = makeSplat(i, j, 0.0f, 1.0f);
+            expected.push_back(splats[j]);
+        }
+        pair<FastPly::Reader *, char *> r = makeReader(splats.get(), splats.get() + sizes[i]);
+        files.push_back(r.first);
+        fileData.push_back(boost::shared_array<char>(r.second));
+    }
+
+    typedef boost::ptr_vector<FastPly::Reader>::const_iterator iterator;
+    FilesStream<iterator> stream(files.begin(), files.end());
+    vector<Splat> actual;
+    while (!stream.empty())
+    {
+        actual.push_back(*stream);
+        ++stream;
+    }
+    CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
+    for (std::size_t i = 0; i < expected.size(); i++)
+    {
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[0], actual[i].position[0]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[1], actual[i].position[1]);
+    }
+}
+
+void TestFilesStream::testEmpty()
+{
+    Splat dummy;
+    std::vector<boost::shared_array<char> > fileData;
+    boost::ptr_vector<FastPly::Reader> files;
+
+    pair<FastPly::Reader *, char *> r = makeReader(&dummy, &dummy); // empty file
+    files.push_back(r.first);
+    fileData.push_back(boost::shared_array<char>(r.second));
+    FilesStream<boost::ptr_vector<FastPly::Reader>::const_iterator> stream;
+
+    CPPUNIT_ASSERT(stream.empty());
+}
+
+/// Tests for @ref Bucket::internal::forEachCell.
 class TestForEachCell : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestForEachCell);
@@ -516,11 +550,8 @@ class TestForEachSplat : public CppUnit::TestFixture
     CPPUNIT_TEST(testEmpty);
     CPPUNIT_TEST_SUITE_END();
 private:
-    typedef pair<Range::scan_type, Range::index_type> Id;
-    vector<boost::shared_array<char> > fileData;
-    boost::ptr_vector<FastPly::Reader> files;
-
-    void splatFunc(Range::scan_type scan, Range::index_type id, const Splat &splat, vector<Id> &out);
+    SplatVector splats;
+    void splatFunc(Range::index_type id, const Splat &splat, vector<Range::index_type> &out);
 public:
     virtual void setUp();
 
@@ -529,68 +560,58 @@ public:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestForEachSplat, TestSet::perBuild());
 
-void TestForEachSplat::splatFunc(Range::scan_type scan, Range::index_type id, const Splat &splat, vector<Id> &out)
+void TestForEachSplat::splatFunc(Range::index_type id, const Splat &splat, vector<Range::index_type> &out)
 {
     // Check that the ID information we're given matches what we encoded into the splats
-    CPPUNIT_ASSERT_EQUAL(scan, Range::scan_type(splat.position[0]));
     CPPUNIT_ASSERT_EQUAL(id, Range::index_type(splat.position[1]));
 
-    out.push_back(Id(scan, id));
+    out.push_back(id);
 }
 
 void TestForEachSplat::setUp()
 {
     CppUnit::TestFixture::setUp();
     int size = 100000;
-    int nFiles = 5;
 
-    fileData.clear();
-    for (int i = 0; i < nFiles; i++)
-    {
-        boost::scoped_array<Splat> splats(new Splat[size]);
-        for (int j = 0; j < size; j++)
-            splats[j] = makeSplat(i, j, 0.0f, 1.0f);
-        pair<FastPly::Reader *, char *> r = makeReader(splats.get(), splats.get() + size);
-        files.push_back(r.first);
-        fileData.push_back(boost::shared_array<char>(r.second));
-    }
+    splats.resize(size);
+    for (int j = 0; j < size; j++)
+        splats[j] = makeSplat(j, j, 0.0f, 1.0f);
 }
 
 void TestForEachSplat::testSimple()
 {
-    vector<Id> expected, actual;
+    vector<Range::index_type> expected, actual;
     vector<Range> ranges;
 
-    ranges.push_back(Range(0, 0));
-    ranges.push_back(Range(0, 2, 3));
-    ranges.push_back(Range(1, 2, 3));
-    ranges.push_back(Range(2, 100, 40000)); // Large range to test buffering
+    ranges.push_back(Range(0));
+    ranges.push_back(Range(2, 3));
+    ranges.push_back(Range(5, 10));
+    ranges.push_back(Range(100, 40000)); // Large range to test buffering
 
     BOOST_FOREACH(const Range &range, ranges)
     {
         for (Range::index_type i = 0; i < range.size; ++i)
         {
-            expected.push_back(Id(range.scan, range.start + i));
+            expected.push_back(range.start + i);
         }
     }
 
-    forEachSplat(files, ranges.begin(), ranges.end(),
-                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, _3, boost::ref(actual)));
+    forEachSplat(splats, ranges.begin(), ranges.end(),
+                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, boost::ref(actual)));
     CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
     for (size_t i = 0; i < actual.size(); i++)
     {
-        CPPUNIT_ASSERT_EQUAL(expected[i].first, actual[i].first);
-        CPPUNIT_ASSERT_EQUAL(expected[i].second, actual[i].second);
+        CPPUNIT_ASSERT_EQUAL(expected[i], actual[i]);
     }
 }
 
 void TestForEachSplat::testEmpty()
 {
     vector<Range> ranges;
-    vector<Id> actual;
+    vector<Range::index_type> actual;
 
-    forEachSplat(files, ranges.begin(), ranges.end(),
-                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, _3, boost::ref(actual)));
+    forEachSplat(splats, ranges.begin(), ranges.end(),
+                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, boost::ref(actual)));
     CPPUNIT_ASSERT(actual.empty());
 }
 
@@ -613,17 +634,16 @@ private:
         vector<Range> ranges;
     };
 
-    vector<boost::shared_array<char> > fileData;
-    boost::ptr_vector<FastPly::Reader> files;
+    SplatVector splats;
 
     void setupSimple();
 
-    void validate(const boost::ptr_vector<FastPly::Reader> &files, const Grid &fullGrid,
+    void validate(const SplatVector &splats, const Grid &fullGrid,
                   const vector<Block> &blocks, std::size_t maxSplats, int maxCells);
 
     static void bucketFunc(
         vector<Block> &blocks,
-        const boost::ptr_vector<FastPly::Reader> &files,
+        const SplatVector &splats,
         Range::index_type numSplats,
         RangeConstIterator first,
         RangeConstIterator last,
@@ -640,13 +660,13 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBucket, TestSet::perBuild());
 
 void TestBucket::bucketFunc(
     vector<Block> &blocks,
-    const boost::ptr_vector<FastPly::Reader> &files,
+    const SplatVector &splats,
     Range::index_type numSplats,
     RangeConstIterator first,
     RangeConstIterator last,
     const Grid &grid)
 {
-    (void) files;
+    (void) splats;
     blocks.push_back(Block());
     Block &block = blocks.back();
     block.numSplats = numSplats;
@@ -655,7 +675,7 @@ void TestBucket::bucketFunc(
 }
 
 void TestBucket::validate(
-    const boost::ptr_vector<FastPly::Reader> &files,
+    const SplatVector &splats,
     const Grid &fullGrid,
     const vector<Block> &blocks,
     std::size_t maxSplats,
@@ -667,11 +687,7 @@ void TestBucket::validate(
      * areas of the intersections with the blocks and check that it adds up to
      * the full bounding box of the splat.
      */
-    vector<vector<double> > areas(files.size());
-    for (std::size_t i = 0; i < files.size(); i++)
-    {
-        areas[i].resize(files[i].numVertices());
-    }
+    vector<double> areas(splats.size());
 
     /* First validate each individual block */
     BOOST_FOREACH(const Block &block, blocks)
@@ -718,14 +734,12 @@ void TestBucket::validate(
                 const Range &prev = block.ranges[i - 1];
                 // This will fail for input files with >2^32 points, but we aren't testing those
                 // yet.
-                CPPUNIT_ASSERT(range.scan > prev.scan
-                               || (range.scan == prev.scan && range.start > prev.start + prev.size));
+                CPPUNIT_ASSERT(range.start > prev.start + prev.size);
             }
 
             for (Range::index_type j = range.start; j < range.start + range.size; j++)
             {
-                Splat splat;
-                files[range.scan].readVertices(j, 1, &splat);
+                Splat splat = splats[j];
                 double area = 1.0;
                 for (int k = 0; k < 3; k++)
                 {
@@ -736,7 +750,7 @@ void TestBucket::validate(
                     CPPUNIT_ASSERT(lower <= upper);
                     area *= (upper - lower);
                 }
-                areas[range.scan][j] += area;
+                areas[j] += area;
             }
         }
         CPPUNIT_ASSERT_EQUAL(numSplats, block.numSplats);
@@ -750,14 +764,12 @@ void TestBucket::validate(
         }
 
     /* Check that each splat is fully covered */
-    for (Range::scan_type scan = 0; scan < files.size(); scan++)
-        for (Range::index_type id = 0; id < files[scan].numVertices(); id++)
-        {
-            Splat splat;
-            files[scan].readVertices(id, 1, &splat);
-            double area = 8.0 * splat.radius * splat.radius * splat.radius;
-            CPPUNIT_ASSERT_DOUBLES_EQUAL(area, areas[scan][id], 1e-6);
-        }
+    for (Range::index_type id = 0; id < splats.size(); id++)
+    {
+        Splat splat = splats[id];
+        double area = 8.0 * splat.radius * splat.radius * splat.radius;
+        CPPUNIT_ASSERT_DOUBLES_EQUAL(area, areas[id], 1e-6);
+    }
 }
 
 void TestBucket::setupSimple()
@@ -767,31 +779,22 @@ void TestBucket::setupSimple()
      * appear twice (once on each side of the boundary).
      */
     const float z = 10.0f;
-    vector<vector<Splat> > splats(3);
 
-    splats[0].push_back(makeSplat(10.0f, 20.0f, z, 2.0f));
-    splats[0].push_back(makeSplat(30.0f, 17.0f, z, 1.0f));
-    splats[0].push_back(makeSplat(32.0f, 12.0f, z, 1.0f));
-    splats[0].push_back(makeSplat(32.0f, 18.0f, z, 1.0f));
-    splats[0].push_back(makeSplat(37.0f, 18.0f, z, 1.0f));
-    splats[0].push_back(makeSplat(35.0f, 16.0f, z, 3.0f));
+    splats.push_back(makeSplat(10.0f, 20.0f, z, 2.0f));
+    splats.push_back(makeSplat(30.0f, 17.0f, z, 1.0f));
+    splats.push_back(makeSplat(32.0f, 12.0f, z, 1.0f));
+    splats.push_back(makeSplat(32.0f, 18.0f, z, 1.0f));
+    splats.push_back(makeSplat(37.0f, 18.0f, z, 1.0f));
+    splats.push_back(makeSplat(35.0f, 16.0f, z, 3.0f));
 
-    splats[1].push_back(makeSplat(12.0f, 37.0f, z, 1.0f));
-    splats[1].push_back(makeSplat(13.0f, 37.0f, z, 1.0f));
-    splats[1].push_back(makeSplat(12.0f, 38.0f, z, 1.0f));
-    splats[1].push_back(makeSplat(13.0f, 38.0f, z, 1.0f));
-    splats[1].push_back(makeSplat(17.0f, 32.0f, z, 1.0f));
-    splats[2].push_back(makeSplat(18.0f, 33.0f, z, 1.0f));
-    // [2] above is intentional, to mix things up a big
+    splats.push_back(makeSplat(12.0f, 37.0f, z, 1.0f));
+    splats.push_back(makeSplat(13.0f, 37.0f, z, 1.0f));
+    splats.push_back(makeSplat(12.0f, 38.0f, z, 1.0f));
+    splats.push_back(makeSplat(13.0f, 38.0f, z, 1.0f));
+    splats.push_back(makeSplat(17.0f, 32.0f, z, 1.0f));
+    splats.push_back(makeSplat(18.0f, 33.0f, z, 1.0f));
 
-    splats[2].push_back(makeSplat(25.0f, 45.0f, z, 4.0f));
-
-    for (std::size_t i = 0; i < splats.size(); i++)
-    {
-        pair<FastPly::Reader *, char *> r = makeReader(splats[i].begin(), splats[i].end());
-        files.push_back(r.first);
-        fileData.push_back(boost::shared_array<char>(r.second));
-    }
+    splats.push_back(makeSplat(25.0f, 45.0f, z, 4.0f));
 }
 
 void TestBucket::testSimple()
@@ -804,9 +807,9 @@ void TestBucket::testSimple()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(files, grid, maxSplats, maxCells, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
-    validate(files, grid, blocks, maxSplats, maxCells);
+    validate(splats, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
     // blocks by hand
@@ -824,7 +827,7 @@ void TestBucket::testDensityError()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
-        bucket(files, grid, maxSplats, maxCells, maxSplit,
+        bucket(splats, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5)),
         DensityError);
 }
@@ -839,9 +842,9 @@ void TestBucket::testFlat()
     const int maxSplats = 15;
     const int maxCells = 32;
     const int maxSplit = 1000000;
-    bucket(files, grid, maxSplats, maxCells, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
-    validate(files, grid, blocks, maxSplats, maxCells);
+    validate(splats, grid, blocks, maxSplats, maxCells);
 
     CPPUNIT_ASSERT_EQUAL(1, int(blocks.size()));
 }
@@ -854,7 +857,7 @@ void TestBucket::testEmpty()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(files, grid, maxSplats, maxCells, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
     CPPUNIT_ASSERT(blocks.empty());
 }
@@ -869,9 +872,9 @@ void TestBucket::testMultiLevel()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 8;
-    bucket(files, grid, maxSplats, maxCells, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
-    validate(files, grid, blocks, maxSplats, maxCells);
+    validate(splats, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
     // blocks by hand

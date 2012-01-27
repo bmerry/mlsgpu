@@ -14,6 +14,7 @@
 #endif
 #include <tr1/cstdint>
 #include <cstddef>
+#include <cstring>
 #include <boost/ref.hpp>
 #include <boost/array.hpp>
 #include "bucket.h"
@@ -30,6 +31,69 @@ namespace Bucket
  */
 namespace internal
 {
+
+/**
+ * Implementation of the STXXL stream concept that reads all splats
+ * from a collection of PLY files.
+ *
+ * @param FileIterator an iterator type whose value type is @ref FastPly::Reader.
+ */
+template<typename FileIterator>
+class FilesStream
+{
+private:
+    FileIterator first, last;
+    FileIterator current;
+    FastPly::Reader::size_type position;
+public:
+    typedef Splat value_type;
+
+    FilesStream();
+    FilesStream(FileIterator first, FileIterator last);
+
+    Splat operator*() const;
+    FilesStream<FileIterator> &operator++();
+    bool empty() const;
+};
+
+template<typename FileIterator>
+FilesStream<FileIterator>::FilesStream() : first(), last(), current(last), position(0) {}
+
+template<typename FileIterator>
+FilesStream<FileIterator>::FilesStream(FileIterator first, FileIterator last)
+    : first(first), last(last), current(first), position(0)
+{
+    while (current != last && current->numVertices() == 0)
+        ++current;
+}
+
+template<typename FileIterator>
+Splat FilesStream<FileIterator>::operator*() const
+{
+    assert(!empty());
+    Splat ans;
+    current->readVertices(position, 1, &ans);
+    return ans;
+}
+
+template<typename FileIterator>
+FilesStream<FileIterator> &FilesStream<FileIterator>::operator++()
+{
+    assert(!empty());
+    ++position;
+    while (current != last && position == current->numVertices())
+    {
+        position = 0;
+        ++current;
+    }
+    return *this;
+}
+
+template<typename FileIterator>
+bool FilesStream<FileIterator>::empty() const
+{
+    return current == last;
+}
 
 /**
  * A cube with power-of-two side lengths.
@@ -117,7 +181,7 @@ public:
     RangeCounter();
 
     /// Adds a new splat to the virtual list.
-    void append(Range::scan_type scan, Range::index_type splat);
+    void append(Range::index_type splat);
 
     /// Returns the number of ranges that would be required to encode the provided splats.
     std::tr1::uint64_t countRanges() const;
@@ -159,7 +223,7 @@ public:
      *
      * @return The output iterator after the update.
      */
-    iterator_type append(Range::scan_type scan, Range::index_type splat);
+    iterator_type append(Range::index_type splat);
 
     /**
      * Force any buffered ranges to be emitted. This is done implicitly
@@ -186,12 +250,12 @@ RangeCollector<OutputIterator>::~RangeCollector()
 }
 
 template<typename OutputIterator>
-OutputIterator RangeCollector<OutputIterator>::append(Range::scan_type scan, Range::index_type splat)
+OutputIterator RangeCollector<OutputIterator>::append(Range::index_type splat)
 {
-    if (!current.append(scan, splat))
+    if (!current.append(splat))
     {
         *out++ = current;
-        current = Range(scan, splat);
+        current = Range(splat);
     }
     return out;
 }
@@ -288,32 +352,18 @@ void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int level
  */
 template<typename Func>
 void forEachSplat(
-    const boost::ptr_vector<FastPly::Reader> &files,
+    const SplatVector &splats,
     RangeConstIterator first,
     RangeConstIterator last,
     const Func &func)
 {
-    // Maximum number of splats we read from a range.
-    static const std::size_t splatBufferSize = 8192;
-
     for (RangeConstIterator it = first; it != last; ++it)
     {
         const Range &range = *it;
-        Splat buffer[splatBufferSize];
-        Range::size_type size = range.size;
-        Range::index_type start = range.start;
-        while (size != 0)
+        SplatVector::const_iterator cur = splats.begin() + range.start;
+        for (Range::size_type i = 0; i < range.size; ++i, ++cur)
         {
-            Range::size_type chunkSize = size;
-            if (splatBufferSize < size)
-                chunkSize = splatBufferSize;
-            files[range.scan].readVertices(start, chunkSize, buffer);
-            for (std::size_t j = 0; j < chunkSize; j++)
-            {
-                boost::unwrap_ref(func)(range.scan, start + j, buffer[j]);
-            }
-            size -= chunkSize;
-            start += chunkSize;
+            boost::unwrap_ref(func)(range.start + i, *cur);
         }
     }
 }
@@ -331,7 +381,6 @@ private:
     class PerSplat
     {
     private:
-        Range::scan_type scan;
         Range::index_type id;
         const Splat &splat;
         const Func &func;
@@ -339,8 +388,8 @@ private:
         float upper[3];      ///< Splat upper bound converted to grid coordinates
 
     public:
-        PerSplat(const Grid &grid, Range::scan_type scan, Range::index_type id, const Splat &splat, const Func &func)
-            : scan(scan), id(id), splat(splat), func(func)
+        PerSplat(const Grid &grid, Range::index_type id, const Splat &splat, const Func &func)
+            : id(id), splat(splat), func(func)
         {
             float lo[3], hi[3];
             for (int i = 0; i < 3; i++)
@@ -357,7 +406,7 @@ private:
             for (int i = 0; i < 3; i++)
                 if (upper[i] < cell.getLower()[i] || lower[i] > cell.getUpper()[i])
                     return false;
-            return func(scan, id, splat, cell);
+            return func(id, splat, cell);
         }
     };
 
@@ -369,9 +418,9 @@ public:
             dims[i] = grid.numCells(i);
     }
 
-    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
+    void operator()(Range::index_type id, const Splat &splat) const
     {
-        PerSplat p(grid, scan, id, splat, func);
+        PerSplat p(grid, id, splat, func);
         forEachCell(dims, microSize, levels, p);
     }
 };
@@ -383,7 +432,7 @@ public:
  *
  * The function takes the arg
  *
- * @param files        Files references by the ranges.
+ * @param splats       Splats backing the ranges.
  * @param first, last  %Range of @ref Range objects.
  * @param grid         %Grid for transforming splat coordinates into grid coordinates.
  * @param microSize    Dimensions of the cubic cells in the most refined layer, in grid cells.
@@ -392,14 +441,14 @@ public:
  */
 template<typename Func>
 void forEachSplatCell(
-    const boost::ptr_vector<FastPly::Reader> &files,
+    const SplatVector &splats,
     RangeConstIterator first,
     RangeConstIterator last,
     const Grid &grid, Cell::size_type microSize, unsigned int levels,
     const Func &func)
 {
     ForEachSplatCell<Func> f(grid, microSize, levels, func);
-    forEachSplat(files, first, last, f);
+    forEachSplat(splats, first, last, f);
 }
 
 } // namespace internal

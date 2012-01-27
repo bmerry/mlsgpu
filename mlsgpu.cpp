@@ -369,7 +369,7 @@ public:
     BlockRun(const cl::Context &context, const cl::Device &device,
              std::size_t maxSplats, std::size_t maxCells,
              int levels, int subsampling);
-    void operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
+    void operator()(const Bucket::SplatVector &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
 
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
@@ -387,7 +387,7 @@ BlockRun::BlockRun(
 {
 }
 
-void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid)
+void BlockRun::operator()(const Bucket::SplatVector &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid)
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -407,12 +407,14 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
     }
 
     // TODO: use mapping to transfer the data directly into a buffer
-    vector<Splat> splats(numSplats);
+    vector<Splat> outSplats(numSplats);
     std::size_t pos = 0;
     for (Bucket::RangeConstIterator i = first; i != last; i++)
     {
         assert(pos + i->size <= numSplats);
-        files[i->scan].readVertices(i->start, i->size, &splats[pos]);
+        std::copy(splats.begin() + i->start,
+                  splats.begin() + (i->start + i->size),
+                  outSplats.begin() + pos);
         pos += i->size;
     }
     assert(pos == numSplats);
@@ -426,7 +428,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
         Statistics::Timer timer("block.time");
         cl::Event treeBuildEvent;
         vector<cl::Event> wait(1);
-        tree.enqueueBuild(queue, &splats[0], numSplats, expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
+        tree.enqueueBuild(queue, &outSplats[0], numSplats, expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
         wait[0] = treeBuildEvent;
 
         input.set(expandedGrid, tree, subsampling);
@@ -454,15 +456,17 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
     BlockRun blockRun(context, device, maxSplats, blockCells, levels, subsampling);
     Grid grid;
+    Bucket::SplatVector splats;
     try
     {
-        grid = Bucket::makeGrid(files, spacing);
+        Bucket::loadSplats(files, spacing, splats, grid);
     }
     catch (std::length_error &e)
     {
         cerr << "At least one input point is required.\n";
         exit(1);
     }
+    files.clear();
     blockRun.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
@@ -480,7 +484,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         blockRun.setOutput(mesh->outputFunctor(pass));
         // TODO: blockCells will be just less than a power of 2, so the
         // actual calls will end up at almost half
-        Bucket::bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
+        Bucket::bucket(splats, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
     }
 
     {

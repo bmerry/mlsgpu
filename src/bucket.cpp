@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <utility>
 #include <cassert>
+#include <functional>
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/foreach.hpp>
 #include <boost/ref.hpp>
 #include <boost/numeric/conversion/converter.hpp>
+#include <stxxl.h>
 #include "splat.h"
 #include "bucket.h"
 #include "bucket_internal.h"
@@ -31,35 +33,32 @@ namespace Bucket
 {
 
 Range::Range() :
-    scan(std::numeric_limits<scan_type>::max()),
     size(0),
     start(std::numeric_limits<index_type>::max())
 {
 }
 
-Range::Range(scan_type scan, index_type splat) :
-    scan(scan),
+Range::Range(index_type splat) :
     size(1),
     start(splat)
 {
 }
 
-Range::Range(scan_type scan, index_type start, size_type size)
-    : scan(scan), size(size), start(start)
+Range::Range(index_type start, size_type size)
+    : size(size), start(start)
 {
     MLSGPU_ASSERT(size == 0 || start <= std::numeric_limits<index_type>::max() - size + 1, std::out_of_range);
 }
 
-bool Range::append(scan_type scan, index_type splat)
+bool Range::append(index_type splat)
 {
     if (size == 0)
     {
         /* An empty range can always be extended. */
-        this->scan = scan;
         size = 1;
         start = splat;
     }
-    else if (this->scan == scan && splat >= start && splat - start <= size)
+    else if (splat >= start && splat - start <= size)
     {
         if (splat - start == size)
         {
@@ -129,15 +128,15 @@ RangeCounter::RangeCounter() : ranges(0), splats(0), current()
 {
 }
 
-void RangeCounter::append(Range::scan_type scan, Range::index_type splat)
+void RangeCounter::append(Range::index_type splat)
 {
     splats++;
     /* On the first call, the append will succeed (empty range), but we still
      * need to set ranges to 1 since this is the first real range.
      */
-    if (ranges == 0 || !current.append(scan, splat))
+    if (ranges == 0 || !current.append(splat))
     {
-        current = Range(scan, splat);
+        current = Range(splat);
         ranges++;
     }
 }
@@ -160,17 +159,16 @@ namespace
 /// Contains static information used to process a cell.
 struct BucketParameters
 {
-    /// Input files holding the raw splats
-    const boost::ptr_vector<FastPly::Reader> &files;
+    const SplatVector &splats;          ///< Input vector holding the sorted splats
     const Processor &process;           ///< Processing function
     Range::index_type maxSplats;        ///< Maximum splats permitted for processing
     unsigned int maxCells;              ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
 
-    BucketParameters(const boost::ptr_vector<FastPly::Reader> &files,
+    BucketParameters(const SplatVector &splats,
                      const Processor &process, Range::index_type maxSplats,
                      unsigned int maxCells, std::size_t maxSplit)
-        : files(files), process(process),
+        : splats(splats), process(process),
         maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit) {}
 };
 
@@ -302,15 +300,15 @@ private:
 public:
     CountSplat(BucketState &state) : state(state) {};
 
-    bool operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const;
+    bool operator()(Range::index_type id, const Splat &splat, const internal::Cell &cell) const;
 };
 
-bool CountSplat::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const
+bool CountSplat::operator()(Range::index_type id, const Splat &splat, const internal::Cell &cell) const
 {
     (void) splat;
 
     // Add to the counters
-    state.getCellState(cell).counter.append(scan, id);
+    state.getCellState(cell).counter.append(id);
 
     // Recurse into children, unless we've reached microblock level
     return cell.getLevel() > 0;
@@ -365,10 +363,10 @@ private:
 public:
     BucketSplats(BucketState &state) : state(state) {}
 
-    bool operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const;
+    bool operator()(Range::index_type id, const Splat &splat, const internal::Cell &cell) const;
 };
 
-bool BucketSplats::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const internal::Cell &cell) const
+bool BucketSplats::operator()(Range::index_type id, const Splat &splat, const internal::Cell &cell) const
 {
     (void) splat;
 
@@ -380,7 +378,7 @@ bool BucketSplats::operator()(Range::scan_type scan, Range::index_type id, const
     else
     {
         assert(cs.blockId < state.childCur.size());
-        state.childCur[cs.blockId].append(scan, id);
+        state.childCur[cs.blockId].append(id);
         return false;
     }
 }
@@ -433,7 +431,7 @@ static void bucketRecurse(RangeConstIterator first,
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
-        params.process(params.files, numSplats, first, last, grid);
+        params.process(params.splats, numSplats, first, last, grid);
     }
     else if (maxDim == 1)
     {
@@ -472,7 +470,7 @@ static void bucketRecurse(RangeConstIterator first,
         {
             BucketState state(params, grid, microSize, macroLevels);
             /* Create histogram */
-            internal::forEachSplatCell(params.files, first, last, grid, state.microSize, state.macroLevels, CountSplat(state));
+            internal::forEachSplatCell(params.splats, first, last, grid, state.microSize, state.macroLevels, CountSplat(state));
             /* Select cells to bucket splats into */
             internal::forEachCell(state.dims, state.microSize, state.macroLevels, PickCells(state));
             /* Do the bucketing.
@@ -485,7 +483,7 @@ static void bucketRecurse(RangeConstIterator first,
             for (std::size_t i = 0; i < numPicked; i++)
                 state.childCur.push_back(internal::RangeCollector<std::vector<Range>::iterator>(
                         childRanges.begin() + state.pickedOffset[i]));
-            internal::forEachSplatCell(params.files, first, last, grid, state.microSize, state.macroLevels, BucketSplats(state));
+            internal::forEachSplatCell(params.splats, first, last, grid, state.microSize, state.macroLevels, BucketSplats(state));
             for (std::size_t i = 0; i < numPicked; i++)
                 state.childCur[i].flush();
 
@@ -526,47 +524,21 @@ static void bucketRecurse(RangeConstIterator first,
     }
 }
 
-/* Create a root bucket will all splats in it */
-static Range::index_type makeRoot(
-    const boost::ptr_vector<FastPly::Reader> &files,
-    std::vector<Range> &root)
-{
-    Range::index_type numSplats = 0;
-    root.clear();
-    root.reserve(files.size());
-    for (size_t i = 0; i < files.size(); i++)
-    {
-        const Range::index_type vertices = files[i].numVertices();
-        numSplats += vertices;
-        Range::index_type start = 0;
-        while (start < vertices)
-        {
-            Range::size_type size = std::numeric_limits<Range::size_type>::max();
-            if (start + size > vertices)
-                size = vertices - start;
-            root.push_back(Range(i, start, size));
-            start += size;
-        }
-    }
-    return numSplats;
-}
-
 struct MakeGrid
 {
+    typedef Splat value_type;
+
     bool first;
     float low[3];
     float bboxMin[3];
     float bboxMax[3];
 
     MakeGrid() : first(true) {}
-    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat);
+    const Splat &operator()(const Splat &splat);
 };
 
-void MakeGrid::operator()(Range::scan_type scan, Range::index_type id, const Splat &splat)
+const Splat &MakeGrid::operator()(const Splat &splat)
 {
-    (void) scan;
-    (void) id;
-
     const float radius = splat.radius;
     if (first)
     {
@@ -588,40 +560,58 @@ void MakeGrid::operator()(Range::scan_type scan, Range::index_type id, const Spl
             bboxMax[j] = std::max(bboxMax[j], p + radius);
         }
     }
+    return splat;
 }
 
 } // namespace
 
-void bucket(const boost::ptr_vector<FastPly::Reader> &files,
+void bucket(const SplatVector &splats,
             const Grid &bbox,
             Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
             const Processor &process)
 {
-    /* Create a root bucket will all splats in it */
-    std::vector<Range> root;
-    Range::index_type numSplats = makeRoot(files, root);
+    Range::index_type numSplats = splats.size();
+    std::vector<Range> root(1, Range(0, numSplats));
 
-    BucketParameters params(files, process, maxSplats, maxCells, maxSplit);
+    BucketParameters params(splats, process, maxSplats, maxCells, maxSplit);
     params.maxSplats = maxSplats;
     params.maxCells = maxCells;
     params.maxSplit = maxSplit;
     bucketRecurse(root.begin(), root.end(), numSplats, bbox, params, 0, root.size());
 }
 
-Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
-              float spacing)
+void loadSplats(const boost::ptr_vector<FastPly::Reader> &files,
+                float spacing,
+                SplatVector &splats,
+                Grid &grid)
 {
-    Statistics::Timer timer("makeGrid.time");
+    Statistics::Timer timer("loadSplats.time");
 
-    std::vector<Range> root;
-    Range::index_type numSplats = makeRoot(files, root);
+    Range::index_type numSplats = 0;
+    BOOST_FOREACH(const FastPly::Reader &reader, files)
+    {
+        numSplats += reader.numVertices();
+    }
     if (numSplats == 0)
         throw std::length_error("Must be at least one splat");
 
+    const unsigned int block_size = SplatVector::block_size;
+    typedef internal::FilesStream<boost::ptr_vector<FastPly::Reader>::const_iterator> files_type;
+    typedef stxxl::stream::transform<MakeGrid, files_type> peek_type;
+    typedef CompareSplatsMorton comparator_type;
+    typedef stxxl::stream::sort<peek_type, comparator_type, block_size> sort_type;
+
     MakeGrid state;
-    internal::forEachSplat(files, root.begin(), root.end(), boost::ref(state));
+
+    files_type filesStream(files.begin(), files.end());
+    peek_type peekStream(state, filesStream);
+    // TODO: make this tunable
+    sort_type sortStream(peekStream, comparator_type(), 256 * 1024 * 1024);
+    // A pass-through transformation that will extract the bounding box as we go
+    splats.resize(numSplats);
+    stxxl::stream::materialize(sortStream, splats.begin(), splats.end());
 
     int extents[3][2];
     for (unsigned int i = 0; i < 3; i++)
@@ -632,7 +622,7 @@ Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
         extents[i][1] = RoundUp::convert(h);
     }
 
-    return Grid(state.low, spacing,
+    grid = Grid(state.low, spacing,
                 extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
 }
 

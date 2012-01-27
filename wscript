@@ -71,7 +71,8 @@ def configure_variant(conf):
         conf.define('UNIT_TESTS', 1, quote = False)
 
 def configure_variant_gcc(conf):
-    ccflags = ['-Wall', '-W']
+    ccflags = ['-Wall', '-W', '-pthread']
+    conf.env.append_value('LINKFLAGS', '-pthread')
     if conf.env['optimize']:
         ccflags.append('-O2')
     else:
@@ -117,6 +118,7 @@ def configure(conf):
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
     conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
+    conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
 
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')
@@ -163,7 +165,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = sources,
             target = 'mls',
-            use = 'OPENCL CLCPP',
+            use = 'OPENCL CLCPP STXXL',
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],
@@ -176,7 +178,7 @@ def build(bld):
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],
-                lib = ['boost_program_options-mt', 'boost_iostreams-mt'])
+                lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
         def print_env(bld):
             print bld.env
         bld.add_post_fun(print_unit_tests)

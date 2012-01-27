@@ -14,7 +14,7 @@
 #include <tr1/cstdint>
 #include <stdexcept>
 #include <boost/function.hpp>
-#include <boost/ptr_container/ptr_array.hpp>
+#include <stxxl.h>
 #include "splat.h"
 #include "grid.h"
 #include "fast_ply.h"
@@ -52,15 +52,12 @@ public:
  */
 struct Range
 {
-    /// Type used to index the list of files
-    typedef std::tr1::uint32_t scan_type;
     /// Type used to specify the length of a range
     typedef std::tr1::uint32_t size_type;
     /// Type used to index a splat within a file
     typedef std::tr1::uint64_t index_type;
 
     /* Note: the order of these is carefully chosen for alignment */
-    scan_type scan;    ///< Index of the originating file
     size_type size;    ///< Size of the range
     index_type start;  ///< Splat index in the file
 
@@ -72,22 +69,22 @@ struct Range
     /**
      * Constructs a splat range with one splat.
      */
-    Range(scan_type scan, index_type splat);
+    explicit Range(index_type splat);
 
     /**
      * Constructs a splat range with multiple splats.
      *
      * @pre @a start + @a size - 1 must fit within @ref index_type.
      */
-    Range(scan_type scan, index_type start, size_type size);
+    explicit Range(index_type start, size_type size);
 
     /**
      * Attempts to extend this range with a new element.
-     * @param scan, splat     The new element
+     * @param splat     The new element
      * @retval true if the element was successfully appended
      * @retval false otherwise.
      */
-    bool append(scan_type scan, index_type splat);
+    bool append(index_type splat);
 };
 
 /**
@@ -96,8 +93,13 @@ struct Range
 typedef std::vector<Range>::const_iterator RangeConstIterator;
 
 /**
+ * Type used to hold a store of splats.
+ */
+typedef stxxl::VECTOR_GENERATOR<Splat, 4, 27, 32768 * sizeof(Splat)>::result SplatVector;
+
+/**
  * Type for callback function called by @ref bucket. The parameters are:
- *  -# The list of files backing the splat ranges.
+ *  -# The backing store of splats.
  *  -# The number of splats in the bucket.
  *  -# A [first, last) pair indicating a range of splat ranges in the bucket
  *  -# A grid covering the spatial extent of the bucket.
@@ -106,14 +108,14 @@ typedef std::vector<Range>::const_iterator RangeConstIterator;
  * the intersection test is conservative so there may be extras. The ranges
  * will be ordered by scan so all splats from one scan are contiguous.
  */
-typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> Processor;
+typedef boost::function<void(const SplatVector &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> Processor;
 
 /**
  * Subdivide a grid and the splats it contains into buckets with a maximum size
  * and splat count, and call a user callback function for each. This function
  * is designed to operate out-of-core and so very large inputs can be used.
  *
- * @param files      The files containing the splats. All splats are used.
+ * @param splats     The backing store of splats. All splats are used.
  * @param bbox       A grid which must completely enclose all the splats.
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
@@ -152,7 +154,7 @@ typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::
  *     splat may be stored in multiple buckets, if it crosses boundaries).
  * The buckets are then processed recursively.
  */
-void bucket(const boost::ptr_vector<FastPly::Reader> &files,
+void bucket(const SplatVector &splats,
             const Grid &bbox,
             Range::index_type maxSplats,
             int maxCells,
@@ -160,21 +162,26 @@ void bucket(const boost::ptr_vector<FastPly::Reader> &files,
             const Processor &process);
 
 /**
- * Grid that encloses the bounding spheres of all the input splats.
- * The resulting grid is suitable for passing to @ref bucket.
+ * Sort splats into an @c stxxl::vector and simultaneously
+ * compute a bounding grid. The resulting grid is suitable for passing to @ref
+ * bucket.
  *
  * The grid is constructed as follows:
  *  -# The bounding box of the sample points is found, ignoring influence regions.
  *  -# The lower bound is used as the grid reference point.
  *  -# The grid extends are set to cover the full bounding box.
  *
- * @param files         Files containing the splats.
- * @param spacing       The spacing between grid vertices.
+ * @param[in]  files         PLY input files (already opened)
+ * @param      spacing       The spacing between grid vertices.
+ * @param[out] splats        Vector of loaded splats
+ * @param[out] grid          Bounding grid.
  *
  * @throw std::length_error if the files contain no splats.
  */
-Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
-              float spacing);
+void loadSplats(const boost::ptr_vector<FastPly::Reader> &files,
+                float spacing,
+                SplatVector &splats,
+                Grid &grid);
 
 } // namespace Bucket
 
