@@ -25,20 +25,21 @@ class Splat;
  * A random-access collection of objects. This is similar to
  * the Random Access Container STL concept, but it only
  * supports access to ranges of items rather an individual ones,
- * and only supports read-only access.
+ * and only supports read-only access. It is not required to
+ * be copyable.
  *
- * The restriction allow it to be efficiently used when
+ * The restrictions allow it to be efficiently used when
  * backed by an on-disk file or other external container.
  *
  * @note This class does not exist. It is a concept only.
  */
-template<typename ValueType>
 class Collection
 {
 public:
-    typedef ValueType value_type;
+    /// Type stored in the collection.
+    typedef int value_type;
 
-    /// Type used to index elements to fetch
+    /// Type used to index elements to fetch.
     typedef std::size_t size_type;
 
     /**
@@ -81,10 +82,16 @@ public:
 };
 #endif // DOXYGEN_FAKE_CODE
 
+/**
+ * Wraps a reference to a type with a vector-like interface into the
+ * @ref Collection concept.
+ *
+ * @param VectorType  The underlying vector type.
+ */
 template<typename VectorType>
 class VectorCollection
 #if DOXYGEN_FAKE_CODE
-: public Collection<typename VectorType::value_type>
+: public Collection
 #endif
 {
 public:
@@ -92,6 +99,12 @@ public:
     typedef typename VectorType::value_type value_type;
     typedef typename VectorType::size_type size_type;
 
+    /**
+     * Wraps a reference to an existing vector.
+     *
+     * @warning This object holds a reference to @a items, so it must not
+     * be destroyed until this object is destroyed.
+     */
     VectorCollection(const vector_type &items) : items(items) {}
 
     size_type size() const { return items.size(); }
@@ -103,16 +116,20 @@ public:
     void forEach(size_type first, size_type last, const Func &f) const;
 
 private:
+    /// Underlying wrapped vector.
     const vector_type &items;
 };
 
 /**
- * Convenience wrapper around @ref VectorCollection that takes the element type and computes a @c std::vector instantiation.
+ * Convenience wrapper around @ref VectorCollection that takes the element type
+ * and computes a @c std::vector instantiation. It does not change the interface
+ * at all, merely simplifies the name of the type.
  */
 template<typename ValueType>
 class StdVectorCollection : public VectorCollection<std::vector<ValueType> >
 {
 private:
+    /// Superclass
     typedef VectorCollection<typename std::vector<ValueType> > base_type;
 public:
     typedef typename base_type::vector_type vector_type;
@@ -123,19 +140,24 @@ public:
     using base_type::read;
     using base_type::forEach;
 
+    /**
+     * Constructor.
+     * @see VectorCollection::VectorCollection.
+     */
     StdVectorCollection(const vector_type &items) : base_type(items) {}
 };
 
 /**
  * Convenience wrapper around @ref VectorCollection that takes the element type
  * and computes an @c stxxl::vector instantiation.  Note that the chosen
- * instantiation is NOT the STXXL default. It is selected for the specific use
+ * instantiation is @em not the STXXL default. It is selected for the specific use
  * cases for which this class is being used.
  */
 template<typename ValueType>
 class StxxlVectorCollection : public VectorCollection<typename stxxl::VECTOR_GENERATOR<ValueType, 4, 27, 32768 * sizeof(ValueType)>::result>
 {
 private:
+    /// Superclass
     typedef VectorCollection<typename stxxl::VECTOR_GENERATOR<ValueType, 4, 27, 32768 * sizeof(ValueType)>::result> base_type;
 public:
     typedef typename base_type::vector_type vector_type;
@@ -168,11 +190,21 @@ private:
 public:
     typedef typename Collection::value_type value_type;
 
+    /**
+     * Constructs an empty stream.
+     */
     CollectionStream();
+
+    /**
+     * Constructs a stream from an existing range of collections.
+     */
     CollectionStream(Iterator first, Iterator last);
 
+    /// Obtain the next item in the stream (concept requirement).
     value_type operator*() const;
+    /// Advance the stream (concept requirement).
     CollectionStream<Iterator> &operator++();
+    /// Determine whether there is a next item (concept requirement).
     bool empty() const;
 };
 

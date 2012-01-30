@@ -48,7 +48,7 @@ class TestFastPlyReader : public CppUnit::TestFixture
     CPPUNIT_TEST_EXCEPTION(testFileNotFound, std::ios_base::failure);
 
     CPPUNIT_TEST(testReadHeader);
-    CPPUNIT_TEST(testReadVertices);
+    CPPUNIT_TEST(testRead);
     CPPUNIT_TEST_SUITE_END();
 
 private:
