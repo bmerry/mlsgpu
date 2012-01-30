@@ -13,7 +13,13 @@
 #include <string>
 #include <cstddef>
 #include <algorithm>
+#include <vector>
+#include <iterator>
+#include <utility>
 #include <boost/smart_ptr/scoped_array.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/bind.hpp>
+#include <boost/ref.hpp>
 #include "../src/fast_ply.h"
 #include "../src/splat.h"
 #include "testmain.h"
@@ -49,10 +55,15 @@ class TestFastPlyReader : public CppUnit::TestFixture
 
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
+    CPPUNIT_TEST(testReadIterator);
+    CPPUNIT_TEST(testForEach);
     CPPUNIT_TEST_SUITE_END();
 
 private:
     string content;                    ///< Convenience data store for the file content
+
+    /// Populates content with some useful data for a read test
+    void setupRead(int numVertices);
 
 public:
     /**
@@ -90,7 +101,9 @@ public:
      * @{
      */
     void testReadHeader();             ///< Checks that header-related fields are set properly
-    void testRead();                   ///< Tests @ref FastPly::Reader::read
+    void testRead();                   ///< Tests @ref FastPly::Reader::read with a pointer
+    void testReadIterator();           ///< Tests @ref FastPly::Reader::read with an output iterator
+    void testForEach();                ///< Tests @ref FastPly::Reader::forEach
     /** @} */
 
     /**
@@ -318,16 +331,19 @@ void TestFastPlyReader::testReadHeader()
     CPPUNIT_ASSERT_EQUAL(int(header.size()), int(r.vertexPtr - r.filePtr));
 }
 
-void TestFastPlyReader::testRead()
+void TestFastPlyReader::setupRead(int numVertices)
 {
-    float vertices[5][7];
-    for (int i = 0; i < 5; i++)
+    // TODO: memory leak on exception
+    boost::scoped_array<float> vertices(new float[numVertices * 7]);
+    for (int i = 0; i < numVertices; i++)
         for (int j = 0; j < 7; j++)
-            vertices[i][j] = i * 100.0f + j;
-    const string header =
+            vertices[i * 7 + j] = i * 100.0f + j;
+    string header =
         "ply\n"
         "format binary_little_endian 1.0\n"
-        "element vertex 5\n"
+        "element vertex ";
+    header += boost::lexical_cast<string>(numVertices);
+    header += "\n"
         "property float32 y\n"
         "property float32 z\n"
         "property float32 x\n"
@@ -336,10 +352,17 @@ void TestFastPlyReader::testRead()
         "property float32 nz\n"
         "property float32 radius\n"
         "end_header\n";
-    setContent(header, sizeof(vertices));
-    copy((const char *) vertices, (const char *) vertices + sizeof(vertices), content.begin() + header.size());
+    setContent(header, numVertices * 7 * sizeof(float));
+    copy((const char *) vertices.get(),
+         (const char *) (vertices.get() + numVertices * 7),
+         content.begin() + header.size());
+}
 
-    Reader r(content.data(), content.size(), 1.0f);
+void TestFastPlyReader::testRead()
+{
+    setupRead(5);
+
+    Reader r(content.data(), content.size(), 2.0f);
     Splat out[4] = {};
     r.read(1, 4, out);
     CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting
@@ -351,12 +374,61 @@ void TestFastPlyReader::testRead()
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 103.0f, out[i].normal[0]);
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 104.0f, out[i].normal[1]);
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 105.0f, out[i].normal[2]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 106.0f, out[i].radius);
+        CPPUNIT_ASSERT_EQUAL(2.0f * (i * 100.0f + 106.0f), out[i].radius);
     }
 
     CPPUNIT_ASSERT_THROW(r.read(1, 6, out), std::out_of_range);
 }
 
+void TestFastPlyReader::testReadIterator()
+{
+    setupRead(10000);
+
+    Reader r(content.data(), content.size(), 2.0f);
+    vector<Splat> out;
+    r.read(2, 9500, back_inserter(out));
+    CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
+    for (int i = 2; i < 9500; i++)
+    {
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 2.0f, out[i - 2].position[0]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 0.0f, out[i - 2].position[1]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 1.0f, out[i - 2].position[2]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 3.0f, out[i - 2].normal[0]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 4.0f, out[i - 2].normal[1]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 5.0f, out[i - 2].normal[2]);
+        CPPUNIT_ASSERT_EQUAL(2.0f * (i * 100.0f + 6.0f), out[i - 2].radius);
+    }
+
+    CPPUNIT_ASSERT_THROW(r.read(1, 10001, back_inserter(out)), std::out_of_range);
+}
+
+static void forEachFunc(vector<pair<Reader::size_type, Splat> > &out, Reader::size_type index, const Splat &splat)
+{
+    out.push_back(make_pair(index, splat));
+}
+
+void TestFastPlyReader::testForEach()
+{
+    setupRead(10000);
+
+    Reader r(content.data(), content.size(), 2.0f);
+    vector<pair<Reader::size_type, Splat> > out;
+    r.forEach(2, 9500, boost::bind(forEachFunc, boost::ref(out), _1, _2));
+    CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
+    for (int i = 2; i < 9500; i++)
+    {
+        const Splat &s = out[i - 2].second;
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 2.0f, s.position[0]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 0.0f, s.position[1]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 1.0f, s.position[2]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 3.0f, s.normal[0]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 4.0f, s.normal[1]);
+        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 5.0f, s.normal[2]);
+        CPPUNIT_ASSERT_EQUAL(2.0f * (i * 100.0f + 6.0f), s.radius);
+    }
+
+    CPPUNIT_ASSERT_THROW(r.forEach(1, 10001, boost::bind(forEachFunc, boost::ref(out), _1, _2)), std::out_of_range);
+}
 
 /**
  * Abstract base class for testing the writers in the FastPly namespace.
