@@ -464,13 +464,14 @@ void BlockRun<Collection>::operator()(
     }
 }
 
-static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
+template<typename Collection>
+static void run2(const cl::Context &context, const cl::Device &device, const string &out,
+                 const po::variables_map &vm,
+                 boost::ptr_vector<Collection> &splats,
+                 const Grid &grid)
 {
-    bool sortSplats = vm.count(Option::sortSplats);
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
-    const float spacing = vm[Option::fitGrid].as<double>();
-    const float smooth = vm[Option::fitSmooth].as<double>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
     const std::size_t maxSplats = vm[Option::maxSplats].as<int>();
@@ -479,30 +480,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    typedef StxxlVectorCollection<Splat> Collection;
-    typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
-
-    boost::ptr_vector<FastPly::Reader> files;
-    prepareInputs(files, vm, smooth);
-
     BlockRun<Collection> blockRun(context, device, maxSplats, blockCells, levels, subsampling);
-    Grid grid;
-
-    SplatVector splatData;
-    try
-    {
-        Bucket::loadSplats(files, spacing, sortSplats, splatData, grid);
-    }
-    catch (std::length_error &e)
-    {
-        cerr << "At least one input point is required.\n";
-        exit(1);
-    }
-    files.clear();
-
-    boost::ptr_vector<Collection> splats;
-    splats.push_back(new Collection(splatData));
-
     blockRun.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
@@ -518,8 +496,6 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         Statistics::Timer timer(passName.str());
 
         blockRun.setOutput(mesh->outputFunctor(pass));
-        // TODO: blockCells will be just less than a power of 2, so the
-        // actual calls will end up at almost half
         Bucket::bucket(splats, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
     }
 
@@ -528,6 +504,55 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
         mesh->finalize();
         mesh->write(*writer, out);
+    }
+}
+
+static void run(const cl::Context &context, const cl::Device &device, const string &out,
+                const po::variables_map &vm)
+{
+    const bool sortSplats = vm.count(Option::sortSplats);
+    const float spacing = vm[Option::fitGrid].as<double>();
+    const float smooth = vm[Option::fitSmooth].as<double>();
+
+    boost::ptr_vector<FastPly::Reader> files;
+    prepareInputs(files, vm, smooth);
+    Grid grid;
+
+    if (sortSplats)
+    {
+        typedef StxxlVectorCollection<Splat> Collection;
+        typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
+
+        SplatVector splatData;
+        try
+        {
+            Bucket::loadSplats(files, spacing, sortSplats, splatData, grid);
+        }
+        catch (std::length_error &e)
+        {
+            cerr << "At least one input point is required.\n";
+            exit(1);
+        }
+        files.clear();
+
+        boost::ptr_vector<Collection> splats;
+        splats.push_back(new Collection(splatData));
+
+        run2(context, device, out, vm, splats, grid);
+    }
+    else
+    {
+        try
+        {
+            Bucket::makeGrid(files, spacing, grid);
+        }
+        catch (std::length_error &e)
+        {
+            cerr << "At least one input point is required.\n";
+            exit(1);
+        }
+
+        run2(context, device, out, vm, files, grid);
     }
     writeStatistics(vm);
 }

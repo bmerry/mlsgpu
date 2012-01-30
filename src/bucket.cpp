@@ -300,6 +300,29 @@ const Splat &MakeGrid::operator()(const Splat &splat)
     return splat;
 }
 
+void MakeGrid::operator()(unsigned int, const Splat &splat)
+{
+    operator()(splat);
+}
+
+Grid MakeGrid::makeGrid(float spacing) const
+{
+    if (first)
+        throw std::length_error("Must be at least one splat");
+
+    int extents[3][2];
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float l = (bboxMin[i] - low[i]) / spacing;
+        float h = (bboxMax[i] - low[i]) / spacing;
+        extents[i][0] = RoundDown::convert(l);
+        extents[i][1] = RoundUp::convert(h);
+    }
+
+    return Grid(low, spacing,
+                extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
+}
+
 } // namespace internal
 
 } // namespace Bucket

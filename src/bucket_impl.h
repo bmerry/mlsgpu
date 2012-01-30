@@ -454,6 +454,13 @@ void bucketRecurse(
     }
 }
 
+/**
+ * Function object for accumulating a bounding box of splats.
+ *
+ * The interface is designed to be used with @c stxxl::stream::transform so
+ * that it passes through its inputs unchanged, or with @ref
+ * Collection::forEach.
+ */
 struct MakeGrid
 {
     typedef Splat value_type;
@@ -465,6 +472,10 @@ struct MakeGrid
 
     MakeGrid() : first(true) {}
     const Splat &operator()(const Splat &splat);
+    void operator()(unsigned int index, const Splat &splat);
+
+    /// Generate the grid from the accumulated data
+    Grid makeGrid(float spacing) const;
 };
 
 } // namespace internal
@@ -508,8 +519,6 @@ void loadSplats(const CollectionSet &files,
     {
         numSplats += i->size();
     }
-    if (numSplats == 0)
-        throw std::length_error("Must be at least one splat");
 
     const unsigned int block_size = SplatVector::block_size;
     typedef CollectionStream<typename CollectionSet::const_iterator> files_type;
@@ -534,17 +543,22 @@ void loadSplats(const CollectionSet &files,
         stxxl::stream::materialize(peekStream, splats.begin(), splats.end());
     }
 
-    int extents[3][2];
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        float l = (state.bboxMin[i] - state.low[i]) / spacing;
-        float h = (state.bboxMax[i] - state.low[i]) / spacing;
-        extents[i][0] = RoundDown::convert(l);
-        extents[i][1] = RoundUp::convert(h);
-    }
+    grid = state.makeGrid(spacing);
+}
 
-    grid = Grid(state.low, spacing,
-                extents[0][0], extents[0][1], extents[1][0], extents[1][1], extents[2][0], extents[2][1]);
+template<typename CollectionSet>
+void makeGrid(const CollectionSet &files,
+              float spacing,
+              Grid &grid)
+{
+    Statistics::Timer timer("makeGrid.time");
+    internal::MakeGrid state;
+
+    for (typename CollectionSet::const_iterator i = files.begin(); i != files.end(); ++i)
+    {
+        i->forEach(0, i->size(), boost::ref(state));
+    }
+    grid = state.makeGrid(spacing);
 }
 
 } // namespace Bucket

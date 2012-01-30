@@ -168,9 +168,9 @@ void bucket(const CollectionSet &splats,
             const typename ProcessorType<CollectionSet>::type &process);
 
 /**
- * Sort splats into an @c stxxl::vector and simultaneously
- * compute a bounding grid. The resulting grid is suitable for passing to @ref
- * bucket.
+ * Transfer splats into an @c stxxl::vector (optionally sorting) and
+ * simultaneously compute a bounding grid. The resulting grid is suitable for
+ * passing to @ref bucket.
  *
  * The grid is constructed as follows:
  *  -# The bounding box of the sample points is found, ignoring influence regions.
@@ -191,6 +191,15 @@ void loadSplats(const CollectionSet &files,
                 bool sort,
                 StxxlVectorCollection<Splat>::vector_type &splats,
                 Grid &grid);
+
+/**
+ * Compute a bounding grid for the splats. It uses the same
+ * algorithm as @ref sortSplats, but does not make a copy of the splats.
+ */
+template<typename CollectionSet>
+void makeGrid(const CollectionSet &files,
+              float spacing,
+              Grid &grid);
 
 } // namespace Bucket
 
