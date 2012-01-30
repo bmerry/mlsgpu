@@ -286,12 +286,12 @@ void Reader::readHeader(std::istream &in)
             throw FormatError(std::string("Property ") + propertyNames[i] + " not found");
 }
 
-void Reader::readVertices(size_type first, size_type count, Splat *out) const
+Splat * Reader::read(size_type first, size_type last, Splat *out, boost::true_type) const
 {
-    MLSGPU_ASSERT(first <= vertexCount && first + count <= vertexCount, std::out_of_range);
+    MLSGPU_ASSERT(first <= last && last <= vertexCount, std::out_of_range);
 
     const char *base = vertexPtr + first * vertexSize;
-    for (size_type i = count; i > 0; i--, base += vertexSize, out++)
+    for (size_type i = last - first; i > 0; i--, base += vertexSize, out++)
     {
         float radius;
         std::memcpy(&out->position[0], base + offsets[X], sizeof(float));
@@ -305,6 +305,7 @@ void Reader::readVertices(size_type first, size_type count, Splat *out) const
         out->radius = radius;
         out->quality = 1.0 / (radius * radius);
     }
+    return out;
 }
 
 Reader::Reader(const std::string &filename, float smooth = 1.0f)

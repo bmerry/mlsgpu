@@ -34,6 +34,7 @@
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"
+#include "src/collection.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -235,10 +236,11 @@ static void run(const string &out, const po::variables_map &vm)
     prepareInputs(files, vm, 1.0f);
 
     Grid grid;
-    Bucket::SplatVector splats;
+    typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
+    SplatVector splatData;
     try
     {
-        Bucket::loadSplats(files, 1.0f, true, splats, grid);
+        Bucket::loadSplats(files, 1.0f, true, splatData, grid);
     }
     catch (std::length_error &e)
     {
@@ -250,7 +252,7 @@ static void run(const string &out, const po::variables_map &vm)
     filebuf outf;
     outf.open(out.c_str(), ios::out);
     PLY::Writer writer(PLY::FILE_FORMAT_LITTLE_ENDIAN, &outf);
-    writer.addElement(makeElementRangeWriter(splats.begin(), splats.end(), splats.size(), PLY::SplatFetcher()));
+    writer.addElement(makeElementRangeWriter(splatData.begin(), splatData.end(), splatData.size(), PLY::SplatFetcher()));
     writer.write();
     writeStatistics(vm);
 }

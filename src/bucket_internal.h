@@ -33,69 +33,6 @@ namespace internal
 {
 
 /**
- * Implementation of the STXXL stream concept that reads all splats
- * from a collection of PLY files.
- *
- * @param FileIterator an iterator type whose value type is @ref FastPly::Reader.
- */
-template<typename FileIterator>
-class FilesStream
-{
-private:
-    FileIterator first, last;
-    FileIterator current;
-    FastPly::Reader::size_type position;
-public:
-    typedef Splat value_type;
-
-    FilesStream();
-    FilesStream(FileIterator first, FileIterator last);
-
-    Splat operator*() const;
-    FilesStream<FileIterator> &operator++();
-    bool empty() const;
-};
-
-template<typename FileIterator>
-FilesStream<FileIterator>::FilesStream() : first(), last(), current(last), position(0) {}
-
-template<typename FileIterator>
-FilesStream<FileIterator>::FilesStream(FileIterator first, FileIterator last)
-    : first(first), last(last), current(first), position(0)
-{
-    while (current != last && current->numVertices() == 0)
-        ++current;
-}
-
-template<typename FileIterator>
-Splat FilesStream<FileIterator>::operator*() const
-{
-    assert(!empty());
-    Splat ans;
-    current->readVertices(position, 1, &ans);
-    return ans;
-}
-
-template<typename FileIterator>
-FilesStream<FileIterator> &FilesStream<FileIterator>::operator++()
-{
-    assert(!empty());
-    ++position;
-    while (current != last && position == current->numVertices())
-    {
-        position = 0;
-        ++current;
-    }
-    return *this;
-}
-
-template<typename FileIterator>
-bool FilesStream<FileIterator>::empty() const
-{
-    return current == last;
-}
-
-/**
  * A cube with power-of-two side lengths.
  */
 class Cell
@@ -181,7 +118,7 @@ public:
     RangeCounter();
 
     /// Adds a new splat to the virtual list.
-    void append(Range::index_type splat);
+    void append(Range::scan_type scan, Range::index_type splat);
 
     /// Returns the number of ranges that would be required to encode the provided splats.
     std::tr1::uint64_t countRanges() const;
@@ -223,7 +160,7 @@ public:
      *
      * @return The output iterator after the update.
      */
-    iterator_type append(Range::index_type splat);
+    iterator_type append(Range::scan_type scan, Range::index_type splat);
 
     /**
      * Force any buffered ranges to be emitted. This is done implicitly
@@ -236,66 +173,6 @@ public:
     iterator_type flush();
 };
 
-
-template<typename OutputIterator>
-RangeCollector<OutputIterator>::RangeCollector(iterator_type out)
-    : current(), out(out)
-{
-}
-
-template<typename OutputIterator>
-RangeCollector<OutputIterator>::~RangeCollector()
-{
-    flush();
-}
-
-template<typename OutputIterator>
-OutputIterator RangeCollector<OutputIterator>::append(Range::index_type splat)
-{
-    if (!current.append(splat))
-    {
-        *out++ = current;
-        current = Range(splat);
-    }
-    return out;
-}
-
-template<typename OutputIterator>
-OutputIterator RangeCollector<OutputIterator>::flush()
-{
-    if (current.size > 0)
-    {
-        *out++ = current;
-        current = Range();
-    }
-    return out;
-}
-
-/**
- * Implementation detail of @ref forEachCell. Do not call this directly.
- *
- * @param dims      See @ref forEachCell.
- * @param cell      Current cell to process recursively.
- * @param func      See @ref forEachCell.
- */
-template<typename Func>
-void forEachCell_r(const Cell::size_type dims[3], const Cell &cell, const Func &func)
-{
-    if (func(cell))
-    {
-        if (cell.getLevel() > 0)
-        {
-            for (unsigned int i = 0; i < 8; i++)
-            {
-                Cell child = cell.child(i);
-                if (child.getLower()[0] < dims[0]
-                    && child.getLower()[1] < dims[1]
-                    && child.getLower()[2] < dims[2])
-                    forEachCell_r(dims, child, func);
-            }
-        }
-    }
-}
 
 /**
  * Recursively walk an octree, calling a user-defined function on each cell.
@@ -316,114 +193,29 @@ void forEachCell_r(const Cell::size_type dims[3], const Cell &cell, const Func &
  * - The dimensions are each at most @a microSize * 2<sup>levels - 1</sup>.
  */
 template<typename Func>
-void forEachCell(const Cell::size_type dims[3], Cell::size_type microSize, unsigned int levels, const Func &func)
-{
-    MLSGPU_ASSERT(levels >= 1U
-                  && levels <= (unsigned int) std::numeric_limits<Cell::size_type>::digits, std::invalid_argument);
-    int level = levels - 1;
-    MLSGPU_ASSERT((dims[0] - 1) >> level < microSize, std::invalid_argument);
-    MLSGPU_ASSERT((dims[1] - 1) >> level < microSize, std::invalid_argument);
-    MLSGPU_ASSERT((dims[2] - 1) >> level < microSize, std::invalid_argument);
-
-    Cell::size_type size = microSize << level;
-    forEachCell_r(dims, Cell(0, 0, 0, size, size, size, level), func);
-}
+void forEachCell(const Cell::size_type dims[3], Cell::size_type microSize, unsigned int levels, const Func &func);
 
 /**
  * Overload that takes a grid instead of explicit dimensions. The dimensions are taken from
  * the number of cells along each dimension of the grid.
  */
 template<typename Func>
-void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func)
-{
-    const Cell::size_type dims[3];
-    for (int i = 0; i < 3; i++)
-        dims[i] = grid.numCells(i);
-    forEachCell(dims, microSize, levels, func);
-}
+void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func);
 
 /**
  * Iterate over all splats given be a collection of @ref Range, calling
  * a user-provided function for each.
  *
- * @param files        Files references by the ranges.
+ * @param collections  %Random access container of collections to walk.
  * @param first, last  %Range of @ref Range objects.
  * @param func         User-provided callback.
  */
-template<typename Func>
+template<typename CollectionSet, typename Func>
 void forEachSplat(
-    const SplatVector &splats,
+    const CollectionSet &splats,
     RangeConstIterator first,
     RangeConstIterator last,
-    const Func &func)
-{
-    for (RangeConstIterator it = first; it != last; ++it)
-    {
-        const Range &range = *it;
-        SplatVector::const_iterator cur = splats.begin() + range.start;
-        for (Range::size_type i = 0; i < range.size; ++i, ++cur)
-        {
-            boost::unwrap_ref(func)(range.start + i, *cur);
-        }
-    }
-}
-
-template<typename Func>
-class ForEachSplatCell
-{
-private:
-    const Grid &grid;
-    Cell::size_type dims[3];
-    Cell::size_type microSize;
-    unsigned int levels;
-    const Func &func;
-
-    class PerSplat
-    {
-    private:
-        Range::index_type id;
-        const Splat &splat;
-        const Func &func;
-        float lower[3];      ///< Splat lower bound converted to grid coordinates
-        float upper[3];      ///< Splat upper bound converted to grid coordinates
-
-    public:
-        PerSplat(const Grid &grid, Range::index_type id, const Splat &splat, const Func &func)
-            : id(id), splat(splat), func(func)
-        {
-            float lo[3], hi[3];
-            for (int i = 0; i < 3; i++)
-            {
-                lo[i] = splat.position[i] - splat.radius;
-                hi[i] = splat.position[i] + splat.radius;
-            }
-            grid.worldToVertex(lo, lower);
-            grid.worldToVertex(hi, upper);
-        }
-
-        bool operator()(const Cell &cell) const
-        {
-            for (int i = 0; i < 3; i++)
-                if (upper[i] < cell.getLower()[i] || lower[i] > cell.getUpper()[i])
-                    return false;
-            return func(id, splat, cell);
-        }
-    };
-
-public:
-    ForEachSplatCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func)
-        : grid(grid), microSize(microSize), levels(levels), func(func)
-    {
-        for (int i = 0; i < 3; i++)
-            dims[i] = grid.numCells(i);
-    }
-
-    void operator()(Range::index_type id, const Splat &splat) const
-    {
-        PerSplat p(grid, id, splat, func);
-        forEachCell(dims, microSize, levels, p);
-    }
-};
+    const Func &func);
 
 /**
  * Combination of @ref forEachSplat and @ref forEachCell that calls the user
@@ -432,26 +224,24 @@ public:
  *
  * The function takes the arg
  *
- * @param splats       Splats backing the ranges.
+ * @param splats       %Random access container of collections to walk.
  * @param first, last  %Range of @ref Range objects.
  * @param grid         %Grid for transforming splat coordinates into grid coordinates.
  * @param microSize    Dimensions of the cubic cells in the most refined layer, in grid cells.
  * @param levels       Number of levels in the virtual octree.
  * @param func         User-provided functor.
  */
-template<typename Func>
+template<typename CollectionSet, typename Func>
 void forEachSplatCell(
-    const SplatVector &splats,
+    const CollectionSet &splats,
     RangeConstIterator first,
     RangeConstIterator last,
     const Grid &grid, Cell::size_type microSize, unsigned int levels,
-    const Func &func)
-{
-    ForEachSplatCell<Func> f(grid, microSize, levels, func);
-    forEachSplat(splats, first, last, f);
-}
+    const Func &func);
 
 } // namespace internal
 } // namespace Bucket
+
+#include "bucket_impl.h"
 
 #endif /* !BUCKET_INTERNAL_H */

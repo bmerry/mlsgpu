@@ -17,6 +17,7 @@
 #include <stxxl.h>
 #include "splat.h"
 #include "grid.h"
+#include "collection.h"
 #include "fast_ply.h"
 
 /**
@@ -52,12 +53,15 @@ public:
  */
 struct Range
 {
+    /// Type used to index the list of files
+    typedef std::tr1::uint32_t scan_type;
     /// Type used to specify the length of a range
     typedef std::tr1::uint32_t size_type;
     /// Type used to index a splat within a file
     typedef std::tr1::uint64_t index_type;
 
     /* Note: the order of these is carefully chosen for alignment */
+    scan_type scan;    ///< Index of the originating file
     size_type size;    ///< Size of the range
     index_type start;  ///< Splat index in the file
 
@@ -69,33 +73,28 @@ struct Range
     /**
      * Constructs a splat range with one splat.
      */
-    explicit Range(index_type splat);
+    Range(scan_type scan, index_type splat);
 
     /**
      * Constructs a splat range with multiple splats.
      *
      * @pre @a start + @a size - 1 must fit within @ref index_type.
      */
-    explicit Range(index_type start, size_type size);
+    Range(scan_type scan, index_type start, size_type size);
 
     /**
      * Attempts to extend this range with a new element.
-     * @param splat     The new element
+     * @param scan, splat     The new element
      * @retval true if the element was successfully appended
      * @retval false otherwise.
      */
-    bool append(index_type splat);
+    bool append(scan_type scan, index_type splat);
 };
 
 /**
  * Type passed to @ref Processor to delimit a range of ranges.
  */
 typedef std::vector<Range>::const_iterator RangeConstIterator;
-
-/**
- * Type used to hold a store of splats.
- */
-typedef stxxl::VECTOR_GENERATOR<Splat, 4, 27, 32768 * sizeof(Splat)>::result SplatVector;
 
 /**
  * Type for callback function called by @ref bucket. The parameters are:
@@ -108,7 +107,12 @@ typedef stxxl::VECTOR_GENERATOR<Splat, 4, 27, 32768 * sizeof(Splat)>::result Spl
  * the intersection test is conservative so there may be extras. The ranges
  * will be ordered by scan so all splats from one scan are contiguous.
  */
-typedef boost::function<void(const SplatVector &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> Processor;
+template<typename CollectionSet>
+class ProcessorType
+{
+public:
+    typedef boost::function<void(const CollectionSet &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> type;
+};
 
 /**
  * Subdivide a grid and the splats it contains into buckets with a maximum size
@@ -154,12 +158,13 @@ typedef boost::function<void(const SplatVector &, Range::index_type, RangeConstI
  *     splat may be stored in multiple buckets, if it crosses boundaries).
  * The buckets are then processed recursively.
  */
-void bucket(const SplatVector &splats,
+template<typename CollectionSet>
+void bucket(const CollectionSet &splats,
             const Grid &bbox,
             Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
-            const Processor &process);
+            const typename ProcessorType<CollectionSet>::type &process);
 
 /**
  * Sort splats into an @c stxxl::vector and simultaneously
@@ -179,12 +184,15 @@ void bucket(const SplatVector &splats,
  *
  * @throw std::length_error if the files contain no splats.
  */
-void loadSplats(const boost::ptr_vector<FastPly::Reader> &files,
+template<typename CollectionSet>
+void loadSplats(const CollectionSet &files,
                 float spacing,
                 bool sort,
-                SplatVector &splats,
+                StxxlVectorCollection<Splat>::vector_type &splats,
                 Grid &grid);
 
 } // namespace Bucket
+
+#include "bucket_impl.h"
 
 #endif /* BUCKET_H */

@@ -356,6 +356,7 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
     }
 }
 
+template<typename Collection>
 class BlockRun
 {
 private:
@@ -371,13 +372,14 @@ public:
     BlockRun(const cl::Context &context, const cl::Device &device,
              std::size_t maxSplats, std::size_t maxCells,
              int levels, int subsampling);
-    void operator()(const Bucket::SplatVector &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
+    void operator()(const boost::ptr_vector<Collection> &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
 
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
 
-BlockRun::BlockRun(
+template<typename Collection>
+BlockRun<Collection>::BlockRun(
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, std::size_t maxCells,
     int levels, int subsampling)
@@ -389,7 +391,12 @@ BlockRun::BlockRun(
 {
 }
 
-void BlockRun::operator()(const Bucket::SplatVector &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid)
+template<typename Collection>
+void BlockRun<Collection>::operator()(
+    const boost::ptr_vector<Collection> &splats,
+    Bucket::Range::index_type numSplats,
+    Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
+    const Grid &grid)
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -413,15 +420,17 @@ void BlockRun::operator()(const Bucket::SplatVector &splats, Bucket::Range::inde
     std::size_t pos = 0;
 
     // Stats bookkeeping
-    const int blockSize = Bucket::SplatVector::block_size / sizeof(Splat);
+    const int blockSize = StxxlVectorCollection<Splat>::vector_type::block_size / sizeof(Splat);
     std::size_t numPages = 0;
     std::size_t lastPage = (std::size_t) -1;
     for (Bucket::RangeConstIterator i = first; i != last; i++)
     {
         assert(pos + i->size <= numSplats);
-        std::copy(splats.begin() + i->start,
-                  splats.begin() + (i->start + i->size),
-                  outSplats.begin() + pos);
+        Bucket::Range::scan_type scan = i->scan;
+        // Note: &outSplats[pos] is necessary to trigger the fast path in
+        // FastPly::Reader. Using outSplats.begin() + pos would hit the
+        // slow path.
+        splats[scan].read(i->start, i->start + i->size, &outSplats[pos]);
         pos += i->size;
 
         if (i->size > 0)
@@ -470,15 +479,19 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
+    typedef StxxlVectorCollection<Splat> Collection;
+    typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
+
     boost::ptr_vector<FastPly::Reader> files;
     prepareInputs(files, vm, smooth);
 
-    BlockRun blockRun(context, device, maxSplats, blockCells, levels, subsampling);
+    BlockRun<Collection> blockRun(context, device, maxSplats, blockCells, levels, subsampling);
     Grid grid;
-    Bucket::SplatVector splats;
+
+    SplatVector splatData;
     try
     {
-        Bucket::loadSplats(files, spacing, sortSplats, splats, grid);
+        Bucket::loadSplats(files, spacing, sortSplats, splatData, grid);
     }
     catch (std::length_error &e)
     {
@@ -486,6 +499,10 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         exit(1);
     }
     files.clear();
+
+    boost::ptr_vector<Collection> splats;
+    splats.push_back(new Collection(splatData));
+
     blockRun.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));

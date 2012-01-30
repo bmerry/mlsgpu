@@ -341,7 +341,7 @@ void TestFastPlyReader::testReadVertices()
 
     Reader r(content.data(), content.size(), 1.0f);
     Splat out[4] = {};
-    r.readVertices(1, 3, out);
+    r.read(1, 4, out);
     CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting
     for (int i = 0; i < 3; i++)
     {
@@ -354,7 +354,7 @@ void TestFastPlyReader::testReadVertices()
         CPPUNIT_ASSERT_EQUAL(i * 100.0f + 106.0f, out[i].radius);
     }
 
-    CPPUNIT_ASSERT_THROW(r.readVertices(1, 5, out), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(r.read(1, 6, out), std::out_of_range);
 }
 
 
