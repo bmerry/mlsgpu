@@ -238,7 +238,7 @@ static void run(const string &out, const po::variables_map &vm)
     Bucket::SplatVector splats;
     try
     {
-        Bucket::loadSplats(files, 1.0f, splats, grid);
+        Bucket::loadSplats(files, 1.0f, true, splats, grid);
     }
     catch (std::length_error &e)
     {

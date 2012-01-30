@@ -58,6 +58,7 @@ namespace Option
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
 
+    const char * const sortSplats = "sort-splats";
     const char * const maxSplats = "max-splats";
     const char * const maxSplit = "max-split";
     const char * const levels = "levels";
@@ -95,6 +96,7 @@ static void addAdvancedOptions(po::options_description &opts)
 {
     po::options_description advanced("Advanced options");
     advanced.add_options()
+        (Option::sortSplats,                                       "Pre-sort the splats")
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
         (Option::maxSplats,    po::value<int>()->default_value(1000000), "Maximum splats per block")
@@ -409,6 +411,11 @@ void BlockRun::operator()(const Bucket::SplatVector &splats, Bucket::Range::inde
     // TODO: use mapping to transfer the data directly into a buffer
     vector<Splat> outSplats(numSplats);
     std::size_t pos = 0;
+
+    // Stats bookkeeping
+    const int blockSize = Bucket::SplatVector::block_size / sizeof(Splat);
+    std::size_t numPages = 0;
+    std::size_t lastPage = (std::size_t) -1;
     for (Bucket::RangeConstIterator i = first; i != last; i++)
     {
         assert(pos + i->size <= numSplats);
@@ -416,11 +423,22 @@ void BlockRun::operator()(const Bucket::SplatVector &splats, Bucket::Range::inde
                   splats.begin() + (i->start + i->size),
                   outSplats.begin() + pos);
         pos += i->size;
+
+        if (i->size > 0)
+        {
+            std::size_t pageFirst = i->start / blockSize;
+            std::size_t pageLast = (i->start + i->size - 1) / blockSize;
+            numPages += pageLast - pageFirst + 1;
+            if (lastPage == pageFirst)
+                numPages--;
+            lastPage = pageLast;
+        }
     }
     assert(pos == numSplats);
 
     registry.getStatistic<Statistics::Variable>("block.splats").add(numSplats);
     registry.getStatistic<Statistics::Variable>("block.ranges").add(last - first);
+    registry.getStatistic<Statistics::Variable>("block.pagedSplats").add(numPages * blockSize);
     registry.getStatistic<Statistics::Variable>("block.size").add
         (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
 
@@ -439,6 +457,7 @@ void BlockRun::operator()(const Bucket::SplatVector &splats, Bucket::Range::inde
 
 static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
 {
+    bool sortSplats = vm.count(Option::sortSplats);
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const float spacing = vm[Option::fitGrid].as<double>();
@@ -459,7 +478,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     Bucket::SplatVector splats;
     try
     {
-        Bucket::loadSplats(files, spacing, splats, grid);
+        Bucket::loadSplats(files, spacing, sortSplats, splats, grid);
     }
     catch (std::length_error &e)
     {

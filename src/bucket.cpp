@@ -584,6 +584,7 @@ void bucket(const SplatVector &splats,
 
 void loadSplats(const boost::ptr_vector<FastPly::Reader> &files,
                 float spacing,
+                bool sort,
                 SplatVector &splats,
                 Grid &grid)
 {
@@ -605,13 +606,20 @@ void loadSplats(const boost::ptr_vector<FastPly::Reader> &files,
 
     MakeGrid state;
 
+    splats.resize(numSplats);
     files_type filesStream(files.begin(), files.end());
     peek_type peekStream(state, filesStream);
-    // TODO: make this tunable
-    sort_type sortStream(peekStream, comparator_type(), 256 * 1024 * 1024);
-    // A pass-through transformation that will extract the bounding box as we go
-    splats.resize(numSplats);
-    stxxl::stream::materialize(sortStream, splats.begin(), splats.end());
+    if (sort)
+    {
+        // TODO: make the memory use tunable
+        sort_type sortStream(peekStream, comparator_type(), 256 * 1024 * 1024);
+        // A pass-through transformation that will extract the bounding box as we go
+        stxxl::stream::materialize(sortStream, splats.begin(), splats.end());
+    }
+    else
+    {
+        stxxl::stream::materialize(peekStream, splats.begin(), splats.end());
+    }
 
     int extents[3][2];
     for (unsigned int i = 0; i < 3; i++)

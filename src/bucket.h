@@ -175,11 +175,13 @@ void bucket(const SplatVector &splats,
  * @param      spacing       The spacing between grid vertices.
  * @param[out] splats        Vector of loaded splats
  * @param[out] grid          Bounding grid.
+ * @param      sort          Whether to sort the splats using @ref CompareSplatsMorton.
  *
  * @throw std::length_error if the files contain no splats.
  */
 void loadSplats(const boost::ptr_vector<FastPly::Reader> &files,
                 float spacing,
+                bool sort,
                 SplatVector &splats,
                 Grid &grid);
 
