@@ -86,7 +86,14 @@ bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
         bd[i] = ap[i] ^ bp[i];
     }
 
-    int axis = std::max_element(bd, bd + 3) - bd;
+    /* Determine which of the bd values has the highest bit set, breaking ties in
+     * favour of earlier axes. This is not the same as picking the largest one,
+     * because that breaks ties using lower bits.
+     */
+    int axis = 0;
+    for (int i = 1; i < 3; i++)
+        if (bd[i] > bd[axis] && (bd[axis] ^ bd[i]) > bd[axis])
+            axis = i;
     return ap[axis] < bp[axis];
 }
 

@@ -69,6 +69,8 @@ void TestCompareSplatsMorton::setUp()
 
     // Other quadrants
     addSplat(splats, 0.1f, 0.1f, -0.1f, 1.0f);
+    addSplat(splats, 16.0f, 24.0f, -24.0f, 1.0f);
+    addSplat(splats, 24.0f, 23.0f, -24.0f, 1.0f);
     addSplat(splats, 0.1f, -0.1f, 0.1f, 1.0f);
     addSplat(splats, 0.1f, -0.1f, -0.1f, 1.0f);
     addSplat(splats, -0.1f, 0.1f, 0.1f, 1.0f);
