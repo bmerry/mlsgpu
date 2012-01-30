@@ -24,7 +24,7 @@ class TestCompareSplatsMorton : public CppUnit::TestFixture
     CPPUNIT_TEST(testMinMax);
     CPPUNIT_TEST_SUITE_END();
 private:
-    vector<Splat> splats;
+    vector<Splat> splats;     ///< List of splats in what should be sort order.
 public:
     virtual void setUp();
 

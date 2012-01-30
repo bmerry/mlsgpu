@@ -92,12 +92,12 @@ struct Range
 };
 
 /**
- * Type passed to @ref Processor to delimit a range of ranges.
+ * Type passed to @ref ProcessorType<CollectionSet>::type to delimit a range of ranges.
  */
 typedef std::vector<Range>::const_iterator RangeConstIterator;
 
 /**
- * Type for callback function called by @ref bucket. The parameters are:
+ * Type-class for callback function called by @ref bucket. The parameters are:
  *  -# The backing store of splats.
  *  -# The number of splats in the bucket.
  *  -# A [first, last) pair indicating a range of splat ranges in the bucket
@@ -111,6 +111,7 @@ template<typename CollectionSet>
 class ProcessorType
 {
 public:
+    /// The actual type.
     typedef boost::function<void(const CollectionSet &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> type;
 };
 
@@ -134,7 +135,7 @@ public:
  * @note If any splat falls partially or completely outside of @a bbox, it
  * is undefined whether it will be passed to the processing functions.
  *
- * @see @ref Processor.
+ * @see @ref ProcessorType.
  *
  * @internal
  * The algorithm works recursively. At each level of recursion, it takes the

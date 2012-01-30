@@ -206,7 +206,7 @@ void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int level
  * Iterate over all splats given be a collection of @ref Range, calling
  * a user-provided function for each.
  *
- * @param collections  %Random access container of collections to walk.
+ * @param splats       %Random access container of collections to walk.
  * @param first, last  %Range of @ref Range objects.
  * @param func         User-provided callback.
  */

@@ -90,7 +90,7 @@ public:
      * @{
      */
     void testReadHeader();             ///< Checks that header-related fields are set properly
-    void testReadVertices();           ///< Tests @ref FastPly::Reader::readVertices
+    void testRead();                   ///< Tests @ref FastPly::Reader::read
     /** @} */
 
     /**
@@ -318,7 +318,7 @@ void TestFastPlyReader::testReadHeader()
     CPPUNIT_ASSERT_EQUAL(int(header.size()), int(r.vertexPtr - r.filePtr));
 }
 
-void TestFastPlyReader::testReadVertices()
+void TestFastPlyReader::testRead()
 {
     float vertices[5][7];
     for (int i = 0; i < 5; i++)

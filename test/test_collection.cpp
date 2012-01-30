@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * Test code for the implementation of the @ref Collections concept.
+ * Test code for the implementation of the @ref Collection concept.
  */
 #if HAVE_CONFIG_H
 # include <config.h>

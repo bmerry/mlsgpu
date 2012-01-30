@@ -70,7 +70,6 @@ public:
      * void(size_type index, const value_type &item)
      * </code>
      *
-     * @param scan          A scan number ot pass to the function object
      * @param first, last   Half-open range of indices to process
      * @param f             Function object to call.
      *
