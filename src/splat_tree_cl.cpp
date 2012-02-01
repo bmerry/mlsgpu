@@ -39,7 +39,7 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> SplatTreeCL::deviceMemory(
     const cl::Device &device, const std::size_t maxLevels, const std::size_t maxSplats)
 {
     /* Not currently used, although it should be to determine constant overheads in
-     * the clcpp primitives.
+     * the clogs primitives.
      */
     (void) device;
 
@@ -81,8 +81,8 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> SplatTreeCL::deviceMemory(
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)
     : maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
-    sort(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clcpp::TYPE_UINT, clcpp::TYPE_INT),
-    scan(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clcpp::TYPE_UINT)
+    sort(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clogs::TYPE_UINT, clogs::TYPE_INT),
+    scan(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clogs::TYPE_UINT)
 {
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);

@@ -240,7 +240,7 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> Marching::deviceMemory(const c
 {
     MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
-    (void) device; // not currently used, but should be used to determine usage of clcpp
+    (void) device; // not currently used, but should be used to determine usage of clogs
 
     // The asserts above guarantee that these will not overflow
     const std::tr1::uint64_t numCells = (maxWidth - 1) * (maxHeight - 1);
@@ -302,9 +302,9 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
                    size_t maxWidth, size_t maxHeight)
 :
     maxWidth(maxWidth), maxHeight(maxHeight), context(context),
-    scanUint(context, device, clcpp::TYPE_UINT),
-    scanElements(context, device, clcpp::Type(clcpp::TYPE_UINT, 2)),
-    sortVertices(context, device, clcpp::TYPE_ULONG, clcpp::Type(clcpp::TYPE_FLOAT, 4))
+    scanUint(context, device, clogs::TYPE_UINT),
+    scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
+    sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4))
 {
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);

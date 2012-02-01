@@ -212,7 +212,7 @@ __kernel void writeEntries(
  * @param[out] indicator       Indicator function.
  * @param      keys            The cell keys for the input entries.
  *
- * @todo See if clcpp can be extended to allow this to be welded onto
+ * @todo See if clogs can be extended to allow this to be welded onto
  * the scan kernel.
  * @todo Test whether loading the data to __local first helps.
  */

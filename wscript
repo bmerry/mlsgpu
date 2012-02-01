@@ -119,6 +119,7 @@ def configure(conf):
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
     conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
+    conf.check_cxx(header_name = 'clogs/clogs.h', lib = 'clogs', use = 'OPENCL', uselib_store = 'CLOGS')
 
     if not conf.options.without_stxxl:
         try:
@@ -152,13 +153,6 @@ def print_unit_tests(bld):
             Logs.pprint(color, err)
 
 def build(bld):
-    bld.read_stlib('clcpp', paths = ['../clcpp/build'])
-    bld(
-            name = 'CLCPP',
-            use = 'clcpp',
-            export_includes = '../clcpp/include'
-        )
-
     bld(
             rule = 'python ${SRC} ${TGT}',
             source = ['clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
@@ -172,7 +166,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = sources,
             target = 'mls',
-            use = 'OPENCL CLCPP STXXL',
+            use = 'OPENCL CLOGS STXXL',
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],

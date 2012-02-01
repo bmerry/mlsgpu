@@ -16,7 +16,7 @@
 #include <utility>
 #include <tr1/cstdint>
 #include <boost/function.hpp>
-#include <clcpp/clcpp.h>
+#include <clogs/clogs.h>
 #include "grid.h"
 
 class TestMarching;
@@ -224,9 +224,9 @@ private:
     cl::Kernel compactVerticesKernel;       ///< Kernel compiled from @ref compactVerticesKernel.
     cl::Kernel reindexKernel;               ///< Kernel compiled from @ref reindexKernel.
 
-    clcpp::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
-    clcpp::Scan scanElements;               ///< Scanner to scan @ref viCount.
-    clcpp::Radixsort sortVertices;          ///< Sorts vertices by keys for welding.
+    clogs::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
+    clogs::Scan scanElements;               ///< Scanner to scan @ref viCount.
+    clogs::Radixsort sortVertices;          ///< Sorts vertices by keys for welding.
 
     /**
      * Finds the edge incident on vertices v0 and v1.

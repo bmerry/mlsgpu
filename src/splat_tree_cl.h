@@ -18,7 +18,7 @@
 #include "splat_tree.h"
 #include "src/clh.h"
 #include "grid.h"
-#include "clcpp/clcpp.h"
+#include "clogs/clogs.h"
 
 /**
  * Concrete implementation of @ref SplatTree that stores the data
@@ -108,8 +108,8 @@ private:
     std::size_t numSplats;   ///< Number of splats in the octree
     std::vector<std::size_t> levelOffsets; ///< Start of each level in compacted arrays
 
-    clcpp::Radixsort sort;   ///< Sorter for sorting the entries
-    clcpp::Scan scan;        ///< Scanner for computing @ref commandMap
+    clogs::Radixsort sort;   ///< Sorter for sorting the entries
+    clogs::Scan scan;        ///< Scanner for computing @ref commandMap
 
     /// Wrapper to call @ref writeEntries
     void enqueueWriteEntries(const cl::CommandQueue &queue,
