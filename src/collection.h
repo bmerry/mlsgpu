@@ -11,7 +11,9 @@
 # include <config.h>
 #endif
 
-#include <stxxl.h>
+#if HAVE_STXXL
+# include <stxxl.h>
+#endif
 #include <algorithm>
 #include <stdexcept>
 #include <vector>
@@ -147,6 +149,7 @@ public:
     StdVectorCollection(const vector_type &items) : base_type(items) {}
 };
 
+#if HAVE_STXXL
 /**
  * Convenience wrapper around @ref VectorCollection that takes the element type
  * and computes an @c stxxl::vector instantiation.  Note that the chosen
@@ -170,6 +173,7 @@ public:
 
     StxxlVectorCollection(const vector_type &items) : base_type(items) {}
 };
+#endif
 
 /**
  * Implementation of the STXXL stream concept that reads all items

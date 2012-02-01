@@ -14,7 +14,9 @@
 #include <tr1/cstdint>
 #include <stdexcept>
 #include <boost/function.hpp>
-#include <stxxl.h>
+#if HAVE_STXXL
+# include <stxxl.h>
+#endif
 #include "splat.h"
 #include "grid.h"
 #include "collection.h"
@@ -167,6 +169,7 @@ void bucket(const CollectionSet &splats,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process);
 
+#if HAVE_STXXL
 /**
  * Transfer splats into an @c stxxl::vector (optionally sorting) and
  * simultaneously compute a bounding grid. The resulting grid is suitable for
@@ -191,6 +194,7 @@ void loadSplats(const CollectionSet &files,
                 bool sort,
                 StxxlVectorCollection<Splat>::vector_type &splats,
                 Grid &grid);
+#endif
 
 /**
  * Compute a bounding grid for the splats. It uses the same

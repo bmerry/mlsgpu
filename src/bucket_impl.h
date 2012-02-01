@@ -14,6 +14,9 @@
 #include "bucket_internal.h"
 #include "statistics.h"
 #include "misc.h"
+#if HAVE_STXXL
+# include <stxxl.h>
+#endif
 
 namespace Bucket
 {
@@ -504,6 +507,7 @@ void bucket(const CollectionSet &splats,
     internal::bucketRecurse(splats, root.begin(), root.end(), numSplats, bbox, params, process, 0, root.size());
 }
 
+#if HAVE_STXXL
 template<typename CollectionSet>
 void loadSplats(const CollectionSet &files,
                 float spacing,
@@ -545,6 +549,7 @@ void loadSplats(const CollectionSet &files,
 
     grid = state.makeGrid(spacing);
 }
+#endif // HAVE_STXXL
 
 template<typename CollectionSet>
 void makeGrid(const CollectionSet &files,

@@ -23,6 +23,9 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#if HAVE_STXXL
+# include <stxxl.h>
+#endif
 #include "src/misc.h"
 #include "src/clh.h"
 #include "src/logging.h"
@@ -58,7 +61,9 @@ namespace Option
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
 
+#if HAVE_STXXL
     const char * const sortSplats = "sort-splats";
+#endif
     const char * const maxHostSplats = "max-host-splats";
     const char * const maxDeviceSplats = "max-device-splats";
     const char * const maxSplit = "max-split";
@@ -97,7 +102,9 @@ static void addAdvancedOptions(po::options_description &opts)
 {
     po::options_description advanced("Advanced options");
     advanced.add_options()
+#if HAVE_STXXL
         (Option::sortSplats,                                       "Pre-sort the splats")
+#endif
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
@@ -430,7 +437,7 @@ void DeviceBlock<Collection>::operator()(
     std::size_t pos = 0;
 
     // Stats bookkeeping
-    const int blockSize = StxxlVectorCollection<Splat>::vector_type::block_size / sizeof(Splat);
+    const int pageSize = 4096;
     std::size_t numPages = 0;
     std::size_t lastPage = (std::size_t) -1;
     for (Bucket::RangeConstIterator i = first; i != last; i++)
@@ -445,8 +452,8 @@ void DeviceBlock<Collection>::operator()(
 
         if (i->size > 0)
         {
-            std::size_t pageFirst = i->start / blockSize;
-            std::size_t pageLast = (i->start + i->size - 1) / blockSize;
+            std::size_t pageFirst = i->start / pageSize;
+            std::size_t pageLast = (i->start + i->size - 1) / pageSize;
             numPages += pageLast - pageFirst + 1;
             if (lastPage == pageFirst)
                 numPages--;
@@ -457,7 +464,7 @@ void DeviceBlock<Collection>::operator()(
 
     registry.getStatistic<Statistics::Variable>("block.splats").add(numSplats);
     registry.getStatistic<Statistics::Variable>("block.ranges").add(last - first);
-    registry.getStatistic<Statistics::Variable>("block.pagedSplats").add(numPages * blockSize);
+    registry.getStatistic<Statistics::Variable>("block.pagedSplats").add(numPages * pageSize);
     registry.getStatistic<Statistics::Variable>("block.size").add
         (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
 
@@ -520,7 +527,7 @@ void HostBlock<Collection>::operator()(
         localSplats.resize(numSplats);
 
         // Stats bookkeeping
-        const int blockSize = StxxlVectorCollection<Splat>::vector_type::block_size / sizeof(Splat);
+        const int pageSize = 4096;
         std::size_t numPages = 0;
         std::size_t lastPage = (std::size_t) -1;
         for (Bucket::RangeConstIterator i = first; i != last; i++)
@@ -535,8 +542,8 @@ void HostBlock<Collection>::operator()(
 
             if (i->size > 0)
             {
-                std::size_t pageFirst = i->start / blockSize;
-                std::size_t pageLast = (i->start + i->size - 1) / blockSize;
+                std::size_t pageFirst = i->start / pageSize;
+                std::size_t pageLast = (i->start + i->size - 1) / pageSize;
                 numPages += pageLast - pageFirst + 1;
                 if (lastPage == pageFirst)
                     numPages--;
@@ -547,7 +554,7 @@ void HostBlock<Collection>::operator()(
 
         registry.getStatistic<Statistics::Variable>("host.block.splats").add(numSplats);
         registry.getStatistic<Statistics::Variable>("host.block.ranges").add(last - first);
-        registry.getStatistic<Statistics::Variable>("host.block.pagedSplats").add(numPages * blockSize);
+        registry.getStatistic<Statistics::Variable>("host.block.pagedSplats").add(numPages * pageSize);
         registry.getStatistic<Statistics::Variable>("host.block.size").add
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
@@ -609,7 +616,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
 static void run(const cl::Context &context, const cl::Device &device, const string &out,
                 const po::variables_map &vm)
 {
-    const bool sortSplats = vm.count(Option::sortSplats);
     const float spacing = vm[Option::fitGrid].as<double>();
     const float smooth = vm[Option::fitSmooth].as<double>();
 
@@ -617,6 +623,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     prepareInputs(files, vm, smooth);
     Grid grid;
 
+#if HAVE_STXXL
+    const bool sortSplats = vm.count(Option::sortSplats);
     if (sortSplats)
     {
         typedef StxxlVectorCollection<Splat> Collection;
@@ -640,6 +648,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         run2(context, device, out, vm, splats, grid);
     }
     else
+#endif
     {
         try
         {
