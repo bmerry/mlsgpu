@@ -127,6 +127,9 @@ def configure(conf):
         except conf.errors.ConfigurationError:
             ctx.fatal('STXXL was not found. Either install it or pass --without-stxxl')
         conf.define('HAVE_STXXL', 1)
+        conf.env['stxxl'] = 1
+    else:
+        conf.env['stxxl'] = 0
 
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')
@@ -173,7 +176,7 @@ def build(bld):
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
             lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
-    if not bld.options.without_stxxl:
+    if bld.env['stxxl']:
         bld.program(
                 source = ['sortscan.cpp'],
                 target = 'sortscan',
