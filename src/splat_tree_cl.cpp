@@ -283,7 +283,7 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = sortEvent;
     enqueueCountCommands(queue, commandMap, entryKeys, numEntries, &wait, &countEvent);
     wait[0] = countEvent;
-    scan.enqueue(queue, commandMap, numEntries, &wait, &scanEvent);
+    scan.enqueue(queue, commandMap, numEntries, NULL, &wait, &scanEvent);
     wait[0] = scanEvent;
     enqueueFill(queue, jumpPos, 0, numStart, (command_type) -1, &wait, &fillJumpPosEvent);
     wait[0] = fillJumpPosEvent;

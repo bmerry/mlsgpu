@@ -395,7 +395,7 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 
     std::vector<cl::Event> wait(1);
     wait[0] = last;
-    scanUint.enqueue(queue, occupied, levelCells + 1, &wait, &last);
+    scanUint.enqueue(queue, occupied, levelCells + 1, NULL, &wait, &last);
     wait[0] = last;
 
     cl_uint compacted;
@@ -432,7 +432,7 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
                                events, &last);
     wait[0] = last;
 
-    scanElements.enqueue(queue, viCount, compacted + 1, &wait, &last);
+    scanElements.enqueue(queue, viCount, compacted + 1, NULL, &wait, &last);
     wait[0] = last;
 
     cl_uint2 ans;
@@ -462,7 +462,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
 
     // TODO: figure out how many actual bits there are
     // TODO: revisit the dependency tracking
-    sortVertices.enqueue(queue, unweldedVertexKeys, unweldedVertices, sizes.s0, &wait, &last);
+    sortVertices.enqueue(queue, unweldedVertexKeys, unweldedVertices, sizes.s0, 0, &wait, &last);
     wait[0] = last;
 
     queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
@@ -472,7 +472,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                                &wait, &last);
     wait[0] = last;
 
-    scanUint.enqueue(queue, vertexUnique, sizes.s0 + 1, &wait, &last);
+    scanUint.enqueue(queue, vertexUnique, sizes.s0 + 1, NULL, &wait, &last);
     wait[0] = last;
 
     // Start this readback - but we don't immediately need the result.
