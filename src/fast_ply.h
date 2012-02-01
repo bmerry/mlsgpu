@@ -20,12 +20,16 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <utility>
 #include <tr1/cstdint>
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/type_traits/is_pointer.hpp>
+#include <boost/ref.hpp>
+#include "errors.h"
 
 class Splat;
 class TestFastPlyReader;
@@ -73,13 +77,20 @@ public:
  *
  * In addition to memory-mapping a file, it can also accept an existing
  * memory range (this is mainly provided to simplify testing).
+ *
+ * The interface models the @ref Collection concept.
  */
 class Reader
+#if DOXYGEN_FAKE_CODE
+: public Collection
+#endif
 {
     friend class ::TestFastPlyReader;
 public:
     /// Size capable of holding maximum supported file size
     typedef boost::iostreams::mapped_file_source::size_type size_type;
+    /// @see @ref Collection
+    typedef Splat value_type;
 
     /**
      * Construct from a file.
@@ -103,16 +114,20 @@ public:
     Reader(const char *data, size_type size, float smooth);
 
     /// Number of vertices in the file
-    size_type numVertices() const { return vertexCount; }
+    size_type size() const { return vertexCount; }
 
     /**
      * Copy out a contiguous selection of the vertices.
-     * @param first            First vertex to copy.
-     * @param count            Number of vertices to copy.
-     * @param out              Target of copy.
-     * @pre @a first + @a count <= @a numVertices.
+     * @param first,last      %Range of vertices to copy.
+     * @param out             Target of copy.
+     * @return The output iterator after the copy.
+     * @pre @a first &lt;= @a last &lt;= @ref size().
      */
-    void readVertices(size_type first, size_type count, Splat *out) const;
+    template<typename OutputIterator>
+    OutputIterator read(size_type first, size_type last, OutputIterator out) const;
+
+    template<typename Func>
+    void forEach(size_type first, size_type last, const Func &f) const;
 private:
     /// The memory mapping, if constructed from a filename; otherwise @c NULL.
     boost::scoped_ptr<boost::iostreams::mapped_file_source> mapping;
@@ -138,6 +153,13 @@ private:
     size_type offsets[numProperties];  ///< Byte offsets of each property within a vertex
 
     void readHeader(std::istream &in); ///< Does the heavy lifting of parsing the header
+
+    /// Implementation of @ref read for the general case
+    template<typename OutputIterator>
+    OutputIterator read(size_type first, size_type last, OutputIterator out, boost::false_type) const;
+
+    /// Implementation of @ref read for the special case of reading into raw memory
+    value_type *read(size_type first, size_type last, value_type *out, boost::true_type) const;
 };
 
 /// Common code shared by @ref MmapWriter and @ref StreamWriter
@@ -336,6 +358,47 @@ private:
  * Factory function to create a new writer of the specified type.
  */
 WriterBase *createWriter(WriterType type);
+
+
+template<typename OutputIterator>
+OutputIterator Reader::read(size_type first, size_type last, OutputIterator out, boost::false_type) const
+{
+    MLSGPU_ASSERT(first <= last && last <= size(), std::out_of_range);
+
+    const size_type bufferSize = 8192;
+    value_type buffer[bufferSize];
+    while (first < last)
+    {
+        size_type size = std::min(bufferSize, last - first);
+        read(first, first + size, buffer);
+        out = std::copy(buffer, buffer + size, out);
+        first += size;
+    }
+    return out;
+}
+
+template<typename OutputIterator>
+OutputIterator Reader::read(size_type first, size_type last, OutputIterator out) const
+{
+    return read(first, last, out, boost::is_pointer<OutputIterator>());
+}
+
+template<typename Func>
+void Reader::forEach(size_type first, size_type last, const Func &f) const
+{
+    MLSGPU_ASSERT(first <= last && last <= size(), std::out_of_range);
+
+    const size_type bufferSize = 8192;
+    value_type buffer[bufferSize];
+    while (first < last)
+    {
+        size_type size = std::min(bufferSize, last - first);
+        read(first, first + size, buffer);
+        for (size_type i = 0; i < size; i++)
+            boost::unwrap_ref(f)(first + i, buffer[i]);
+        first += size;
+    }
+}
 
 } // namespace FastPly
 

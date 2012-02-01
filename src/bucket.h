@@ -14,9 +14,12 @@
 #include <tr1/cstdint>
 #include <stdexcept>
 #include <boost/function.hpp>
-#include <boost/ptr_container/ptr_array.hpp>
+#if HAVE_STXXL
+# include <stxxl.h>
+#endif
 #include "splat.h"
 #include "grid.h"
+#include "collection.h"
 #include "fast_ply.h"
 
 /**
@@ -91,13 +94,13 @@ struct Range
 };
 
 /**
- * Type passed to @ref Processor to delimit a range of ranges.
+ * Type passed to @ref ProcessorType<CollectionSet>::type to delimit a range of ranges.
  */
 typedef std::vector<Range>::const_iterator RangeConstIterator;
 
 /**
- * Type for callback function called by @ref bucket. The parameters are:
- *  -# The list of files backing the splat ranges.
+ * Type-class for callback function called by @ref bucket. The parameters are:
+ *  -# The backing store of splats.
  *  -# The number of splats in the bucket.
  *  -# A [first, last) pair indicating a range of splat ranges in the bucket
  *  -# A grid covering the spatial extent of the bucket.
@@ -106,14 +109,20 @@ typedef std::vector<Range>::const_iterator RangeConstIterator;
  * the intersection test is conservative so there may be extras. The ranges
  * will be ordered by scan so all splats from one scan are contiguous.
  */
-typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> Processor;
+template<typename CollectionSet>
+class ProcessorType
+{
+public:
+    /// The actual type.
+    typedef boost::function<void(const CollectionSet &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> type;
+};
 
 /**
  * Subdivide a grid and the splats it contains into buckets with a maximum size
  * and splat count, and call a user callback function for each. This function
  * is designed to operate out-of-core and so very large inputs can be used.
  *
- * @param files      The files containing the splats. All splats are used.
+ * @param splats     The backing store of splats. All splats are used.
  * @param bbox       A grid which must completely enclose all the splats.
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
@@ -128,7 +137,7 @@ typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::
  * @note If any splat falls partially or completely outside of @a bbox, it
  * is undefined whether it will be passed to the processing functions.
  *
- * @see @ref Processor.
+ * @see @ref ProcessorType.
  *
  * @internal
  * The algorithm works recursively. At each level of recursion, it takes the
@@ -152,30 +161,52 @@ typedef boost::function<void(const boost::ptr_vector<FastPly::Reader> &, Range::
  *     splat may be stored in multiple buckets, if it crosses boundaries).
  * The buckets are then processed recursively.
  */
-void bucket(const boost::ptr_vector<FastPly::Reader> &files,
+template<typename CollectionSet>
+void bucket(const CollectionSet &splats,
             const Grid &bbox,
             Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
-            const Processor &process);
+            const typename ProcessorType<CollectionSet>::type &process);
 
+#if HAVE_STXXL
 /**
- * Grid that encloses the bounding spheres of all the input splats.
- * The resulting grid is suitable for passing to @ref bucket.
+ * Transfer splats into an @c stxxl::vector (optionally sorting) and
+ * simultaneously compute a bounding grid. The resulting grid is suitable for
+ * passing to @ref bucket.
  *
  * The grid is constructed as follows:
  *  -# The bounding box of the sample points is found, ignoring influence regions.
  *  -# The lower bound is used as the grid reference point.
  *  -# The grid extends are set to cover the full bounding box.
  *
- * @param files         Files containing the splats.
- * @param spacing       The spacing between grid vertices.
+ * @param[in]  files         PLY input files (already opened)
+ * @param      spacing       The spacing between grid vertices.
+ * @param[out] splats        Vector of loaded splats
+ * @param[out] grid          Bounding grid.
+ * @param      sort          Whether to sort the splats using @ref CompareSplatsMorton.
  *
  * @throw std::length_error if the files contain no splats.
  */
-Grid makeGrid(const boost::ptr_vector<FastPly::Reader> &files,
-              float spacing);
+template<typename CollectionSet>
+void loadSplats(const CollectionSet &files,
+                float spacing,
+                bool sort,
+                StxxlVectorCollection<Splat>::vector_type &splats,
+                Grid &grid);
+#endif
+
+/**
+ * Compute a bounding grid for the splats. It uses the same
+ * algorithm as @ref sortSplats, but does not make a copy of the splats.
+ */
+template<typename CollectionSet>
+void makeGrid(const CollectionSet &files,
+              float spacing,
+              Grid &grid);
 
 } // namespace Bucket
+
+#include "bucket_impl.h"
 
 #endif /* BUCKET_H */

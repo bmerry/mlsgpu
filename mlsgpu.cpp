@@ -23,6 +23,9 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#if HAVE_STXXL
+# include <stxxl.h>
+#endif
 #include "src/misc.h"
 #include "src/clh.h"
 #include "src/logging.h"
@@ -58,7 +61,11 @@ namespace Option
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
 
-    const char * const maxSplats = "max-splats";
+#if HAVE_STXXL
+    const char * const sortSplats = "sort-splats";
+#endif
+    const char * const maxHostSplats = "max-host-splats";
+    const char * const maxDeviceSplats = "max-device-splats";
     const char * const maxSplit = "max-split";
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
@@ -95,9 +102,13 @@ static void addAdvancedOptions(po::options_description &opts)
 {
     po::options_description advanced("Advanced options");
     advanced.add_options()
+#if HAVE_STXXL
+        (Option::sortSplats,                                       "Pre-sort the splats")
+#endif
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
-        (Option::maxSplats,    po::value<int>()->default_value(1000000), "Maximum splats per block")
+        (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
+        (Option::maxHostSplats, po::value<std::size_t>()->default_value(50000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(1000000), "Maximum fan-out in partitioning")
         (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
@@ -134,6 +145,8 @@ string makeOptions(const po::variables_map &vm)
                 opts << param.as<double>();
             else if (value.type() == typeid(int))
                 opts << param.as<int>();
+            else if (value.type() == typeid(std::size_t))
+                opts << param.as<std::size_t>();
             else if (value.type() == typeid(Choice<MeshTypeWrapper>))
                 opts << param.as<Choice<MeshTypeWrapper> >();
             else if (value.type() == typeid(Choice<FastPly::WriterTypeWrapper>))
@@ -160,7 +173,8 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
 
     const int levels = vm[Option::levels].as<int>();
     const int subsampling = vm[Option::subsampling].as<int>();
-    const std::size_t maxSplats = vm[Option::maxSplats].as<int>();
+    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
+    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
 
     int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
@@ -175,9 +189,14 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
         cerr << "Value of --subsampling must be non-negative.\n";
         exit(1);
     }
-    if (maxSplats < 1)
+    if (maxDeviceSplats < 1)
     {
-        cerr << "Value of --max-splats must be positive.\n";
+        cerr << "Value of --max-device-splats must be positive.\n";
+        exit(1);
+    }
+    if (maxHostSplats < maxDeviceSplats)
+    {
+        cerr << "Value of --max-host-splats must be at least that of --max-device-splats.\n";
         exit(1);
     }
     if (maxSplit < 8)
@@ -202,7 +221,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
      */
     const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> marchingMemory = Marching::deviceMemory(device, block, block);
-    std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxSplats);
+    std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxDeviceSplats);
     const std::tr1::uint64_t total = marchingMemory.first + splatTreeMemory.first;
     const std::tr1::uint64_t max = std::max(marchingMemory.second, splatTreeMemory.second);
 
@@ -354,7 +373,8 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
     }
 }
 
-class BlockRun
+template<typename Collection>
+class DeviceBlock
 {
 private:
     const cl::CommandQueue queue;
@@ -366,16 +386,17 @@ private:
     int subsampling;
 
 public:
-    BlockRun(const cl::Context &context, const cl::Device &device,
-             std::size_t maxSplats, std::size_t maxCells,
-             int levels, int subsampling);
-    void operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
+    DeviceBlock(const cl::Context &context, const cl::Device &device,
+                std::size_t maxSplats, std::size_t maxCells,
+                int levels, int subsampling);
+    void operator()(const boost::ptr_vector<Collection> &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
 
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
 
-BlockRun::BlockRun(
+template<typename Collection>
+DeviceBlock<Collection>::DeviceBlock(
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, std::size_t maxCells,
     int levels, int subsampling)
@@ -387,7 +408,12 @@ BlockRun::BlockRun(
 {
 }
 
-void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid)
+template<typename Collection>
+void DeviceBlock<Collection>::operator()(
+    const boost::ptr_vector<Collection> &splats,
+    Bucket::Range::index_type numSplats,
+    Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
+    const Grid &grid)
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -407,18 +433,38 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
     }
 
     // TODO: use mapping to transfer the data directly into a buffer
-    vector<Splat> splats(numSplats);
+    vector<Splat> outSplats(numSplats);
     std::size_t pos = 0;
+
+    // Stats bookkeeping
+    const int pageSize = 4096;
+    std::size_t numPages = 0;
+    std::size_t lastPage = (std::size_t) -1;
     for (Bucket::RangeConstIterator i = first; i != last; i++)
     {
         assert(pos + i->size <= numSplats);
-        files[i->scan].readVertices(i->start, i->size, &splats[pos]);
+        Bucket::Range::scan_type scan = i->scan;
+        // Note: &outSplats[pos] is necessary to trigger the fast path in
+        // FastPly::Reader. Using outSplats.begin() + pos would hit the
+        // slow path.
+        splats[scan].read(i->start, i->start + i->size, &outSplats[pos]);
         pos += i->size;
+
+        if (i->size > 0)
+        {
+            std::size_t pageFirst = i->start / pageSize;
+            std::size_t pageLast = (i->start + i->size - 1) / pageSize;
+            numPages += pageLast - pageFirst + 1;
+            if (lastPage == pageFirst)
+                numPages--;
+            lastPage = pageLast;
+        }
     }
     assert(pos == numSplats);
 
     registry.getStatistic<Statistics::Variable>("block.splats").add(numSplats);
     registry.getStatistic<Statistics::Variable>("block.ranges").add(last - first);
+    registry.getStatistic<Statistics::Variable>("block.pagedSplats").add(numPages * pageSize);
     registry.getStatistic<Statistics::Variable>("block.size").add
         (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
 
@@ -426,7 +472,7 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
         Statistics::Timer timer("block.time");
         cl::Event treeBuildEvent;
         vector<cl::Event> wait(1);
-        tree.enqueueBuild(queue, &splats[0], numSplats, expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
+        tree.enqueueBuild(queue, &outSplats[0], numSplats, expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
         wait[0] = treeBuildEvent;
 
         input.set(expandedGrid, tree, subsampling);
@@ -435,35 +481,113 @@ void BlockRun::operator()(const boost::ptr_vector<FastPly::Reader> &files, Bucke
     }
 }
 
-static void run(const cl::Context &context, const cl::Device &device, const string &out, const po::variables_map &vm)
+template<typename Collection>
+class HostBlock
+{
+public:
+    typedef StdVectorCollection<Splat> DeviceCollection;
+    HostBlock(DeviceBlock<DeviceCollection> &deviceBlock,
+              std::size_t maxDeviceSplats,
+              unsigned int maxDeviceCells,
+              std::size_t maxDeviceSplit);
+
+    void operator()(const boost::ptr_vector<Collection> &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid) const;
+private:
+    const boost::reference_wrapper<DeviceBlock<DeviceCollection> > deviceBlock;
+    const std::size_t maxDeviceSplats;
+    const unsigned int maxDeviceCells;
+    const std::size_t maxDeviceSplit;
+};
+
+template<typename Collection>
+HostBlock<Collection>::HostBlock(
+    DeviceBlock<DeviceCollection> &deviceBlock,
+    std::size_t maxDeviceSplats,
+    unsigned int maxDeviceCells,
+    std::size_t maxDeviceSplit)
+: deviceBlock(deviceBlock), maxDeviceSplats(maxDeviceSplats),
+    maxDeviceCells(maxDeviceCells), maxDeviceSplit(maxDeviceSplit)
+{
+}
+
+template<typename Collection>
+void HostBlock<Collection>::operator()(
+    const boost::ptr_vector<Collection> &splats,
+    Bucket::Range::index_type numSplats,
+    Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
+    const Grid &grid) const
+{
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+
+    vector<Splat> localSplats;
+
+    {
+        Statistics::Timer timer("host.block.load");
+        std::size_t pos = 0;
+        localSplats.resize(numSplats);
+
+        // Stats bookkeeping
+        const int pageSize = 4096;
+        std::size_t numPages = 0;
+        std::size_t lastPage = (std::size_t) -1;
+        for (Bucket::RangeConstIterator i = first; i != last; i++)
+        {
+            assert(pos + i->size <= numSplats);
+            Bucket::Range::scan_type scan = i->scan;
+            // Note: &localSplats[pos] is necessary to trigger the fast path in
+            // FastPly::Reader. Using outSplats.begin() + pos would hit the
+            // slow path.
+            splats[scan].read(i->start, i->start + i->size, &localSplats[pos]);
+            pos += i->size;
+
+            if (i->size > 0)
+            {
+                std::size_t pageFirst = i->start / pageSize;
+                std::size_t pageLast = (i->start + i->size - 1) / pageSize;
+                numPages += pageLast - pageFirst + 1;
+                if (lastPage == pageFirst)
+                    numPages--;
+                lastPage = pageLast;
+            }
+        }
+        assert(pos == numSplats);
+
+        registry.getStatistic<Statistics::Variable>("host.block.splats").add(numSplats);
+        registry.getStatistic<Statistics::Variable>("host.block.ranges").add(last - first);
+        registry.getStatistic<Statistics::Variable>("host.block.pagedSplats").add(numPages * pageSize);
+        registry.getStatistic<Statistics::Variable>("host.block.size").add
+            (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
+    }
+
+    {
+        Statistics::Timer timer("host.block.exec");
+        boost::ptr_vector<DeviceCollection> deviceSplats;
+        deviceSplats.push_back(new DeviceCollection(localSplats));
+        Bucket::bucket(deviceSplats, grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit, deviceBlock);
+    }
+}
+
+template<typename Collection>
+static void run2(const cl::Context &context, const cl::Device &device, const string &out,
+                 const po::variables_map &vm,
+                 boost::ptr_vector<Collection> &splats,
+                 const Grid &grid)
 {
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
-    const float spacing = vm[Option::fitGrid].as<double>();
-    const float smooth = vm[Option::fitSmooth].as<double>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
-    const std::size_t maxSplats = vm[Option::maxSplats].as<int>();
+    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
+    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    boost::ptr_vector<FastPly::Reader> files;
-    prepareInputs(files, vm, smooth);
-
-    BlockRun blockRun(context, device, maxSplats, blockCells, levels, subsampling);
-    Grid grid;
-    try
-    {
-        grid = Bucket::makeGrid(files, spacing);
-    }
-    catch (std::length_error &e)
-    {
-        cerr << "At least one input point is required.\n";
-        exit(1);
-    }
-    blockRun.setGrid(grid);
+    DeviceBlock<typename HostBlock<Collection>::DeviceCollection> deviceBlock(
+        context, device, maxDeviceSplats, blockCells, levels, subsampling);
+    HostBlock<Collection> hostBlock(deviceBlock, maxDeviceSplats, blockCells, maxSplit);
+    deviceBlock.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
@@ -477,10 +601,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         passName << "pass" << pass + 1 << ".time";
         Statistics::Timer timer(passName.str());
 
-        blockRun.setOutput(mesh->outputFunctor(pass));
-        // TODO: blockCells will be just less than a power of 2, so the
-        // actual calls will end up at almost half
-        Bucket::bucket(files, grid, maxSplats, blockCells, maxSplit, boost::ref(blockRun));
+        deviceBlock.setOutput(mesh->outputFunctor(pass));
+        Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
     }
 
     {
@@ -488,6 +610,57 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
         mesh->finalize();
         mesh->write(*writer, out);
+    }
+}
+
+static void run(const cl::Context &context, const cl::Device &device, const string &out,
+                const po::variables_map &vm)
+{
+    const float spacing = vm[Option::fitGrid].as<double>();
+    const float smooth = vm[Option::fitSmooth].as<double>();
+
+    boost::ptr_vector<FastPly::Reader> files;
+    prepareInputs(files, vm, smooth);
+    Grid grid;
+
+#if HAVE_STXXL
+    const bool sortSplats = vm.count(Option::sortSplats);
+    if (sortSplats)
+    {
+        typedef StxxlVectorCollection<Splat> Collection;
+        typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
+
+        SplatVector splatData;
+        try
+        {
+            Bucket::loadSplats(files, spacing, sortSplats, splatData, grid);
+        }
+        catch (std::length_error &e)
+        {
+            cerr << "At least one input point is required.\n";
+            exit(1);
+        }
+        files.clear();
+
+        boost::ptr_vector<Collection> splats;
+        splats.push_back(new Collection(splatData));
+
+        run2(context, device, out, vm, splats, grid);
+    }
+    else
+#endif
+    {
+        try
+        {
+            Bucket::makeGrid(files, spacing, grid);
+        }
+        catch (std::length_error &e)
+        {
+            cerr << "At least one input point is required.\n";
+            exit(1);
+        }
+
+        run2(context, device, out, vm, files, grid);
     }
     writeStatistics(vm);
 }
@@ -535,7 +708,7 @@ int main(int argc, char **argv)
     }
     catch (Bucket::DensityError &e)
     {
-        cerr << "The splats were too dense. Try passing a higher value for --max-splats.\n";
+        cerr << "The splats were too dense. Try passing a higher value for --max-device-splats.\n";
         return 1;
     }
 

@@ -7,8 +7,14 @@
 #ifndef MLSGPU_MISC_H
 #define MLSGPU_MISC_H
 
+#if HAVE_CONFIG_H
+# include <config.h>
+#endif
+
 #include <boost/numeric/conversion/converter.hpp>
 #include <limits>
+#include <tr1/cstdint>
+#include <cstring>
 #include "errors.h"
 
 typedef boost::numeric::converter<
@@ -66,6 +72,16 @@ template<typename S, typename T>
 static inline S roundUp(S a, T b)
 {
     return divUp(a, b) * b;
+}
+
+/**
+ * Obtain the raw bits from a floating-point number.
+ */
+static inline std::tr1::uint32_t floatToBits(float x)
+{
+    std::tr1::uint32_t ans;
+    std::memcpy(&ans, &x, sizeof(ans));
+    return ans;
 }
 
 #endif /* MLSGPU_MISC_H */

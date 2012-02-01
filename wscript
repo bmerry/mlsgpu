@@ -60,6 +60,7 @@ def options(opt):
     opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'debug', action = 'store', help = 'build variant', choices = variants.keys())
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
+    opt.add_option('--without-stxxl', action = 'store_true', help = 'Disable features requiring STXXL')
 
 def configure_variant(conf):
     if conf.env['assertions']:
@@ -71,7 +72,8 @@ def configure_variant(conf):
         conf.define('UNIT_TESTS', 1, quote = False)
 
 def configure_variant_gcc(conf):
-    ccflags = ['-Wall', '-W']
+    ccflags = ['-Wall', '-W', '-pthread']
+    conf.env.append_value('LINKFLAGS', '-pthread')
     if conf.env['optimize']:
         ccflags.append('-O2')
     else:
@@ -118,6 +120,13 @@ def configure(conf):
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
     conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
 
+    if not conf.options.without_stxxl:
+        try:
+            conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
+        except conf.errors.ConfigurationError:
+            ctx.fatal('STXXL was not found. Either install it or pass --without-stxxl')
+        conf.define('HAVE_STXXL', 1)
+
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')
     conf.env.append_value('INCLUDES', '.')
@@ -163,13 +172,19 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = sources,
             target = 'mls',
-            use = 'OPENCL CLCPP',
+            use = 'OPENCL CLCPP STXXL',
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
             lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
+    if not bld.options.without_stxxl:
+        bld.program(
+                source = ['sortscan.cpp'],
+                target = 'sortscan',
+                use = ['libmls', 'provenance'],
+                lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
     if bld.env['unit_tests']:
         bld.program(
                 features = 'test',

@@ -16,9 +16,36 @@
 #include <tr1/cstdint>
 #include "ply.h"
 #include "ply_mesh.h"
+#include "splat.h"
 
 namespace PLY
 {
+
+PropertyTypeSet SplatFetcher::getProperties() const
+{
+    const PropertyType props[] =
+    {
+        PropertyType("x", FLOAT32),
+        PropertyType("y", FLOAT32),
+        PropertyType("z", FLOAT32),
+        PropertyType("nx", FLOAT32),
+        PropertyType("ny", FLOAT32),
+        PropertyType("nz", FLOAT32),
+        PropertyType("radius", FLOAT32)
+    };
+    return PropertyTypeSet(props, props + 7);
+}
+
+void SplatFetcher::writeElement(const Element &e, Writer &writer) const
+{
+    writer.writeField<float>(e.position[0]);
+    writer.writeField<float>(e.position[1]);
+    writer.writeField<float>(e.position[2]);
+    writer.writeField<float>(e.normal[0]);
+    writer.writeField<float>(e.normal[1]);
+    writer.writeField<float>(e.normal[2]);
+    writer.writeField<float>(e.radius);
+}
 
 PropertyTypeSet VertexFetcher::getProperties() const
 {

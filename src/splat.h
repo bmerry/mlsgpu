@@ -22,6 +22,22 @@ struct Splat
     float quality;
 };
 
+/**
+ * Comparator that orders splats by position to give good spatial
+ * locality.
+ */
+class CompareSplatsMorton
+{
+public:
+    bool operator()(const Splat &a, const Splat &b) const;
+    Splat min_value() const;
+    Splat max_value() const;
+};
+
+/**
+ * Implementation of the @ref PLY builder concept that loads splats
+ * from a PLY file.
+ */
 class SplatBuilder
 {
 private:
