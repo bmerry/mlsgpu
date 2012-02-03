@@ -267,6 +267,9 @@ struct BucketState
     /// The next value to write into @ref pickedOffset when a new cell is picked
     std::tr1::uint64_t nextOffset;
 
+    /// Number of leaf cells skipped by @ref PickCells for being empty
+    std::tr1::uint64_t skippedCells;
+
     /**
      * The ranges for the next level of the hierarchy. This is semantically a list
      * of lists of ranges, with splits designated by @ref pickedOffset.
@@ -306,6 +309,7 @@ class PickCells
 {
 private:
     BucketState &state;
+
 public:
     PickCells(BucketState &state) : state(state) {}
     bool operator()(const Cell &cell) const;
@@ -328,6 +332,14 @@ public:
 Cell::size_type chooseMicroSize(
     const Cell::size_type dims[3], std::size_t maxSplit);
 
+/// Tracking of state across recursive calls.
+struct Recursion
+{
+    unsigned int depth;             ///< current depth of recursion
+    Range::index_type totalRanges;  ///< Ranges held in memory at all levels
+    std::tr1::uint64_t cellsDone;   ///< Total number of cells processed
+};
+
 /**
  * Recursive implementation of @ref bucket.
  *
@@ -349,11 +361,10 @@ void bucketRecurse(
     const Grid &grid,
     const BucketParameters &params,
     const typename ProcessorType<CollectionSet>::type &process,
-    unsigned int recursionDepth,
-    Range::index_type totalRanges)
+    const Recursion &recursionState)
 {
-    Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak").set(recursionDepth);
-    Statistics::getStatistic<Statistics::Peak<Range::index_type> >("bucket.totalRanges.peak").set(totalRanges);
+    Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak").set(recursionState.depth);
+    Statistics::getStatistic<Statistics::Peak<Range::index_type> >("bucket.totalRanges.peak").set(recursionState.totalRanges);
 
     Cell::size_type dims[3];
     for (int i = 0; i < 3; i++)
@@ -362,7 +373,7 @@ void bucketRecurse(
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
-        boost::unwrap_ref(process)(splats, numSplats, first, last, grid);
+        boost::unwrap_ref(process)(splats, numSplats, first, last, grid, recursionState.cellsDone);
     }
     else if (maxDim == 1)
     {
@@ -397,6 +408,7 @@ void bucketRecurse(
         std::vector<Cell> savedPicked;
         std::vector<Range::index_type> savedNumSplats;
         std::size_t numPicked;
+        std::tr1::uint64_t cellsDone = recursionState.cellsDone;
         /* Open a scope so that we can destroy the BucketState later */
         {
             BucketState state(params, grid, microSize, macroLevels);
@@ -427,6 +439,9 @@ void bucketRecurse(
             savedNumSplats.reserve(numPicked);
             for (std::size_t i = 0; i < numPicked; i++)
                 savedNumSplats.push_back(state.getCellState(savedPicked[i]).counter.countSplats());
+
+            /* Any cells we skipped are automatically finished */
+            cellsDone += state.skippedCells;
         }
 
         /* Now recurse into the chosen cells */
@@ -444,6 +459,10 @@ void bucketRecurse(
             }
             Grid childGrid = grid.subGrid(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
+            Recursion childRecursion;
+            childRecursion.depth = recursionState.depth + 1;
+            childRecursion.totalRanges = recursionState.totalRanges + childRanges.size();
+            childRecursion.cellsDone = cellsDone;
             bucketRecurse(splats,
                           childRanges.begin() + savedOffset[i],
                           childRanges.begin() + savedOffset[i + 1],
@@ -451,8 +470,8 @@ void bucketRecurse(
                           childGrid,
                           params,
                           process,
-                          recursionDepth + 1,
-                          totalRanges + childRanges.size());
+                          childRecursion);
+            cellsDone += childGrid.numCells();
         }
     }
 }
@@ -501,10 +520,11 @@ void bucket(const CollectionSet &splats,
     }
 
     internal::BucketParameters params(maxSplats, maxCells, maxSplit);
-    params.maxSplats = maxSplats;
-    params.maxCells = maxCells;
-    params.maxSplit = maxSplit;
-    internal::bucketRecurse(splats, root.begin(), root.end(), numSplats, bbox, params, process, 0, root.size());
+    internal::Recursion recursionState;
+    recursionState.depth = 0;
+    recursionState.totalRanges = root.size();
+    recursionState.cellsDone = 0;
+    internal::bucketRecurse(splats, root.begin(), root.end(), numSplats, bbox, params, process, recursionState);
 }
 
 #if HAVE_STXXL

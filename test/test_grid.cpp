@@ -92,6 +92,11 @@ void TestGrid::testNumCells()
     CPPUNIT_ASSERT_EQUAL(35, grid.numCells(0));
     CPPUNIT_ASSERT_EQUAL(18, grid.numCells(1));
     CPPUNIT_ASSERT_EQUAL(998, grid.numCells(2));
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(35 * 18 * 998), grid.numCells());
+
+    // Test overflow handling
+    Grid bigGrid = grid.subGrid(0, 1000000, 0, 1000000, 0, 10000000);
+    CPPUNIT_ASSERT_EQUAL(UINT64_C(10000000000000000000), grid.numCells());
 }
 
 void TestGrid::testNumVertices()

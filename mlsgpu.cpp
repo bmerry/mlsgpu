@@ -373,6 +373,77 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
     }
 }
 
+/**
+ * Extends @c boost::progress_display to handle 64-bit offsets
+ * even when unsigned long is 32-bit.
+ *
+ * It does this by keeping its own count, and setting the
+ * wrapper progress display's count to a scaled version.
+ * It adds an additional @ref set method that allows the count to
+ * be explicitly set rather than incremented.
+ *
+ * @todo Move this into misc.h.
+ */
+class progress_display64 : private boost::progress_display
+{
+private:
+    static const unsigned long displayExpected = 100000;
+    std::tr1::uint64_t count_, expected_;
+
+public:
+    progress_display64(std::tr1::uint64_t expected)
+        : boost::progress_display(displayExpected), count_(0), expected_(expected)
+    {
+    }
+
+    progress_display64(std::tr1::uint64_t expected,
+                       std::ostream &os,
+                       const std::string &s1 = "\n",
+                       const std::string &s2 = "",
+                       const std::string &s3 = "")
+        : boost::progress_display(displayExpected, os, s1, s2, s3),
+        count_(0), expected_(expected)
+    {
+    }
+
+    void restart(std::tr1::uint64_t expected)
+    {
+        count_ = 0;
+        expected_ = expected;
+        boost::progress_display::restart(displayExpected);
+    }
+
+    void set(std::tr1::uint64_t count)
+    {
+        count_ = count;
+        unsigned long childCount = (unsigned long) (displayExpected * double(count_) / double(expected_));
+        boost::progress_display::operator+=(childCount - boost::progress_display::count());
+    }
+
+    std::tr1::uint64_t operator+=(std::tr1::uint64_t increment)
+    {
+        set(count_ + increment);
+        return count_;
+    }
+
+    std::tr1::uint64_t operator++()
+    {
+        return operator+=(std::tr1::uint64_t(1));
+    }
+
+    std::tr1::uint64_t count() const
+    {
+        return count_;
+    }
+
+    std::tr1::uint64_t expected_count() const
+    {
+        return expected_;
+    }
+};
+
+const unsigned long progress_display64::displayExpected;
+
 template<typename Collection>
 class DeviceBlock
 {
@@ -385,12 +456,26 @@ private:
     Grid fullGrid;
     int subsampling;
 
+    progress_display64 *progress;
+    std::tr1::uint64_t progressBase;
+
 public:
     DeviceBlock(const cl::Context &context, const cl::Device &device,
                 std::size_t maxSplats, std::size_t maxCells,
                 int levels, int subsampling);
-    void operator()(const boost::ptr_vector<Collection> &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid);
+    void operator()(
+        const boost::ptr_vector<Collection> &splats,
+        Bucket::Range::index_type numSplats,
+        Bucket::RangeConstIterator first,
+        Bucket::RangeConstIterator last,
+        const Grid &grid,
+        std::tr1::uint64_t done);
 
+    void setProgress(progress_display64 *progress, std::tr1::uint64_t progressBase)
+    {
+        this->progress = progress;
+        this->progressBase = progressBase;
+    }
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
@@ -404,7 +489,9 @@ DeviceBlock<Collection>::DeviceBlock(
     tree(context, levels, maxSplats),
     input(context),
     marching(context, device, maxCells + 1, maxCells + 1),
-    subsampling(subsampling)
+    subsampling(subsampling),
+    progress(NULL),
+    progressBase(0)
 {
 }
 
@@ -413,8 +500,11 @@ void DeviceBlock<Collection>::operator()(
     const boost::ptr_vector<Collection> &splats,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
-    const Grid &grid)
+    const Grid &grid, std::tr1::uint64_t done)
 {
+    if (progress != NULL)
+        progress->set(progressBase + done);
+
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     cl_uint3 keyOffset;
@@ -465,8 +555,7 @@ void DeviceBlock<Collection>::operator()(
     registry.getStatistic<Statistics::Variable>("block.splats").add(numSplats);
     registry.getStatistic<Statistics::Variable>("block.ranges").add(last - first);
     registry.getStatistic<Statistics::Variable>("block.pagedSplats").add(numPages * pageSize);
-    registry.getStatistic<Statistics::Variable>("block.size").add
-        (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
+    registry.getStatistic<Statistics::Variable>("block.size").add(grid.numCells());
 
     {
         Statistics::Timer timer("block.time");
@@ -491,12 +580,21 @@ public:
               unsigned int maxDeviceCells,
               std::size_t maxDeviceSplit);
 
-    void operator()(const boost::ptr_vector<Collection> &splats, Bucket::Range::index_type numSplats, Bucket::RangeConstIterator first, Bucket::RangeConstIterator last, const Grid &grid) const;
+    void operator()(
+        const boost::ptr_vector<Collection> &splats,
+        Bucket::Range::index_type numSplats,
+        Bucket::RangeConstIterator first,
+        Bucket::RangeConstIterator last,
+        const Grid &grid,
+        std::tr1::uint64_t done) const;
+
+    void setProgress(progress_display64 *progress) { this->progress = progress; }
 private:
     const boost::reference_wrapper<DeviceBlock<DeviceCollection> > deviceBlock;
     const std::size_t maxDeviceSplats;
     const unsigned int maxDeviceCells;
     const std::size_t maxDeviceSplit;
+    progress_display64 *progress;
 };
 
 template<typename Collection>
@@ -506,7 +604,7 @@ HostBlock<Collection>::HostBlock(
     unsigned int maxDeviceCells,
     std::size_t maxDeviceSplit)
 : deviceBlock(deviceBlock), maxDeviceSplats(maxDeviceSplats),
-    maxDeviceCells(maxDeviceCells), maxDeviceSplit(maxDeviceSplit)
+    maxDeviceCells(maxDeviceCells), maxDeviceSplit(maxDeviceSplit), progress(NULL)
 {
 }
 
@@ -515,8 +613,14 @@ void HostBlock<Collection>::operator()(
     const boost::ptr_vector<Collection> &splats,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
-    const Grid &grid) const
+    const Grid &grid, std::tr1::uint64_t done) const
 {
+    if (progress != NULL)
+    {
+        progress->set(done);
+        boost::unwrap_ref(deviceBlock).setProgress(progress, done);
+    }
+
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     vector<Splat> localSplats;
@@ -565,8 +669,13 @@ void HostBlock<Collection>::operator()(
         deviceSplats.push_back(new DeviceCollection(localSplats));
         Bucket::bucket(deviceSplats, grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit, deviceBlock);
     }
+    progress->set(done + grid.numCells());
 }
 
+/**
+ * Second phase of execution, which is templated on the collection type
+ * (which in turn depends on whether --sort was given or not).
+ */
 template<typename Collection>
 static void run2(const cl::Context &context, const cl::Device &device, const string &out,
                  const po::variables_map &vm,
@@ -601,8 +710,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         passName << "pass" << pass + 1 << ".time";
         Statistics::Timer timer(passName.str());
 
+        progress_display64 progress(grid.numCells(), Log::log[Log::info]);
+        hostBlock.setProgress(&progress);
         deviceBlock.setOutput(mesh->outputFunctor(pass));
         Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
+        progress->set(grid.numCells());
     }
 
     {

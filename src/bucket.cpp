@@ -161,7 +161,7 @@ BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Cell::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    cellStates(macroLevels), nextOffset(0)
+    cellStates(macroLevels), nextOffset(0), skippedCells(0)
 {
     for (int i = 0; i < 3; i++)
         this->dims[i] = grid.numCells(i);
@@ -215,9 +215,19 @@ bool PickCells::operator()(const Cell &cell) const
 {
     BucketState::CellState &cs = state.getCellState(cell);
 
-    // Skip completely empty regions
+    // Skip completely empty regions, but record the fact
+    // for progress meters
     if (cs.counter.countSplats() == 0)
+    {
+        // Intersect with grid
+        std::tr1::uint64_t skipped = 1;
+        for (int i = 0; i < 3; i++)
+        {
+            skipped *= std::min(state.dims[i], cell.getUpper()[i]) - cell.getLower()[i];
+        }
+        state.skippedCells += skipped;
         return false;
+    }
 
     if (cell.getLevel() == 0
         || (cell.getSize(0) <= state.params.maxCells

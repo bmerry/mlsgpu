@@ -9,6 +9,7 @@
 #endif
 #include <stdexcept>
 #include <algorithm>
+#include <tr1/cstdint>
 #include "errors.h"
 #include "grid.h"
 
@@ -89,6 +90,14 @@ int Grid::numCells(int axis) const
 {
     MLSGPU_ASSERT(axis >= 0 && axis < 3, std::out_of_range);
     return extents[axis].second - extents[axis].first;
+}
+
+std::tr1::uint64_t Grid::numCells() const
+{
+    std::tr1::uint64_t ans = 1;
+    for (int axis = 0; axis < 3; axis++)
+        ans *= numCells(axis);
+    return ans;
 }
 
 Grid Grid::subGrid(int x0, int x1, int y0, int y1, int z0, int z1) const

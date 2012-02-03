@@ -11,6 +11,7 @@
 # include <config.h>
 #endif
 #include <utility>
+#include <tr1/cstdint>
 
 /**
  * Class representing a regular grid of points in 3D space.
@@ -92,6 +93,11 @@ public:
      * @pre @a axis is 0, 1 or 2.
      */
     int numCells(int axis) const;
+
+    /**
+     * Retrieves the number of cells in the grid.
+     */
+    std::tr1::uint64_t numCells() const;
 
     /**
      * Inverse of @ref getVertex.

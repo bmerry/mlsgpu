@@ -104,6 +104,8 @@ typedef std::vector<Range>::const_iterator RangeConstIterator;
  *  -# The number of splats in the bucket.
  *  -# A [first, last) pair indicating a range of splat ranges in the bucket
  *  -# A grid covering the spatial extent of the bucket.
+ *  -# A count of the number of grid cells already processed (before this one).
+ *     The intended use is for progress meters.
  * It is guaranteed that the number of splats will be non-zero (empty buckets
  * are skipped). All splats that intersect the bucket will be passed, but
  * the intersection test is conservative so there may be extras. The ranges
@@ -114,7 +116,13 @@ class ProcessorType
 {
 public:
     /// The actual type.
-    typedef boost::function<void(const CollectionSet &, Range::index_type, RangeConstIterator, RangeConstIterator, const Grid &)> type;
+    typedef boost::function<void(
+        const CollectionSet &,
+        Range::index_type,
+        RangeConstIterator,
+        RangeConstIterator,
+        const Grid &,
+        std::tr1::uint64_t done)> type;
 };
 
 /**

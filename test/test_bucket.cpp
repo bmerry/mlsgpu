@@ -556,6 +556,7 @@ private:
         Grid grid;
         Range::index_type numSplats;
         vector<Range> ranges;
+        std::tr1::uint64_t done;
     };
 
     typedef StdVectorCollection<Splat> Collection;
@@ -573,7 +574,8 @@ private:
         Range::index_type numSplats,
         RangeConstIterator first,
         RangeConstIterator last,
-        const Grid &grid);
+        const Grid &grid,
+        std::tr1::uint64_t done);
 
 public:
     void testSimple();            ///< Test basic usage
@@ -590,13 +592,15 @@ void TestBucket::bucketFunc(
     Range::index_type numSplats,
     RangeConstIterator first,
     RangeConstIterator last,
-    const Grid &grid)
+    const Grid &grid,
+    std::tr1::uint64_t done)
 {
     (void) splats;
     blocks.push_back(Block());
     Block &block = blocks.back();
     block.numSplats = numSplats;
     block.grid = grid;
+    block.done = done;
     copy(first, last, back_inserter(block.ranges));
 }
 
@@ -620,8 +624,10 @@ void TestBucket::validate(
     }
 
     /* First validate each individual block */
+    std::tr1::uint64_t nextDone = 0;
     BOOST_FOREACH(const Block &block, blocks)
     {
+        CPPUNIT_ASSERT(block.done >= nextDone);
         CPPUNIT_ASSERT(block.numSplats <= maxSplats);
         CPPUNIT_ASSERT(block.grid.numCells(0) <= maxCells);
         CPPUNIT_ASSERT(block.grid.numCells(1) <= maxCells);
@@ -687,7 +693,11 @@ void TestBucket::validate(
             }
         }
         CPPUNIT_ASSERT_EQUAL(numSplats, block.numSplats);
+
+        nextDone = block.done + block.grid.numCells();
     }
+    /* Cannot have done more than the entire thing */
+    CPPUNIT_ASSERT(nextDone <= fullGrid.numCells());
 
     /* Check that the blocks do not overlap */
     for (std::size_t b1 = 0; b1 < blocks.size(); b1++)
@@ -753,7 +763,7 @@ void TestBucket::testSimple()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     bucket(splats, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(splats, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
@@ -773,7 +783,7 @@ void TestBucket::testDensityError()
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
         bucket(splats, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5)),
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6)),
         DensityError);
 }
 
@@ -788,7 +798,7 @@ void TestBucket::testFlat()
     const int maxCells = 32;
     const int maxSplit = 1000000;
     bucket(splats, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(splats, grid, blocks, maxSplats, maxCells);
 
     CPPUNIT_ASSERT_EQUAL(1, int(blocks.size()));
@@ -803,7 +813,7 @@ void TestBucket::testEmpty()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     bucket(splats, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     CPPUNIT_ASSERT(blocks.empty());
 }
 
@@ -818,7 +828,7 @@ void TestBucket::testMultiLevel()
     const int maxCells = 8;
     const int maxSplit = 8;
     bucket(splats, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5));
+           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(splats, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
