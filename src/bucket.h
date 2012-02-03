@@ -99,6 +99,27 @@ struct Range
 typedef std::vector<Range>::const_iterator RangeConstIterator;
 
 /**
+ * Tracking of state across recursive calls.
+ * This class has no impact on the algorithm, and exists for tracking metrics
+ * and progress. It is used in several places:
+ *  -# It is passed between calls to @ref internal::bucketRecurse to track
+ *     statistics;
+ *  -# It is passed to the processing callback so that it can update a
+ *     progress meter is desired;
+ *  -# It may be passed into @ref bucket in which case it is used as the
+ *     initial state. The intended use is when the processor function
+ *     makes a recursive call back into @ref bucket.
+ */
+struct Recursion
+{
+    unsigned int depth;             ///< Current depth of recursion.
+    Range::index_type totalRanges;  ///< Ranges held in memory at all levels.
+    std::tr1::uint64_t cellsDone;   ///< Total number of cells processed.
+
+    Recursion() : depth(0), totalRanges(0), cellsDone(0) {}
+};
+
+/**
  * Type-class for callback function called by @ref bucket. The parameters are:
  *  -# The backing store of splats.
  *  -# The number of splats in the bucket.
@@ -122,7 +143,7 @@ public:
         RangeConstIterator,
         RangeConstIterator,
         const Grid &,
-        std::tr1::uint64_t done)> type;
+        const Recursion &recursionState)> type;
 };
 
 /**
@@ -175,7 +196,8 @@ void bucket(const CollectionSet &splats,
             Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
-            const typename ProcessorType<CollectionSet>::type &process);
+            const typename ProcessorType<CollectionSet>::type &process,
+            const Recursion &recursionState = Recursion());
 
 #if HAVE_STXXL
 /**

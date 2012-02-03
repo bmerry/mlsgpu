@@ -417,7 +417,9 @@ public:
     {
         count_ = count;
         unsigned long childCount = (unsigned long) (displayExpected * double(count_) / double(expected_));
-        boost::progress_display::operator+=(childCount - boost::progress_display::count());
+        // boost::progress_display seems to have a bug with zero increments
+        if (childCount > boost::progress_display::count())
+            boost::progress_display::operator+=(childCount - boost::progress_display::count());
     }
 
     std::tr1::uint64_t operator+=(std::tr1::uint64_t increment)
@@ -457,7 +459,6 @@ private:
     int subsampling;
 
     progress_display64 *progress;
-    std::tr1::uint64_t progressBase;
 
 public:
     DeviceBlock(const cl::Context &context, const cl::Device &device,
@@ -469,13 +470,9 @@ public:
         Bucket::RangeConstIterator first,
         Bucket::RangeConstIterator last,
         const Grid &grid,
-        std::tr1::uint64_t done);
+        const Bucket::Recursion &recursionState);
 
-    void setProgress(progress_display64 *progress, std::tr1::uint64_t progressBase)
-    {
-        this->progress = progress;
-        this->progressBase = progressBase;
-    }
+    void setProgress(progress_display64 *progress) { this->progress = progress; }
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
@@ -490,8 +487,7 @@ DeviceBlock<Collection>::DeviceBlock(
     input(context),
     marching(context, device, maxCells + 1, maxCells + 1),
     subsampling(subsampling),
-    progress(NULL),
-    progressBase(0)
+    progress(NULL)
 {
 }
 
@@ -500,10 +496,10 @@ void DeviceBlock<Collection>::operator()(
     const boost::ptr_vector<Collection> &splats,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
-    const Grid &grid, std::tr1::uint64_t done)
+    const Grid &grid, const Bucket::Recursion &recursionState)
 {
     if (progress != NULL)
-        progress->set(progressBase + done);
+        progress->set(recursionState.cellsDone);
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -568,6 +564,9 @@ void DeviceBlock<Collection>::operator()(
 
         marching.generate(queue, input, output, grid, keyOffset, &wait);
     }
+
+    if (progress != NULL)
+        progress->set(recursionState.cellsDone + grid.numCells());
 }
 
 template<typename Collection>
@@ -586,7 +585,7 @@ public:
         Bucket::RangeConstIterator first,
         Bucket::RangeConstIterator last,
         const Grid &grid,
-        std::tr1::uint64_t done) const;
+        const Bucket::Recursion &recursionState) const;
 
     void setProgress(progress_display64 *progress) { this->progress = progress; }
 private:
@@ -613,12 +612,12 @@ void HostBlock<Collection>::operator()(
     const boost::ptr_vector<Collection> &splats,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
-    const Grid &grid, std::tr1::uint64_t done) const
+    const Grid &grid, const Bucket::Recursion &recursionState) const
 {
     if (progress != NULL)
     {
-        progress->set(done);
-        boost::unwrap_ref(deviceBlock).setProgress(progress, done);
+        progress->set(recursionState.cellsDone);
+        boost::unwrap_ref(deviceBlock).setProgress(progress);
     }
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
@@ -667,9 +666,11 @@ void HostBlock<Collection>::operator()(
         Statistics::Timer timer("host.block.exec");
         boost::ptr_vector<DeviceCollection> deviceSplats;
         deviceSplats.push_back(new DeviceCollection(localSplats));
-        Bucket::bucket(deviceSplats, grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit, deviceBlock);
+        Bucket::bucket(deviceSplats, grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit, deviceBlock, recursionState);
     }
-    progress->set(done + grid.numCells());
+
+    if (progress != NULL)
+        progress->set(recursionState.cellsDone + grid.numCells());
 }
 
 /**
@@ -714,7 +715,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         hostBlock.setProgress(&progress);
         deviceBlock.setOutput(mesh->outputFunctor(pass));
         Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
-        progress->set(grid.numCells());
+        progress.set(grid.numCells());
     }
 
     {

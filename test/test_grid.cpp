@@ -96,7 +96,7 @@ void TestGrid::testNumCells()
 
     // Test overflow handling
     Grid bigGrid = grid.subGrid(0, 1000000, 0, 1000000, 0, 10000000);
-    CPPUNIT_ASSERT_EQUAL(UINT64_C(10000000000000000000), grid.numCells());
+    CPPUNIT_ASSERT_EQUAL(UINT64_C(10000000000000000000), bigGrid.numCells());
 }
 
 void TestGrid::testNumVertices()

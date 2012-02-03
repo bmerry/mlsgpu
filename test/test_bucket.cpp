@@ -575,7 +575,7 @@ private:
         RangeConstIterator first,
         RangeConstIterator last,
         const Grid &grid,
-        std::tr1::uint64_t done);
+        const Recursion &recursionState);
 
 public:
     void testSimple();            ///< Test basic usage
@@ -593,14 +593,14 @@ void TestBucket::bucketFunc(
     RangeConstIterator first,
     RangeConstIterator last,
     const Grid &grid,
-    std::tr1::uint64_t done)
+    const Recursion &recursionState)
 {
     (void) splats;
     blocks.push_back(Block());
     Block &block = blocks.back();
     block.numSplats = numSplats;
     block.grid = grid;
-    block.done = done;
+    block.done = recursionState.cellsDone;
     copy(first, last, back_inserter(block.ranges));
 }
 

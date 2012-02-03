@@ -332,14 +332,6 @@ public:
 Cell::size_type chooseMicroSize(
     const Cell::size_type dims[3], std::size_t maxSplit);
 
-/// Tracking of state across recursive calls.
-struct Recursion
-{
-    unsigned int depth;             ///< current depth of recursion
-    Range::index_type totalRanges;  ///< Ranges held in memory at all levels
-    std::tr1::uint64_t cellsDone;   ///< Total number of cells processed
-};
-
 /**
  * Recursive implementation of @ref bucket.
  *
@@ -373,7 +365,7 @@ void bucketRecurse(
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
-        boost::unwrap_ref(process)(splats, numSplats, first, last, grid, recursionState.cellsDone);
+        boost::unwrap_ref(process)(splats, numSplats, first, last, grid, recursionState);
     }
     else if (maxDim == 1)
     {
@@ -459,9 +451,9 @@ void bucketRecurse(
             }
             Grid childGrid = grid.subGrid(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
-            Recursion childRecursion;
-            childRecursion.depth = recursionState.depth + 1;
-            childRecursion.totalRanges = recursionState.totalRanges + childRanges.size();
+            Recursion childRecursion = recursionState;
+            childRecursion.depth++;
+            childRecursion.totalRanges += childRanges.size();
             childRecursion.cellsDone = cellsDone;
             bucketRecurse(splats,
                           childRanges.begin() + savedOffset[i],
@@ -508,7 +500,8 @@ void bucket(const CollectionSet &splats,
             Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,
-            const typename ProcessorType<CollectionSet>::type &process)
+            const typename ProcessorType<CollectionSet>::type &process,
+            const Recursion &recursionState)
 {
     Range::index_type numSplats = 0;
     std::vector<Range> root;
@@ -520,11 +513,10 @@ void bucket(const CollectionSet &splats,
     }
 
     internal::BucketParameters params(maxSplats, maxCells, maxSplit);
-    internal::Recursion recursionState;
-    recursionState.depth = 0;
-    recursionState.totalRanges = root.size();
-    recursionState.cellsDone = 0;
-    internal::bucketRecurse(splats, root.begin(), root.end(), numSplats, bbox, params, process, recursionState);
+    Recursion childRecursion = recursionState;
+    childRecursion.depth++;
+    childRecursion.totalRanges += root.size();
+    internal::bucketRecurse(splats, root.begin(), root.end(), numSplats, bbox, params, process, childRecursion);
 }
 
 #if HAVE_STXXL
