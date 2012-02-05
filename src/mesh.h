@@ -3,8 +3,11 @@
  *
  * Data structures for storing the output of @ref Marching.
  *
- * The classes in this file implement a common concept. The documentation
- * can be found under @ref SimpleMesh.
+ * The classes in this file are @ref MeshBase, an abstract base class, and
+ * several concrete instantiations of it. They differ in terms of
+ *  - the number of passes needed
+ *  - whether they support welding of external vertices
+ *  - the amount of temporary memory required.
  */
 
 #ifndef MESH_H
