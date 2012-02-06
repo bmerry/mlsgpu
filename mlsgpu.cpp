@@ -121,7 +121,7 @@ string makeOptions(const po::variables_map &vm)
     for (po::variables_map::const_iterator i = vm.begin(); i != vm.end(); ++i)
     {
         if (i->first == Option::inputFile)
-            continue; // these are output last
+            continue; // these are not output because some programs choke
         if (i->first == Option::responseFile)
             continue; // this is not relevant to reproducing the results
         const po::variable_value &param = i->second;
@@ -155,11 +155,15 @@ string makeOptions(const po::variables_map &vm)
                 assert(!"Unhandled parameter type");
         }
     }
+    return opts.str();
+}
+
+static void makeInputComments(FastPly::WriterBase *writer, const po::variables_map &vm)
+{
     BOOST_FOREACH(const string &j, vm[Option::inputFile].as<vector<string> >())
     {
-        opts << ' ' << j;
+        writer->addComment("mlsgpu input: " + j);
     }
-    return opts.str();
 }
 
 static void validateOptions(const cl::Device &device, const po::variables_map &vm)
@@ -703,6 +707,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     writer->addComment("mlsgpu version: " + provenanceVersion());
     writer->addComment("mlsgpu variant: " + provenanceVariant());
     writer->addComment("mlsgpu options:" + makeOptions(vm));
+    makeInputComments(writer.get(), vm);
     boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
     for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
     {
