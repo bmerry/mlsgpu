@@ -212,7 +212,7 @@ void WeldMesh::add(const cl::CommandQueue &queue,
     triangles.resize(oldTriangles + numTriangles);
 
     cl::Event indicesEvent, last;
-    std::vector<cl::Event> wait(1);
+    std::vector<cl::Event> wait;
 
     queue.enqueueReadBuffer(indices, CL_FALSE, 0, numTriangles * (3 * sizeof(cl_uint)),
                             &triangles[oldTriangles][0], NULL, &indicesEvent);
@@ -229,6 +229,7 @@ void WeldMesh::add(const cl::CommandQueue &queue,
                                 numInternal * (3 * sizeof(cl_float)),
                                 &internalVertices[oldInternal][0],
                                 NULL, &last);
+        wait.resize(1);
         wait[0] = last;
     }
     if (numExternal > 0)
@@ -238,6 +239,7 @@ void WeldMesh::add(const cl::CommandQueue &queue,
                                 numExternal * (3 * sizeof(cl_float)),
                                 &externalVertices[oldExternal][0],
                                 &wait, &last);
+        wait.resize(1);
         wait[0] = last;
         queue.enqueueReadBuffer(vertexKeys, CL_FALSE,
                                 numInternal * sizeof(cl_ulong),
