@@ -23,6 +23,7 @@
 #include <map>
 #include <string>
 #include <boost/array.hpp>
+#include <boost/noncopyable.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
 #include "src/fast_ply.h"
@@ -35,6 +36,9 @@ enum MeshType
     SIMPLE_MESH,
     WELD_MESH,
     BIG_MESH
+#if HAVE_STXXL
+    , STXXL_MESH
+#endif
 };
 
 /**
@@ -286,9 +290,93 @@ public:
     virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
+#if HAVE_STXXL
+
+#include <stxxl.h>
+
+/**
+ * Mesh class that uses the same algorithm as @ref BigMesh, but stores
+ * the data in STXXL containers before concatenating them rather than
+ * using multiple passes. It thus trades storage requirements against
+ * performance, at least when @ref BigMesh is compute-bound.
+ */
+class StxxlMesh : public MeshBase
+{
+private:
+    typedef FastPly::WriterBase::size_type size_type;
+
+    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3> >::result vertices_type;
+    typedef stxxl::VECTOR_GENERATOR<boost::array<cl_uint, 3> >::result triangles_type;
+    vertices_type vertices;
+    triangles_type triangles;
+
+    /// Maps external vertex keys to external indices
+    std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
+
+    /**
+     * @name
+     * @{
+     * Temporary buffers for reading data from OpenCL.
+     * These are stored in the object so that memory can be recycled if
+     * possible, rather than thrashing the allocator.
+     */
+    std::vector<cl_ulong> tmpKeys;
+    std::vector<boost::array<cl_float, 3> > tmpVertices;
+    std::vector<boost::array<cl_uint, 3> > tmpTriangles;
+    /** @} */
+
+    /// Implementation of the functor
+    void add(const cl::CommandQueue &queue,
+             const cl::Buffer &vertices,
+             const cl::Buffer &vertexKeys,
+             const cl::Buffer &indices,
+             std::size_t numVertices,
+             std::size_t numInternalVertices,
+             std::size_t numIndices,
+             cl::Event *event);
+
+    /// Function object that accepts incoming vertices and writes them to a writer.
+    class VertexBuffer : public boost::noncopyable
+    {
+    private:
+        FastPly::WriterBase &writer;
+        size_type nextVertex;
+        std::vector<boost::array<float, 3> > buffer;
+    public:
+        typedef void result_type;
+
+        VertexBuffer(FastPly::WriterBase &writer, size_type capacity);
+        void operator()(const boost::array<float, 3> &vertex);
+        void flush();
+    };
+
+    /// Function object that accepts incoming triangles and writes them to a writer.
+    class TriangleBuffer : public boost::noncopyable
+    {
+    private:
+        FastPly::WriterBase &writer;
+        size_type nextTriangle;
+        std::vector<boost::array<std::tr1::uint32_t, 3> > buffer;
+    public:
+        typedef void result_type;
+
+        TriangleBuffer(FastPly::WriterBase &writer, size_type capacity);
+        void operator()(const boost::array<std::tr1::uint32_t, 3> &triangle);
+        void flush();
+    };
+
+public:
+    virtual unsigned int numPasses() const { return 1; }
+    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
+    virtual void finalize();
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
+};
+
+#endif /* HAVE_STXXL */
+
 /**
  * Factory function to create a mesh of the specified type.
  */
 MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename);
 
-#endif /* MESH_H */
+#endif /* !MESH_H */

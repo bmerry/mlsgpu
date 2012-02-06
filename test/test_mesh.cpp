@@ -703,3 +703,21 @@ MeshBase *TestBigMesh::meshFactory(FastPly::WriterBase &writer)
 {
     return new BigMesh(writer, "");
 }
+
+#if HAVE_STXXL
+
+class TestStxxlMesh : public TestWeldMesh
+{
+    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesh, TestWeldMesh);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    virtual MeshBase *meshFactory(FastPly::WriterBase &writer);
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesh, TestSet::perBuild());
+
+MeshBase *TestStxxlMesh::meshFactory(FastPly::WriterBase &)
+{
+    return new StxxlMesh();
+}
+
+#endif /* HAVE_STXXL */

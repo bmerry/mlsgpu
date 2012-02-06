@@ -17,10 +17,12 @@
 #include <boost/array.hpp>
 #include <boost/function.hpp>
 #include <boost/bind/bind.hpp>
+#include <boost/ref.hpp>
 #include <tr1/unordered_map>
 #include <cassert>
 #include <cstdlib>
 #include <utility>
+#include <iterator>
 #include <map>
 #include <string>
 #include "mesh.h"
@@ -34,6 +36,9 @@ std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
     ans["simple"] = SIMPLE_MESH;
     ans["weld"] = WELD_MESH;
     ans["big"] = BIG_MESH;
+#if HAVE_STXXL
+    ans["stxxl"] = STXXL_MESH;
+#endif
     return ans;
 }
 
@@ -489,6 +494,162 @@ void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename) co
 }
 
 
+#if HAVE_STXXL
+
+StxxlMesh::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type capacity)
+    : writer(writer), nextVertex(0)
+{
+    buffer.reserve(capacity);
+}
+
+void StxxlMesh::VertexBuffer::operator()(const boost::array<float, 3> &vertex)
+{
+    buffer.push_back(vertex);
+    if (buffer.size() == buffer.capacity())
+        flush();
+}
+
+void StxxlMesh::VertexBuffer::flush()
+{
+    writer.writeVertices(nextVertex, buffer.size(), &buffer[0][0]);
+    nextVertex += buffer.size();
+    buffer.clear();
+}
+
+StxxlMesh::TriangleBuffer::TriangleBuffer(FastPly::WriterBase &writer, size_type capacity)
+    : writer(writer), nextTriangle(0)
+{
+    nextTriangle = 0;
+    buffer.reserve(capacity);
+}
+
+void StxxlMesh::TriangleBuffer::operator()(const boost::array<std::tr1::uint32_t, 3> &triangle)
+{
+    buffer.push_back(triangle);
+    if (buffer.size() == buffer.capacity())
+        flush();
+}
+
+void StxxlMesh::add(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &vertices,
+    const cl::Buffer &vertexKeys,
+    const cl::Buffer &indices,
+    std::size_t numVertices,
+    std::size_t numInternalVertices,
+    std::size_t numIndices,
+    cl::Event *event)
+{
+    cl::Event verticesEvent, indicesEvent;
+    std::size_t numExternalVertices = numVertices - numInternalVertices;
+    std::size_t numTriangles = numIndices / 3;
+
+    tmpVertices.resize(numVertices);
+    tmpKeys.resize(numExternalVertices);
+    tmpTriangles.resize(numTriangles);
+    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
+                            &tmpVertices[0][0], NULL, &verticesEvent);
+    // TODO: revisit the dependency graph, here and in BigMesh
+    if (numExternalVertices > 0)
+    {
+        queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
+                                numInternalVertices * sizeof(cl_ulong),
+                                numExternalVertices * sizeof(cl_ulong),
+                                &tmpKeys[0],
+                                NULL, event);
+    }
+    queue.enqueueReadBuffer(indices, CL_FALSE,
+                            0, numIndices * sizeof(cl_uint),
+                            &tmpTriangles[0][0],
+                            NULL, &indicesEvent);
+    queue.flush();
+
+    /* Build keyMap, counting how many external vertices are really new
+     * TODO: store a vector for directly remapping indices to new indices,
+     * to avoid extra hash table lookups.
+     */
+    std::size_t newKeys = 0;
+    size_type oldVertices = this->vertices.size();
+    size_type nv = this->vertices.size() + numInternalVertices;
+    for (std::size_t i = 0; i < numExternalVertices; i++)
+    {
+        if (keyMap.insert(std::make_pair(tmpKeys[i], nv + newKeys)).second)
+            newKeys++;
+    }
+
+    /* Copy the vertices into storage */
+    verticesEvent.wait();
+    this->vertices.reserve(nv + newKeys);
+    std::copy(tmpVertices.begin(), tmpVertices.begin() + numInternalVertices,
+              std::back_inserter(this->vertices));
+    for (std::size_t i = 0; i < numExternalVertices; i++)
+    {
+        const cl_uint pos = keyMap[tmpKeys[i]];
+        if (pos >= oldVertices)
+        {
+            assert(pos == this->vertices.size());
+            this->vertices.push_back(tmpVertices[numInternalVertices + i]);
+        }
+    }
+
+    indicesEvent.wait();
+    for (std::size_t i = 0; i < numTriangles; i++)
+        for (unsigned int j = 0; j < 3; j++)
+        {
+            cl_uint &index = tmpTriangles[i][j];
+            assert(index < numVertices);
+            if (index < numInternalVertices)
+                index = oldVertices + index;
+            else
+                index = keyMap[tmpKeys[index - numInternalVertices]];
+        }
+    this->triangles.reserve(this->triangles.size() + tmpTriangles.size());
+    copy(tmpTriangles.begin(), tmpTriangles.end(), std::back_inserter(this->triangles));
+}
+
+Marching::OutputFunctor StxxlMesh::outputFunctor(unsigned int pass)
+{
+    /* only one pass, so ignore it */
+    (void) pass;
+    assert(pass == 0);
+
+    return Marching::OutputFunctor(boost::bind(&StxxlMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
+}
+
+void StxxlMesh::finalize()
+{
+}
+
+void StxxlMesh::TriangleBuffer::flush()
+{
+    writer.writeTriangles(nextTriangle, buffer.size(), &buffer[0][0]);
+    nextTriangle += buffer.size();
+    buffer.clear();
+}
+
+void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+{
+    writer.setNumVertices(vertices.size());
+    writer.setNumTriangles(triangles.size());
+    writer.open(filename);
+
+    // We need to use boost::bind here because stxxl::for_each does not handle unwrapping
+    // a reference to a function object to call it.
+    {
+        VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
+        stxxl::for_each(vertices.begin(), vertices.end(), boost::bind(boost::ref(vb), _1), 4);
+        vb.flush();
+    }
+    {
+        TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
+        stxxl::for_each(triangles.begin(), triangles.end(), boost::bind(boost::ref(tb), _1), 4);
+        tb.flush();
+    }
+}
+
+#endif /* HAVE_STXXL */
+
+
 MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename)
 {
     switch (type)
@@ -496,6 +657,9 @@ MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::stri
     case SIMPLE_MESH: return new SimpleMesh();
     case WELD_MESH:   return new WeldMesh();
     case BIG_MESH:    return new BigMesh(writer, filename);
+#if HAVE_STXXL
+    case STXXL_MESH:  return new StxxlMesh();
+#endif
     }
     return NULL; // should never be reached
 }

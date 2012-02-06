@@ -110,7 +110,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(50000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(1000000), "Maximum fan-out in partitioning")
-        (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big)")
+        (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big | stxxl)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
 }
