@@ -756,6 +756,7 @@ void TestBucket::testSimple()
 {
     setupSimple();
 
+    // The grid is set up so that the origin is at (0, 0, 0)
     const float ref[3] = {-10.0f, 0.0f, 10.0f};
     Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
     vector<Block> blocks;

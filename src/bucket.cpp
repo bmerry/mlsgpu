@@ -161,7 +161,7 @@ BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Cell::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    cellStates(macroLevels), nextOffset(0), skippedCells(0)
+    cellCounts(macroLevels), skippedCells(0)
 {
     for (int i = 0; i < 3; i++)
         this->dims[i] = grid.numCells(i);
@@ -177,11 +177,30 @@ BucketState::BucketState(
             s[i] = divUp(dims[i], microSize << level);
             assert(level != macroLevels - 1 || s[i] == 1);
         }
-        cellStates[level].resize(s);
+        cellCounts[level].resize(s);
+        if (level == 0)
+        {
+            cellBlocks.resize(s);
+            for (Cell::size_type x = 0; x < s[0]; x++)
+                for (Cell::size_type y = 0; y < s[1]; y++)
+                    for (Cell::size_type z = 0; z < s[2]; z++)
+                        cellBlocks[x][y][z] = BAD_BLOCK;
+        }
     }
 }
 
-BucketState::CellState &BucketState::getCellState(const Cell &cell)
+void BucketState::upsweepCounts()
+{
+    for (int level = 0; level + 1 < macroLevels; level++)
+    {
+        for (Cell::size_type x = 0; x < cellCounts[level].shape()[0]; x++)
+            for (Cell::size_type y = 0; y < cellCounts[level].shape()[1]; y++)
+                for (Cell::size_type z = 0; z < cellCounts[level].shape()[2]; z++)
+                    cellCounts[level + 1][x >> 1][y >> 1][z >> 1] += cellCounts[level][x][y][z];
+    }
+}
+
+std::tr1::int64_t BucketState::getCellCount(const Cell &cell) const
 {
     boost::array<Cell::size_type, 3> coords;
     Cell::size_type factor = microSize << cell.getLevel();
@@ -190,34 +209,77 @@ BucketState::CellState &BucketState::getCellState(const Cell &cell)
         assert(cell.getLower()[i] % factor == 0);
         coords[i] = cell.getLower()[i] / factor;
     }
-    assert(cell.getLevel() < cellStates.size());
-    return cellStates[cell.getLevel()](coords);
+    assert(cell.getLevel() < cellCounts.size());
+    return cellCounts[cell.getLevel()](coords);
 }
 
-const BucketState::CellState &BucketState::getCellState(const Cell &cell) const
+// TODO: move into a header and test
+void BucketState::getSplatCells(const Splat &splat, Cell::size_type lo[3], Cell::size_type hi[3])
 {
-    return const_cast<BucketState *>(this)->getCellState(cell);
+    float worldLow[3], worldHigh[3];
+    float gridLow[3], gridHigh[3];
+
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        worldLow[i] = splat.position[i] - splat.radius;
+        worldHigh[i] = splat.position[i] + splat.radius;
+    }
+    grid.worldToVertex(worldLow, gridLow);
+    grid.worldToVertex(worldHigh, gridHigh);
+    for (int i = 0; i < 3; i++)
+    {
+        int top = cellCounts[0].shape()[i] - 1;
+        lo[i] = std::min(std::max(RoundUp()(gridLow[i] / microSize) - 1, 0), top);
+        hi[i] = std::min(std::max(RoundDown()(gridHigh[i] / microSize), 0), top);
+    }
 }
 
-bool CountSplat::operator()(Range::scan_type scan, Range::index_type id,
-                            const Splat &splat, const Cell &cell) const
+void CountSplat::operator()(Range::scan_type scan, Range::index_type id,
+                            const Splat &splat) const
 {
-    (void) splat;
+    (void) scan;
+    (void) id;
 
-    // Add to the counters
-    state.getCellState(cell).counter.append(scan, id);
-
-    // Recurse into children, unless we've reached microblock level
-    return cell.getLevel() > 0;
+    int level = 0;
+    Cell::size_type lo[3], hi[3];
+    state.getSplatCells(splat, lo, hi);
+    for (Cell::size_type x = lo[0]; x <= hi[0]; x++)
+        for (Cell::size_type y = lo[1]; y <= hi[1]; y++)
+            for (Cell::size_type z = lo[2]; z <= hi[2]; z++)
+            {
+                ++state.cellCounts[level][x][y][z];
+            }
+    while (level < state.macroLevels - 1 && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
+    {
+        level++;
+        for (Cell::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
+            for (Cell::size_type y = lo[1] >> 1; y <= (hi[1] >> 1); y++)
+                for (Cell::size_type z = lo[2] >> 1; z <= (hi[2] >> 1); z++)
+                {
+                    unsigned int hits = 1;
+                    if (lo[0] <= 2 * x && 2 * x < hi[0])
+                        hits *= 2;
+                    if (lo[1] <= 2 * y && 2 * y < hi[1])
+                        hits *= 2;
+                    if (lo[2] <= 2 * z && 2 * z < hi[2])
+                        hits *= 2;
+                    state.cellCounts[level][x][y][z] -= hits - 1;
+                }
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            lo[i] >>= 1;
+            hi[i] >>= 1;
+        }
+    }
 }
 
 bool PickCells::operator()(const Cell &cell) const
 {
-    BucketState::CellState &cs = state.getCellState(cell);
+    std::tr1::uint64_t count = state.getCellCount(cell);
 
     // Skip completely empty regions, but record the fact
     // for progress meters
-    if (cs.counter.countSplats() == 0)
+    if (count == 0)
     {
         // Intersect with grid
         std::tr1::uint64_t skipped = 1;
@@ -233,34 +295,40 @@ bool PickCells::operator()(const Cell &cell) const
         || (cell.getSize(0) <= state.params.maxCells
             && cell.getSize(1) <= state.params.maxCells
             && cell.getSize(2) <= state.params.maxCells
-            && cs.counter.countSplats() <= state.params.maxSplats))
+            && count <= state.params.maxSplats))
     {
-        cs.blockId = state.picked.size();
-        state.picked.push_back(cell);
-        state.pickedOffset.push_back(state.nextOffset);
-        state.nextOffset += cs.counter.countRanges();
+        std::size_t id = state.children.size();
+        Cell::size_type lo[3], hi[3];
+        for (int i = 0; i < 3; i++)
+        {
+            lo[i] = cell.getLower()[i] / state.microSize;
+            hi[i] = divUp(cell.getUpper()[i], state.microSize);
+        }
+        for (Cell::size_type x = lo[0]; x < hi[0]; x++)
+            for (Cell::size_type y = lo[1]; y < hi[1]; y++)
+                for (Cell::size_type z = lo[2]; z < hi[2]; z++)
+                    state.cellBlocks[x][y][z] = id;
+        state.children.push_back(BucketState::Child(cell));
         return false; // no more recursion required
     }
     else
         return true;
 }
 
-bool BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
-                              const Splat &splat, const Cell &cell) const
+void BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
+                              const Splat &splat) const
 {
-    (void) splat;
-
-    BucketState::CellState &cs = state.getCellState(cell);
-    if (cs.blockId == BucketState::BAD_BLOCK)
-    {
-        return true; // this cell is too coarse, so refine recursively
-    }
-    else
-    {
-        assert(cs.blockId < state.childCur.size());
-        state.childCur[cs.blockId].append(scan, id);
-        return false;
-    }
+    Cell::size_type lo[3], hi[3];
+    state.getSplatCells(splat, lo, hi);
+    for (Cell::size_type x = lo[0]; x <= hi[0]; x++)
+        for (Cell::size_type y = lo[1]; y <= hi[1]; y++)
+            for (Cell::size_type z = lo[2]; z <= hi[2]; z++)
+            {
+                std::size_t block = state.cellBlocks[x][y][z];
+                assert(block < state.children.size());
+                BucketState::Child &child = state.children[block];
+                child.collector.append(scan, id);
+            }
 }
 
 /**

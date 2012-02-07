@@ -215,24 +215,22 @@ struct BucketState
 {
     static const std::size_t BAD_BLOCK = std::size_t(-1);
 
-    /**
-     * A single node in an octree of counters.
-     * Each node counts the number of splats and ranges that would be
-     * necessary to turn that node's spatial extent into a bucket.
-     */
-    struct CellState
+    struct Child
     {
-        /// Counts potential splats and ranges for this octree node
-        RangeCounter counter;
-        /**
-         * Index of the block. This is initially BAD_BLOCK, but for
-         * blocks that are selected for the next level of recursion
-         * it becomes an index into the @c picked and @c pickedOffset
-         * arrays.
-         */
-        std::size_t blockId;
+        Cell cell;
+        std::vector<Range> ranges;
+        RangeCollector<std::back_insert_iterator<std::vector<Range> > > collector;
 
-        CellState() : blockId(BAD_BLOCK) {}
+        Child() : collector(std::back_inserter(ranges)) {}
+        Child(const Cell &cell) : cell(cell), collector(std::back_inserter(ranges)) {}
+        Child(const Child &c)
+            : cell(c.cell), ranges(c.ranges), collector(std::back_inserter(ranges)) {}
+        Child &operator=(const Child &c)
+        {
+            cell = c.cell;
+            ranges = c.ranges;
+            return *this;
+        }
     };
 
     const BucketParameters &params;
@@ -248,45 +246,48 @@ struct BucketState
     /// Number of levels in the octree of counters.
     int macroLevels;
     /**
-     * Octree of counters. Each element of the vector is one level of the
+     * Octree of splat counts. Each element of the vector is one level of the
      * octree.  Element zero contains the finest level, higher elements the
      * coarser levels.
+     *
+     * During the initial counting phase, each entry represents a delta to
+     * be added to the sum of the children. Elements other than the leaves
+     * will thus typically be negative. A correction pass applies the summation
+     * up the tree.
      */
-    std::vector<boost::multi_array<CellState, 3> > cellStates;
+    std::vector<boost::multi_array<std::tr1::int64_t, 3> > cellCounts;
+
     /**
-     * Cells from the octree that were selected for the next level of
-     * recursion, either because they're microblocks.
+     * Index of the chosen cell for each leaf (BAD_BLOCK if empty).
      */
-    std::vector<Cell> picked;
-    /**
-     * Start of the ranges for each picked cell. The ranges for
-     * <code>picked[i]</code> are in slots <code>pickedOffset[i]</code> to
-     * <code>pickedOffset[i+1]</code> of @ref childCur.
-     */
-    std::vector<std::tr1::uint64_t> pickedOffset;
-    /// The next value to write into @ref pickedOffset when a new cell is picked
-    std::tr1::uint64_t nextOffset;
+    boost::multi_array<std::size_t, 3> cellBlocks;
 
     /// Number of leaf cells skipped by @ref PickCells for being empty
     std::tr1::uint64_t skippedCells;
 
     /**
-     * The ranges for the next level of the hierarchy. This is semantically a list
-     * of lists of ranges, with splits designated by @ref pickedOffset.
+     * The blocks and ranges for the next level of the hierarchy.
      */
-    std::vector<RangeCollector<std::vector<Range>::iterator> > childCur;
+    std::vector<Child> children;
 
+    /// Constructor
     BucketState(const BucketParameters &params, const Grid &grid,
                 Cell::size_type microSize, int macroLevels);
 
-    /// Retrieves a reference to an octree node
-    CellState &getCellState(const Cell &cell);
-    /// Retrieves a reference to an octree node
-    const CellState &getCellState(const Cell &cell) const;
+    /**
+     * Get the (inclusive) range of indices in the base level of @ref cellCounts
+     * covered a splat.
+     */
+    void getSplatCells(const Splat &splat, Cell::size_type lo[3], Cell::size_type hi[3]);
+
+    /// The number of splats that land in a given power-of-two cell
+    std::tr1::int64_t getCellCount(const Cell &cell) const;
+
+    void upsweepCounts();
 };
 
 /**
- * Function object for use with @ref Bucket::internal::forEachSplatCell that enters the splat
+ * Function object for use with @ref Bucket::internal::forEachSplat that enters the splat
  * into all corresponding counters in the tree.
  */
 class CountSplat
@@ -295,9 +296,10 @@ private:
     BucketState &state;
 
 public:
+    typedef void result_type;
     CountSplat(BucketState &state) : state(state) {};
 
-    bool operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const Cell &cell) const;
+    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
 
 /**
@@ -316,7 +318,8 @@ public:
 };
 
 /**
- * Functor for @ref Bucket::internal::forEachSplatCell that places splat information into the allocated buckets.
+ * Functor for @ref Bucket::internal::forEachSplat that places splat information into
+ * bucket ranges.
  */
 class BucketSplats
 {
@@ -324,9 +327,10 @@ private:
     BucketState &state;
 
 public:
+    typedef void result_type;
     BucketSplats(BucketState &state) : state(state) {}
 
-    bool operator()(Range::scan_type scan, Range::index_type id, const Splat &splat, const Cell &cell) const;
+    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
 
 Cell::size_type chooseMicroSize(
@@ -395,42 +399,32 @@ void bucketRecurse(
         while (microSize << (macroLevels - 1) < maxDim)
             macroLevels++;
 
-        std::vector<Range> childRanges;
-        std::vector<std::tr1::uint64_t> savedOffset;
-        std::vector<Cell> savedPicked;
-        std::vector<Range::index_type> savedNumSplats;
         std::size_t numPicked;
+        std::vector<BucketState::Child> savedChildren;
+        std::vector<Range::index_type> savedNumSplats;
         std::tr1::uint64_t cellsDone = recursionState.cellsDone;
         /* Open a scope so that we can destroy the BucketState later */
         {
             BucketState state(params, grid, microSize, macroLevels);
             /* Create histogram */
-            forEachSplatCell(splats, first, last, grid, state.microSize, state.macroLevels, CountSplat(state));
+            forEachSplat(splats, first, last, CountSplat(state));
+            state.upsweepCounts();
             /* Select cells to bucket splats into */
             forEachCell(state.dims, state.microSize, state.macroLevels, PickCells(state));
-            /* Do the bucketing.
-             */
-            // Add sentinel for easy extraction of subranges
-            state.pickedOffset.push_back(state.nextOffset);
-            childRanges.resize(state.nextOffset);
-            numPicked = state.picked.size();
-            state.childCur.reserve(numPicked);
-            for (std::size_t i = 0; i < numPicked; i++)
-                state.childCur.push_back(RangeCollector<std::vector<Range>::iterator>(
-                        childRanges.begin() + state.pickedOffset[i]));
-            forEachSplatCell(splats, first, last, grid, state.microSize, state.macroLevels, BucketSplats(state));
-            for (std::size_t i = 0; i < numPicked; i++)
-                state.childCur[i].flush();
+            /* Do the bucketing. */
+            forEachSplat(splats, first, last, BucketSplats(state));
+            for (std::size_t i = 0; i < state.children.size(); i++)
+                state.children[i].collector.flush();
 
             /* Bucketing is complete but we have a lot of memory allocated that we
              * don't need for the recursive step. Copy it outside this scope then
              * close the scope to destroy state.
              */
-            savedPicked.swap(state.picked);
-            savedOffset.swap(state.pickedOffset);
+            numPicked = state.children.size();
             savedNumSplats.reserve(numPicked);
             for (std::size_t i = 0; i < numPicked; i++)
-                savedNumSplats.push_back(state.getCellState(savedPicked[i]).counter.countSplats());
+                savedNumSplats.push_back(state.getCellCount(state.children[i].cell));
+            savedChildren.swap(state.children);
 
             /* Any cells we skipped are automatically finished */
             cellsDone += state.skippedCells;
@@ -439,7 +433,8 @@ void bucketRecurse(
         /* Now recurse into the chosen cells */
         for (std::size_t i = 0; i < numPicked; i++)
         {
-            const Cell &cell = savedPicked[i];
+            const BucketState::Child &child = savedChildren[i];
+            const Cell &cell = child.cell;
             const Cell::size_type *lower = cell.getLower();
             Cell::size_type upper[3];
             std::copy(cell.getUpper(), cell.getUpper() + 3, upper);
@@ -453,11 +448,11 @@ void bucketRecurse(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
             Recursion childRecursion = recursionState;
             childRecursion.depth++;
-            childRecursion.totalRanges += childRanges.size();
+            childRecursion.totalRanges += child.ranges.size();
             childRecursion.cellsDone = cellsDone;
             bucketRecurse(splats,
-                          childRanges.begin() + savedOffset[i],
-                          childRanges.begin() + savedOffset[i + 1],
+                          child.ranges.begin(),
+                          child.ranges.end(),
                           savedNumSplats[i],
                           childGrid,
                           params,
