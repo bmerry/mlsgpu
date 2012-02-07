@@ -302,7 +302,8 @@ bool PickCells::operator()(const Cell &cell) const
         for (int i = 0; i < 3; i++)
         {
             lo[i] = cell.getLower()[i] / state.microSize;
-            hi[i] = divUp(cell.getUpper()[i], state.microSize);
+            hi[i] = std::min(divUp(cell.getUpper()[i], state.microSize),
+                             Cell::size_type(state.cellBlocks.shape()[i]));
         }
         for (Cell::size_type x = lo[0]; x < hi[0]; x++)
             for (Cell::size_type y = lo[1]; y < hi[1]; y++)
