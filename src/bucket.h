@@ -159,6 +159,9 @@ public:
  *                   give higher performance by reducing recursion depth,
  *                   but at the cost of more memory.
  * @param process    Processing function called for each non-empty bucket.
+ * @param recursionState Optional parameter indicating recursion statistics
+ *                   on entry. This is intended for use when the processing
+ *                   callback calls this function again.
  *
  * @throw DensityError If any single grid cell conservatively intersects more
  *                     than @a maxSplats splats.
@@ -226,7 +229,7 @@ void loadSplats(const CollectionSet &files,
 
 /**
  * Compute a bounding grid for the splats. It uses the same
- * algorithm as @ref sortSplats, but does not make a copy of the splats.
+ * algorithm as @ref loadSplats, but does not make a copy of the splats.
  */
 template<typename CollectionSet>
 void makeGrid(const CollectionSet &files,

@@ -298,8 +298,7 @@ Cell::size_type chooseMicroSize(
  * @param numSplats       Number of splats encoded into [@a first, @a last).
  * @param grid            Sub-grid on which the recursion is being done.
  * @param params          User parameters.
- * @param recursionDepth  Number of higher-level @ref bucketRecurse invocations on the stack.
- * @param totalRanges     Number of ranges held in memory across all levels of the recursion.
+ * @param recursionState  Statistics about what is already held on the stack.
  */
 template<typename CollectionSet>
 void bucketRecurse(

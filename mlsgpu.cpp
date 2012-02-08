@@ -391,15 +391,27 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
 class progress_display64 : private boost::progress_display
 {
 private:
+    /// Number of steps we tell the base class to expect
     static const unsigned long displayExpected = 100000;
-    std::tr1::uint64_t count_, expected_;
+    /// Number of steps seen
+    std::tr1::uint64_t count_;
+    /// Total number of steps
+    std::tr1::uint64_t expected_;
 
 public:
+    /**
+     * Constructor.
+     * It displays the header.
+     */
     progress_display64(std::tr1::uint64_t expected)
         : boost::progress_display(displayExpected), count_(0), expected_(expected)
     {
     }
 
+    /**
+     * Constructor.
+     * It displays the header. Refer to @c boost::progress_display for details.
+     */
     progress_display64(std::tr1::uint64_t expected,
                        std::ostream &os,
                        const std::string &s1 = "\n",
@@ -410,6 +422,7 @@ public:
     {
     }
 
+    /// Start a new progress meter
     void restart(std::tr1::uint64_t expected)
     {
         count_ = 0;
@@ -417,6 +430,11 @@ public:
         boost::progress_display::restart(displayExpected);
     }
 
+    /**
+     * Set the progress to a specific value.
+     *
+     * @pre @a count &gt;= @ref count()
+     */
     void set(std::tr1::uint64_t count)
     {
         count_ = count;
@@ -426,22 +444,26 @@ public:
             boost::progress_display::operator+=(childCount - boost::progress_display::count());
     }
 
+    /// Advance by a specific number of steps.
     std::tr1::uint64_t operator+=(std::tr1::uint64_t increment)
     {
         set(count_ + increment);
         return count_;
     }
 
+    /// Advance one step
     std::tr1::uint64_t operator++()
     {
         return operator+=(std::tr1::uint64_t(1));
     }
 
+    /// Return the number of steps taken
     std::tr1::uint64_t count() const
     {
         return count_;
     }
 
+    /// Return the total number of steps to take
     std::tr1::uint64_t expected_count() const
     {
         return expected_;
