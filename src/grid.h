@@ -31,9 +31,15 @@
 class Grid
 {
 public:
+    typedef int difference_type;
+    typedef unsigned int size_type;
+    typedef std::pair<difference_type, difference_type> extent_type;
+
     Grid();
     Grid(const float ref[3], float spacing,
-         int xLow, int xHigh, int yLow, int yHigh, int zLow, int zHigh);
+         difference_type xLow, difference_type xHigh,
+         difference_type yLow, difference_type yHigh,
+         difference_type zLow, difference_type zHigh);
 
     /// Set the reference point
     void setReference(const float ref[3]);
@@ -53,7 +59,7 @@ public:
      * - @a axis is 0, 1 or 2.
      * - @a low < @a high.
      */
-    void setExtent(int axis, int low, int high);
+    void setExtent(unsigned int axis, difference_type low, difference_type high);
 
     /**
      * Retrieve the reference point.
@@ -70,7 +76,7 @@ public:
      * @pre @a axis is 0, 1 or 2.
      * @see @ref setExtent.
      */
-    const std::pair<int, int> &getExtent(int axis) const;
+    const extent_type &getExtent(unsigned int axis) const;
 
     /**
      * Turn a grid-indexed vertex position into world coordinates.
@@ -79,20 +85,20 @@ public:
      *
      * The coordinates need not fall inside the grid itself.
      */
-    void getVertex(int x, int y, int z, float vertex[3]) const;
+    void getVertex(difference_type x, difference_type y, difference_type z, float vertex[3]) const;
 
     /**
      * Retrieves the number of vertices along the specified axis.
      * @pre @a axis is 0, 1 or 2.
      */
-    int numVertices(int axis) const;
+    size_type numVertices(unsigned int axis) const;
 
     /**
      * Retrieves the number of cells along the specified axis. This is
      * simply one less than the number of vertices.
      * @pre @a axis is 0, 1 or 2.
      */
-    int numCells(int axis) const;
+    size_type numCells(unsigned int axis) const;
 
     /**
      * Retrieves the number of cells in the grid.
@@ -115,12 +121,14 @@ public:
      *
      * @pre @a x0 <= @a x1, @a y0 <= @a y1, @a z0 <= @a z1.
      */
-    Grid subGrid(int x0, int x1, int y0, int y1, int z0, int z1) const;
+    Grid subGrid(difference_type x0, difference_type x1,
+                 difference_type y0, difference_type y1,
+                 difference_type z0, difference_type z1) const;
 
 private:
     float reference[3];              ///< Reference point
     float spacing;                   ///< Spacing between samples
-    std::pair<int, int> extents[3];  ///< Axis extents
+    extent_type extents[3];          ///< Axis extents
 };
 
 #endif /* !GRID_H */

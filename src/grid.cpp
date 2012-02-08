@@ -18,13 +18,15 @@ Grid::Grid()
     for (unsigned int i = 0; i < 3; i++)
     {
         reference[i] = 0.0f;
-        extents[i] = std::pair<int, int>(0, 1);
+        extents[i] = extent_type(0, 1);
     }
     spacing = 0.0f;
 }
 
 Grid::Grid(const float ref[3], const float spacing,
-           int xLow, int xHigh, int yLow, int yHigh, int zLow, int zHigh)
+           difference_type xLow, difference_type xHigh,
+           difference_type yLow, difference_type yHigh,
+           difference_type zLow, difference_type zHigh)
 {
     setReference(ref);
     setSpacing(spacing);
@@ -43,11 +45,11 @@ void Grid::setSpacing(float spacing)
     this->spacing = spacing;
 }
 
-void Grid::setExtent(int axis, int low, int high)
+void Grid::setExtent(unsigned int axis, difference_type low, difference_type high)
 {
-    MLSGPU_ASSERT(axis >= 0 && axis < 3, std::out_of_range);
+    MLSGPU_ASSERT(axis < 3, std::out_of_range);
     MLSGPU_ASSERT(low < high, std::invalid_argument);
-    extents[axis] = std::pair<int, int>(low, high);
+    extents[axis] = extent_type(low, high);
 }
 
 const float *Grid::getReference() const
@@ -60,13 +62,13 @@ float Grid::getSpacing() const
     return spacing;
 }
 
-const std::pair<int, int> &Grid::getExtent(int axis) const
+const Grid::extent_type &Grid::getExtent(unsigned int axis) const
 {
-    MLSGPU_ASSERT(axis >= 0 && axis < 3, std::out_of_range);
+    MLSGPU_ASSERT(axis < 3, std::out_of_range);
     return extents[axis];
 }
 
-void Grid::getVertex(int x, int y, int z, float vertex[3]) const
+void Grid::getVertex(difference_type x, difference_type y, difference_type z, float vertex[3]) const
 {
     vertex[0] = reference[0] + spacing * (x + extents[0].first);
     vertex[1] = reference[1] + spacing * (y + extents[1].first);
@@ -81,14 +83,14 @@ void Grid::worldToVertex(const float world[3], float out[3]) const
     }
 }
 
-int Grid::numVertices(int axis) const
+Grid::size_type Grid::numVertices(unsigned int axis) const
 {
     return numCells(axis) + 1;
 }
 
-int Grid::numCells(int axis) const
+Grid::size_type Grid::numCells(unsigned int axis) const
 {
-    MLSGPU_ASSERT(axis >= 0 && axis < 3, std::out_of_range);
+    MLSGPU_ASSERT(axis < 3, std::out_of_range);
     return extents[axis].second - extents[axis].first;
 }
 
@@ -100,14 +102,16 @@ std::tr1::uint64_t Grid::numCells() const
     return ans;
 }
 
-Grid Grid::subGrid(int x0, int x1, int y0, int y1, int z0, int z1) const
+Grid Grid::subGrid(difference_type x0, difference_type x1,
+                   difference_type y0, difference_type y1,
+                   difference_type z0, difference_type z1) const
 {
     MLSGPU_ASSERT(x0 <= x1, std::invalid_argument);
     MLSGPU_ASSERT(y0 <= y1, std::invalid_argument);
     MLSGPU_ASSERT(z0 <= z1, std::invalid_argument);
     Grid g = *this;
-    g.extents[0] = std::make_pair(extents[0].first + x0, extents[0].first + x1);
-    g.extents[1] = std::make_pair(extents[1].first + y0, extents[1].first + y1);
-    g.extents[2] = std::make_pair(extents[2].first + z0, extents[2].first + z1);
+    g.extents[0] = extent_type(extents[0].first + x0, extents[0].first + x1);
+    g.extents[1] = extent_type(extents[1].first + y0, extents[1].first + y1);
+    g.extents[2] = extent_type(extents[2].first + z0, extents[2].first + z1);
     return g;
 }

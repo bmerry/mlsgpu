@@ -44,7 +44,7 @@ public:
      * Type used to represent cell coordinates. Note that there is no point
      * in this being wider than the type used by @ref Grid.
      */
-    typedef unsigned int size_type;
+    typedef Grid::size_type size_type;
 
     /// Default constructor: does not initialize anything.
     Node() {}

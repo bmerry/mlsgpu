@@ -31,7 +31,7 @@ class TestGrid : public CppUnit::TestFixture
 private:
     float ref[3];
     float spacing;
-    std::pair<int, int> extents[3];
+    Grid::extent_type extents[3];
     Grid grid;
 
 public:
@@ -54,9 +54,9 @@ void TestGrid::setUp()
     ref[1] = -3.0f;
     ref[2] = 2.25f;
     spacing = 3.0f;
-    extents[0] = std::make_pair(-5, 30);
-    extents[1] = std::make_pair(7, 25);
-    extents[2] = std::make_pair(-1000, -2);
+    extents[0] = Grid::extent_type(-5, 30);
+    extents[1] = Grid::extent_type(7, 25);
+    extents[2] = Grid::extent_type(-1000, -2);
     grid = Grid(ref, spacing,
                 extents[0].first, extents[0].second,
                 extents[1].first, extents[1].second,
@@ -81,7 +81,7 @@ void TestGrid::testGetExtent()
 {
     for (unsigned int i = 0; i < 3; i++)
     {
-        const std::pair<int, int> test = grid.getExtent(i);
+        const Grid::extent_type test = grid.getExtent(i);
         CPPUNIT_ASSERT_EQUAL(extents[i].first, test.first);
         CPPUNIT_ASSERT_EQUAL(extents[i].second, test.second);
     }
@@ -89,9 +89,9 @@ void TestGrid::testGetExtent()
 
 void TestGrid::testNumCells()
 {
-    CPPUNIT_ASSERT_EQUAL(35, grid.numCells(0));
-    CPPUNIT_ASSERT_EQUAL(18, grid.numCells(1));
-    CPPUNIT_ASSERT_EQUAL(998, grid.numCells(2));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(35), grid.numCells(0));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(18), grid.numCells(1));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(998), grid.numCells(2));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(35 * 18 * 998), grid.numCells());
 
     // Test overflow handling
@@ -101,9 +101,9 @@ void TestGrid::testNumCells()
 
 void TestGrid::testNumVertices()
 {
-    CPPUNIT_ASSERT_EQUAL(36, grid.numVertices(0));
-    CPPUNIT_ASSERT_EQUAL(19, grid.numVertices(1));
-    CPPUNIT_ASSERT_EQUAL(999, grid.numVertices(2));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(36), grid.numVertices(0));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(19), grid.numVertices(1));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(999), grid.numVertices(2));
 }
 
 void TestGrid::testGetVertex()
@@ -148,7 +148,7 @@ void TestGrid::testSubGrid()
     CPPUNIT_ASSERT_EQUAL(18.0f + 10 * 3.0f, test[1]);
     CPPUNIT_ASSERT_EQUAL(-2997.75f + -5 * 3.0f, test[2]);
 
-    CPPUNIT_ASSERT_EQUAL(4, g.numCells(0));
-    CPPUNIT_ASSERT_EQUAL(5, g.numCells(1));
-    CPPUNIT_ASSERT_EQUAL(0, g.numCells(2));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(4), g.numCells(0));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(5), g.numCells(1));
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(0), g.numCells(2));
 }

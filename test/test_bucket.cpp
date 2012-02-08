@@ -509,7 +509,7 @@ private:
     void setupSimple();
 
     void validate(const boost::ptr_vector<Collection> &splats, const Grid &fullGrid,
-                  const vector<Block> &blocks, std::size_t maxSplats, int maxCells);
+                  const vector<Block> &blocks, std::size_t maxSplats, Grid::size_type maxCells);
 
     static void bucketFunc(
         vector<Block> &blocks,
@@ -552,7 +552,7 @@ void TestBucket::validate(
     const Grid &fullGrid,
     const vector<Block> &blocks,
     std::size_t maxSplats,
-    int maxCells)
+    Grid::size_type maxCells)
 {
     // TODO: also need to check that the blocks are no smaller than necessary
 

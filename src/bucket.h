@@ -210,7 +210,7 @@ template<typename CollectionSet>
 void bucket(const CollectionSet &splats,
             const Grid &region,
             Range::index_type maxSplats,
-            int maxCells,
+            Grid::size_type maxCells,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
             const Recursion &recursionState = Recursion());

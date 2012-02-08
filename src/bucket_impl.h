@@ -128,11 +128,11 @@ void forEachSplat(
 struct BucketParameters
 {
     Range::index_type maxSplats;        ///< Maximum splats permitted for processing
-    unsigned int maxCells;              ///< Maximum cells along any dimension
+    Grid::size_type maxCells;           ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
 
     BucketParameters(Range::index_type maxSplats,
-                     unsigned int maxCells, std::size_t maxSplit)
+                     Grid::size_type maxCells, std::size_t maxSplit)
         : maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit) {}
 };
 
@@ -342,7 +342,7 @@ void bucketRecurse(
         {
             // number of maxCells-sized blocks
             Node::size_type subDims[3];
-            for (int i = 0; i < 3; i++)
+            for (unsigned int i = 0; i < 3; i++)
                 subDims[i] = divUp(dims[i], params.maxCells);
             microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit);
         }
@@ -448,7 +448,7 @@ template<typename CollectionSet>
 void bucket(const CollectionSet &splats,
             const Grid &bbox,
             Range::index_type maxSplats,
-            int maxCells,
+            Grid::size_type maxCells,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
             const Recursion &recursionState)
