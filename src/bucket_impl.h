@@ -76,36 +76,30 @@ void forEachNode_r(const Node::size_type dims[3], const Node &node, const Func &
             for (unsigned int i = 0; i < 8; i++)
             {
                 Node child = node.child(i);
-                if (child.getLower()[0] < dims[0]
-                    && child.getLower()[1] < dims[1]
-                    && child.getLower()[2] < dims[2])
-                    forEachNode_r(dims, child, func);
+                const boost::array<Node::size_type, 3> &coords = child.getCoords();
+                for (unsigned int j = 0; j < 3; j++)
+                {
+                    if ((coords[j] << child.getLevel()) >= dims[j])
+                        goto skip;
+                }
+                forEachNode_r(dims, child, func);
+skip:;
             }
         }
     }
 }
 
 template<typename Func>
-void forEachNode(const Node::size_type dims[3], Node::size_type microSize, unsigned int levels, const Func &func)
+void forEachNode(const Node::size_type dims[3], unsigned int levels, const Func &func)
 {
     MLSGPU_ASSERT(levels >= 1U
                   && levels <= (unsigned int) std::numeric_limits<Node::size_type>::digits, std::invalid_argument);
     int level = levels - 1;
-    MLSGPU_ASSERT((dims[0] - 1) >> level < microSize, std::invalid_argument);
-    MLSGPU_ASSERT((dims[1] - 1) >> level < microSize, std::invalid_argument);
-    MLSGPU_ASSERT((dims[2] - 1) >> level < microSize, std::invalid_argument);
+    MLSGPU_ASSERT(dims[0] <= Node::size_type(1) << level, std::invalid_argument);
+    MLSGPU_ASSERT(dims[1] <= Node::size_type(1) << level, std::invalid_argument);
+    MLSGPU_ASSERT(dims[2] <= Node::size_type(1) << level, std::invalid_argument);
 
-    Node::size_type size = microSize << level;
-    forEachNode_r(dims, Node(0, 0, 0, size, size, size, level), func);
-}
-
-template<typename Func>
-void forEachNode(const Grid &grid, Node::size_type microSize, unsigned int levels, const Func &func)
-{
-    const Node::size_type dims[3];
-    for (int i = 0; i < 3; i++)
-        dims[i] = grid.numCells(i);
-    forEachNode(dims, microSize, levels, func);
+    forEachNode_r(dims, Node(0, 0, 0, level), func);
 }
 
 template<typename CollectionSet, typename Func>
@@ -141,7 +135,7 @@ struct BucketParameters
  */
 struct BucketState
 {
-    static const std::size_t BAD_BLOCK = std::size_t(-1);
+    static const std::size_t BAD_REGION = std::size_t(-1);
 
     /**
      * A child block. The copy constructor and assignment operator are
@@ -171,13 +165,11 @@ struct BucketState
     const BucketParameters &params;
     /// Grid covering the region being processed
     const Grid &grid;
-    /**
-     * Size (in cells) of the region being processed.
-     * This is just a cache of grid.numCells for ease of passing to @ref forEachNode.
-     */
-    Node::size_type dims[3];
+    /// Size in microblocks of the region being processed.
+    Grid::size_type dims[3];
+
     /// Side length of a microblock
-    Node::size_type microSize;
+    Grid::size_type microSize;
     /// Number of levels in the octree of counters.
     int macroLevels;
     /**
@@ -193,7 +185,7 @@ struct BucketState
     std::vector<boost::multi_array<std::tr1::int64_t, 3> > nodeCounts;
 
     /**
-     * Index of the chosen subregion for each leaf (BAD_BLOCK if empty).
+     * Index of the chosen subregion for each leaf (BAD_REGION if empty).
      */
     boost::multi_array<std::size_t, 3> microRegions;
 
@@ -207,7 +199,7 @@ struct BucketState
 
     /// Constructor
     BucketState(const BucketParameters &params, const Grid &grid,
-                Node::size_type microSize, int macroLevels);
+                Grid::size_type microSize, int macroLevels);
 
     /**
      * Get the (inclusive) range of indices in the base level of
@@ -287,8 +279,8 @@ public:
  * in units of @a maxCells, in which case we are using how many @a maxCells sized
  * blocks form each microblock.
  */
-Node::size_type chooseMicroSize(
-    const Node::size_type dims[3], std::size_t maxSplit);
+Grid::size_type chooseMicroSize(
+    const Grid::size_type dims[3], std::size_t maxSplit);
 
 /**
  * Recursive implementation of @ref bucket.
@@ -315,16 +307,16 @@ void bucketRecurse(
     Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak").set(recursionState.depth);
     Statistics::getStatistic<Statistics::Peak<Range::index_type> >("bucket.totalRanges.peak").set(recursionState.totalRanges);
 
-    Node::size_type dims[3];
+    Grid::size_type cellDims[3];
     for (int i = 0; i < 3; i++)
-        dims[i] = grid.numCells(i);
-    Node::size_type maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
+        cellDims[i] = grid.numCells(i);
+    Grid::size_type maxCellDim = std::max(std::max(cellDims[0], cellDims[1]), cellDims[2]);
 
-    if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
+    if (numSplats <= params.maxSplats && maxCellDim <= params.maxCells)
     {
         boost::unwrap_ref(process)(splats, numSplats, first, last, grid, recursionState);
     }
-    else if (maxDim == 1)
+    else if (maxCellDim == 1)
     {
         throw DensityError(numSplats); // can't subdivide a 1x1x1 cell
     }
@@ -337,21 +329,21 @@ void bucketRecurse(
          *
          * TODO: no need for it to be a power of 2?
          */
-        Node::size_type microSize;
-        if (maxDim > params.maxCells)
+        Grid::size_type microSize;
+        if (maxCellDim > params.maxCells)
         {
             // number of maxCells-sized blocks
-            Node::size_type subDims[3];
+            Grid::size_type subDims[3];
             for (unsigned int i = 0; i < 3; i++)
-                subDims[i] = divUp(dims[i], params.maxCells);
+                subDims[i] = divUp(cellDims[i], params.maxCells);
             microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit);
         }
         else
-            microSize = chooseMicroSize(dims, params.maxSplit);
+            microSize = chooseMicroSize(cellDims, params.maxSplit);
 
-        /* Levels in octree-like structure */
+        /* Levels in octree structure */
         int macroLevels = 1;
-        while (microSize << (macroLevels - 1) < maxDim)
+        while (microSize << (macroLevels - 1) < maxCellDim)
             macroLevels++;
 
         std::size_t numRegions;
@@ -365,7 +357,7 @@ void bucketRecurse(
             forEachSplat(splats, first, last, CountSplat(state));
             state.upsweepCounts();
             /* Select cells to bucket splats into */
-            forEachNode(state.dims, state.microSize, state.macroLevels, PickNodes(state));
+            forEachNode(state.dims, state.macroLevels, PickNodes(state));
             /* Do the bucketing. */
             forEachSplat(splats, first, last, BucketSplats(state));
             for (std::size_t i = 0; i < state.subregions.size(); i++)
@@ -389,18 +381,13 @@ void bucketRecurse(
         for (std::size_t i = 0; i < numRegions; i++)
         {
             const BucketState::Subregion &region = savedRegions[i];
-            const Node &node = region.node;
-            const Node::size_type *lower = node.getLower();
-            Node::size_type upper[3];
-            std::copy(node.getUpper(), node.getUpper() + 3, upper);
+
             // Clip the region to the grid
-            for (int j = 0; j < 3; j++)
-            {
-                upper[j] = std::min(upper[j], dims[j]);
-                assert(lower[j] < upper[j]);
-            }
+            Grid::size_type lower[3], upper[3];
+            region.node.toCells(microSize, lower, upper, grid);
             Grid childGrid = grid.subGrid(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
+
             Recursion childRecursion = recursionState;
             childRecursion.depth++;
             childRecursion.totalRanges += region.ranges.size();

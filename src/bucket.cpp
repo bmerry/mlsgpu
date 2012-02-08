@@ -79,65 +79,86 @@ bool Range::append(scan_type scan, index_type splat)
 namespace internal
 {
 
-Node::Node(const size_type lower[3], const size_type upper[3], unsigned int level) : level(level)
+Node::Node(const size_type coords[3], unsigned int level) : level(level)
 {
     for (unsigned int i = 0; i < 3; i++)
     {
-        MLSGPU_ASSERT(lower[i] < upper[i], std::invalid_argument);
-        this->lower[i] = lower[i];
-        this->upper[i] = upper[i];
+        this->coords[i] = coords[i];
     }
 }
 
-Node::Node(
-    size_type lowerX, size_type lowerY, size_type lowerZ,
-    size_type upperX, size_type upperY, size_type upperZ,
-    unsigned int level) : level(level)
+Node::Node(size_type x, size_type y, size_type z, unsigned int level) : level(level)
 {
-    lower[0] = lowerX;
-    lower[1] = lowerY;
-    lower[2] = lowerZ;
-    upper[0] = upperX;
-    upper[1] = upperY;
-    upper[2] = upperZ;
-    for (unsigned int i = 0; i < 3; i++)
-        MLSGPU_ASSERT(lower[i] < upper[i], std::invalid_argument);
-}
-
-bool Node::operator==(const Node &c) const
-{
-    return std::equal(lower, lower + 3, c.lower)
-        && std::equal(upper, upper + 3, c.upper)
-        && level == c.level;
+    coords[0] = x;
+    coords[1] = y;
+    coords[2] = z;
 }
 
 Node Node::child(unsigned int idx) const
 {
     MLSGPU_ASSERT(level > 0, std::invalid_argument);
     MLSGPU_ASSERT(idx < 8, std::invalid_argument);
-    Node c = *this;
-    c.level--;
-    for (int i = 0; i < 3; i++)
-    {
-        size_type mid = (lower[i] + upper[i]) / 2;
-        if ((idx >> i) & 1)
-            c.lower[i] = mid;
-        else
-            c.upper[i] = mid;
-    }
-    return c;
+    return Node(
+        coords[0] * 2 + (idx & 1),
+        coords[1] * 2 + ((idx >> 1) & 1),
+        coords[2] * 2 + (idx >> 2),
+        level - 1);
 }
 
-const std::size_t BucketState::BAD_BLOCK;
+void Node::toMicro(size_type lower[3], size_type upper[3]) const
+{
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        lower[i] = coords[i] << level;
+        upper[i] = lower[i] + (size_type(1) << level);
+    }
+}
+
+void Node::toMicro(size_type lower[3], size_type upper[3], const size_type limit[3]) const
+{
+    toMicro(lower, upper);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        lower[i] = std::min(lower[i], limit[i]);
+        upper[i] = std::min(upper[i], limit[i]);
+    }
+}
+
+void Node::toCells(Grid::size_type microSize, Grid::size_type lower[3], Grid::size_type upper[3]) const
+{
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        lower[i] = (microSize * coords[i]) << level;
+        upper[i] = lower[i] + (microSize << level);
+    }
+}
+
+void Node::toCells(Grid::size_type microSize, Grid::size_type lower[3], Grid::size_type upper[3],
+                   const Grid &grid) const
+{
+    toCells(microSize, lower, upper);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        lower[i] = std::min(lower[i], grid.numCells(i));
+        upper[i] = std::min(upper[i], grid.numCells(i));
+    }
+}
+
+bool Node::operator==(const Node &b) const
+{
+    return coords == b.coords && level == b.level;
+}
+
+const std::size_t BucketState::BAD_REGION;
 
 BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
-    Node::size_type microSize, int macroLevels)
+    Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
     nodeCounts(macroLevels), skippedCells(0)
 {
     for (int i = 0; i < 3; i++)
-        this->dims[i] = grid.numCells(i);
+        dims[i] = divUp(grid.numCells(i), microSize);
 
     for (int level = 0; level < macroLevels; level++)
     {
@@ -147,7 +168,7 @@ BucketState::BucketState(
         boost::array<Node::size_type, 3> s;
         for (int i = 0; i < 3; i++)
         {
-            s[i] = divUp(dims[i], microSize << level);
+            s[i] = divUp(dims[i], Grid::size_type(1) << level);
             assert(level != macroLevels - 1 || s[i] == 1);
         }
         nodeCounts[level].resize(s);
@@ -157,7 +178,7 @@ BucketState::BucketState(
             for (Node::size_type x = 0; x < s[0]; x++)
                 for (Node::size_type y = 0; y < s[1]; y++)
                     for (Node::size_type z = 0; z < s[2]; z++)
-                        microRegions[x][y][z] = BAD_BLOCK;
+                        microRegions[x][y][z] = BAD_REGION;
         }
     }
 }
@@ -175,15 +196,8 @@ void BucketState::upsweepCounts()
 
 std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
 {
-    boost::array<Node::size_type, 3> coords;
-    Node::size_type factor = microSize << node.getLevel();
-    for (int i = 0; i < 3; i++)
-    {
-        assert(node.getLower()[i] % factor == 0);
-        coords[i] = node.getLower()[i] / factor;
-    }
     assert(node.getLevel() < nodeCounts.size());
-    return nodeCounts[node.getLevel()](coords);
+    return nodeCounts[node.getLevel()](node.getCoords());
 }
 
 void BucketState::getSplatMicro(const Splat &splat, Node::size_type lo[3], Node::size_type hi[3])
@@ -255,28 +269,23 @@ bool PickNodes::operator()(const Node &node) const
     {
         // Intersect with grid
         std::tr1::uint64_t skipped = 1;
+        Grid::size_type lower[3], upper[3];
+        node.toCells(state.microSize, lower, upper, state.grid);
         for (int i = 0; i < 3; i++)
         {
-            skipped *= std::min(state.dims[i], node.getUpper()[i]) - node.getLower()[i];
+            skipped *= upper[i] - lower[i];
         }
         state.skippedCells += skipped;
         return false;
     }
 
     if (node.getLevel() == 0
-        || (node.getSize(0) <= state.params.maxCells
-            && node.getSize(1) <= state.params.maxCells
-            && node.getSize(2) <= state.params.maxCells
+        || (state.microSize * node.size() <= state.params.maxCells
             && count <= state.params.maxSplats))
     {
         std::size_t id = state.subregions.size();
         Node::size_type lo[3], hi[3];
-        for (int i = 0; i < 3; i++)
-        {
-            lo[i] = node.getLower()[i] / state.microSize;
-            hi[i] = std::min(divUp(node.getUpper()[i], state.microSize),
-                             Node::size_type(state.microRegions.shape()[i]));
-        }
+        node.toMicro(lo, hi, state.dims);
         for (Node::size_type x = lo[0]; x < hi[0]; x++)
             for (Node::size_type y = lo[1]; y < hi[1]; y++)
                 for (Node::size_type z = lo[2]; z < hi[2]; z++)
@@ -297,9 +306,9 @@ void BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                std::size_t block = state.microRegions[x][y][z];
-                assert(block < state.subregions.size());
-                BucketState::Subregion &region = state.subregions[block];
+                std::size_t regionId = state.microRegions[x][y][z];
+                assert(regionId < state.subregions.size());
+                BucketState::Subregion &region = state.subregions[regionId];
                 region.collector.append(scan, id);
             }
 }
@@ -308,10 +317,10 @@ void BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
  * Pick the smallest possible power of 2 size for a microblock.
  * The limitation is thta there must be at most @a maxSplit microblocks.
  */
-Node::size_type chooseMicroSize(
-    const Node::size_type dims[3], std::size_t maxSplit)
+Grid::size_type chooseMicroSize(
+    const Grid::size_type dims[3], std::size_t maxSplit)
 {
-    Node::size_type microSize = 1;
+    Grid::size_type microSize = 1;
     std::size_t microBlocks = 1;
     for (int i = 0; i < 3; i++)
         microBlocks = mulSat(microBlocks, std::size_t(divUp(dims[i], microSize)));

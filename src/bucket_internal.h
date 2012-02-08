@@ -52,39 +52,65 @@ public:
     /**
      * Constructor.
      *
-     * @param lower    Coordinates of minimum corner.
-     * @param upper    Coordinates of maximum corner.
-     * @param level    Octree level.
-     * @pre The node has positive side lengths.
+     * @param coords   Coordinates of the node (in units of its own size)
+     * @param level    Octree level (zero being the finest).
      */
-    Node(const size_type lower[3], const size_type upper[3], unsigned int level);
+    Node(const size_type coords[3], unsigned int level);
 
     /**
      * Constructor which is more convenient for building literals.
      *
-     * @param lowerX,lowerY,lowerZ    Coordinates of minimum corner.
-     * @param upperX,upperY,upperZ    Coordinates of maximum corner.
-     * @param level                   Octree level.
-     * @pre The node has positive side lengths.
+     * @param x,y,z    Coordinates of node (in units of its own size)
+     * @param level    Octree level (zero being the finest).
      */
-    Node(size_type lowerX, size_type lowerY, size_type lowerZ,
-         size_type upperX, size_type upperY, size_type upperZ,
-         unsigned int level);
-
-    /// Equality comparison operator
-    bool operator==(const Node &c) const;
+    Node(size_type x, size_type y, size_type z, unsigned int level);
 
     /// Get the octree level
     unsigned int getLevel() const { return level; }
 
-    /// Get the side length on an axis
-    size_type getSize(int axis) const { return upper[axis] - lower[axis]; }
+    /// Get the side length in microblocks
+    size_type size() const { return size_type(1) << level; }
 
-    /// Get the lower corner
-    const size_type *getLower() const { return lower; }
+    const boost::array<size_type, 3> &getCoords() const { return coords; }
 
-    /// Get the upper corner
-    const size_type *getUpper() const { return upper; }
+    /**
+     * Convert to coordinate range in microblocks.
+     *
+     * @param[out] lower     Lower coordinate (inclusive).
+     * @param[out] upper     Upper coordinate (exclusive).
+     */
+    void toMicro(size_type lower[3], size_type upper[3]) const;
+
+    /**
+     * Convert to coordinate range in microblocks and clamp.
+     *
+     * @param[out] lower     Lower coordinate (inclusive).
+     * @param[out] upper     Upper coordinate (exclusive).
+     * @param      limit     Maximum values that will be returned.
+     */
+    void toMicro(size_type lower[3], size_type upper[3], const size_type limit[3]) const;
+
+    /**
+     * Convert to coordinate range measured in grid cells.
+     *
+     * @param      microSize Number of grid cells per microblock.
+     * @param[out] lower     Lower coordinate (inclusive).
+     * @param[out] upper     Upper coordinate (exclusive).
+     */
+    void toCells(Grid::size_type microSize, Grid::size_type lower[3], Grid::size_type upper[3]) const;
+
+    /**
+     * Convert to coordinate range measured in grid cells, and clamp to grid.
+     * The coordinates will be limited to the number of cells in each
+     * dimension in the grid.
+     *
+     * @param      microSize Number of grid cells per microblock.
+     * @param[out] lower     Lower coordinate (inclusive).
+     * @param[out] upper     Upper coordinate (exclusive).
+     * @param      grid      Clamping grid.
+     */
+    void toCells(Grid::size_type microSize, Grid::size_type lower[3], Grid::size_type upper[3],
+                 const Grid &grid) const;
 
     /**
      * Create a child node in the octree.
@@ -92,15 +118,12 @@ public:
      */
     Node child(unsigned int idx) const;
 
+    /// Equality comparison (used by test code)
+    bool operator==(const Node &n) const;
+
 private:
-    size_type lower[3];         ///< Coordinates of lower-left-bottom corner
-    size_type upper[3];         ///< Coordinates of upper-right-top corner
-    /**
-     * Octree level. This has no direct effect on the spatial extent of the
-     * node, but is used in finding corresponding indices in the octree. The
-     * level is zero for the finest (microblock) level of the octree.
-     */
-    unsigned int level;
+    boost::array<size_type, 3> coords;         ///< Coordinates (in units of its own size)
+    unsigned int level;                        ///< Octree level
 };
 
 /**
@@ -159,24 +182,16 @@ public:
  * nodes that do not at least partially intersect the rectangle defined by @a
  * dims will be skipped.
  *
- * @param dims      Dimensions of the most refined layer, in cells.
- * @param microSize Dimensions of the nodes in the most refined layer, in cells.
+ * @param dims      Dimensions of the most refined layer, in microblocks.
  * @param levels    Number of levels in the virtual octree.
  * @param func      User-provided functor.
  *
  * @pre
  * - @a levels is at least 1 and at most the number of bits in @c Node::size_type
- * - The dimensions are each at most @a microSize * 2<sup>levels - 1</sup>.
+ * - The dimensions are each at most @a 2<sup>levels - 1</sup>.
  */
 template<typename Func>
-void forEachNode(const Node::size_type dims[3], Node::size_type microSize, unsigned int levels, const Func &func);
-
-/**
- * Overload that takes a grid instead of explicit dimensions. The dimensions are taken from
- * the number of cells along each dimension of the grid.
- */
-template<typename Func>
-void forEachNode(const Grid &grid, Node::size_type microSize, unsigned int levels, const Func &func);
+void forEachNode(const Node::size_type dims[3], unsigned int levels, const Func &func);
 
 /**
  * Iterate over all splats given be a collection of @ref Range, calling

@@ -317,10 +317,111 @@ void TestRangeBig::testBigRange()
 std::ostream &operator<<(std::ostream &o, const Node &node)
 {
     return o << "Node("
-        << node.getLower()[0] << ", "
-        << node.getLower()[1] << ", "
-        << node.getLower()[2] << ", " << node.getLevel() << ")";
+        << node.getCoords()[0] << ", "
+        << node.getCoords()[1] << ", "
+        << node.getCoords()[2] << ", " << node.getLevel() << ")";
 }
+
+/// Tests for @ref Bucket::internal::Node
+class TestNode : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestNode);
+    CPPUNIT_TEST(testConstructor);
+    CPPUNIT_TEST(testChild);
+    CPPUNIT_TEST(testToCells);
+    CPPUNIT_TEST(testToMicro);
+    CPPUNIT_TEST(testSize);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testConstructor();            ///< Test constructor
+    void testChild();                  ///< Test @c child
+    void testToCells();                ///< Test @c toCells (both overloads)
+    void testToMicro();                ///< Test @c toMicro (both overloads)
+    void testSize();                   ///< Test @c size
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestNode, TestSet::perBuild());
+
+void TestNode::testConstructor()
+{
+    Node n(1, 2, 3, 4);
+    const boost::array<Node::size_type, 3> &coords = n.getCoords();
+    unsigned int level = n.getLevel();
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(1), coords[0]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(2), coords[1]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(3), coords[2]);
+    CPPUNIT_ASSERT_EQUAL(4U, level);
+
+    Node n2(&coords[0], 4);
+    CPPUNIT_ASSERT_EQUAL(n, n2);
+}
+
+void TestNode::testChild()
+{
+    Node parent(1, 2, 3, 4);
+    CPPUNIT_ASSERT_EQUAL(Node(2, 4, 6, 3), parent.child(0));
+    CPPUNIT_ASSERT_EQUAL(Node(3, 4, 6, 3), parent.child(1));
+    CPPUNIT_ASSERT_EQUAL(Node(2, 5, 6, 3), parent.child(2));
+    CPPUNIT_ASSERT_EQUAL(Node(3, 5, 6, 3), parent.child(3));
+    CPPUNIT_ASSERT_EQUAL(Node(2, 4, 7, 3), parent.child(4));
+    CPPUNIT_ASSERT_EQUAL(Node(3, 4, 7, 3), parent.child(5));
+    CPPUNIT_ASSERT_EQUAL(Node(2, 5, 7, 3), parent.child(6));
+    CPPUNIT_ASSERT_EQUAL(Node(3, 5, 7, 3), parent.child(7));
+
+    CPPUNIT_ASSERT_THROW(Node(1, 2, 3, 0).child(0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(Node(1, 2, 3, 1).child(8), std::invalid_argument);
+}
+
+void TestNode::testToCells()
+{
+    Node n(1, 2, 3, 2);
+    Grid::size_type lower[3], upper[3];
+    n.toCells(10, lower, upper);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 40), lower[0]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 80), lower[1]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(120), lower[2]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 80), upper[0]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(120), upper[1]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(160), upper[2]);
+
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    Grid limit(ref, 3.0f, 1000, 1075, 1000, 1075, 1000, 2000);
+    n.toCells(10, lower, upper, limit);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 40), lower[0]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 75), lower[1]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(120), lower[2]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 75), upper[0]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type( 75), upper[1]);
+    CPPUNIT_ASSERT_EQUAL(Grid::size_type(160), upper[2]);
+}
+
+void TestNode::testToMicro()
+{
+    Node n(1, 2, 3, 2);
+    Node::size_type lower[3], upper[3];
+    n.toMicro(lower, upper);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 4), lower[0]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 8), lower[1]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(12), lower[2]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 8), upper[0]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(12), upper[1]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(16), upper[2]);
+
+    Node::size_type limit[3] = {7, 7, 200};
+    n.toMicro(lower, upper, limit);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 4), lower[0]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 7), lower[1]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(12), lower[2]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 7), upper[0]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type( 7), upper[1]);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(16), upper[2]);
+}
+
+void TestNode::testSize()
+{
+    Node n(1, 2, 3, 4);
+    CPPUNIT_ASSERT_EQUAL(Node::size_type(16), n.size());
+}
+
 
 /// Tests for @ref Bucket::internal::forEachNode.
 class TestForEachNode : public CppUnit::TestFixture
@@ -344,37 +445,37 @@ bool TestForEachNode::nodeFunc(const Node &node)
 {
     nodes.push_back(node);
 
-    const Node::size_type *lower = node.getLower();
-    const Node::size_type *upper = node.getUpper();
-    return (lower[0] <= 20 && 20 < upper[0]
-        && lower[1] <= 10 && 10 < upper[1]
-        && lower[2] <= 40 && 40 < upper[2]);
+    Node::size_type lower[3], upper[3];
+    node.toMicro(lower, upper);
+    return (lower[0] <= 2 && 2 < upper[0]
+        && lower[1] <= 1 && 1 < upper[1]
+        && lower[2] <= 4 && 4 < upper[2]);
 }
 
 void TestForEachNode::testSimple()
 {
-    const Node::size_type dims[3] = {40, 35, 60};
-    forEachNode(dims, 10, 4, boost::bind(&TestForEachNode::nodeFunc, this, _1));
+    const Node::size_type dims[3] = {4, 4, 6};
+    forEachNode(dims, 4, boost::bind(&TestForEachNode::nodeFunc, this, _1));
     /* Note: the recursion order of forEachNode is not defined, so this
      * test is constraining the implementation. It should be changed
      * if necessary.
      */
     CPPUNIT_ASSERT_EQUAL(15, int(nodes.size()));
-    CPPUNIT_ASSERT_EQUAL(Node( 0,  0,  0,  80, 80, 80,  3), nodes[0]);
-    CPPUNIT_ASSERT_EQUAL(Node( 0,  0,  0,  40, 40, 40,  2), nodes[1]);
-    CPPUNIT_ASSERT_EQUAL(Node( 0,  0, 40,  40, 40, 80,  2), nodes[2]);
-    CPPUNIT_ASSERT_EQUAL(Node( 0,  0, 40,  20, 20, 60,  1), nodes[3]);
-    CPPUNIT_ASSERT_EQUAL(Node(20,  0, 40,  40, 20, 60,  1), nodes[4]);
-    CPPUNIT_ASSERT_EQUAL(Node(20,  0, 40,  30, 10, 50,  0), nodes[5]);
-    CPPUNIT_ASSERT_EQUAL(Node(30,  0, 40,  40, 10, 50,  0), nodes[6]);
-    CPPUNIT_ASSERT_EQUAL(Node(20, 10, 40,  30, 20, 50,  0), nodes[7]);
-    CPPUNIT_ASSERT_EQUAL(Node(30, 10, 40,  40, 20, 50,  0), nodes[8]);
-    CPPUNIT_ASSERT_EQUAL(Node(20,  0, 50,  30, 10, 60,  0), nodes[9]);
-    CPPUNIT_ASSERT_EQUAL(Node(30,  0, 50,  40, 10, 60,  0), nodes[10]);
-    CPPUNIT_ASSERT_EQUAL(Node(20, 10, 50,  30, 20, 60,  0), nodes[11]);
-    CPPUNIT_ASSERT_EQUAL(Node(30, 10, 50,  40, 20, 60,  0), nodes[12]);
-    CPPUNIT_ASSERT_EQUAL(Node( 0, 20, 40,  20, 40, 60,  1), nodes[13]);
-    CPPUNIT_ASSERT_EQUAL(Node(20, 20, 40,  40, 40, 60,  1), nodes[14]);
+    CPPUNIT_ASSERT_EQUAL(Node(0, 0, 0, 3), nodes[0]);
+    CPPUNIT_ASSERT_EQUAL(Node(0, 0, 0, 2), nodes[1]);
+    CPPUNIT_ASSERT_EQUAL(Node(0, 0, 1, 2), nodes[2]);
+    CPPUNIT_ASSERT_EQUAL(Node(0, 0, 2, 1), nodes[3]);
+    CPPUNIT_ASSERT_EQUAL(Node(1, 0, 2, 1), nodes[4]);
+    CPPUNIT_ASSERT_EQUAL(Node(2, 0, 4, 0), nodes[5]);
+    CPPUNIT_ASSERT_EQUAL(Node(3, 0, 4, 0), nodes[6]);
+    CPPUNIT_ASSERT_EQUAL(Node(2, 1, 4, 0), nodes[7]);
+    CPPUNIT_ASSERT_EQUAL(Node(3, 1, 4, 0), nodes[8]);
+    CPPUNIT_ASSERT_EQUAL(Node(2, 0, 5, 0), nodes[9]);
+    CPPUNIT_ASSERT_EQUAL(Node(3, 0, 5, 0), nodes[10]);
+    CPPUNIT_ASSERT_EQUAL(Node(2, 1, 5, 0), nodes[11]);
+    CPPUNIT_ASSERT_EQUAL(Node(3, 1, 5, 0), nodes[12]);
+    CPPUNIT_ASSERT_EQUAL(Node(0, 1, 2, 1), nodes[13]);
+    CPPUNIT_ASSERT_EQUAL(Node(1, 1, 2, 1), nodes[14]);
 }
 
 // Not expected to ever be called - just to give a legal function pointer
@@ -387,9 +488,9 @@ static bool dummyNodeFunc(const Node &node)
 void TestForEachNode::testAsserts()
 {
     const Node::size_type dims[3] = {4, 4, 6};
-    CPPUNIT_ASSERT_THROW(forEachNode(dims, 1, 100, dummyNodeFunc), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(forEachNode(dims, 1, 0, dummyNodeFunc), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(forEachNode(dims, 1, 3, dummyNodeFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachNode(dims, 100, dummyNodeFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachNode(dims, 0, dummyNodeFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachNode(dims, 3, dummyNodeFunc), std::invalid_argument);
 }
 
 /**
