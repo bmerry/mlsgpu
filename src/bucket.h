@@ -152,7 +152,7 @@ public:
  * is designed to operate out-of-core and so very large inputs can be used.
  *
  * @param splats     The backing store of splats. All splats are used.
- * @param bbox       A grid which must completely enclose all the splats.
+ * @param region     The region to process
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
  * @param maxSplit   Maximum recursion fan-out. Larger values will usually
@@ -166,34 +166,49 @@ public:
  * @throw DensityError If any single grid cell conservatively intersects more
  *                     than @a maxSplats splats.
  *
- * @note If any splat falls partially or completely outside of @a bbox, it
- * is undefined whether it will be passed to the processing functions.
+ * @note If any splat falls completely outside of @a region, it is undefined
+ * whether it will be passed to the processing function at all.
  *
  * @see @ref ProcessorType.
  *
  * @internal
- * The algorithm works recursively. At each level of recursion, it takes the
- * current "cell" (which is a cuboid of grid cells), and subdivides it into
- * "microblocks". Microblocks are chosen to be as small as possible (subject
- * to @a maxSplit), but not smaller than determined by @a maxCells (unless
- * the top level is already that small). Of course, if on entry to the
- * recursion the cell is suitable for processing this is done immediately.
+ * The algorithm works recursively. First, some terminology:
+ *  - @b Cell: A cube whose side length is defined by the spacing of @ref Grid.
+ *  All grids used at all layers of recursion use the same spacing, so this is
+ *  a universal unit.
+ *  - @b Region: A cuboid aligned to the cell grid passed to @ref bucketRecurse.
+ *  Each call to bucketRecurse either passes its region directly to the processing
+ *  callback, or splits its region into a number of subregions for recursive
+ *  processing.
+ *  - @b Microblock: The smallest unit into which a single level of recursion will
+ *  subdivide its region. The final subregions chosen are formed from collections
+ *  of microblocks (specifically, nodes - see below). A microblock is a cube of
+ *  cells.
+ *  - @b Node: an octree node from an octree in which the leaves are microblocks.
+ *
+ * At each level of recursion, it takes the current region and subdivides it into
+ * microblocks. Microblocks are chosen to be as small as possible (subject
+ * to @a maxSplit), but not smaller than determined by @a maxCells unless
+ * the region is already that small. Of course, if on entry to the
+ * recursion the region is suitable for processing this is done immediately.
  *
  * The microblocks are arranged in an implicit, dense octree. The splats
  * are then processed in several passes:
- *  -# Each splat is accumulated into a counter for all octree nodes
- *     it intersects, so that the sizes of nodes can be determined.
- *     A delta encoding is used so that small splats only require
- *     one modification to the data structure, instead of one per level.
- *  -# The octree is walked top-down to identify buckets for passing to
- *     the next level. A node is chosen if it satisfies @a maxCells and
- *     @a maxSplats, or if it is a microblock. Otherwise it is subdivided.
- *  -# The splats are reprocessed to place them into the buckets.
- * The buckets are then processed recursively.
+ *  -# Each splat is accumulated into per-node counters. A delta encoding is
+ *     used so that small splats (those that intersect only one microblock)
+ *     only require one modification to the data structure, instead of one per
+ *     level.
+ *  -# The octree is walked top-down to identify subregions.  A node is chosen
+ *     as a subregion if it satisfies @a maxCells and @a maxSplats, or if it is a
+ *     microblock. Otherwise it is subdivided.
+ *  -# The splats are processed again to enter them into per-subregion buckets.
+ *     A single splat can be placed into multiple buckets if it straddles
+ *     subregion borders.
+ * The subregions are then processed recursively.
  */
 template<typename CollectionSet>
 void bucket(const CollectionSet &splats,
-            const Grid &bbox,
+            const Grid &region,
             Range::index_type maxSplats,
             int maxCells,
             std::size_t maxSplit,

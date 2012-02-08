@@ -314,82 +314,82 @@ void TestRangeBig::testBigRange()
     CPPUNIT_ASSERT_EQUAL(Range::index_type(0xFFFFFFFFu), out[1].start);
 }
 
-std::ostream &operator<<(std::ostream &o, const Cell &cell)
+std::ostream &operator<<(std::ostream &o, const Node &node)
 {
-    return o << "Cell("
-        << cell.getLower()[0] << ", "
-        << cell.getLower()[1] << ", "
-        << cell.getLower()[2] << ", " << cell.getLevel() << ")";
+    return o << "Node("
+        << node.getLower()[0] << ", "
+        << node.getLower()[1] << ", "
+        << node.getLower()[2] << ", " << node.getLevel() << ")";
 }
 
-/// Tests for @ref Bucket::internal::forEachCell.
-class TestForEachCell : public CppUnit::TestFixture
+/// Tests for @ref Bucket::internal::forEachNode.
+class TestForEachNode : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestForEachCell);
+    CPPUNIT_TEST_SUITE(TestForEachNode);
     CPPUNIT_TEST(testSimple);
     CPPUNIT_TEST(testAsserts);
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    vector<Cell> cells;
-    bool cellFunc(const Cell &cell);
+    vector<Node> nodes;
+    bool nodeFunc(const Node &node);
 
 public:
     void testSimple();          ///< Test normal usage
     void testAsserts();         ///< Test the assertions of preconditions
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestForEachCell, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestForEachNode, TestSet::perBuild());
 
-bool TestForEachCell::cellFunc(const Cell &cell)
+bool TestForEachNode::nodeFunc(const Node &node)
 {
-    cells.push_back(cell);
+    nodes.push_back(node);
 
-    const Cell::size_type *lower = cell.getLower();
-    const Cell::size_type *upper = cell.getUpper();
+    const Node::size_type *lower = node.getLower();
+    const Node::size_type *upper = node.getUpper();
     return (lower[0] <= 20 && 20 < upper[0]
         && lower[1] <= 10 && 10 < upper[1]
         && lower[2] <= 40 && 40 < upper[2]);
 }
 
-void TestForEachCell::testSimple()
+void TestForEachNode::testSimple()
 {
-    const Cell::size_type dims[3] = {40, 35, 60};
-    forEachCell(dims, 10, 4, boost::bind(&TestForEachCell::cellFunc, this, _1));
-    /* Note: the recursion order of forEachCell is not defined, so this
+    const Node::size_type dims[3] = {40, 35, 60};
+    forEachNode(dims, 10, 4, boost::bind(&TestForEachNode::nodeFunc, this, _1));
+    /* Note: the recursion order of forEachNode is not defined, so this
      * test is constraining the implementation. It should be changed
      * if necessary.
      */
-    CPPUNIT_ASSERT_EQUAL(15, int(cells.size()));
-    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0,  0,  80, 80, 80,  3), cells[0]);
-    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0,  0,  40, 40, 40,  2), cells[1]);
-    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0, 40,  40, 40, 80,  2), cells[2]);
-    CPPUNIT_ASSERT_EQUAL(Cell( 0,  0, 40,  20, 20, 60,  1), cells[3]);
-    CPPUNIT_ASSERT_EQUAL(Cell(20,  0, 40,  40, 20, 60,  1), cells[4]);
-    CPPUNIT_ASSERT_EQUAL(Cell(20,  0, 40,  30, 10, 50,  0), cells[5]);
-    CPPUNIT_ASSERT_EQUAL(Cell(30,  0, 40,  40, 10, 50,  0), cells[6]);
-    CPPUNIT_ASSERT_EQUAL(Cell(20, 10, 40,  30, 20, 50,  0), cells[7]);
-    CPPUNIT_ASSERT_EQUAL(Cell(30, 10, 40,  40, 20, 50,  0), cells[8]);
-    CPPUNIT_ASSERT_EQUAL(Cell(20,  0, 50,  30, 10, 60,  0), cells[9]);
-    CPPUNIT_ASSERT_EQUAL(Cell(30,  0, 50,  40, 10, 60,  0), cells[10]);
-    CPPUNIT_ASSERT_EQUAL(Cell(20, 10, 50,  30, 20, 60,  0), cells[11]);
-    CPPUNIT_ASSERT_EQUAL(Cell(30, 10, 50,  40, 20, 60,  0), cells[12]);
-    CPPUNIT_ASSERT_EQUAL(Cell( 0, 20, 40,  20, 40, 60,  1), cells[13]);
-    CPPUNIT_ASSERT_EQUAL(Cell(20, 20, 40,  40, 40, 60,  1), cells[14]);
+    CPPUNIT_ASSERT_EQUAL(15, int(nodes.size()));
+    CPPUNIT_ASSERT_EQUAL(Node( 0,  0,  0,  80, 80, 80,  3), nodes[0]);
+    CPPUNIT_ASSERT_EQUAL(Node( 0,  0,  0,  40, 40, 40,  2), nodes[1]);
+    CPPUNIT_ASSERT_EQUAL(Node( 0,  0, 40,  40, 40, 80,  2), nodes[2]);
+    CPPUNIT_ASSERT_EQUAL(Node( 0,  0, 40,  20, 20, 60,  1), nodes[3]);
+    CPPUNIT_ASSERT_EQUAL(Node(20,  0, 40,  40, 20, 60,  1), nodes[4]);
+    CPPUNIT_ASSERT_EQUAL(Node(20,  0, 40,  30, 10, 50,  0), nodes[5]);
+    CPPUNIT_ASSERT_EQUAL(Node(30,  0, 40,  40, 10, 50,  0), nodes[6]);
+    CPPUNIT_ASSERT_EQUAL(Node(20, 10, 40,  30, 20, 50,  0), nodes[7]);
+    CPPUNIT_ASSERT_EQUAL(Node(30, 10, 40,  40, 20, 50,  0), nodes[8]);
+    CPPUNIT_ASSERT_EQUAL(Node(20,  0, 50,  30, 10, 60,  0), nodes[9]);
+    CPPUNIT_ASSERT_EQUAL(Node(30,  0, 50,  40, 10, 60,  0), nodes[10]);
+    CPPUNIT_ASSERT_EQUAL(Node(20, 10, 50,  30, 20, 60,  0), nodes[11]);
+    CPPUNIT_ASSERT_EQUAL(Node(30, 10, 50,  40, 20, 60,  0), nodes[12]);
+    CPPUNIT_ASSERT_EQUAL(Node( 0, 20, 40,  20, 40, 60,  1), nodes[13]);
+    CPPUNIT_ASSERT_EQUAL(Node(20, 20, 40,  40, 40, 60,  1), nodes[14]);
 }
 
 // Not expected to ever be called - just to give a legal function pointer
-static bool dummyCellFunc(const Cell &cell)
+static bool dummyNodeFunc(const Node &node)
 {
-    (void) cell;
+    (void) node;
     return false;
 }
 
-void TestForEachCell::testAsserts()
+void TestForEachNode::testAsserts()
 {
-    const Cell::size_type dims[3] = {4, 4, 6};
-    CPPUNIT_ASSERT_THROW(forEachCell(dims, 1, 100, dummyCellFunc), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(forEachCell(dims, 1, 0, dummyCellFunc), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(forEachCell(dims, 1, 3, dummyCellFunc), std::invalid_argument);
+    const Node::size_type dims[3] = {4, 4, 6};
+    CPPUNIT_ASSERT_THROW(forEachNode(dims, 1, 100, dummyNodeFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachNode(dims, 1, 0, dummyNodeFunc), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(forEachNode(dims, 1, 3, dummyNodeFunc), std::invalid_argument);
 }
 
 /**

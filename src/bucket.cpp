@@ -79,7 +79,7 @@ bool Range::append(scan_type scan, index_type splat)
 namespace internal
 {
 
-Cell::Cell(const size_type lower[3], const size_type upper[3], unsigned int level) : level(level)
+Node::Node(const size_type lower[3], const size_type upper[3], unsigned int level) : level(level)
 {
     for (unsigned int i = 0; i < 3; i++)
     {
@@ -89,7 +89,7 @@ Cell::Cell(const size_type lower[3], const size_type upper[3], unsigned int leve
     }
 }
 
-Cell::Cell(
+Node::Node(
     size_type lowerX, size_type lowerY, size_type lowerZ,
     size_type upperX, size_type upperY, size_type upperZ,
     unsigned int level) : level(level)
@@ -104,18 +104,18 @@ Cell::Cell(
         MLSGPU_ASSERT(lower[i] < upper[i], std::invalid_argument);
 }
 
-bool Cell::operator==(const Cell &c) const
+bool Node::operator==(const Node &c) const
 {
     return std::equal(lower, lower + 3, c.lower)
         && std::equal(upper, upper + 3, c.upper)
         && level == c.level;
 }
 
-Cell Cell::child(unsigned int idx) const
+Node Node::child(unsigned int idx) const
 {
     MLSGPU_ASSERT(level > 0, std::invalid_argument);
     MLSGPU_ASSERT(idx < 8, std::invalid_argument);
-    Cell c = *this;
+    Node c = *this;
     c.level--;
     for (int i = 0; i < 3; i++)
     {
@@ -132,9 +132,9 @@ const std::size_t BucketState::BAD_BLOCK;
 
 BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
-    Cell::size_type microSize, int macroLevels)
+    Node::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    cellCounts(macroLevels), skippedCells(0)
+    nodeCounts(macroLevels), skippedCells(0)
 {
     for (int i = 0; i < 3; i++)
         this->dims[i] = grid.numCells(i);
@@ -144,20 +144,20 @@ BucketState::BucketState(
         /* We don't need a full power-of-two allocation for a level of the octree,
          * just enough to completely cover the original dimensions.
          */
-        boost::array<Cell::size_type, 3> s;
+        boost::array<Node::size_type, 3> s;
         for (int i = 0; i < 3; i++)
         {
             s[i] = divUp(dims[i], microSize << level);
             assert(level != macroLevels - 1 || s[i] == 1);
         }
-        cellCounts[level].resize(s);
+        nodeCounts[level].resize(s);
         if (level == 0)
         {
-            cellBlocks.resize(s);
-            for (Cell::size_type x = 0; x < s[0]; x++)
-                for (Cell::size_type y = 0; y < s[1]; y++)
-                    for (Cell::size_type z = 0; z < s[2]; z++)
-                        cellBlocks[x][y][z] = BAD_BLOCK;
+            microRegions.resize(s);
+            for (Node::size_type x = 0; x < s[0]; x++)
+                for (Node::size_type y = 0; y < s[1]; y++)
+                    for (Node::size_type z = 0; z < s[2]; z++)
+                        microRegions[x][y][z] = BAD_BLOCK;
         }
     }
 }
@@ -166,28 +166,27 @@ void BucketState::upsweepCounts()
 {
     for (int level = 0; level + 1 < macroLevels; level++)
     {
-        for (Cell::size_type x = 0; x < cellCounts[level].shape()[0]; x++)
-            for (Cell::size_type y = 0; y < cellCounts[level].shape()[1]; y++)
-                for (Cell::size_type z = 0; z < cellCounts[level].shape()[2]; z++)
-                    cellCounts[level + 1][x >> 1][y >> 1][z >> 1] += cellCounts[level][x][y][z];
+        for (Node::size_type x = 0; x < nodeCounts[level].shape()[0]; x++)
+            for (Node::size_type y = 0; y < nodeCounts[level].shape()[1]; y++)
+                for (Node::size_type z = 0; z < nodeCounts[level].shape()[2]; z++)
+                    nodeCounts[level + 1][x >> 1][y >> 1][z >> 1] += nodeCounts[level][x][y][z];
     }
 }
 
-std::tr1::int64_t BucketState::getCellCount(const Cell &cell) const
+std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
 {
-    boost::array<Cell::size_type, 3> coords;
-    Cell::size_type factor = microSize << cell.getLevel();
+    boost::array<Node::size_type, 3> coords;
+    Node::size_type factor = microSize << node.getLevel();
     for (int i = 0; i < 3; i++)
     {
-        assert(cell.getLower()[i] % factor == 0);
-        coords[i] = cell.getLower()[i] / factor;
+        assert(node.getLower()[i] % factor == 0);
+        coords[i] = node.getLower()[i] / factor;
     }
-    assert(cell.getLevel() < cellCounts.size());
-    return cellCounts[cell.getLevel()](coords);
+    assert(node.getLevel() < nodeCounts.size());
+    return nodeCounts[node.getLevel()](coords);
 }
 
-// TODO: move into a header and test
-void BucketState::getSplatCells(const Splat &splat, Cell::size_type lo[3], Cell::size_type hi[3])
+void BucketState::getSplatMicro(const Splat &splat, Node::size_type lo[3], Node::size_type hi[3])
 {
     float worldLow[3], worldHigh[3];
     float gridLow[3], gridHigh[3];
@@ -201,7 +200,7 @@ void BucketState::getSplatCells(const Splat &splat, Cell::size_type lo[3], Cell:
     grid.worldToVertex(worldHigh, gridHigh);
     for (int i = 0; i < 3; i++)
     {
-        int top = cellCounts[0].shape()[i] - 1;
+        int top = nodeCounts[0].shape()[i] - 1;
         lo[i] = std::min(std::max(RoundUp()(gridLow[i] / microSize) - 1, 0), top);
         hi[i] = std::min(std::max(RoundDown()(gridHigh[i] / microSize), 0), top);
     }
@@ -214,20 +213,20 @@ void CountSplat::operator()(Range::scan_type scan, Range::index_type id,
     (void) id;
 
     int level = 0;
-    Cell::size_type lo[3], hi[3];
-    state.getSplatCells(splat, lo, hi);
-    for (Cell::size_type x = lo[0]; x <= hi[0]; x++)
-        for (Cell::size_type y = lo[1]; y <= hi[1]; y++)
-            for (Cell::size_type z = lo[2]; z <= hi[2]; z++)
+    Node::size_type lo[3], hi[3];
+    state.getSplatMicro(splat, lo, hi);
+    for (Node::size_type x = lo[0]; x <= hi[0]; x++)
+        for (Node::size_type y = lo[1]; y <= hi[1]; y++)
+            for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                ++state.cellCounts[level][x][y][z];
+                ++state.nodeCounts[level][x][y][z];
             }
     while (level < state.macroLevels - 1 && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
         level++;
-        for (Cell::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
-            for (Cell::size_type y = lo[1] >> 1; y <= (hi[1] >> 1); y++)
-                for (Cell::size_type z = lo[2] >> 1; z <= (hi[2] >> 1); z++)
+        for (Node::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
+            for (Node::size_type y = lo[1] >> 1; y <= (hi[1] >> 1); y++)
+                for (Node::size_type z = lo[2] >> 1; z <= (hi[2] >> 1); z++)
                 {
                     unsigned int hits = 1;
                     if (lo[0] <= 2 * x && 2 * x < hi[0])
@@ -236,7 +235,7 @@ void CountSplat::operator()(Range::scan_type scan, Range::index_type id,
                         hits *= 2;
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
-                    state.cellCounts[level][x][y][z] -= hits - 1;
+                    state.nodeCounts[level][x][y][z] -= hits - 1;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {
@@ -246,9 +245,9 @@ void CountSplat::operator()(Range::scan_type scan, Range::index_type id,
     }
 }
 
-bool PickCells::operator()(const Cell &cell) const
+bool PickNodes::operator()(const Node &node) const
 {
-    std::tr1::uint64_t count = state.getCellCount(cell);
+    std::tr1::uint64_t count = state.getNodeCount(node);
 
     // Skip completely empty regions, but record the fact
     // for progress meters
@@ -258,31 +257,31 @@ bool PickCells::operator()(const Cell &cell) const
         std::tr1::uint64_t skipped = 1;
         for (int i = 0; i < 3; i++)
         {
-            skipped *= std::min(state.dims[i], cell.getUpper()[i]) - cell.getLower()[i];
+            skipped *= std::min(state.dims[i], node.getUpper()[i]) - node.getLower()[i];
         }
         state.skippedCells += skipped;
         return false;
     }
 
-    if (cell.getLevel() == 0
-        || (cell.getSize(0) <= state.params.maxCells
-            && cell.getSize(1) <= state.params.maxCells
-            && cell.getSize(2) <= state.params.maxCells
+    if (node.getLevel() == 0
+        || (node.getSize(0) <= state.params.maxCells
+            && node.getSize(1) <= state.params.maxCells
+            && node.getSize(2) <= state.params.maxCells
             && count <= state.params.maxSplats))
     {
-        std::size_t id = state.children.size();
-        Cell::size_type lo[3], hi[3];
+        std::size_t id = state.subregions.size();
+        Node::size_type lo[3], hi[3];
         for (int i = 0; i < 3; i++)
         {
-            lo[i] = cell.getLower()[i] / state.microSize;
-            hi[i] = std::min(divUp(cell.getUpper()[i], state.microSize),
-                             Cell::size_type(state.cellBlocks.shape()[i]));
+            lo[i] = node.getLower()[i] / state.microSize;
+            hi[i] = std::min(divUp(node.getUpper()[i], state.microSize),
+                             Node::size_type(state.microRegions.shape()[i]));
         }
-        for (Cell::size_type x = lo[0]; x < hi[0]; x++)
-            for (Cell::size_type y = lo[1]; y < hi[1]; y++)
-                for (Cell::size_type z = lo[2]; z < hi[2]; z++)
-                    state.cellBlocks[x][y][z] = id;
-        state.children.push_back(BucketState::Child(cell));
+        for (Node::size_type x = lo[0]; x < hi[0]; x++)
+            for (Node::size_type y = lo[1]; y < hi[1]; y++)
+                for (Node::size_type z = lo[2]; z < hi[2]; z++)
+                    state.microRegions[x][y][z] = id;
+        state.subregions.push_back(BucketState::Subregion(node));
         return false; // no more recursion required
     }
     else
@@ -292,16 +291,16 @@ bool PickCells::operator()(const Cell &cell) const
 void BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
                               const Splat &splat) const
 {
-    Cell::size_type lo[3], hi[3];
-    state.getSplatCells(splat, lo, hi);
-    for (Cell::size_type x = lo[0]; x <= hi[0]; x++)
-        for (Cell::size_type y = lo[1]; y <= hi[1]; y++)
-            for (Cell::size_type z = lo[2]; z <= hi[2]; z++)
+    Node::size_type lo[3], hi[3];
+    state.getSplatMicro(splat, lo, hi);
+    for (Node::size_type x = lo[0]; x <= hi[0]; x++)
+        for (Node::size_type y = lo[1]; y <= hi[1]; y++)
+            for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                std::size_t block = state.cellBlocks[x][y][z];
-                assert(block < state.children.size());
-                BucketState::Child &child = state.children[block];
-                child.collector.append(scan, id);
+                std::size_t block = state.microRegions[x][y][z];
+                assert(block < state.subregions.size());
+                BucketState::Subregion &region = state.subregions[block];
+                region.collector.append(scan, id);
             }
 }
 
@@ -309,10 +308,10 @@ void BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
  * Pick the smallest possible power of 2 size for a microblock.
  * The limitation is thta there must be at most @a maxSplit microblocks.
  */
-Cell::size_type chooseMicroSize(
-    const Cell::size_type dims[3], std::size_t maxSplit)
+Node::size_type chooseMicroSize(
+    const Node::size_type dims[3], std::size_t maxSplit)
 {
-    Cell::size_type microSize = 1;
+    Node::size_type microSize = 1;
     std::size_t microBlocks = 1;
     for (int i = 0; i < 3; i++)
         microBlocks = mulSat(microBlocks, std::size_t(divUp(dims[i], microSize)));

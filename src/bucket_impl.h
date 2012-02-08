@@ -60,52 +60,52 @@ OutputIterator RangeCollector<OutputIterator>::flush()
 
 
 /**
- * Implementation detail of @ref forEachCell. Do not call this directly.
+ * Implementation detail of @ref forEachNode. Do not call this directly.
  *
- * @param dims      See @ref forEachCell.
- * @param cell      Current cell to process recursively.
- * @param func      See @ref forEachCell.
+ * @param dims      See @ref forEachNode.
+ * @param node      Current node to process recursively.
+ * @param func      See @ref forEachNode.
  */
 template<typename Func>
-void forEachCell_r(const Cell::size_type dims[3], const Cell &cell, const Func &func)
+void forEachNode_r(const Node::size_type dims[3], const Node &node, const Func &func)
 {
-    if (func(cell))
+    if (func(node))
     {
-        if (cell.getLevel() > 0)
+        if (node.getLevel() > 0)
         {
             for (unsigned int i = 0; i < 8; i++)
             {
-                Cell child = cell.child(i);
+                Node child = node.child(i);
                 if (child.getLower()[0] < dims[0]
                     && child.getLower()[1] < dims[1]
                     && child.getLower()[2] < dims[2])
-                    forEachCell_r(dims, child, func);
+                    forEachNode_r(dims, child, func);
             }
         }
     }
 }
 
 template<typename Func>
-void forEachCell(const Cell::size_type dims[3], Cell::size_type microSize, unsigned int levels, const Func &func)
+void forEachNode(const Node::size_type dims[3], Node::size_type microSize, unsigned int levels, const Func &func)
 {
     MLSGPU_ASSERT(levels >= 1U
-                  && levels <= (unsigned int) std::numeric_limits<Cell::size_type>::digits, std::invalid_argument);
+                  && levels <= (unsigned int) std::numeric_limits<Node::size_type>::digits, std::invalid_argument);
     int level = levels - 1;
     MLSGPU_ASSERT((dims[0] - 1) >> level < microSize, std::invalid_argument);
     MLSGPU_ASSERT((dims[1] - 1) >> level < microSize, std::invalid_argument);
     MLSGPU_ASSERT((dims[2] - 1) >> level < microSize, std::invalid_argument);
 
-    Cell::size_type size = microSize << level;
-    forEachCell_r(dims, Cell(0, 0, 0, size, size, size, level), func);
+    Node::size_type size = microSize << level;
+    forEachNode_r(dims, Node(0, 0, 0, size, size, size, level), func);
 }
 
 template<typename Func>
-void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func)
+void forEachNode(const Grid &grid, Node::size_type microSize, unsigned int levels, const Func &func)
 {
-    const Cell::size_type dims[3];
+    const Node::size_type dims[3];
     for (int i = 0; i < 3; i++)
         dims[i] = grid.numCells(i);
-    forEachCell(dims, microSize, levels, func);
+    forEachNode(dims, microSize, levels, func);
 }
 
 template<typename CollectionSet, typename Func>
@@ -124,7 +124,7 @@ void forEachSplat(
     }
 }
 
-/// Contains static information used to process a cell.
+/// Contains static information used to process a region.
 struct BucketParameters
 {
     Range::index_type maxSplats;        ///< Maximum splats permitted for processing
@@ -137,7 +137,7 @@ struct BucketParameters
 };
 
 /**
- * Dynamic state that is updated as part of processing a cell.
+ * Dynamic state that is updated as part of processing a region.
  */
 struct BucketState
 {
@@ -150,34 +150,34 @@ struct BucketState
      * use the containing vector is sized first before splats are
      * inserted.
      */
-    struct Child
+    struct Subregion
     {
-        Cell cell;
+        Node node;
         std::vector<Range> ranges;
         RangeCollector<std::back_insert_iterator<std::vector<Range> > > collector;
 
-        Child() : collector(std::back_inserter(ranges)) {}
-        Child(const Cell &cell) : cell(cell), collector(std::back_inserter(ranges)) {}
-        Child(const Child &c)
-            : cell(c.cell), ranges(c.ranges), collector(std::back_inserter(ranges)) {}
-        Child &operator=(const Child &c)
+        Subregion() : collector(std::back_inserter(ranges)) {}
+        Subregion(const Node &node) : node(node), collector(std::back_inserter(ranges)) {}
+        Subregion(const Subregion &c)
+            : node(c.node), ranges(c.ranges), collector(std::back_inserter(ranges)) {}
+        Subregion &operator=(const Subregion &c)
         {
-            cell = c.cell;
+            node = c.node;
             ranges = c.ranges;
             return *this;
         }
     };
 
     const BucketParameters &params;
-    /// Grid covering just the region being processed
+    /// Grid covering the region being processed
     const Grid &grid;
     /**
-     * Size (in grid cells) of the region being processed.
-     * This is just a cache of grid.numCells for ease of passing to @ref forEachCell.
+     * Size (in cells) of the region being processed.
+     * This is just a cache of grid.numCells for ease of passing to @ref forEachNode.
      */
-    Cell::size_type dims[3];
+    Node::size_type dims[3];
     /// Side length of a microblock
-    Cell::size_type microSize;
+    Node::size_type microSize;
     /// Number of levels in the octree of counters.
     int macroLevels;
     /**
@@ -187,48 +187,48 @@ struct BucketState
      *
      * During the initial counting phase, each entry represents a delta to
      * be added to the sum of the children. Elements other than the leaves
-     * will thus typically be negative. A correction pass applies the summation
-     * up the tree.
+     * will thus typically be negative. @ref upsweepCounts applies the
+     * summation up the tree.
      */
-    std::vector<boost::multi_array<std::tr1::int64_t, 3> > cellCounts;
+    std::vector<boost::multi_array<std::tr1::int64_t, 3> > nodeCounts;
 
     /**
-     * Index of the chosen cell for each leaf (BAD_BLOCK if empty).
+     * Index of the chosen subregion for each leaf (BAD_BLOCK if empty).
      */
-    boost::multi_array<std::size_t, 3> cellBlocks;
+    boost::multi_array<std::size_t, 3> microRegions;
 
-    /// Number of leaf cells skipped by @ref PickCells for being empty
+    /// Number of cells skipped by @ref PickNodes for being empty
     std::tr1::uint64_t skippedCells;
 
     /**
-     * The blocks and ranges for the next level of the hierarchy.
+     * The nodes and ranges for the next level of the hierarchy.
      */
-    std::vector<Child> children;
+    std::vector<Subregion> subregions;
 
     /// Constructor
     BucketState(const BucketParameters &params, const Grid &grid,
-                Cell::size_type microSize, int macroLevels);
+                Node::size_type microSize, int macroLevels);
 
     /**
-     * Get the (inclusive) range of indices in the base level of @ref cellCounts
-     * covered by the bounding box of a splat.
+     * Get the (inclusive) range of indices in the base level of
+     * @ref nodeCounts covered by the bounding box of a splat.
      *
      * @param      splat        Splat to query
      * @param[out] lo           Indices of first microblock covered by @a splat
      * @param[out] hi           Indices of last microblock covered by @a splat.
      */
-    void getSplatCells(const Splat &splat, Cell::size_type lo[3], Cell::size_type hi[3]);
+    void getSplatMicro(const Splat &splat, Node::size_type lo[3], Node::size_type hi[3]);
 
     /**
-     * The number of splats that land in a given power-of-two cell.
+     * The number of splats that land in a given node.
      * @see @ref upsweepCounts.
      */
-    std::tr1::int64_t getCellCount(const Cell &cell) const;
+    std::tr1::int64_t getNodeCount(const Node &node) const;
 
     /**
-     * Convert @ref cellCounts from a delta encoding to plain counts.
+     * Convert @ref nodeCounts from a delta encoding to plain counts.
      * This should be called after all calls to @ref CountSplat are complete,
-     * and before calling @ref getCellCount.
+     * and before calling @ref getNodeCount.
      */
     void upsweepCounts();
 };
@@ -250,18 +250,19 @@ public:
 };
 
 /**
- * Functor for @ref Bucket::internal::forEachCell that chooses which cells to make blocks
- * out of. A cell is chosen if it contains few enough splats and is
- * small enough, or if it is a microblock. Otherwise it is split.
+ * Functor for @ref Bucket::internal::forEachNode that chooses which
+ * nodes to turn into regions. A node is chosen if it contains few enough
+ * splats and is small enough, or if it is a microblock. Otherwise it is
+ * split.
  */
-class PickCells
+class PickNodes
 {
 private:
     BucketState &state;
 
 public:
-    PickCells(BucketState &state) : state(state) {}
-    bool operator()(const Cell &cell) const;
+    PickNodes(BucketState &state) : state(state) {}
+    bool operator()(const Node &node) const;
 };
 
 /**
@@ -286,8 +287,8 @@ public:
  * in units of @a maxCells, in which case we are using how many @a maxCells sized
  * blocks form each microblock.
  */
-Cell::size_type chooseMicroSize(
-    const Cell::size_type dims[3], std::size_t maxSplit);
+Node::size_type chooseMicroSize(
+    const Node::size_type dims[3], std::size_t maxSplit);
 
 /**
  * Recursive implementation of @ref bucket.
@@ -314,10 +315,10 @@ void bucketRecurse(
     Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak").set(recursionState.depth);
     Statistics::getStatistic<Statistics::Peak<Range::index_type> >("bucket.totalRanges.peak").set(recursionState.totalRanges);
 
-    Cell::size_type dims[3];
+    Node::size_type dims[3];
     for (int i = 0; i < 3; i++)
         dims[i] = grid.numCells(i);
-    Cell::size_type maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
+    Node::size_type maxDim = std::max(std::max(dims[0], dims[1]), dims[2]);
 
     if (numSplats <= params.maxSplats && maxDim <= params.maxCells)
     {
@@ -330,15 +331,17 @@ void bucketRecurse(
     else
     {
         /* Pick a microblock size such that we don't exceed maxSplit
-         * microblocks. If the currently cell is bigger than maxCells
+         * microblocks. If the current region is bigger than maxCells
          * in any direction we use a power of two times maxCells, otherwise
          * we use a power of 2.
+         *
+         * TODO: no need for it to be a power of 2?
          */
-        Cell::size_type microSize;
+        Node::size_type microSize;
         if (maxDim > params.maxCells)
         {
             // number of maxCells-sized blocks
-            Cell::size_type subDims[3];
+            Node::size_type subDims[3];
             for (int i = 0; i < 3; i++)
                 subDims[i] = divUp(dims[i], params.maxCells);
             microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit);
@@ -351,8 +354,8 @@ void bucketRecurse(
         while (microSize << (macroLevels - 1) < maxDim)
             macroLevels++;
 
-        std::size_t numPicked;
-        std::vector<BucketState::Child> savedChildren;
+        std::size_t numRegions;
+        std::vector<BucketState::Subregion> savedRegions;
         std::vector<Range::index_type> savedNumSplats;
         std::tr1::uint64_t cellsDone = recursionState.cellsDone;
         /* Open a scope so that we can destroy the BucketState later */
@@ -362,35 +365,35 @@ void bucketRecurse(
             forEachSplat(splats, first, last, CountSplat(state));
             state.upsweepCounts();
             /* Select cells to bucket splats into */
-            forEachCell(state.dims, state.microSize, state.macroLevels, PickCells(state));
+            forEachNode(state.dims, state.microSize, state.macroLevels, PickNodes(state));
             /* Do the bucketing. */
             forEachSplat(splats, first, last, BucketSplats(state));
-            for (std::size_t i = 0; i < state.children.size(); i++)
-                state.children[i].collector.flush();
+            for (std::size_t i = 0; i < state.subregions.size(); i++)
+                state.subregions[i].collector.flush();
 
             /* Bucketing is complete but we have a lot of memory allocated that we
              * don't need for the recursive step. Copy it outside this scope then
              * close the scope to destroy state.
              */
-            numPicked = state.children.size();
-            savedNumSplats.reserve(numPicked);
-            for (std::size_t i = 0; i < numPicked; i++)
-                savedNumSplats.push_back(state.getCellCount(state.children[i].cell));
-            savedChildren.swap(state.children);
+            numRegions = state.subregions.size();
+            savedNumSplats.reserve(numRegions);
+            for (std::size_t i = 0; i < numRegions; i++)
+                savedNumSplats.push_back(state.getNodeCount(state.subregions[i].node));
+            savedRegions.swap(state.subregions);
 
             /* Any cells we skipped are automatically finished */
             cellsDone += state.skippedCells;
         }
 
-        /* Now recurse into the chosen cells */
-        for (std::size_t i = 0; i < numPicked; i++)
+        /* Now recurse into the chosen regions */
+        for (std::size_t i = 0; i < numRegions; i++)
         {
-            const BucketState::Child &child = savedChildren[i];
-            const Cell &cell = child.cell;
-            const Cell::size_type *lower = cell.getLower();
-            Cell::size_type upper[3];
-            std::copy(cell.getUpper(), cell.getUpper() + 3, upper);
-            // Clip the cell to the grid
+            const BucketState::Subregion &region = savedRegions[i];
+            const Node &node = region.node;
+            const Node::size_type *lower = node.getLower();
+            Node::size_type upper[3];
+            std::copy(node.getUpper(), node.getUpper() + 3, upper);
+            // Clip the region to the grid
             for (int j = 0; j < 3; j++)
             {
                 upper[j] = std::min(upper[j], dims[j]);
@@ -400,11 +403,11 @@ void bucketRecurse(
                 lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
             Recursion childRecursion = recursionState;
             childRecursion.depth++;
-            childRecursion.totalRanges += child.ranges.size();
+            childRecursion.totalRanges += region.ranges.size();
             childRecursion.cellsDone = cellsDone;
             bucketRecurse(splats,
-                          child.ranges.begin(),
-                          child.ranges.end(),
+                          region.ranges.begin(),
+                          region.ranges.end(),
                           savedNumSplats[i],
                           childGrid,
                           params,

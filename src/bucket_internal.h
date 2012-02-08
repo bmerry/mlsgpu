@@ -33,9 +33,11 @@ namespace internal
 {
 
 /**
- * A cube with power-of-two side lengths.
+ * A cuboid consisting of a number of microblocks.
+ * However, the coordinates are currently represented in cells, not
+ * microblocks.
  */
-class Cell
+class Node
 {
 public:
     /**
@@ -45,7 +47,7 @@ public:
     typedef unsigned int size_type;
 
     /// Default constructor: does not initialize anything.
-    Cell() {}
+    Node() {}
 
     /**
      * Constructor.
@@ -53,9 +55,9 @@ public:
      * @param lower    Coordinates of minimum corner.
      * @param upper    Coordinates of maximum corner.
      * @param level    Octree level.
-     * @pre The cell has positive side lengths.
+     * @pre The node has positive side lengths.
      */
-    Cell(const size_type lower[3], const size_type upper[3], unsigned int level);
+    Node(const size_type lower[3], const size_type upper[3], unsigned int level);
 
     /**
      * Constructor which is more convenient for building literals.
@@ -63,14 +65,14 @@ public:
      * @param lowerX,lowerY,lowerZ    Coordinates of minimum corner.
      * @param upperX,upperY,upperZ    Coordinates of maximum corner.
      * @param level                   Octree level.
-     * @pre The cell has positive side lengths.
+     * @pre The node has positive side lengths.
      */
-    Cell(size_type lowerX, size_type lowerY, size_type lowerZ,
+    Node(size_type lowerX, size_type lowerY, size_type lowerZ,
          size_type upperX, size_type upperY, size_type upperZ,
          unsigned int level);
 
     /// Equality comparison operator
-    bool operator==(const Cell &c) const;
+    bool operator==(const Node &c) const;
 
     /// Get the octree level
     unsigned int getLevel() const { return level; }
@@ -85,17 +87,17 @@ public:
     const size_type *getUpper() const { return upper; }
 
     /**
-     * Create a child cell in the octree.
+     * Create a child node in the octree.
      * @pre level > 0 and idx < 8.
      */
-    Cell child(unsigned int idx) const;
+    Node child(unsigned int idx) const;
 
 private:
     size_type lower[3];         ///< Coordinates of lower-left-bottom corner
     size_type upper[3];         ///< Coordinates of upper-right-top corner
     /**
      * Octree level. This has no direct effect on the spatial extent of the
-     * cell, but is used in finding corresponding indices in the octree. The
+     * node, but is used in finding corresponding indices in the octree. The
      * level is zero for the finest (microblock) level of the octree.
      */
     unsigned int level;
@@ -149,32 +151,32 @@ public:
 
 
 /**
- * Recursively walk an octree, calling a user-defined function on each cell.
- * The function takes a @ref Cell and returns a boolean indicating whether
+ * Recursively walk an octree, calling a user-defined function on each node.
+ * The function takes a @ref Node and returns a boolean indicating whether
  * the children should be visited in turn (ignored for leaves).
  *
  * The most refined level does not need to be power-of-two in size. Any octree
- * cells that do not at least partially intersect the rectangle defined by @a
+ * nodes that do not at least partially intersect the rectangle defined by @a
  * dims will be skipped.
  *
- * @param dims      Dimensions of the most refined layer, in grid cells.
- * @param microSize Dimensions of the cubic cells in the most refined layer, in grid cells.
+ * @param dims      Dimensions of the most refined layer, in cells.
+ * @param microSize Dimensions of the nodes in the most refined layer, in cells.
  * @param levels    Number of levels in the virtual octree.
  * @param func      User-provided functor.
  *
  * @pre
- * - @a levels is at least 1 and at most the number of bits in @c Cell::size_type
+ * - @a levels is at least 1 and at most the number of bits in @c Node::size_type
  * - The dimensions are each at most @a microSize * 2<sup>levels - 1</sup>.
  */
 template<typename Func>
-void forEachCell(const Cell::size_type dims[3], Cell::size_type microSize, unsigned int levels, const Func &func);
+void forEachNode(const Node::size_type dims[3], Node::size_type microSize, unsigned int levels, const Func &func);
 
 /**
  * Overload that takes a grid instead of explicit dimensions. The dimensions are taken from
  * the number of cells along each dimension of the grid.
  */
 template<typename Func>
-void forEachCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func);
+void forEachNode(const Grid &grid, Node::size_type microSize, unsigned int levels, const Func &func);
 
 /**
  * Iterate over all splats given be a collection of @ref Range, calling
