@@ -41,6 +41,7 @@
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"
+#include "src/work_queue.h"
 
 namespace po = boost::program_options;
 using namespace std;
