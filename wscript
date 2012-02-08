@@ -175,7 +175,7 @@ def build(bld):
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
-            lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'rt'])
+            lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'boost_thread-mt', 'rt'])
     if bld.env['stxxl']:
         bld.program(
                 source = ['sortscan.cpp'],

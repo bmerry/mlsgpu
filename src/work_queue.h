@@ -114,7 +114,7 @@ void WorkQueue<ValueType>::push(const ValueType &value)
     }
     values[tail_] = value;
     tail_++;
-    if (tail_ == capacity)
+    if (tail_ == capacity_)
         tail_ = 0;
     size_++;
     dataCondition.notify_one();
@@ -124,13 +124,13 @@ template<typename ValueType>
 ValueType WorkQueue<ValueType>::pop()
 {
     boost::unique_lock<boost::mutex> lock(mutex);
-    while (size == 0)
+    while (size_ == 0)
     {
         dataCondition.wait(lock);
     }
     ValueType ans = values[head_];
     head_++;
-    if (head_ == capacity)
+    if (head_ == capacity_)
         head_ = 0;
     size_--;
     spaceCondition.notify_one();

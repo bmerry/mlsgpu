@@ -15,6 +15,9 @@
 #include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
+#include <boost/thread/thread.hpp>
 #include <boost/array.hpp>
 #include <boost/progress.hpp>
 #include <boost/io/ios_state.hpp>
@@ -596,16 +599,70 @@ void DeviceBlock<Collection>::operator()(
         progress->set(recursionState.cellsDone + grid.numCells());
 }
 
+struct WorkItem
+{
+    std::vector<Splat> splats;
+    Grid grid;
+    Bucket::Recursion recursionState;
+};
+
+class HostWorker
+{
+public:
+    typedef StdVectorCollection<Splat> DeviceCollection;
+
+    HostWorker(
+        WorkQueue<boost::shared_ptr<WorkItem> > &workQueue,
+        DeviceBlock<DeviceCollection> &deviceBlock,
+        std::size_t maxDeviceSplats,
+        Grid::size_type maxDeviceCells,
+        std::size_t maxDeviceSplit);
+
+    /// Thread runner
+    void operator()();
+private:
+    WorkQueue<boost::shared_ptr<WorkItem> > &workQueue;
+    const boost::reference_wrapper<DeviceBlock<DeviceCollection> > deviceBlock;
+    std::size_t maxDeviceSplats;
+    Grid::size_type maxDeviceCells;
+    std::size_t maxDeviceSplit;
+};
+
+HostWorker::HostWorker(
+    WorkQueue<boost::shared_ptr<WorkItem> > &workQueue,
+    DeviceBlock<DeviceCollection> &deviceBlock,
+    std::size_t maxDeviceSplats,
+    Grid::size_type maxDeviceCells,
+    std::size_t maxDeviceSplit)
+:
+    workQueue(workQueue),
+    deviceBlock(deviceBlock),
+    maxDeviceSplats(maxDeviceSplats),
+    maxDeviceCells(maxDeviceCells),
+    maxDeviceSplit(maxDeviceSplit)
+{
+}
+
+void HostWorker::operator()()
+{
+    while (true)
+    {
+        boost::shared_ptr<WorkItem> item = workQueue.pop();
+        if (!item)
+            break;
+
+        Statistics::Timer timer("host.block.exec");
+        boost::ptr_vector<DeviceCollection> deviceSplats;
+        deviceSplats.push_back(new DeviceCollection(item->splats));
+        Bucket::bucket(deviceSplats, item->grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit,
+                       deviceBlock, item->recursionState);
+    }
+}
+
 template<typename Collection>
 class HostBlock
 {
 public:
-    typedef StdVectorCollection<Splat> DeviceCollection;
-    HostBlock(DeviceBlock<DeviceCollection> &deviceBlock,
-              std::size_t maxDeviceSplats,
-              unsigned int maxDeviceCells,
-              std::size_t maxDeviceSplit);
-
     void operator()(
         const boost::ptr_vector<Collection> &splats,
         Bucket::Range::index_type numSplats,
@@ -615,22 +672,16 @@ public:
         const Bucket::Recursion &recursionState) const;
 
     void setProgress(progress_display64 *progress) { this->progress = progress; }
+
+    HostBlock(WorkQueue<boost::shared_ptr<WorkItem> > &workQueue);
 private:
-    const boost::reference_wrapper<DeviceBlock<DeviceCollection> > deviceBlock;
-    const std::size_t maxDeviceSplats;
-    const unsigned int maxDeviceCells;
-    const std::size_t maxDeviceSplit;
+    WorkQueue<boost::shared_ptr<WorkItem> > &workQueue;
     progress_display64 *progress;
 };
 
 template<typename Collection>
-HostBlock<Collection>::HostBlock(
-    DeviceBlock<DeviceCollection> &deviceBlock,
-    std::size_t maxDeviceSplats,
-    unsigned int maxDeviceCells,
-    std::size_t maxDeviceSplit)
-: deviceBlock(deviceBlock), maxDeviceSplats(maxDeviceSplats),
-    maxDeviceCells(maxDeviceCells), maxDeviceSplit(maxDeviceSplit), progress(NULL)
+HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<WorkItem> > &workQueue)
+: workQueue(workQueue), progress(NULL)
 {
 }
 
@@ -644,17 +695,18 @@ void HostBlock<Collection>::operator()(
     if (progress != NULL)
     {
         progress->set(recursionState.cellsDone);
-        boost::unwrap_ref(deviceBlock).setProgress(progress);
     }
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    vector<Splat> localSplats;
+    boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
+    item->grid = grid;
+    item->recursionState = recursionState;
 
     {
         Statistics::Timer timer("host.block.load");
         std::size_t pos = 0;
-        localSplats.resize(numSplats);
+        item->splats.resize(numSplats);
 
         // Stats bookkeeping
         const int pageSize = 4096;
@@ -667,7 +719,7 @@ void HostBlock<Collection>::operator()(
             // Note: &localSplats[pos] is necessary to trigger the fast path in
             // FastPly::Reader. Using outSplats.begin() + pos would hit the
             // slow path.
-            splats[scan].read(i->start, i->start + i->size, &localSplats[pos]);
+            splats[scan].read(i->start, i->start + i->size, &item->splats[pos]);
             pos += i->size;
 
             if (i->size > 0)
@@ -689,15 +741,7 @@ void HostBlock<Collection>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    {
-        Statistics::Timer timer("host.block.exec");
-        boost::ptr_vector<DeviceCollection> deviceSplats;
-        deviceSplats.push_back(new DeviceCollection(localSplats));
-        Bucket::bucket(deviceSplats, grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit, deviceBlock, recursionState);
-    }
-
-    if (progress != NULL)
-        progress->set(recursionState.cellsDone + grid.numCells());
+    workQueue.push(item);
 }
 
 /**
@@ -721,9 +765,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    DeviceBlock<typename HostBlock<Collection>::DeviceCollection> deviceBlock(
+    WorkQueue<boost::shared_ptr<WorkItem> > workQueue(4);
+    DeviceBlock<typename HostWorker::DeviceCollection> deviceBlock(
         context, device, maxDeviceSplats, blockCells, levels, subsampling);
-    HostBlock<Collection> hostBlock(deviceBlock, maxDeviceSplats, blockCells, maxSplit);
+    HostWorker hostWorker(workQueue, deviceBlock, maxDeviceSplats, blockCells, maxSplit);
+    HostBlock<Collection> hostBlock(workQueue);
     deviceBlock.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
@@ -742,9 +788,19 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         progress_display64 progress(grid.numCells(), Log::log[Log::info]);
         hostBlock.setProgress(&progress);
         deviceBlock.setOutput(mesh->outputFunctor(pass));
+
+        // Start worker threads
+        boost::thread thread(hostWorker);
+
         Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
+
+        // Shut down worker threads
+        workQueue.push(boost::shared_ptr<WorkItem>());
+        thread.join();
+
         progress.set(grid.numCells());
     }
+
 
     {
         Statistics::Timer timer("finalize.time");
