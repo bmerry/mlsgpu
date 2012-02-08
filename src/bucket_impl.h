@@ -124,78 +124,6 @@ void forEachSplat(
     }
 }
 
-template<typename Func>
-class ForEachSplatCell
-{
-private:
-    const Grid &grid;
-    Cell::size_type dims[3];
-    Cell::size_type microSize;
-    unsigned int levels;
-    const Func &func;
-
-    class PerSplat
-    {
-    private:
-        Range::scan_type scan;
-        Range::index_type id;
-        const Splat &splat;
-        const Func &func;
-        float lower[3];      ///< Splat lower bound converted to grid coordinates
-        float upper[3];      ///< Splat upper bound converted to grid coordinates
-
-    public:
-        PerSplat(const Grid &grid, Range::scan_type scan, Range::index_type id, const Splat &splat, const Func &func)
-            : scan(scan), id(id), splat(splat), func(func)
-        {
-            float lo[3], hi[3];
-            for (int i = 0; i < 3; i++)
-            {
-                lo[i] = splat.position[i] - splat.radius;
-                hi[i] = splat.position[i] + splat.radius;
-            }
-            grid.worldToVertex(lo, lower);
-            grid.worldToVertex(hi, upper);
-        }
-
-        bool operator()(const Cell &cell) const
-        {
-            for (int i = 0; i < 3; i++)
-                if (upper[i] < cell.getLower()[i] || lower[i] > cell.getUpper()[i])
-                    return false;
-            return func(scan, id, splat, cell);
-        }
-    };
-
-public:
-    typedef void result_type;
-
-    ForEachSplatCell(const Grid &grid, Cell::size_type microSize, unsigned int levels, const Func &func)
-        : grid(grid), microSize(microSize), levels(levels), func(func)
-    {
-        for (int i = 0; i < 3; i++)
-            dims[i] = grid.numCells(i);
-    }
-
-    void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const
-    {
-        PerSplat p(grid, scan, id, splat, func);
-        forEachCell(dims, microSize, levels, p);
-    }
-};
-
-template<typename CollectionSet, typename Func>
-void forEachSplatCell(
-    const CollectionSet &splats,
-    RangeConstIterator first,
-    RangeConstIterator last,
-    const Grid &grid, Cell::size_type microSize, unsigned int levels,
-    const Func &func)
-{
-    ForEachSplatCell<Func> f(grid, microSize, levels, func);
-    forEachSplat(splats, first, last, f);
-}
-
 /// Contains static information used to process a cell.
 struct BucketParameters
 {
@@ -215,6 +143,13 @@ struct BucketState
 {
     static const std::size_t BAD_BLOCK = std::size_t(-1);
 
+    /**
+     * A child block. The copy constructor and assignment operator are
+     * provided so that these can be stored in an STL vector. Copying
+     * the ranges to grow the vector would be expensive, but in actual
+     * use the containing vector is sized first before splats are
+     * inserted.
+     */
     struct Child
     {
         Cell cell;
@@ -276,13 +211,25 @@ struct BucketState
 
     /**
      * Get the (inclusive) range of indices in the base level of @ref cellCounts
-     * covered a splat.
+     * covered by the bounding box of a splat.
+     *
+     * @param      splat        Splat to query
+     * @param[out] lo           Indices of first microblock covered by @a splat
+     * @param[out] hi           Indices of last microblock covered by @a splat.
      */
     void getSplatCells(const Splat &splat, Cell::size_type lo[3], Cell::size_type hi[3]);
 
-    /// The number of splats that land in a given power-of-two cell
+    /**
+     * The number of splats that land in a given power-of-two cell.
+     * @see @ref upsweepCounts.
+     */
     std::tr1::int64_t getCellCount(const Cell &cell) const;
 
+    /**
+     * Convert @ref cellCounts from a delta encoding to plain counts.
+     * This should be called after all calls to @ref CountSplat are complete,
+     * and before calling @ref getCellCount.
+     */
     void upsweepCounts();
 };
 
@@ -333,6 +280,12 @@ public:
     void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
 
+/**
+ * Determine the appropriate size for the microblocks.
+ * This ignores @a maxCells. Instead, @a dims could be in either units of cells or
+ * in units of @a maxCells, in which case we are using how many @a maxCells sized
+ * blocks form each microblock.
+ */
 Cell::size_type chooseMicroSize(
     const Cell::size_type dims[3], std::size_t maxSplit);
 

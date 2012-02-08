@@ -172,22 +172,20 @@ public:
  * The algorithm works recursively. At each level of recursion, it takes the
  * current "cell" (which is a cuboid of grid cells), and subdivides it into
  * "microblocks". Microblocks are chosen to be as small as possible (subject
- * to @a maxSplit), but not smaller than determined by @a maxCells. Of course,
- * if on entry to the recursion the cell is suitable for processing this
- * is done immediately.
+ * to @a maxSplit), but not smaller than determined by @a maxCells (unless
+ * the top level is already that small). Of course, if on entry to the
+ * recursion the cell is suitable for processing this is done immediately.
  *
  * The microblocks are arranged in an implicit, dense octree. The splats
  * are then processed in several passes:
  *  -# Each splat is accumulated into a counter for all octree nodes
- *     it intersects, to determine the size of the node should it be
- *     turned into a bucket.
+ *     it intersects, so that the sizes of nodes can be determined.
+ *     A delta encoding is used so that small splats only require
+ *     one modification to the data structure, instead of one per level.
  *  -# The octree is walked top-down to identify buckets for passing to
  *     the next level. A node is chosen if it satisfies @a maxCells and
  *     @a maxSplats, or if it is a microblock. Otherwise it is subdivided.
- *  -# Storage is allocated to hold all the splat ranges for the next
- *     level of the octree.
- *  -# The splats are reprocessed to place them into the storage (a single
- *     splat may be stored in multiple buckets, if it crosses boundaries).
+ *  -# The splats are reprocessed to place them into the buckets.
  * The buckets are then processed recursively.
  */
 template<typename CollectionSet>

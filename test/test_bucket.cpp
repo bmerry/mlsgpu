@@ -184,43 +184,6 @@ void TestRange::testAppendNewScan()
 
 
 /**
- * Tests for @ref Bucket::internal::RangeCounter.
- */
-class TestRangeCounter : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestRangeCounter);
-    CPPUNIT_TEST(testEmpty);
-    CPPUNIT_TEST(testSimple);
-    CPPUNIT_TEST_SUITE_END();
-public:
-    void testEmpty();           ///< Tests initial state
-    void testSimple();          ///< Tests state after various types of additions
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRangeCounter, TestSet::perBuild());
-
-void TestRangeCounter::testEmpty()
-{
-    RangeCounter c;
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), c.countRanges());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), c.countSplats());
-}
-
-void TestRangeCounter::testSimple()
-{
-    RangeCounter c;
-
-    c.append(3, 5);
-    c.append(3, 6);
-    c.append(3, 6);
-    c.append(4, 7);
-    c.append(5, 2);
-    c.append(5, 4);
-    c.append(5, 5);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(4), c.countRanges());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(7), c.countSplats());
-}
-
-/**
  * Tests for @ref Bucket::internal::RangeCollector.
  */
 class TestRangeCollector : public CppUnit::TestFixture
@@ -314,7 +277,7 @@ void TestRangeCollector::testFlushEmpty()
 
 
 /**
- * Slow tests for Bucket::internal::RangeCounter and Bucket::internal::RangeCollector.
+ * Slow tests for Bucket::internal::RangeCollector.
  * These tests are designed to catch overflow conditions and hence necessarily
  * involve running O(2^32) operations. They are thus nightly rather than
  * per-build tests.
@@ -323,11 +286,9 @@ class TestRangeBig : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestRangeBig);
     CPPUNIT_TEST(testBigRange);
-    CPPUNIT_TEST(testManyRanges);
     CPPUNIT_TEST_SUITE_END();
 public:
     void testBigRange();             ///< Throw more than 2^32 contiguous elements into a range
-    void testManyRanges();           ///< Create more than 2^32 separate ranges
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRangeBig, TestSet::perNightly());
 
@@ -335,18 +296,14 @@ void TestRangeBig::testBigRange()
 {
     vector<Range> out;
     RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-    RangeCounter counter;
 
     for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
     {
         c.append(0, i);
-        counter.append(0, i);
     }
     c.flush();
 
     CPPUNIT_ASSERT_EQUAL(2, int(out.size()));
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(2), counter.countRanges());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countSplats());
 
     CPPUNIT_ASSERT_EQUAL(Range::scan_type(0), out[0].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFu), out[0].size);
@@ -355,20 +312,6 @@ void TestRangeBig::testBigRange()
     CPPUNIT_ASSERT_EQUAL(Range::scan_type(0), out[1].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(0x2345678Au), out[1].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(0xFFFFFFFFu), out[1].start);
-}
-
-void TestRangeBig::testManyRanges()
-{
-    RangeCounter counter;
-
-    // We force each append to be a separate range by going up in steps of 2.
-    for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
-    {
-        counter.append(0, i * 2);
-    }
-
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countRanges());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(UINT64_C(0x123456789)), counter.countSplats());
 }
 
 std::ostream &operator<<(std::ostream &o, const Cell &cell)

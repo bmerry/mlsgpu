@@ -102,32 +102,6 @@ private:
 };
 
 /**
- * Tracks how many ranges are needed to encode a list of splats and
- * how many splats are in the list. It will match the actual number
- * written by @ref RangeCollector.
- */
-class RangeCounter
-{
-private:
-    std::tr1::uint64_t ranges;
-    std::tr1::uint64_t splats;
-    Range current;
-
-public:
-    /// Constructor
-    RangeCounter();
-
-    /// Adds a new splat to the virtual list.
-    void append(Range::scan_type scan, Range::index_type splat);
-
-    /// Returns the number of ranges that would be required to encode the provided splats.
-    std::tr1::uint64_t countRanges() const;
-
-    /// Returns the number of splats given to @ref append
-    std::tr1::uint64_t countSplats() const;
-};
-
-/**
  * Accepts a list of splat IDs and merges them into ranges which are then
  * output.
  * @param OutputIterator an output iterator that accepts assignments of @ref Range.
@@ -215,28 +189,6 @@ void forEachSplat(
     const CollectionSet &splats,
     RangeConstIterator first,
     RangeConstIterator last,
-    const Func &func);
-
-/**
- * Combination of @ref forEachSplat and @ref forEachCell that calls the user
- * function for cells that are intersected by the splat. As for @ref forEachCell,
- * the function may return @c false to prevent recursion into child cells.
- *
- * The function takes the arg
- *
- * @param splats       %Random access container of collections to walk.
- * @param first, last  %Range of @ref Range objects.
- * @param grid         %Grid for transforming splat coordinates into grid coordinates.
- * @param microSize    Dimensions of the cubic cells in the most refined layer, in grid cells.
- * @param levels       Number of levels in the virtual octree.
- * @param func         User-provided functor.
- */
-template<typename CollectionSet, typename Func>
-void forEachSplatCell(
-    const CollectionSet &splats,
-    RangeConstIterator first,
-    RangeConstIterator last,
-    const Grid &grid, Cell::size_type microSize, unsigned int levels,
     const Func &func);
 
 } // namespace internal

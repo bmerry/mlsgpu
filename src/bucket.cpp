@@ -128,33 +128,6 @@ Cell Cell::child(unsigned int idx) const
     return c;
 }
 
-RangeCounter::RangeCounter() : ranges(0), splats(0), current()
-{
-}
-
-void RangeCounter::append(Range::scan_type scan, Range::index_type splat)
-{
-    splats++;
-    /* On the first call, the append will succeed (empty range), but we still
-     * need to set ranges to 1 since this is the first real range.
-     */
-    if (ranges == 0 || !current.append(scan, splat))
-    {
-        current = Range(scan, splat);
-        ranges++;
-    }
-}
-
-std::tr1::uint64_t RangeCounter::countRanges() const
-{
-    return ranges;
-}
-
-std::tr1::uint64_t RangeCounter::countSplats() const
-{
-    return splats;
-}
-
 const std::size_t BucketState::BAD_BLOCK;
 
 BucketState::BucketState(
