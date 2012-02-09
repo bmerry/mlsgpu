@@ -61,7 +61,9 @@ public:
  * -# For each pass, call @ref outputFunctor to obtain a functor, then
  *    make as many calls to @ref Marching::generate as desired using this
  *    functor. Each call should set @a keyOffset so that vertex keys line up.
- *    Each pass must generate exactly the same geometry.
+ *    Each pass must generate exactly the same geometry, but the chunks may
+ *    be generated in different order. The functor may be called from
+ *    multiple threads simultaneously.
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
  */

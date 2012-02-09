@@ -414,17 +414,37 @@ void TestMeshBase::testSimple()
     for (unsigned int i = 0; i < passes; i++)
     {
         Marching::OutputFunctor functor = mesh->outputFunctor(i);
-        add(functor,
-            boost::size(internalVertices0), 0, boost::size(indices0),
-            internalVertices0, NULL, NULL, indices0);
-        add(functor,
-            0, boost::size(externalVertices1), boost::size(indices1),
-            NULL, externalVertices1, externalKeys1, indices1);
-        add(functor,
-            boost::size(internalVertices2),
-            boost::size(externalVertices2),
-            boost::size(indices2),
-            internalVertices2, externalVertices2, externalKeys2, indices2);
+        /* Reverse the order on each pass, to ensure that the mesh
+         * classes are robust to non-deterministic reordering.
+         */
+        if (i % 2 == 0)
+        {
+            add(functor,
+                boost::size(internalVertices0), 0, boost::size(indices0),
+                internalVertices0, NULL, NULL, indices0);
+            add(functor,
+                0, boost::size(externalVertices1), boost::size(indices1),
+                NULL, externalVertices1, externalKeys1, indices1);
+            add(functor,
+                boost::size(internalVertices2),
+                boost::size(externalVertices2),
+                boost::size(indices2),
+                internalVertices2, externalVertices2, externalKeys2, indices2);
+        }
+        else
+        {
+            add(functor,
+                boost::size(internalVertices2),
+                boost::size(externalVertices2),
+                boost::size(indices2),
+                internalVertices2, externalVertices2, externalKeys2, indices2);
+            add(functor,
+                0, boost::size(externalVertices1), boost::size(indices1),
+                NULL, externalVertices1, externalKeys1, indices1);
+            add(functor,
+                boost::size(internalVertices0), 0, boost::size(indices0),
+                internalVertices0, NULL, NULL, indices0);
+        }
     }
     mesh->finalize();
     mesh->write(writer, "");
