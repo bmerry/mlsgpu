@@ -246,9 +246,9 @@ void SplatTreeCL::enqueueBuild(
         throw std::length_error("Too many splats");
     }
     unsigned int levels = 1;
-    while (grid.numVertices(0) > (1 << (levels - 1))
-           || grid.numVertices(1) > (1 << (levels - 1))
-           || grid.numVertices(2) > (1 << (levels - 1)))
+    while (grid.numVertices(0) > (1U << (levels - 1))
+           || grid.numVertices(1) > (1U << (levels - 1))
+           || grid.numVertices(2) > (1U << (levels - 1)))
         levels++;
     unsigned int maxShift = levels - 1;
     unsigned int minShift = std::min(subsamplingShift, maxShift);
