@@ -95,7 +95,7 @@ template<typename ValueType>
 typename WorkQueue<ValueType>::size_type WorkQueue<ValueType>::size()
 {
     boost::unique_lock<boost::mutex> lock(mutex);
-    return size;
+    return size_;
 }
 
 template<typename ValueType>
