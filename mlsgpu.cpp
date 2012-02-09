@@ -745,11 +745,26 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
+    /*
+     * TODO:
+     * - make tunable
+     * - update computation of whether we have enough device memory
+     * - support multithreading at the next level down as well, to
+     *   do better host-device overlap
+     */
+    const unsigned int numThreads = 2;
     WorkQueue<boost::shared_ptr<HostWorkItem> > workQueue(2);
-    DeviceBlock deviceBlock(
-        workQueue, context, device, maxDeviceSplats, blockCells, maxSplit, levels, subsampling);
+    boost::ptr_vector<DeviceBlock> deviceBlocks;
+    deviceBlocks.reserve(numThreads);
+    for (unsigned int i = 0; i < numThreads; i++)
+    {
+        deviceBlocks.push_back(new DeviceBlock(
+                workQueue, context, device,
+                maxDeviceSplats, blockCells, maxSplit,
+                levels, subsampling));
+        deviceBlocks.back().setGrid(grid);
+    }
     HostBlock<Collection> hostBlock(workQueue);
-    deviceBlock.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
@@ -766,16 +781,22 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
 
         progress_display64 progress(grid.numCells(), Log::log[Log::info]);
         hostBlock.setProgress(&progress);
-        deviceBlock.setOutput(mesh->outputFunctor(pass));
+        Marching::OutputFunctor out = mesh->outputFunctor(pass);
 
         // Start worker threads
-        boost::thread thread(boost::bind(boost::ref(deviceBlock)));
+        boost::thread_group threads;
+        for (unsigned int i = 0; i < numThreads; i++)
+        {
+            deviceBlocks[i].setOutput(out);
+            threads.create_thread(boost::bind(boost::ref(deviceBlocks[i])));
+        }
 
         Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
 
         // Shut down worker threads
-        workQueue.push(boost::shared_ptr<HostWorkItem>());
-        thread.join();
+        for (unsigned int i = 0; i < numThreads; i++)
+            workQueue.push(boost::shared_ptr<HostWorkItem>());
+        threads.join_all();
 
         progress.set(grid.numCells());
     }
