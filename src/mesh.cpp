@@ -557,6 +557,7 @@ void BigMesh::add(const cl::CommandQueue &queue,
         tmpVertexKeys, tmpIndexTable);
 
     verticesEvent.wait();
+    /* Compact the vertex list to keep only new external vertices */
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         const cl_uint pos = tmpIndexTable[i];
