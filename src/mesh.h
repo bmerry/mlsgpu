@@ -24,6 +24,7 @@
 #include <string>
 #include <boost/array.hpp>
 #include <boost/noncopyable.hpp>
+#include <boost/thread/mutex.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
 #include "src/fast_ply.h"
@@ -75,6 +76,11 @@ protected:
      */
     static bool isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles);
 #endif
+
+    /**
+     * Mutex used by subclasses to serialize their output functors.
+     */
+    boost::mutex mutex;
 
 public:
     /// Number of passes required.
@@ -206,6 +212,78 @@ public:
     virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
+namespace detail
+{
+
+/**
+ * An internal base class for @ref BigMesh and @ref StxxlMesh, implementing
+ * algorithms common to both.
+ *
+ * External vertices are entered into a hash table that maps their keys to
+ * their final indices in the output. When a new chunk of data comes in,
+ * new external vertices are entered into the key map and known ones are
+ * discarded. The indices are then rewritten using the key map.
+ */
+class KeyMapMesh : public MeshBase
+{
+protected:
+    typedef std::tr1::unordered_map<cl_ulong, cl_uint> map_type;
+
+    /// Maps external vertex keys to external indices
+    map_type keyMap;
+
+    /**
+     * @name
+     * @{
+     * Temporary buffers.
+     * These are stored in the object so that memory can be recycled if
+     * possible, rather than thrashing the allocator.
+     */
+    std::vector<boost::array<cl_float, 3> > tmpVertices;
+    std::vector<cl_ulong> tmpVertexKeys;
+    std::vector<boost::array<cl_uint, 3> > tmpTriangles;
+    std::vector<cl_uint> tmpIndexTable;
+    /** @} */
+
+    /**
+     * Load data from the OpenCL buffers into host memory.
+     * The supplied vectors are resized to the appropriate
+     * size for the data that is being loaded.
+     *
+     * @post
+     * - The read into hKeys is complete.
+     * - The read into hVertices will be complete when @a verticesEvent is signalled.
+     * - The read into hTriangles will be complete when @a trianglesEvent is signalled.
+     * - The events will complete is finish time (i.e., the queue will have been flushed).
+     */
+    void loadData(const cl::CommandQueue &queue,
+                  const cl::Buffer &dVertices,
+                  const cl::Buffer &dVertexKeys,
+                  const cl::Buffer &dIndices,
+                  std::vector<boost::array<cl_float, 3> > &hVertices,
+                  std::vector<cl_ulong> &hVertexKeys,
+                  std::vector<boost::array<cl_uint, 3> > &hTriangles,
+                  std::size_t numVertices,
+                  std::size_t numInternalVertices,
+                  std::size_t numTriangles,
+                  cl::Event *verticesEvent,
+                  cl::Event *trianglesEvent) const;
+
+    std::size_t updateKeyMap(
+        cl_uint priorVertices,
+        std::size_t numInternalVertices,
+        const std::vector<cl_ulong> &hKeys,
+        std::vector<cl_uint> &indexTable);
+
+    void rewriteTriangles(
+        cl_uint priorVertices,
+        std::size_t numInternalVertices,
+        const std::vector<cl_uint> &indexTable,
+        std::vector<boost::array<cl_uint, 3> > &triangles) const;
+};
+
+} // namespace detail
+
 /**
  * Two-pass collector that can handle very large meshes by writing
  * the geometry to file as it is produced. It requires an out-of-order
@@ -221,7 +299,7 @@ public:
  * avoids the need to buffer them up until the end. The only unbounded memory is
  * for the key map.
  */
-class BigMesh : public MeshBase
+class BigMesh : public detail::KeyMapMesh
 {
 private:
     typedef FastPly::WriterBase::size_type size_type;
@@ -229,26 +307,11 @@ private:
     FastPly::WriterBase &writer;
     const std::string filename;
 
-    /// Maps external vertex keys to external indices
-    std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
-
     size_type nVertices;    ///< Number of vertices seen in first pass
     size_type nTriangles;   ///< Number of triangles seen in first pass
 
     size_type nextVertex;   ///< Number of vertices written so far
     size_type nextTriangle; ///< Number of triangles written so far
-
-    /**
-     * @name
-     * @{
-     * Temporary buffers for reading data from OpenCL.
-     * These are stored in the object so that memory can be recycled if
-     * possible, rather than thrashing the allocator.
-     */
-    std::vector<cl_ulong> tmpKeys;
-    std::vector<boost::array<cl_float, 3> > tmpVertices;
-    std::vector<boost::array<cl_uint, 3> > tmpTriangles;
-    /** @} */
 
     /// Implementation of the first-pass functor
     void count(const cl::CommandQueue &queue,
@@ -300,7 +363,7 @@ public:
  * using multiple passes. It thus trades storage requirements against
  * performance, at least when @ref BigMesh is compute-bound.
  */
-class StxxlMesh : public MeshBase
+class StxxlMesh : public detail::KeyMapMesh
 {
 private:
     typedef FastPly::WriterBase::size_type size_type;
@@ -309,21 +372,6 @@ private:
     typedef stxxl::VECTOR_GENERATOR<boost::array<cl_uint, 3> >::result triangles_type;
     vertices_type vertices;
     triangles_type triangles;
-
-    /// Maps external vertex keys to external indices
-    std::tr1::unordered_map<cl_ulong, cl_uint> keyMap;
-
-    /**
-     * @name
-     * @{
-     * Temporary buffers for reading data from OpenCL.
-     * These are stored in the object so that memory can be recycled if
-     * possible, rather than thrashing the allocator.
-     */
-    std::vector<cl_ulong> tmpKeys;
-    std::vector<boost::array<cl_float, 3> > tmpVertices;
-    std::vector<boost::array<cl_uint, 3> > tmpTriangles;
-    /** @} */
 
     /// Implementation of the functor
     void add(const cl::CommandQueue &queue,

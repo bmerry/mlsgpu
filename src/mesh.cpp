@@ -18,6 +18,8 @@
 #include <boost/function.hpp>
 #include <boost/bind/bind.hpp>
 #include <boost/ref.hpp>
+#include <boost/thread/locks.hpp>
+#include <boost/thread/mutex.hpp>
 #include <tr1/unordered_map>
 #include <cassert>
 #include <cstdlib>
@@ -40,6 +42,45 @@ std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
     ans["stxxl"] = STXXL_MESH;
 #endif
     return ans;
+}
+
+/**
+ * Utility class used by @ref serializeOutputFunctor.
+ */
+template<typename T>
+class SerializeOutputFunctor
+{
+private:
+    const T out;
+    boost::mutex &mutex;
+
+public:
+    SerializeOutputFunctor(const T &out, boost::mutex &mutex)
+        : out(out), mutex(mutex) {}
+
+    void operator()(const cl::CommandQueue &queue,
+                    const cl::Buffer &vertices,
+                    const cl::Buffer &vertexKeys,
+                    const cl::Buffer &indices,
+                    std::size_t numVertices,
+                    std::size_t numInternalVertices,
+                    std::size_t numIndices,
+                    cl::Event *event)
+    {
+        boost::unique_lock<boost::mutex> lock(mutex);
+        out(queue, vertices, vertexKeys, indices, numVertices, numInternalVertices, numIndices, event);
+    }
+};
+
+/**
+ * Creates a wrapper around a function object that will take a lock before
+ * forwarding to the wrapper. This allows an output functor that is not
+ * thread-safe to be made thread-safe.
+ */
+template<typename T>
+static Marching::OutputFunctor serializeOutputFunctor(const T &out, boost::mutex &mutex)
+{
+    return SerializeOutputFunctor<T>(out, mutex);
 }
 
 #if UNIT_TESTS
@@ -192,7 +233,7 @@ Marching::OutputFunctor SimpleMesh::outputFunctor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return Marching::OutputFunctor(boost::bind(&SimpleMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
+    return serializeOutputFunctor(boost::bind(&SimpleMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
 }
 
 
@@ -349,9 +390,97 @@ Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return Marching::OutputFunctor(boost::bind(&WeldMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
+    return serializeOutputFunctor(boost::bind(&WeldMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
 }
 
+
+namespace detail
+{
+
+void KeyMapMesh::loadData(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &dVertices,
+    const cl::Buffer &dVertexKeys,
+    const cl::Buffer &dIndices,
+    std::vector<boost::array<cl_float, 3> > &hVertices,
+    std::vector<cl_ulong> &hVertexKeys,
+    std::vector<boost::array<cl_uint, 3> > &hTriangles,
+    std::size_t numVertices,
+    std::size_t numInternalVertices,
+    std::size_t numTriangles,
+    cl::Event *verticesEvent,
+    cl::Event *trianglesEvent) const
+{
+    cl::Event keysEvent;
+    std::size_t numExternalVertices = numVertices - numInternalVertices;
+
+    hVertices.resize(numVertices);
+    hVertexKeys.resize(numExternalVertices);
+    hTriangles.resize(numTriangles);
+    // TODO: revisit the dependency graph, here and in BigMesh
+    if (numExternalVertices > 0)
+    {
+        queue.enqueueReadBuffer(dVertexKeys, CL_FALSE,
+                                numInternalVertices * sizeof(cl_ulong),
+                                numExternalVertices * sizeof(cl_ulong),
+                                &hVertexKeys[0],
+                                NULL, &keysEvent);
+        /* Start this transfer going while we queue up the following ones */
+        queue.flush();
+    }
+
+    queue.enqueueReadBuffer(dVertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
+                            &hVertices[0][0], NULL, verticesEvent);
+    queue.enqueueReadBuffer(dIndices, CL_FALSE,
+                            0, numTriangles * (3 * sizeof(cl_uint)),
+                            &hTriangles[0][0],
+                            NULL, trianglesEvent);
+    queue.flush();
+    if (numExternalVertices > 0)
+        keysEvent.wait();
+}
+
+std::size_t KeyMapMesh::updateKeyMap(
+    cl_uint priorVertices,
+    std::size_t numInternalVertices,
+    const std::vector<cl_ulong> &hKeys,
+    std::vector<cl_uint> &indexTable)
+{
+    cl_uint base = priorVertices + numInternalVertices;
+    const std::size_t numExternalVertices = hKeys.size();
+    std::size_t newKeys = 0;
+
+    indexTable.resize(numExternalVertices);
+    for (std::size_t i = 0; i < numExternalVertices; i++)
+    {
+        std::pair<map_type::iterator, bool> added;
+        added = keyMap.insert(std::make_pair(tmpVertexKeys[i], base + newKeys));
+        if (added.second)
+            newKeys++;
+        indexTable[i] = added.first->second;
+    }
+    return newKeys;
+}
+
+void KeyMapMesh::rewriteTriangles(
+    cl_uint priorVertices,
+    std::size_t numInternalVertices,
+    const std::vector<cl_uint> &indexTable,
+    std::vector<boost::array<cl_uint, 3> > &triangles) const
+{
+    for (std::size_t i = 0; i < triangles.size(); i++)
+        for (unsigned int j = 0; j < 3; j++)
+        {
+            cl_uint &index = triangles[i][j];
+            assert(index < numInternalVertices + indexTable.size());
+            if (index < numInternalVertices)
+                index = priorVertices + index;
+            else
+                index = indexTable[index - numInternalVertices];
+        }
+}
+
+} // namespace detail
 
 BigMesh::BigMesh(FastPly::WriterBase &writer, const std::string &filename)
     : writer(writer), filename(filename), nVertices(0), nTriangles(0),
@@ -379,21 +508,26 @@ void BigMesh::count(const cl::CommandQueue &queue,
 
     if (numExternalVertices > 0)
     {
-        tmpKeys.resize(numExternalVertices);
+        tmpVertexKeys.resize(numExternalVertices);
         queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
                                 numInternalVertices * sizeof(cl_ulong),
                                 numExternalVertices * sizeof(cl_ulong),
-                                &tmpKeys[0],
+                                &tmpVertexKeys[0],
                                 NULL, event);
     }
 
     nVertices += numInternalVertices;
 
-    /* Build keyMap, counting how many external vertices are really new */
+    /* Build keyMap, counting how many external vertices are really new.
+     * The values in the keymap are irrelevant since they will be destroyed
+     * for the second pass.
+     *
+     * TODO: see whether it is worth using a separate unordered_set for this.
+     */
     std::size_t newKeys = 0;
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        if (keyMap.insert(std::make_pair(tmpKeys[i], nVertices + newKeys)).second)
+        if (keyMap.insert(std::make_pair(tmpVertexKeys[i], 0)).second)
             newKeys++;
     }
     nVertices += newKeys;
@@ -409,61 +543,41 @@ void BigMesh::add(const cl::CommandQueue &queue,
                   cl::Event *event)
 {
     cl::Event verticesEvent, indicesEvent;
-    std::size_t numExternalVertices = numVertices - numInternalVertices;
-    std::size_t numTriangles = numIndices / 3;
+    const std::size_t numExternalVertices = numVertices - numInternalVertices;
+    const std::size_t numTriangles = numIndices / 3;
 
-    tmpVertices.resize(numVertices);
-    tmpKeys.resize(numExternalVertices);
-    tmpTriangles.resize(numTriangles);
-    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
-                            &tmpVertices[0][0], NULL, &verticesEvent);
-    if (numExternalVertices > 0)
-    {
-        queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
-                                numInternalVertices * sizeof(cl_ulong),
-                                numExternalVertices * sizeof(cl_ulong),
-                                &tmpKeys[0],
-                                NULL, event);
-    }
-    queue.enqueueReadBuffer(indices, CL_FALSE,
-                            0, numIndices * sizeof(cl_uint),
-                            &tmpTriangles[0][0],
-                            NULL, &indicesEvent);
-    queue.flush();
+    loadData(queue,
+             vertices, vertexKeys, indices,
+             tmpVertices, tmpVertexKeys, tmpTriangles,
+             numVertices, numInternalVertices, numTriangles,
+             &verticesEvent, &indicesEvent);
+
+    std::size_t newKeys = updateKeyMap(
+        nextVertex, numInternalVertices,
+        tmpVertexKeys, tmpIndexTable);
 
     verticesEvent.wait();
-    std::size_t newKeys = 0;
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        const cl_uint pos = keyMap[tmpKeys[i]];
+        const cl_uint pos = tmpIndexTable[i];
         if (pos >= nextVertex)
         {
             assert(pos - nextVertex >= numInternalVertices
                    && pos - nextVertex <= numInternalVertices + i);
             tmpVertices[pos - nextVertex] = tmpVertices[numInternalVertices + i];
-            newKeys++;
         }
     }
 
-    /* TODO: store a vector for directly remapping indices to new indices,
-     * to avoid hash table lookups on the key.
-     */
     indicesEvent.wait();
-    for (std::size_t i = 0; i < numTriangles; i++)
-        for (unsigned int j = 0; j < 3; j++)
-        {
-            cl_uint &index = tmpTriangles[i][j];
-            assert(index < numVertices);
-            if (index < numInternalVertices)
-                index = nextVertex + index;
-            else
-                index = keyMap[tmpKeys[index - numInternalVertices]];
-        }
+    rewriteTriangles(nextVertex, numInternalVertices, tmpIndexTable, tmpTriangles);
 
     writer.writeVertices(nextVertex, numInternalVertices + newKeys, &tmpVertices[0][0]);
     writer.writeTriangles(nextTriangle, numTriangles, &tmpTriangles[0][0]);
     nextVertex += numInternalVertices + newKeys;
     nextTriangle += numTriangles;
+
+    if (event != NULL)
+        *event = indicesEvent;
 }
 
 Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
@@ -471,13 +585,15 @@ Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
     switch (pass)
     {
     case 0:
-        return Marching::OutputFunctor(boost::bind(&BigMesh::count, this, _1, _2, _3, _4, _5, _6, _7, _8));
+        return serializeOutputFunctor(boost::bind(&BigMesh::count, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
     case 1:
         nextVertex = 0;
+        nextTriangle = 0;
+        keyMap.clear();
         writer.setNumVertices(nVertices);
         writer.setNumTriangles(nTriangles);
         writer.open(filename);
-        return Marching::OutputFunctor(boost::bind(&BigMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
+        return serializeOutputFunctor(boost::bind(&BigMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
     default:
         abort();
     }
@@ -541,70 +657,42 @@ void StxxlMesh::add(
     cl::Event *event)
 {
     cl::Event verticesEvent, indicesEvent;
-    std::size_t numExternalVertices = numVertices - numInternalVertices;
-    std::size_t numTriangles = numIndices / 3;
+    const std::size_t numExternalVertices = numVertices - numInternalVertices;
+    const std::size_t numTriangles = numIndices / 3;
+    const size_type priorVertices = this->vertices.size();
 
-    tmpVertices.resize(numVertices);
-    tmpKeys.resize(numExternalVertices);
-    tmpTriangles.resize(numTriangles);
-    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
-                            &tmpVertices[0][0], NULL, &verticesEvent);
-    // TODO: revisit the dependency graph, here and in BigMesh
-    if (numExternalVertices > 0)
-    {
-        queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
-                                numInternalVertices * sizeof(cl_ulong),
-                                numExternalVertices * sizeof(cl_ulong),
-                                &tmpKeys[0],
-                                NULL, event);
-    }
-    queue.enqueueReadBuffer(indices, CL_FALSE,
-                            0, numIndices * sizeof(cl_uint),
-                            &tmpTriangles[0][0],
-                            NULL, &indicesEvent);
-    queue.flush();
+    loadData(queue, vertices, vertexKeys, indices,
+             tmpVertices, tmpVertexKeys, tmpTriangles,
+             numVertices, numInternalVertices, numTriangles,
+             &verticesEvent, &indicesEvent);
 
-    /* Build keyMap, counting how many external vertices are really new
-     * TODO: store a vector for directly remapping indices to new indices,
-     * to avoid extra hash table lookups.
-     */
-    std::size_t newKeys = 0;
-    size_type oldVertices = this->vertices.size();
-    size_type nv = this->vertices.size() + numInternalVertices;
-    for (std::size_t i = 0; i < numExternalVertices; i++)
-    {
-        if (keyMap.insert(std::make_pair(tmpKeys[i], nv + newKeys)).second)
-            newKeys++;
-    }
+    std::size_t newKeys = updateKeyMap(
+        priorVertices, numInternalVertices,
+        tmpVertexKeys, tmpIndexTable);
 
     /* Copy the vertices into storage */
+    this->vertices.reserve(priorVertices + numInternalVertices + newKeys);
     verticesEvent.wait();
-    this->vertices.reserve(nv + newKeys);
     std::copy(tmpVertices.begin(), tmpVertices.begin() + numInternalVertices,
               std::back_inserter(this->vertices));
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        const cl_uint pos = keyMap[tmpKeys[i]];
-        if (pos >= oldVertices)
+        const cl_uint pos = tmpIndexTable[i];
+        if (pos == this->vertices.size())
         {
-            assert(pos == this->vertices.size());
             this->vertices.push_back(tmpVertices[numInternalVertices + i]);
         }
     }
 
     indicesEvent.wait();
-    for (std::size_t i = 0; i < numTriangles; i++)
-        for (unsigned int j = 0; j < 3; j++)
-        {
-            cl_uint &index = tmpTriangles[i][j];
-            assert(index < numVertices);
-            if (index < numInternalVertices)
-                index = oldVertices + index;
-            else
-                index = keyMap[tmpKeys[index - numInternalVertices]];
-        }
+    rewriteTriangles(priorVertices, numInternalVertices, tmpIndexTable, tmpTriangles);
+
+    // Store the output triangles
     this->triangles.reserve(this->triangles.size() + tmpTriangles.size());
     copy(tmpTriangles.begin(), tmpTriangles.end(), std::back_inserter(this->triangles));
+
+    if (event != NULL)
+        *event = indicesEvent;
 }
 
 Marching::OutputFunctor StxxlMesh::outputFunctor(unsigned int pass)
@@ -613,7 +701,7 @@ Marching::OutputFunctor StxxlMesh::outputFunctor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return Marching::OutputFunctor(boost::bind(&StxxlMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8));
+    return serializeOutputFunctor(boost::bind(&StxxlMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
 }
 
 void StxxlMesh::finalize()
