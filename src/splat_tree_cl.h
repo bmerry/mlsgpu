@@ -28,7 +28,7 @@
  * To ease implementation, levels are numbered backwards i.e. level 0 is the
  * largest, finest-grained level, and the last level is 1x1x1.
  */
-class SplatTreeCL
+class SplatTreeCL : public boost::noncopyable
 {
 public:
     /**

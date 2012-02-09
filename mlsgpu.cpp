@@ -476,24 +476,43 @@ public:
 
 const unsigned long progress_display64::displayExpected;
 
-template<typename Collection>
-class DeviceBlock
+struct HostWorkItem
+{
+    std::vector<Splat> splats;
+    Grid grid;
+    Bucket::Recursion recursionState;
+};
+
+class DeviceBlock : public boost::noncopyable
 {
 private:
+    WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue;
+
     const cl::CommandQueue queue;
     SplatTreeCL tree;
     MlsFunctor input;
     Marching marching;
     Marching::OutputFunctor output;
     Grid fullGrid;
+
+    std::size_t maxSplats;
+    Grid::size_type maxCells;
+    std::size_t maxSplit;
     int subsampling;
 
     progress_display64 *progress;
 
 public:
-    DeviceBlock(const cl::Context &context, const cl::Device &device,
-                std::size_t maxSplats, std::size_t maxCells,
-                int levels, int subsampling);
+    typedef void result_type;
+    typedef StdVectorCollection<Splat> Collection;
+
+    DeviceBlock(
+        WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue,
+        const cl::Context &context, const cl::Device &device,
+        std::size_t maxSplats, Grid::size_type maxCells, std::size_t maxSplit,
+        int levels, int subsampling);
+
+    /// Bucketing callback for blocks sized for device execution.
     void operator()(
         const boost::ptr_vector<Collection> &splats,
         Bucket::Range::index_type numSplats,
@@ -502,27 +521,32 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState);
 
+    /// Thread function that triggers bucketing
+    void operator()();
+
     void setProgress(progress_display64 *progress) { this->progress = progress; }
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
 
-template<typename Collection>
-DeviceBlock<Collection>::DeviceBlock(
+DeviceBlock::DeviceBlock(
+    WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue,
     const cl::Context &context, const cl::Device &device,
-    std::size_t maxSplats, std::size_t maxCells,
+    std::size_t maxSplats, Grid::size_type maxCells, std::size_t maxSplit,
     int levels, int subsampling)
-    : queue(context, device),
+:
+    workQueue(workQueue),
+    queue(context, device),
     tree(context, levels, maxSplats),
     input(context),
     marching(context, device, maxCells + 1, maxCells + 1),
+    maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit),
     subsampling(subsampling),
     progress(NULL)
 {
 }
 
-template<typename Collection>
-void DeviceBlock<Collection>::operator()(
+void DeviceBlock::operator()(
     const boost::ptr_vector<Collection> &splats,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
@@ -599,63 +623,19 @@ void DeviceBlock<Collection>::operator()(
         progress->set(recursionState.cellsDone + grid.numCells());
 }
 
-struct WorkItem
-{
-    std::vector<Splat> splats;
-    Grid grid;
-    Bucket::Recursion recursionState;
-};
-
-class HostWorker
-{
-public:
-    typedef StdVectorCollection<Splat> DeviceCollection;
-
-    HostWorker(
-        WorkQueue<boost::shared_ptr<WorkItem> > &workQueue,
-        DeviceBlock<DeviceCollection> &deviceBlock,
-        std::size_t maxDeviceSplats,
-        Grid::size_type maxDeviceCells,
-        std::size_t maxDeviceSplit);
-
-    /// Thread runner
-    void operator()();
-private:
-    WorkQueue<boost::shared_ptr<WorkItem> > &workQueue;
-    const boost::reference_wrapper<DeviceBlock<DeviceCollection> > deviceBlock;
-    std::size_t maxDeviceSplats;
-    Grid::size_type maxDeviceCells;
-    std::size_t maxDeviceSplit;
-};
-
-HostWorker::HostWorker(
-    WorkQueue<boost::shared_ptr<WorkItem> > &workQueue,
-    DeviceBlock<DeviceCollection> &deviceBlock,
-    std::size_t maxDeviceSplats,
-    Grid::size_type maxDeviceCells,
-    std::size_t maxDeviceSplit)
-:
-    workQueue(workQueue),
-    deviceBlock(deviceBlock),
-    maxDeviceSplats(maxDeviceSplats),
-    maxDeviceCells(maxDeviceCells),
-    maxDeviceSplit(maxDeviceSplit)
-{
-}
-
-void HostWorker::operator()()
+void DeviceBlock::operator()()
 {
     while (true)
     {
-        boost::shared_ptr<WorkItem> item = workQueue.pop();
+        boost::shared_ptr<HostWorkItem> item = workQueue.pop();
         if (!item)
             break;
 
         Statistics::Timer timer("host.block.exec");
-        boost::ptr_vector<DeviceCollection> deviceSplats;
-        deviceSplats.push_back(new DeviceCollection(item->splats));
-        Bucket::bucket(deviceSplats, item->grid, maxDeviceSplats, maxDeviceCells, maxDeviceSplit,
-                       deviceBlock, item->recursionState);
+        boost::ptr_vector<Collection> deviceSplats;
+        deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
+        Bucket::bucket(deviceSplats, item->grid, maxSplats, maxCells, maxSplit,
+                       boost::ref(*this), item->recursionState);
     }
 }
 
@@ -673,14 +653,14 @@ public:
 
     void setProgress(progress_display64 *progress) { this->progress = progress; }
 
-    HostBlock(WorkQueue<boost::shared_ptr<WorkItem> > &workQueue);
+    HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue);
 private:
-    WorkQueue<boost::shared_ptr<WorkItem> > &workQueue;
+    WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue;
     progress_display64 *progress;
 };
 
 template<typename Collection>
-HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<WorkItem> > &workQueue)
+HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue)
 : workQueue(workQueue), progress(NULL)
 {
 }
@@ -699,7 +679,7 @@ void HostBlock<Collection>::operator()(
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
+    boost::shared_ptr<HostWorkItem> item = boost::make_shared<HostWorkItem>();
     item->grid = grid;
     item->recursionState = recursionState;
 
@@ -765,10 +745,9 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    WorkQueue<boost::shared_ptr<WorkItem> > workQueue(4);
-    DeviceBlock<typename HostWorker::DeviceCollection> deviceBlock(
-        context, device, maxDeviceSplats, blockCells, levels, subsampling);
-    HostWorker hostWorker(workQueue, deviceBlock, maxDeviceSplats, blockCells, maxSplit);
+    WorkQueue<boost::shared_ptr<HostWorkItem> > workQueue(2);
+    DeviceBlock deviceBlock(
+        workQueue, context, device, maxDeviceSplats, blockCells, maxSplit, levels, subsampling);
     HostBlock<Collection> hostBlock(workQueue);
     deviceBlock.setGrid(grid);
 
@@ -790,12 +769,12 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceBlock.setOutput(mesh->outputFunctor(pass));
 
         // Start worker threads
-        boost::thread thread(hostWorker);
+        boost::thread thread(boost::bind(boost::ref(deviceBlock)));
 
         Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
 
         // Shut down worker threads
-        workQueue.push(boost::shared_ptr<WorkItem>());
+        workQueue.push(boost::shared_ptr<HostWorkItem>());
         thread.join();
 
         progress.set(grid.numCells());
