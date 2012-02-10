@@ -67,7 +67,7 @@ public:
                     std::size_t numIndices,
                     cl::Event *event)
     {
-        boost::unique_lock<boost::mutex> lock(mutex);
+        boost::lock_guard<boost::mutex> lock(mutex);
         out(queue, vertices, vertexKeys, indices, numVertices, numInternalVertices, numIndices, event);
     }
 };

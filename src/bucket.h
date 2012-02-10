@@ -21,6 +21,7 @@
 #include "grid.h"
 #include "collection.h"
 #include "fast_ply.h"
+#include "progress.h"
 
 /**
  * Bucketing of large numbers of splats into blocks.
@@ -114,9 +115,8 @@ struct Recursion
 {
     unsigned int depth;             ///< Current depth of recursion.
     Range::index_type totalRanges;  ///< Ranges held in memory at all levels.
-    std::tr1::uint64_t cellsDone;   ///< Total number of cells processed.
 
-    Recursion() : depth(0), totalRanges(0), cellsDone(0) {}
+    Recursion() : depth(0), totalRanges(0) {}
 };
 
 /**
@@ -159,6 +159,10 @@ public:
  *                   give higher performance by reducing recursion depth,
  *                   but at the cost of more memory.
  * @param process    Processing function called for each non-empty bucket.
+ * @param progress   If specified, a progress display that will be incremented
+ *                   for each empty cell that is skipped. It does not increment
+ *                   for returned buckets, as that should be done as the final
+ *                   processing on the bucket is done.
  * @param recursionState Optional parameter indicating recursion statistics
  *                   on entry. This is intended for use when the processing
  *                   callback calls this function again.
@@ -213,6 +217,7 @@ void bucket(const CollectionSet &splats,
             Grid::size_type maxCells,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
+            ProgressDisplay *progress = NULL,
             const Recursion &recursionState = Recursion());
 
 #if HAVE_STXXL

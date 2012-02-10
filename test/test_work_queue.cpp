@@ -59,7 +59,7 @@ void TestWorkQueue::consumerThread(WorkQueue<int> &queue, vector<int> &out, boos
     int next;
     while ((next = queue.pop()) >= 0)
     {
-        boost::unique_lock<boost::mutex> lock(mutex);
+        boost::lock_guard<boost::mutex> lock(mutex);
         out.push_back(next);
     }
 }

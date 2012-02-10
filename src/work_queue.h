@@ -94,7 +94,7 @@ WorkQueue<ValueType>::WorkQueue(size_type capacity)
 template<typename ValueType>
 typename WorkQueue<ValueType>::size_type WorkQueue<ValueType>::size()
 {
-    boost::unique_lock<boost::mutex> lock(mutex);
+    boost::lock_guard<boost::mutex> lock(mutex);
     return size_;
 }
 

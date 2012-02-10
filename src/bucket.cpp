@@ -157,7 +157,7 @@ BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    nodeCounts(macroLevels), skippedCells(0)
+    nodeCounts(macroLevels)
 {
     for (int i = 0; i < 3; i++)
         dims[i] = divUp(grid.numCells(i), microSize);
@@ -277,15 +277,18 @@ bool PickNodes::operator()(const Node &node) const
     // for progress meters
     if (count == 0)
     {
-        // Intersect with grid
-        std::tr1::uint64_t skipped = 1;
-        Grid::size_type lower[3], upper[3];
-        node.toCells(state.microSize, lower, upper, state.grid);
-        for (int i = 0; i < 3; i++)
+        if (state.params.progress != NULL)
         {
-            skipped *= upper[i] - lower[i];
+            // Intersect with grid
+            std::tr1::uint64_t skipped = 1;
+            Grid::size_type lower[3], upper[3];
+            node.toCells(state.microSize, lower, upper, state.grid);
+            for (int i = 0; i < 3; i++)
+            {
+                skipped *= upper[i] - lower[i];
+            }
+            *state.params.progress += skipped;
         }
-        state.skippedCells += skipped;
         return false;
     }
 

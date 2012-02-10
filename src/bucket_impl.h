@@ -14,6 +14,7 @@
 #include "bucket_internal.h"
 #include "statistics.h"
 #include "misc.h"
+#include "progress.h"
 #if HAVE_STXXL
 # include <stxxl.h>
 #endif
@@ -124,10 +125,12 @@ struct BucketParameters
     Range::index_type maxSplats;        ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
+    ProgressDisplay *progress;          ///< Progress display to update for empty cells
 
     BucketParameters(Range::index_type maxSplats,
-                     Grid::size_type maxCells, std::size_t maxSplit)
-        : maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit) {}
+                     Grid::size_type maxCells, std::size_t maxSplit,
+                     ProgressDisplay *progress)
+        : maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit), progress(progress) {}
 };
 
 /**
@@ -194,9 +197,6 @@ struct BucketState
      * Index of the chosen subregion for each leaf (BAD_REGION if empty).
      */
     boost::multi_array<std::size_t, 3> microRegions;
-
-    /// Number of cells skipped by @ref PickNodes for being empty
-    std::tr1::uint64_t skippedCells;
 
     /**
      * The nodes and ranges for the next level of the hierarchy.
@@ -462,6 +462,7 @@ void bucket(const CollectionSet &splats,
             Grid::size_type maxCells,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
+            ProgressDisplay *progress,
             const Recursion &recursionState)
 {
     Range::index_type numSplats = 0;
@@ -473,7 +474,7 @@ void bucket(const CollectionSet &splats,
         numSplats += splats[i].size();
     }
 
-    internal::BucketParameters params(maxSplats, maxCells, maxSplit);
+    internal::BucketParameters params(maxSplats, maxCells, maxSplit, progress);
     Recursion childRecursion = recursionState;
     childRecursion.depth++;
     childRecursion.totalRanges += root.size();

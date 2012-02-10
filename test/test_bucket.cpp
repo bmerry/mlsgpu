@@ -600,7 +600,6 @@ private:
         Grid grid;
         Range::index_type numSplats;
         vector<Range> ranges;
-        std::tr1::uint64_t done;
     };
 
     typedef StdVectorCollection<Splat> Collection;
@@ -637,14 +636,13 @@ void TestBucket::bucketFunc(
     RangeConstIterator first,
     RangeConstIterator last,
     const Grid &grid,
-    const Recursion &recursionState)
+    const Recursion &)
 {
     (void) splats;
     blocks.push_back(Block());
     Block &block = blocks.back();
     block.numSplats = numSplats;
     block.grid = grid;
-    block.done = recursionState.cellsDone;
     copy(first, last, back_inserter(block.ranges));
 }
 

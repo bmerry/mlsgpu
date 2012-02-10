@@ -45,6 +45,7 @@
 #include "src/provenance.h"
 #include "src/statistics.h"
 #include "src/work_queue.h"
+#include "src/progress.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -381,101 +382,6 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
     }
 }
 
-/**
- * Extends @c boost::progress_display to handle 64-bit offsets
- * even when unsigned long is 32-bit.
- *
- * It does this by keeping its own count, and setting the
- * wrapper progress display's count to a scaled version.
- * It adds an additional @ref set method that allows the count to
- * be explicitly set rather than incremented.
- *
- * @todo Move this into misc.h.
- */
-class progress_display64 : private boost::progress_display
-{
-private:
-    /// Number of steps we tell the base class to expect
-    static const unsigned long displayExpected = 100000;
-    /// Number of steps seen
-    std::tr1::uint64_t count_;
-    /// Total number of steps
-    std::tr1::uint64_t expected_;
-
-public:
-    /**
-     * Constructor.
-     * It displays the header.
-     */
-    progress_display64(std::tr1::uint64_t expected)
-        : boost::progress_display(displayExpected), count_(0), expected_(expected)
-    {
-    }
-
-    /**
-     * Constructor.
-     * It displays the header. Refer to @c boost::progress_display for details.
-     */
-    progress_display64(std::tr1::uint64_t expected,
-                       std::ostream &os,
-                       const std::string &s1 = "\n",
-                       const std::string &s2 = "",
-                       const std::string &s3 = "")
-        : boost::progress_display(displayExpected, os, s1, s2, s3),
-        count_(0), expected_(expected)
-    {
-    }
-
-    /// Start a new progress meter
-    void restart(std::tr1::uint64_t expected)
-    {
-        count_ = 0;
-        expected_ = expected;
-        boost::progress_display::restart(displayExpected);
-    }
-
-    /**
-     * Set the progress to a specific value.
-     *
-     * @pre @a count &gt;= @ref count()
-     */
-    void set(std::tr1::uint64_t count)
-    {
-        count_ = count;
-        unsigned long childCount = (unsigned long) (displayExpected * double(count_) / double(expected_));
-        // boost::progress_display seems to have a bug with zero increments
-        if (childCount > boost::progress_display::count())
-            boost::progress_display::operator+=(childCount - boost::progress_display::count());
-    }
-
-    /// Advance by a specific number of steps.
-    std::tr1::uint64_t operator+=(std::tr1::uint64_t increment)
-    {
-        set(count_ + increment);
-        return count_;
-    }
-
-    /// Advance one step
-    std::tr1::uint64_t operator++()
-    {
-        return operator+=(std::tr1::uint64_t(1));
-    }
-
-    /// Return the number of steps taken
-    std::tr1::uint64_t count() const
-    {
-        return count_;
-    }
-
-    /// Return the total number of steps to take
-    std::tr1::uint64_t expected_count() const
-    {
-        return expected_;
-    }
-};
-
-const unsigned long progress_display64::displayExpected;
-
 struct HostWorkItem
 {
     std::vector<Splat> splats;
@@ -513,7 +419,7 @@ private:
     Grid::size_type maxCells;
     int subsampling;
 
-    progress_display64 *progress;
+    ProgressDisplay *progress;
 
 public:
     typedef void result_type;
@@ -528,7 +434,7 @@ public:
     /// Thread function.
     void operator()();
 
-    void setProgress(progress_display64 *progress) { this->progress = progress; }
+    void setProgress(ProgressDisplay *progress) { this->progress = progress; }
     void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
@@ -556,14 +462,11 @@ void DeviceWorker::operator()()
     {
         boost::shared_ptr<DeviceWorkItem> item;
         {
-            Statistics::Timer timer("device.worker.pull");
+            Statistics::Timer timer("device.worker.pop");
             item = workQueue.pop();
         }
         if (!item)
             break;
-
-        if (progress != NULL)
-            progress->set(item->recursionState.cellsDone);
 
         cl_uint3 keyOffset;
         for (int i = 0; i < 3; i++)
@@ -596,7 +499,7 @@ void DeviceWorker::operator()()
         }
 
         if (progress != NULL)
-            progress->set(item->recursionState.cellsDone + item->grid.numCells());
+            *progress += item->grid.numCells();
     }
 }
 
@@ -623,6 +526,8 @@ public:
     /// Thread runner
     void operator()();
 
+    void setProgress(ProgressDisplay *progress) { this->progress = progress; }
+
     DeviceBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn,
                 WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut,
                 std::size_t maxSplats,
@@ -635,6 +540,7 @@ private:
     std::size_t maxSplats;
     Grid::size_type maxCells;
     std::size_t maxSplit;
+    ProgressDisplay *progress;
 };
 
 DeviceBlock::DeviceBlock(
@@ -648,7 +554,8 @@ DeviceBlock::DeviceBlock(
     workQueueOut(workQueueOut),
     maxSplats(maxSplats),
     maxCells(maxCells),
-    maxSplit(maxSplit)
+    maxSplit(maxSplit),
+    progress(NULL)
 {
 }
 
@@ -724,7 +631,7 @@ void DeviceBlock::operator()()
         boost::ptr_vector<StdVectorCollection<Splat> > deviceSplats;
         deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
         Bucket::bucket(deviceSplats, item->grid, maxSplats, maxCells, maxSplit,
-                       boost::ref(*this), item->recursionState);
+                       boost::ref(*this), progress, item->recursionState);
     }
 }
 
@@ -746,17 +653,14 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState) const;
 
-    void setProgress(progress_display64 *progress) { this->progress = progress; }
-
     HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue);
 private:
     WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue;
-    progress_display64 *progress;
 };
 
 template<typename Collection>
 HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue)
-: workQueue(workQueue), progress(NULL)
+: workQueue(workQueue)
 {
 }
 
@@ -767,11 +671,6 @@ void HostBlock<Collection>::operator()(
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
     const Grid &grid, const Bucket::Recursion &recursionState) const
 {
-    if (progress != NULL)
-    {
-        progress->set(recursionState.cellsDone);
-    }
-
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     boost::shared_ptr<HostWorkItem> item = boost::make_shared<HostWorkItem>();
@@ -889,8 +788,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         passName << "pass" << pass + 1 << ".time";
         Statistics::Timer timer(passName.str());
 
-        progress_display64 progress(grid.numCells(), Log::log[Log::info]);
-        hostBlock.setProgress(&progress);
+        ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
         Marching::OutputFunctor out = mesh->outputFunctor(pass);
 
         // Start threads
@@ -898,15 +796,17 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         boost::thread_group workerThreads;
         for (unsigned int i = 0; i < numBucketThreads; i++)
         {
+            deviceBlocks[i].setProgress(&progress);
             bucketThreads.create_thread(boost::bind(boost::ref(deviceBlocks[i])));
         }
         for (unsigned int i = 0; i < numDeviceThreads; i++)
         {
             deviceWorkers[i].setOutput(out);
+            deviceWorkers[i].setProgress(&progress);
             workerThreads.create_thread(boost::bind(boost::ref(deviceWorkers[i])));
         }
 
-        Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock);
+        Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock, &progress);
 
         /* Shut down bucket threads. Note that these have to be completely shut
          * down before we start shutting down the worker threads, as otherwise
@@ -924,8 +824,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
 
         assert(workQueueCoarse.size() == 0);
         assert(workQueueFine.size() == 0);
-
-        progress.set(grid.numCells());
     }
 
 
@@ -954,22 +852,10 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         typedef StxxlVectorCollection<Splat> Collection;
         typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
 
-        SplatVector splatData;
-        try
-        {
-            Bucket::loadSplats(files, spacing, sortSplats, splatData, grid);
-        }
-        catch (std::length_error &e)
-        {
-            cerr << "At least one input point is required.\n";
-            exit(1);
-        }
-        files.clear();
-
-        boost::ptr_vector<Collection> splats;
-        splats.push_back(new Collection(splatData));
-
-        run2(context, device, out, vm, splats, grid);
+        cerr << 
+            "--sort does not currently work, because it would cause multithreaded access\n"
+            "to an stxxl::vector, which does not work.\n";
+        exit(1);
     }
     else
 #endif
