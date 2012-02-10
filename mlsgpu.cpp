@@ -554,7 +554,11 @@ void DeviceWorker::operator()()
 {
     while (true)
     {
-        boost::shared_ptr<DeviceWorkItem> item = workQueue.pop();
+        boost::shared_ptr<DeviceWorkItem> item;
+        {
+            Statistics::Timer timer("device.worker.pull");
+            item = workQueue.pop();
+        }
         if (!item)
             break;
 
@@ -579,7 +583,7 @@ void DeviceWorker::operator()()
         // TODO: use mapping to transfer the data directly into a buffer
 
         {
-            Statistics::Timer timer("block.time");
+            Statistics::Timer timer("device.worker.time");
             cl::Event treeBuildEvent;
             vector<cl::Event> wait(1);
             tree.enqueueBuild(queue, &item->splats[0], item->splats.size(),
@@ -662,6 +666,7 @@ void DeviceBlock::operator()(
 
     std::size_t pos = 0;
     // Stats bookkeeping
+    // TODO: reuse code from HostBlock
     const int pageSize = 4096;
     std::size_t numPages = 0;
     std::size_t lastPage = (std::size_t) -1;
@@ -687,23 +692,31 @@ void DeviceBlock::operator()(
     }
     assert(pos == numSplats);
 
-    registry.getStatistic<Statistics::Variable>("block.splats").add(numSplats);
-    registry.getStatistic<Statistics::Variable>("block.ranges").add(last - first);
-    registry.getStatistic<Statistics::Variable>("block.pagedSplats").add(numPages * pageSize);
-    registry.getStatistic<Statistics::Variable>("block.size").add(grid.numCells());
+    registry.getStatistic<Statistics::Variable>("device.block.splats").add(numSplats);
+    registry.getStatistic<Statistics::Variable>("device.block.ranges").add(last - first);
+    registry.getStatistic<Statistics::Variable>("device.block.pagedSplats").add(numPages * pageSize);
+    registry.getStatistic<Statistics::Variable>("device.block.size").add(grid.numCells());
 
     boost::shared_ptr<DeviceWorkItem> item = boost::make_shared<DeviceWorkItem>();
     item->splats.swap(outSplats);
     item->grid = grid;
     item->recursionState = recursionState;
-    workQueueOut.push(item);
+
+    {
+        Statistics::Timer timer("device.block.push");
+        workQueueOut.push(item);
+    }
 }
 
 void DeviceBlock::operator()()
 {
     while (true)
     {
-        boost::shared_ptr<HostWorkItem> item = workQueueIn.pop();
+        boost::shared_ptr<HostWorkItem> item;
+        {
+            Statistics::Timer timer("device.block.pop");
+            item = workQueueIn.pop();
+        }
         if (!item)
             break;
 
@@ -803,7 +816,10 @@ void HostBlock<Collection>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    workQueue.push(item);
+    {
+        Statistics::Timer timer("host.block.push");
+        workQueue.push(item);
+    }
 }
 
 /**
