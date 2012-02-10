@@ -15,6 +15,7 @@
 #include <utility>
 #include <cassert>
 #include <functional>
+#include <tr1/cmath>
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/foreach.hpp>
@@ -29,6 +30,7 @@
 #include "statistics.h"
 #include "timer.h"
 #include "misc.h"
+#include "logging.h"
 
 namespace Bucket
 {
@@ -205,6 +207,14 @@ void BucketState::getSplatMicro(const Splat &splat, Node::size_type lo[3], Node:
     float worldLow[3], worldHigh[3];
     float gridLow[3], gridHigh[3];
 
+    if (!splat.isFinite())
+    {
+        /* Return an empty region */
+        lo[0] = lo[1] = lo[2] = 1;
+        hi[0] = hi[1] = hi[2] = 0;
+        return;
+    }
+
     for (unsigned int i = 0; i < 3; i++)
     {
         worldLow[i] = splat.position[i] - splat.radius;
@@ -214,9 +224,9 @@ void BucketState::getSplatMicro(const Splat &splat, Node::size_type lo[3], Node:
     grid.worldToVertex(worldHigh, gridHigh);
     for (int i = 0; i < 3; i++)
     {
-        int top = nodeCounts[0].shape()[i] - 1;
-        lo[i] = std::min(std::max(RoundUp()(gridLow[i] / microSize) - 1, 0), top);
-        hi[i] = std::min(std::max(RoundDown()(gridHigh[i] / microSize), 0), top);
+        Grid::size_type top = nodeCounts[0].shape()[i] - 1;
+        lo[i] = std::max(RoundUp()(gridLow[i] / microSize), 1) - 1;
+        hi[i] = std::min(Grid::size_type(RoundDown()(gridHigh[i] / microSize)), top);
     }
 }
 
@@ -235,7 +245,7 @@ void CountSplat::operator()(Range::scan_type scan, Range::index_type id,
             {
                 ++state.nodeCounts[level][x][y][z];
             }
-    while (level < state.macroLevels - 1 && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
+    while (level < state.macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
         level++;
         for (Node::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
@@ -290,27 +300,11 @@ bool PickNodes::operator()(const Node &node) const
             for (Node::size_type y = lo[1]; y < hi[1]; y++)
                 for (Node::size_type z = lo[2]; z < hi[2]; z++)
                     state.microRegions[x][y][z] = id;
-        state.subregions.push_back(BucketState::Subregion(node));
+        state.subregions.push_back(BucketState::Subregion(node, count));
         return false; // no more recursion required
     }
     else
         return true;
-}
-
-void BucketSplats::operator()(Range::scan_type scan, Range::index_type id,
-                              const Splat &splat) const
-{
-    Node::size_type lo[3], hi[3];
-    state.getSplatMicro(splat, lo, hi);
-    for (Node::size_type x = lo[0]; x <= hi[0]; x++)
-        for (Node::size_type y = lo[1]; y <= hi[1]; y++)
-            for (Node::size_type z = lo[2]; z <= hi[2]; z++)
-            {
-                std::size_t regionId = state.microRegions[x][y][z];
-                assert(regionId < state.subregions.size());
-                BucketState::Subregion &region = state.subregions[regionId];
-                region.collector.append(scan, id);
-            }
 }
 
 /**
@@ -336,6 +330,12 @@ Grid::size_type chooseMicroSize(
 
 const Splat &MakeGrid::operator()(const Splat &splat)
 {
+    if (!splat.isFinite())
+    {
+        nonFinite++;
+        return splat;
+    }
+
     const float radius = splat.radius;
     if (first)
     {
@@ -367,6 +367,8 @@ void MakeGrid::operator()(unsigned int, const Splat &splat)
 
 Grid MakeGrid::makeGrid(float spacing) const
 {
+    if (nonFinite > 0)
+        Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
     if (first)
         throw std::length_error("Must be at least one splat");
 

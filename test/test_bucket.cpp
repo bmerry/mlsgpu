@@ -668,10 +668,8 @@ void TestBucket::validate(
     }
 
     /* First validate each individual block */
-    std::tr1::uint64_t nextDone = 0;
     BOOST_FOREACH(const Block &block, blocks)
     {
-        CPPUNIT_ASSERT(block.done >= nextDone);
         CPPUNIT_ASSERT(block.numSplats <= maxSplats);
         CPPUNIT_ASSERT(block.grid.numCells(0) <= maxCells);
         CPPUNIT_ASSERT(block.grid.numCells(1) <= maxCells);
@@ -737,11 +735,7 @@ void TestBucket::validate(
             }
         }
         CPPUNIT_ASSERT_EQUAL(numSplats, block.numSplats);
-
-        nextDone = block.done + block.grid.numCells();
     }
-    /* Cannot have done more than the entire thing */
-    CPPUNIT_ASSERT(nextDone <= fullGrid.numCells());
 
     /* Check that the blocks do not overlap */
     for (std::size_t b1 = 0; b1 < blocks.size(); b1++)
@@ -768,6 +762,31 @@ void TestBucket::setupSimple()
     /* To make this easy to visualise, all splats are placed on a single Z plane.
      * This plane is along a major boundary, so each block can be expected to
      * appear twice (once on each side of the boundary).
+     *
+     * To plot the points for debugging, run gnuplot over the following (the coordinates
+     * are in grid space):
+set xrange [0:16]
+set yrange [0:20]
+set size square
+set xtics 4
+set ytics 4
+set grid
+plot '-' with points
+4 8
+12 6.8
+12.8 4.8
+12.8 7.2
+14.8 7.2
+14 6.4
+4.8 14.8
+5.2 14.8
+4.8 15.2
+5.2 15.2
+6.8 12.8
+7.2 13.2
+10 18
+e
+pause -1
      */
     const float z = 10.0f;
 

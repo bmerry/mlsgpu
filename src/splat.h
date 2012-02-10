@@ -20,6 +20,18 @@ struct Splat
     float radius;
     float normal[3];
     float quality;
+
+    inline bool isFinite() const
+    {
+        return (std::tr1::isfinite)(position[0])
+            && (std::tr1::isfinite)(position[1])
+            && (std::tr1::isfinite)(position[2])
+            && (std::tr1::isfinite)(radius)
+            && (std::tr1::isfinite)(normal[0])
+            && (std::tr1::isfinite)(normal[1])
+            && (std::tr1::isfinite)(normal[2])
+            && (std::tr1::isfinite)(quality);
+    }
 };
 
 /**

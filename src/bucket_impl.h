@@ -147,16 +147,22 @@ struct BucketState
     struct Subregion
     {
         Node node;
+        Range::size_type splatsSeen;   ///< Number of splats added to ranges
+        Range::size_type numSplats;    ///< Expected number of splats
         std::vector<Range> ranges;
         RangeCollector<std::back_insert_iterator<std::vector<Range> > > collector;
 
         Subregion() : collector(std::back_inserter(ranges)) {}
-        Subregion(const Node &node) : node(node), collector(std::back_inserter(ranges)) {}
+        Subregion(const Node &node, Range::size_type numSplats)
+            : node(node), splatsSeen(0), numSplats(numSplats), collector(std::back_inserter(ranges)) {}
         Subregion(const Subregion &c)
-            : node(c.node), ranges(c.ranges), collector(std::back_inserter(ranges)) {}
+            : node(c.node), splatsSeen(c.splatsSeen), numSplats(c.numSplats),
+            ranges(c.ranges), collector(std::back_inserter(ranges)) {}
         Subregion &operator=(const Subregion &c)
         {
             node = c.node;
+            splatsSeen = c.splatsSeen;
+            numSplats = c.numSplats;
             ranges = c.ranges;
             return *this;
         }
@@ -261,17 +267,75 @@ public:
  * Functor for @ref Bucket::internal::forEachSplat that places splat information into
  * bucket ranges.
  */
-class BucketSplats
+template<typename CollectionSet>
+class BucketSplat
 {
 private:
     BucketState &state;
+    const CollectionSet &splats;
+    const typename ProcessorType<CollectionSet>::type &process;
+    const Recursion &recursionState;
 
 public:
     typedef void result_type;
-    BucketSplats(BucketState &state) : state(state) {}
+    BucketSplat(
+        BucketState &state,
+        const CollectionSet &splats,
+        const typename ProcessorType<CollectionSet>::type &process,
+        const Recursion &recursionState)
+        : state(state), splats(splats), process(process), recursionState(recursionState) {}
 
     void operator()(Range::scan_type scan, Range::index_type id, const Splat &splat) const;
 };
+
+template<typename CollectionSet>
+void BucketSplat<CollectionSet>::operator()(Range::scan_type scan, Range::index_type id,
+                                            const Splat &splat) const
+{
+    Node::size_type lo[3], hi[3];
+    state.getSplatMicro(splat, lo, hi);
+    for (Node::size_type x = lo[0]; x <= hi[0]; x++)
+        for (Node::size_type y = lo[1]; y <= hi[1]; y++)
+            for (Node::size_type z = lo[2]; z <= hi[2]; z++)
+            {
+                std::size_t regionId = state.microRegions[x][y][z];
+                assert(regionId < state.subregions.size());
+                BucketState::Subregion &region = state.subregions[regionId];
+
+                /* Only add once per node */
+                const Node::size_type nodeSize = region.node.size();
+                const Node::size_type mask = nodeSize - 1;
+                if ((x == lo[0] || ((x & mask) == 0))
+                    && (y == lo[1] || (y & mask) == 0)
+                    && (z == lo[2] || (z & mask) == 0))
+                {
+                    region.collector.append(scan, id);
+                    region.splatsSeen++;
+                    if (region.splatsSeen == region.numSplats)
+                    {
+                        region.collector.flush();
+
+                        // Clip the region to the grid
+                        Grid::size_type lower[3], upper[3];
+                        region.node.toCells(state.microSize, lower, upper, state.grid);
+                        Grid childGrid = state.grid.subGrid(
+                            lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
+
+                        Recursion childRecursion = recursionState;
+                        childRecursion.depth++;
+                        childRecursion.totalRanges += region.ranges.size();
+                        bucketRecurse(splats,
+                                      region.ranges.begin(),
+                                      region.ranges.end(),
+                                      region.numSplats,
+                                      childGrid,
+                                      state.params,
+                                      process,
+                                      childRecursion);
+                    }
+                }
+            }
+}
 
 /**
  * Determine the appropriate size for the microblocks.
@@ -346,62 +410,20 @@ void bucketRecurse(
         while (microSize << (macroLevels - 1) < maxCellDim)
             macroLevels++;
 
-        std::size_t numRegions;
-        std::vector<BucketState::Subregion> savedRegions;
-        std::vector<Range::index_type> savedNumSplats;
-        std::tr1::uint64_t cellsDone = recursionState.cellsDone;
-        /* Open a scope so that we can destroy the BucketState later */
-        {
-            BucketState state(params, grid, microSize, macroLevels);
-            /* Create histogram */
-            forEachSplat(splats, first, last, CountSplat(state));
-            state.upsweepCounts();
-            /* Select cells to bucket splats into */
-            forEachNode(state.dims, state.macroLevels, PickNodes(state));
-            /* Do the bucketing. */
-            forEachSplat(splats, first, last, BucketSplats(state));
-            for (std::size_t i = 0; i < state.subregions.size(); i++)
-                state.subregions[i].collector.flush();
+        BucketState state(params, grid, microSize, macroLevels);
+        /* Create histogram */
+        forEachSplat(splats, first, last, CountSplat(state));
+        state.upsweepCounts();
+        /* Select cells to bucket splats into */
+        forEachNode(state.dims, state.macroLevels, PickNodes(state));
+        /* Do the bucketing. */
+        forEachSplat(splats, first, last, BucketSplat<CollectionSet>(state, splats, process, recursionState));
 
-            /* Bucketing is complete but we have a lot of memory allocated that we
-             * don't need for the recursive step. Copy it outside this scope then
-             * close the scope to destroy state.
-             */
-            numRegions = state.subregions.size();
-            savedNumSplats.reserve(numRegions);
-            for (std::size_t i = 0; i < numRegions; i++)
-                savedNumSplats.push_back(state.getNodeCount(state.subregions[i].node));
-            savedRegions.swap(state.subregions);
-
-            /* Any cells we skipped are automatically finished */
-            cellsDone += state.skippedCells;
-        }
-
-        /* Now recurse into the chosen regions */
-        for (std::size_t i = 0; i < numRegions; i++)
-        {
-            const BucketState::Subregion &region = savedRegions[i];
-
-            // Clip the region to the grid
-            Grid::size_type lower[3], upper[3];
-            region.node.toCells(microSize, lower, upper, grid);
-            Grid childGrid = grid.subGrid(
-                lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
-
-            Recursion childRecursion = recursionState;
-            childRecursion.depth++;
-            childRecursion.totalRanges += region.ranges.size();
-            childRecursion.cellsDone = cellsDone;
-            bucketRecurse(splats,
-                          region.ranges.begin(),
-                          region.ranges.end(),
-                          savedNumSplats[i],
-                          childGrid,
-                          params,
-                          process,
-                          childRecursion);
-            cellsDone += childGrid.numCells();
-        }
+        /* Check that all regions were completed */
+#ifndef NDEBUG
+        for (std::size_t i = 0; i < state.subregions.size(); i++)
+            assert(state.subregions[i].splatsSeen == state.subregions[i].numSplats);
+#endif
     }
 }
 
@@ -421,7 +443,9 @@ struct MakeGrid
     float bboxMin[3];
     float bboxMax[3];
 
-    MakeGrid() : first(true) {}
+    Range::index_type nonFinite;
+
+    MakeGrid() : first(true), nonFinite(0) {}
     const Splat &operator()(const Splat &splat);
     void operator()(unsigned int index, const Splat &splat);
 
