@@ -526,9 +526,10 @@ private:
     void validate(const Set &splats, const Grid &fullGrid,
                   const vector<Block> &blocks, std::size_t maxSplats, Grid::size_type maxCells);
 
+    template<typename T>
     static void bucketFunc(
         vector<Block> &blocks,
-        const Set &splats,
+        const T &splats,
         Range::index_type numSplats,
         RangeConstIterator first,
         RangeConstIterator last,
@@ -544,9 +545,10 @@ public:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBucket, TestSet::perBuild());
 
+template<typename T>
 void TestBucket::bucketFunc(
     vector<Block> &blocks,
-    const Set &splats,
+    const T &splats,
     Range::index_type numSplats,
     RangeConstIterator first,
     RangeConstIterator last,
@@ -742,7 +744,7 @@ void TestBucket::testSimple()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
+           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
@@ -762,7 +764,7 @@ void TestBucket::testDensityError()
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
         bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6)),
+           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6)),
         DensityError);
 }
 
@@ -777,7 +779,7 @@ void TestBucket::testFlat()
     const int maxCells = 32;
     const int maxSplit = 1000000;
     bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
+           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
     CPPUNIT_ASSERT_EQUAL(1, int(blocks.size()));
@@ -791,8 +793,14 @@ void TestBucket::testEmpty()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
+
+    /* We can't use a BlobSet for this, because it requires at least one splat to create
+     * the bounding box.
+     */
+    typedef SplatSet::SimpleSet<boost::ptr_vector<Collection> > Set;
+    Set splatSet(splats, grid);
+    bucket(splatSet, grid, maxSplats, maxCells, maxSplit,
+           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     CPPUNIT_ASSERT(blocks.empty());
 }
 
@@ -807,7 +815,7 @@ void TestBucket::testMultiLevel()
     const int maxCells = 8;
     const int maxSplit = 8;
     bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
-           boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
+           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
