@@ -41,6 +41,7 @@
 #include "src/mls.h"
 #include "src/mesh.h"
 #include "src/options.h"
+#include "src/splat_set.h"
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"
@@ -862,6 +863,9 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     {
         try
         {
+            // TODO use this better
+            SplatSet::BlobSet<boost::ptr_vector<FastPly::Reader>, std::vector<SplatSet::Blob> >(files, spacing, 511, &Log::log[Log::info]);
+
             Bucket::makeGrid(files, spacing, grid);
         }
         catch (std::length_error &e)

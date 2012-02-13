@@ -13,10 +13,12 @@
 # include <config.h>
 #endif
 #include <tr1/cstdint>
+#include <iosfwd>
 #include <cstddef>
 #include <cstring>
 #include <boost/ref.hpp>
 #include <boost/array.hpp>
+#include <boost/noncopyable.hpp>
 #include "bucket.h"
 #include "errors.h"
 #include "fast_ply.h"

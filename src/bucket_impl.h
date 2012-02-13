@@ -10,11 +10,17 @@
 # include <config.h>
 #endif
 #include <boost/multi_array.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/numeric/conversion/converter.hpp>
+#include <boost/type_traits/remove_pointer.hpp>
+#include <ostream>
+#include <limits>
 #include "bucket.h"
 #include "bucket_internal.h"
 #include "statistics.h"
 #include "misc.h"
 #include "progress.h"
+#include "logging.h"
 #if HAVE_STXXL
 # include <stxxl.h>
 #endif
