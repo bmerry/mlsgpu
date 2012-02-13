@@ -22,12 +22,15 @@
 #include "collection.h"
 #include "fast_ply.h"
 #include "progress.h"
+#include "splat_set.h"
 
 /**
  * Bucketing of large numbers of splats into blocks.
  */
 namespace Bucket
 {
+
+using SplatSet::Range;
 
 /**
  * Error that is thrown if too many splats cover a single cell, making it
@@ -44,54 +47,6 @@ public:
         cellSplats(cellSplats) {}
 
     std::tr1::uint64_t getCellSplats() const { return cellSplats; }
-};
-
-/**
- * Indexes a sequential range of splats from an input file.
- *
- * This is intended to be POD that can be put in a @c stxxl::vector.
- *
- * @invariant @ref start + @ref size - 1 does not overflow @ref index_type.
- * (maintained by constructor and by @ref append).
- */
-struct Range
-{
-    /// Type used to index the list of files
-    typedef std::tr1::uint32_t scan_type;
-    /// Type used to specify the length of a range
-    typedef std::tr1::uint32_t size_type;
-    /// Type used to index a splat within a file
-    typedef std::tr1::uint64_t index_type;
-
-    /* Note: the order of these is carefully chosen for alignment */
-    scan_type scan;    ///< Index of the originating file
-    size_type size;    ///< Size of the range
-    index_type start;  ///< Splat index in the file
-
-    /**
-     * Constructs an empty scan range.
-     */
-    Range();
-
-    /**
-     * Constructs a splat range with one splat.
-     */
-    Range(scan_type scan, index_type splat);
-
-    /**
-     * Constructs a splat range with multiple splats.
-     *
-     * @pre @a start + @a size - 1 must fit within @ref index_type.
-     */
-    Range(scan_type scan, index_type start, size_type size);
-
-    /**
-     * Attempts to extend this range with a new element.
-     * @param scan, splat     The new element
-     * @retval true if the element was successfully appended
-     * @retval false otherwise.
-     */
-    bool append(scan_type scan, index_type splat);
 };
 
 /**
