@@ -49,7 +49,7 @@ static inline T mulSat(T a, T b)
 }
 
 /**
- * Divide and round up.
+ * Divide and round up (non-negative values only).
  *
  * @pre @a a &gt;= 0, @a b &gt; 0, and @a a + @a b - 1 does not overflow.
  */
@@ -59,7 +59,7 @@ static inline S divUp(S a, T b)
     // a >= 0 is written funny to stop GCC warning when S is unsigned
     MLSGPU_ASSERT(a > 0 || a == 0, std::invalid_argument);
     MLSGPU_ASSERT(b > 0, std::invalid_argument);
-    MLSGPU_ASSERT(a <= std::numeric_limits<S>::max() - (b - 1), std::overflow_error);
+    MLSGPU_ASSERT(a <= std::numeric_limits<S>::max() - S(b - 1), std::overflow_error);
     return (a + b - 1) / b;
 }
 
@@ -72,6 +72,24 @@ template<typename S, typename T>
 static inline S roundUp(S a, T b)
 {
     return divUp(a, b) * b;
+}
+
+/**
+ * Divide and round down, handling negative numerator.
+ *
+ * @pre @a b &gt 0, and @a -a is representable
+ *
+ * @todo Write tests
+ */
+template<typename S, typename T>
+static inline S divDown(S a, T b)
+{
+    MLSGPU_ASSERT(b > 0, std::invalid_argument);
+    MLSGPU_ASSERT(a >= -std::numeric_limits<S>::max(), std::overflow_error);
+    if (a < 0)
+        return -divUp(-a, b);
+    else
+        return a / b;
 }
 
 /**

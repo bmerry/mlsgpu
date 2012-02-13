@@ -12,11 +12,11 @@
 # include <config.h>
 #endif
 #include <boost/noncopyable.hpp>
-#include <boost/type_traits/remove_pointer.hpp>
 #include <boost/array.hpp>
 #include <tr1/cstdint>
 #include <ostream>
 #include <cstddef>
+#include <iterator>
 #include "grid.h"
 #include "splat.h"
 #include "progress.h"
@@ -85,6 +85,16 @@ struct Range
     bool append(scan_type scan, index_type first, index_type last);
 };
 
+namespace detail
+{
+
+void splatToBuckets(const Splat &splat,
+                    const Grid &grid, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper);
+
+} // namespace detail
+
 /**
  * A collection of collections of splats. Each collection is called a @em scan.
  * This is both a concrete class and a concept that is reimplemented by subclasses.
@@ -97,13 +107,12 @@ class SimpleSet : public boost::noncopyable
 public:
     typedef SplatCollectionSet value_type;
     typedef typename SplatCollectionSet::size_type scan_type;
-    typedef typename boost::remove_pointer<typename SplatCollectionSet::value_type>::type Collection;
+    typedef typename std::iterator_traits<typename SplatCollectionSet::iterator>::value_type Collection;
     typedef typename Collection::size_type index_type;
 
-    SimpleSet(const SplatCollectionSet &splats, const Grid &grid);
+    explicit SimpleSet(const SplatCollectionSet &splats);
 
     const SplatCollectionSet &getSplats() const { return splats; }
-    const Grid &getGrid() const { return grid; }
 
     /**
      * Call a function for each contiguous range of splats occupying the
@@ -127,29 +136,23 @@ public:
      * @param bucketSize  The number of grid cells per bucket (in each dimension).
      */
     template<typename Func>
-    void forEach(const Func &func, Grid::size_type bucketSize) const;
+    void forEach(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 
     template<typename RangeIterator, typename Func>
-    void forEachRange(RangeIterator first, RangeIterator last, const Func &func, Grid::size_type bucketSize) const;
+    void forEachRange(RangeIterator first, RangeIterator last,
+                      const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 
 protected:
-    /// Constructor that does not require a grid
-    explicit SimpleSet(const SplatCollectionSet &splats);
-
     /**
      * The raw splats themselves.
      */
     const SplatCollectionSet &splats;
 
-    /**
-     * Grid bounding region to process.
-     */
-    Grid grid;
-
 private:
     template<typename Func>
     void forEachOne(
-        scan_type scan, index_type index, float bucketSpacing,
+        scan_type scan, index_type index,
+        const Grid &grid, Grid::size_type bucketSize,
         const Splat &splat, const Func &func) const;
 };
 
@@ -184,6 +187,10 @@ struct Blob
  * that allows the splats to be bucketed more efficiently. It also computes
  * a bounding box during construction.
  *
+ * For @ref forEach to be efficient, the provided grid must
+ *  - have the same reference point and spacing as the grid given by @ref getBounding;
+ *  - have a lower extent which is a multiple of the bucket size in each dimension.
+ *
  * @param SplatCollectionSet A random access container of @ref Collection of @ref Splat.
  * @param BlobCollection A forward container of @ref Blob.
  */
@@ -208,16 +215,18 @@ public:
              std::ostream *progressStream = NULL);
 
     template<typename Func>
-    void forEach(const Func &func, Grid::size_type bucketSize) const;
+    void forEach(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 
     template<typename RangeIterator, typename Func>
-    void forEachRange(RangeIterator first, RangeIterator last, const Func &func, Grid::size_type bucketSize) const;
+    void forEachRange(RangeIterator first, RangeIterator last,
+                      const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
+
+    const Grid &getBoundingGrid() const { return boundingGrid; }
 
 private:
     /// Data only needed during construction
     struct Build
     {
-        float blobSpacing;
         typename SplatCollectionSet::size_type nonFinite;
 
         float bboxMin[3];
@@ -226,6 +235,8 @@ private:
         boost::array<Grid::difference_type, 3> blobLower, blobUpper;
         Blob::size_type blobSize;
     };
+
+    Grid boundingGrid;
 
     /**
      * The number of grid cells per bucket for decoding the blobs in @ref blobs.
@@ -244,6 +255,8 @@ private:
     void flushBlob(Build &build);
 
     void processSplat(const Splat &splat, Build &build, ProgressDisplay *progress);
+
+    bool fastGrid(const Grid &grid, Grid::size_type bucketSize) const;
 };
 
 } // namespace SplatSet

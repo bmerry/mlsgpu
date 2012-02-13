@@ -12,7 +12,6 @@
 #endif
 #include <boost/noncopyable.hpp>
 #include <boost/numeric/conversion/converter.hpp>
-#include <boost/type_traits/remove_pointer.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/array.hpp>
 #include <boost/ref.hpp>
@@ -20,11 +19,13 @@
 #include <tr1/cstdint>
 #include <ostream>
 #include <cstddef>
+#include <iterator>
 #include "grid.h"
 #include "splat.h"
 #include "progress.h"
 #include "errors.h"
 #include "logging.h"
+#include "misc.h"
 
 namespace SplatSet
 {
@@ -43,12 +44,6 @@ typedef boost::numeric::converter<
     boost::numeric::Floor<float> > GridRoundDown;
 
 template<typename SplatCollectionSet>
-SimpleSet<SplatCollectionSet>::SimpleSet(const SplatCollectionSet &splats, const Grid &grid)
-: splats(splats), grid(grid)
-{
-}
-
-template<typename SplatCollectionSet>
 SimpleSet<SplatCollectionSet>::SimpleSet(const SplatCollectionSet &splats)
 : splats(splats)
 {
@@ -57,31 +52,29 @@ SimpleSet<SplatCollectionSet>::SimpleSet(const SplatCollectionSet &splats)
 template<typename SplatCollectionSet>
 template<typename Func>
 void SimpleSet<SplatCollectionSet>::forEachOne(
-    scan_type scan, index_type index, float bucketSpacing,
+    scan_type scan, index_type index,
+    const Grid &grid, Grid::size_type bucketSize,
     const Splat &splat, const Func &func) const
 {
     if (splat.isFinite())
     {
         boost::array<Grid::difference_type, 3> lower, upper;
-        for (int i = 0; i < 3; i++)
-        {
-            lower[i] = GridRoundDown::convert((splat.position[i] - splat.radius) / bucketSpacing);
-            upper[i] = GridRoundDown::convert((splat.position[i] + splat.radius) / bucketSpacing);
-        }
+        detail::splatToBuckets(splat, grid, bucketSize, lower, upper);
         func(scan, index, index + 1, lower, upper);
     }
 }
 
 template<typename SplatCollectionSet>
 template<typename Func>
-void SimpleSet<SplatCollectionSet>::forEach(const Func &func, Grid::size_type bucketSize) const
+void SimpleSet<SplatCollectionSet>::forEach(
+    const Grid &grid, Grid::size_type bucketSize,
+    const Func &func) const
 {
     scan_type scan = 0;
-    const float bucketSpacing = grid.getSpacing() * bucketSize;
     BOOST_FOREACH(const Collection &c, splats)
     {
         c.forEach(0, c.size(), boost::bind(&SimpleSet<SplatCollectionSet>::forEachOne<Func>,
-                                           this, scan, _1, bucketSpacing, _2, boost::cref(func)));
+                                           this, scan, _1, boost::cref(grid), bucketSize, _2, boost::cref(func)));
         scan++;
     }
 }
@@ -90,14 +83,14 @@ template<typename SplatCollectionSet>
 template<typename RangeIterator, typename Func>
 void SimpleSet<SplatCollectionSet>::forEachRange(
     RangeIterator first, RangeIterator last,
-    const Func &func, Grid::size_type bucketSize) const
+    const Grid &grid, Grid::size_type bucketSize,
+    const Func &func) const
 {
-    const float bucketSpacing = grid.getSpacing() * bucketSize;
     for (RangeIterator i = first; i != last; ++i)
     {
         splats[i->scan].forEach(i->start, i->start + i->size,
                                 boost::bind(&SimpleSet<SplatCollectionSet>::forEachOne<Func>,
-                                            this, i->scan, _1, bucketSpacing, _2, boost::cref(func)));
+                                            this, i->scan, _1, boost::cref(grid), bucketSize, _2, boost::cref(func)));
     }
 }
 
@@ -109,11 +102,10 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
 {
     MLSGPU_ASSERT(blobBucket > 0, std::invalid_argument);
 
-    /* ptr_vector has T* as the value_type, so we have to strip off the
-     * pointerness. No pointer type is a model of Collection so this won't
-     * break for other containers.
-     */
-    typedef typename boost::remove_pointer<typename SplatCollectionSet::value_type>::type SplatCollection;
+    // Reference point will be 0,0,0. Extents are set after reading all the splats
+    boundingGrid.setSpacing(spacing);
+
+    typedef typename std::iterator_traits<typename SplatCollectionSet::iterator>::value_type SplatCollection;
 
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
@@ -128,7 +120,6 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
     }
 
     Build build;
-    build.blobSpacing = spacing * blobBucket;
     build.nonFinite = 0;
     fill(build.bboxMin, build.bboxMin + 3, std::numeric_limits<float>::infinity());
     fill(build.bboxMax, build.bboxMax + 3, -std::numeric_limits<float>::infinity());
@@ -145,29 +136,24 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
     if (build.bboxMin[0] > build.bboxMax[0])
         throw std::length_error("Must be at least one splat");
 
-    int extents[3][2];
     for (unsigned int i = 0; i < 3; i++)
     {
         float l = build.bboxMin[i] / spacing;
         float h = build.bboxMax[i] / spacing;
-        extents[i][0] = GridRoundDown::convert(l);
-        extents[i][1] = GridRoundUp::convert(h);
+        Grid::difference_type lo = GridRoundDown::convert(l);
+        Grid::difference_type hi = GridRoundUp::convert(h);
         /* The lower extent must be a multiple of the blob bucket size, to
          * make the blob data align properly.
          */
-        Grid::difference_type rem = extents[i][0] % blobBucket;
+        Grid::difference_type rem = lo % blobBucket;
         if (rem < 0) rem += blobBucket;
-        extents[i][0] -= rem;
-        assert(extents[i][0] % blobBucket == 0);
+        lo -= rem;
+        assert(lo % blobBucket == 0);
+
+        boundingGrid.setExtent(i, lo, hi);
     }
-
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    this->grid = Grid(ref, spacing,
-                      extents[0][0], extents[0][1],
-                      extents[1][0], extents[1][1],
-                      extents[2][0], extents[2][1]);
-
     Log::log[Log::info] << blobs.size() << " blobs extracted\n";
+    // TODO: record as a statistic instead
 }
 
 template<typename SplatCollectionSet, typename BlobCollection>
@@ -192,7 +178,8 @@ void BlobSet<SplatCollectionSet, BlobCollection>::flushBlob(Build &build)
 }
 
 template<typename SplatCollectionSet, typename BlobCollection>
-void BlobSet<SplatCollectionSet, BlobCollection>::processSplat(const Splat &splat, Build &build, ProgressDisplay *progress)
+void BlobSet<SplatCollectionSet, BlobCollection>::processSplat(
+    const Splat &splat, Build &build, ProgressDisplay *progress)
 {
     if (!splat.isFinite())
     {
@@ -211,15 +198,7 @@ void BlobSet<SplatCollectionSet, BlobCollection>::processSplat(const Splat &spla
     else
     {
         boost::array<Grid::difference_type, 3> lower, upper;
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            float lo = splat.position[i] - splat.radius;
-            float hi = splat.position[i] + splat.radius;
-            build.bboxMin[i] = std::min(build.bboxMin[i], lo);
-            build.bboxMax[i] = std::max(build.bboxMax[i], hi);
-            lower[i] = GridRoundDown::convert(lo / build.blobSpacing);
-            upper[i] = GridRoundDown::convert(hi / build.blobSpacing);
-        }
+        detail::splatToBuckets(splat, boundingGrid, blobBucket, lower, upper);
 
         if (build.blobSize == 0 || build.blobSize == std::numeric_limits<Blob::size_type>::max()
             || lower != build.blobLower || upper != build.blobUpper)
@@ -230,6 +209,12 @@ void BlobSet<SplatCollectionSet, BlobCollection>::processSplat(const Splat &spla
             build.blobSize = 0;
         }
         build.blobSize++;
+
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            build.bboxMin[i] = std::min(build.bboxMin[i], splat.position[i] - splat.radius);
+            build.bboxMax[i] = std::max(build.bboxMax[i], splat.position[i] + splat.radius);
+        }
     }
 
     if (progress != NULL)
@@ -237,11 +222,31 @@ void BlobSet<SplatCollectionSet, BlobCollection>::processSplat(const Splat &spla
 }
 
 template<typename SplatCollectionSet, typename BlobCollection>
+bool BlobSet<SplatCollectionSet, BlobCollection>::fastGrid(
+    const Grid &grid, Grid::size_type bucketSize) const
+{
+    // Check whether we can use the fast path
+    if (bucketSize % blobBucket != 0)
+        return false;
+    if (boundingGrid.getSpacing() != grid.getSpacing())
+        return false;
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        if (grid.getReference()[i] != 0.0f
+            || grid.getExtent(i).first % blobBucket != 0)
+            return false;
+    }
+    return true;
+}
+
+template<typename SplatCollectionSet, typename BlobCollection>
 template<typename Func>
 void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
-    const Func &func, Grid::size_type bucketSize) const
+    const Grid &grid, Grid::size_type bucketSize,
+    const Func &func) const
 {
-    if (bucketSize % blobBucket == 0)
+    bool fast = fastGrid(grid, bucketSize);
+    if (fast)
     {
         typename SplatCollectionSet::const_iterator curScan = this->splats.begin();
         scan_type scan = 0;
@@ -251,20 +256,20 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
         // Adjustments from reference-relative to extent-relative buckets
         Grid::difference_type adjust[3];
         for (unsigned int i = 0; i < 3; i++)
-            adjust[i] = this->grid.getExtent(i).first / blobBucket;
+            adjust[i] = grid.getExtent(i).first / blobBucket;
 
         typename BlobCollection::const_iterator cur = blobs.begin();
         while (cur != blobs.end())
         {
             boost::array<Grid::difference_type, 3> lower, upper;
             for (unsigned int i = 0; i < 3; i++)
-                upper[i] = (cur->coords[i] - adjust[i]) / ratio;
+                upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
 
             if (cur->size == 0)
             {
                 ++cur;
                 for (unsigned int i = 0; i < 3; i++)
-                    lower[i] = (cur->coords[i] - adjust[i]) / ratio;
+                    lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
             }
             else
                 lower = upper;
@@ -286,7 +291,7 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
     }
     else
     {
-        SimpleSet<SplatCollectionSet>::forEach(func, bucketSize);
+        SimpleSet<SplatCollectionSet>::forEach(grid, bucketSize, func);
     }
 }
 
@@ -294,9 +299,11 @@ template<typename SplatCollectionSet, typename BlobCollection>
 template<typename RangeIterator, typename Func>
 void BlobSet<SplatCollectionSet, BlobCollection>::forEachRange(
     RangeIterator first, RangeIterator last,
-    const Func &func, Grid::size_type bucketSize) const
+    const Grid &grid, Grid::size_type bucketSize,
+    const Func &func) const
 {
-    if (bucketSize % blobBucket == 0)
+    bool fast = fastGrid(grid, bucketSize);
+    if (fast)
     {
         /* Special case: check whether the list of ranges covers the entire
          * set.
@@ -319,14 +326,13 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEachRange(
             else
                 break;
         }
-        if (scan == this->splats.size())
-        {
-            forEach(func, bucketSize);
-            return;
-        }
+        fast = (scan == this->splats.size());
     }
-    // General case
-    SimpleSet<SplatCollectionSet>::forEachRange(first, last, func, bucketSize);
+
+    if (fast)
+        forEach(grid, bucketSize, func);
+    else
+        SimpleSet<SplatCollectionSet>::forEachRange(first, last, grid, bucketSize, func);
 }
 
 } // namespace SplatSet

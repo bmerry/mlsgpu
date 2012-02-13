@@ -8,8 +8,12 @@
 # include <config.h>
 #endif
 #include <limits>
+#include <cstdlib>
+#include <cmath>
+#include <cassert>
 #include "splat_set.h"
 #include "errors.h"
+#include "misc.h"
 
 namespace SplatSet
 {
@@ -56,5 +60,31 @@ bool Range::append(scan_type scan, index_type splat)
         return false;
     return true;
 }
+
+namespace detail
+{
+
+void splatToBuckets(const Splat &splat,
+                    const Grid &grid, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper)
+{
+    float lo[3], hi[3];
+    float loWorld[3], hiWorld[3];
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        loWorld[i] = splat.position[i] - splat.radius;
+        hiWorld[i] = splat.position[i] + splat.radius;
+    }
+    grid.worldToVertex(loWorld, lo);
+    grid.worldToVertex(hiWorld, hi);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        lower[i] = divDown(GridRoundDown::convert(lo[i]), bucketSize);
+        upper[i] = divDown(GridRoundDown::convert(hi[i]), bucketSize);
+    }
+}
+
+} // namespace detail
 
 } // namespace SplatSet

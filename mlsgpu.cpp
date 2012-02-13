@@ -625,7 +625,7 @@ void DeviceBlock::operator()()
 
         Statistics::Timer timer("device.block.exec");
         boost::ptr_vector<StdVectorCollection<Splat> > deviceSplats;
-        SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(deviceSplats, item->grid);
+        SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(deviceSplats);
         deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
         Bucket::bucket(splatSet, item->grid, maxSplats, maxCells, maxSplit,
                        boost::ref(*this), progress, item->recursionState);

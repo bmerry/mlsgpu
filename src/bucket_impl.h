@@ -12,7 +12,6 @@
 #include <boost/multi_array.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
-#include <boost/type_traits/remove_pointer.hpp>
 #include <ostream>
 #include <limits>
 #include "bucket.h"
@@ -445,14 +444,14 @@ void bucketRecurse(
 
         BucketState state(params, grid, microSize, macroLevels);
         /* Create histogram */
-        splats.forEachRange(first, last, CountSplat(state), microSize);
+        splats.forEachRange(first, last, grid, microSize, CountSplat(state));
         state.upsweepCounts();
         /* Select cells to bucket splats into */
         forEachNode(state.dims, state.macroLevels, PickNodes(state));
         /* Do the bucketing. */
         splats.forEachRange(first, last,
-                            BucketSplat<CollectionSet>(state, splats, process, recursionState),
-                            microSize);
+                            grid, microSize,
+                            BucketSplat<CollectionSet>(state, splats, process, recursionState));
 
         /* Check that all regions were completed */
         // TODO: move sublaunches back out of BucketSplat

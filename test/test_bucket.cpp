@@ -798,7 +798,7 @@ void TestBucket::testEmpty()
      * the bounding box.
      */
     typedef SplatSet::SimpleSet<boost::ptr_vector<Collection> > Set;
-    Set splatSet(splats, grid);
+    Set splatSet(splats);
     bucket(splatSet, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     CPPUNIT_ASSERT(blocks.empty());
