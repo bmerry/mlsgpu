@@ -164,6 +164,13 @@ public:
     iterator_type append(Range::scan_type scan, Range::index_type splat);
 
     /**
+     * Add a contiguous range of new splats to the list.
+     *
+     * @return The output iterator after the update.
+     */
+    iterator_type append(Range::scan_type scan, Range::index_type first, Range::index_type last);
+
+    /**
      * Force any buffered ranges to be emitted. This is done implicitly
      * by the destructor, so it is only necessary if there are more
      * ranges to be written later with the same object, or if lifetime
@@ -194,21 +201,6 @@ public:
  */
 template<typename Func>
 void forEachNode(const Node::size_type dims[3], unsigned int levels, const Func &func);
-
-/**
- * Iterate over all splats given be a collection of @ref Range, calling
- * a user-provided function for each.
- *
- * @param splats       %Random access container of collections to walk.
- * @param first, last  %Range of @ref Range objects.
- * @param func         User-provided callback.
- */
-template<typename CollectionSet, typename Func>
-void forEachSplat(
-    const CollectionSet &splats,
-    RangeConstIterator first,
-    RangeConstIterator last,
-    const Func &func);
 
 } // namespace internal
 } // namespace Bucket

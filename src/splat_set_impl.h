@@ -80,7 +80,7 @@ void SimpleSet<SplatCollectionSet>::forEach(const Func &func, Grid::size_type bu
     const float bucketSpacing = grid.getSpacing() * bucketSize;
     BOOST_FOREACH(const Collection &c, splats)
     {
-        c.forEach(0, c.size(), boost::bind(&SimpleSet<SplatCollectionSet>::forEachOne,
+        c.forEach(0, c.size(), boost::bind(&SimpleSet<SplatCollectionSet>::forEachOne<Func>,
                                            this, scan, _1, bucketSpacing, _2, boost::cref(func)));
         scan++;
     }
@@ -96,7 +96,7 @@ void SimpleSet<SplatCollectionSet>::forEachRange(
     for (RangeIterator i = first; i != last; ++i)
     {
         splats[i->scan].forEach(i->start, i->start + i->size,
-                                boost::bind(&SimpleSet<SplatCollectionSet>::forEachOne,
+                                boost::bind(&SimpleSet<SplatCollectionSet>::forEachOne<Func>,
                                             this, i->scan, _1, bucketSpacing, _2, boost::cref(func)));
     }
 }
@@ -243,7 +243,7 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
 {
     if (bucketSize % blobBucket == 0)
     {
-        typename SplatCollectionSet::iterator curScan = this->splats.begin();
+        typename SplatCollectionSet::const_iterator curScan = this->splats.begin();
         scan_type scan = 0;
         index_type index = 0;
 
@@ -273,7 +273,7 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
                 func(scan, index, index + cur->size, lower, upper);
             }
             index += cur->size;
-            assert(curScan != this->splats.end() && index <= curScan);
+            assert(curScan != this->splats.end() && index <= curScan->size());
             if (index == curScan->size())
             {
                 ++scan;

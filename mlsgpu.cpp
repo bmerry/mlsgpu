@@ -67,9 +67,6 @@ namespace Option
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
 
-#if HAVE_STXXL
-    const char * const sortSplats = "sort-splats";
-#endif
     const char * const maxHostSplats = "max-host-splats";
     const char * const maxDeviceSplats = "max-device-splats";
     const char * const maxSplit = "max-split";
@@ -108,9 +105,6 @@ static void addAdvancedOptions(po::options_description &opts)
 {
     po::options_description advanced("Advanced options");
     advanced.add_options()
-#if HAVE_STXXL
-        (Option::sortSplats,                                       "Pre-sort the splats")
-#endif
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
@@ -514,10 +508,11 @@ class DeviceBlock
 {
 public:
     typedef void result_type;
+    typedef SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > Set;
 
     /// Bucketing callback for blocks sized for device execution.
     void operator()(
-        const boost::ptr_vector<StdVectorCollection<Splat> > &splats,
+        const Set &splatSet,
         Bucket::Range::index_type numSplats,
         Bucket::RangeConstIterator first,
         Bucket::RangeConstIterator last,
@@ -561,7 +556,7 @@ DeviceBlock::DeviceBlock(
 }
 
 void DeviceBlock::operator()(
-    const boost::ptr_vector<StdVectorCollection<Splat> > &splats,
+    const Set &splatSet,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first,
     Bucket::RangeConstIterator last,
@@ -585,7 +580,7 @@ void DeviceBlock::operator()(
         // Note: &outSplats[pos] is necessary to trigger the fast path in
         // FastPly::Reader. Using outSplats.begin() + pos would hit the
         // slow path.
-        splats[scan].read(i->start, i->start + i->size, &outSplats[pos]);
+        splatSet.getSplats()[scan].read(i->start, i->start + i->size, &outSplats[pos]);
         pos += i->size;
 
         if (i->size > 0)
@@ -630,8 +625,9 @@ void DeviceBlock::operator()()
 
         Statistics::Timer timer("device.block.exec");
         boost::ptr_vector<StdVectorCollection<Splat> > deviceSplats;
+        SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(deviceSplats, item->grid);
         deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
-        Bucket::bucket(deviceSplats, item->grid, maxSplats, maxCells, maxSplit,
+        Bucket::bucket(splatSet, item->grid, maxSplats, maxCells, maxSplit,
                        boost::ref(*this), progress, item->recursionState);
     }
 }
@@ -642,12 +638,12 @@ void DeviceBlock::operator()()
  * these, and it does not run in a separate thread. It produces coarse
  * buckets, read the splats into memory and pushes the results to a queue.
  */
-template<typename Collection>
+template<typename Set>
 class HostBlock
 {
 public:
     void operator()(
-        const boost::ptr_vector<Collection> &splats,
+        const Set &splatSet,
         Bucket::Range::index_type numSplats,
         Bucket::RangeConstIterator first,
         Bucket::RangeConstIterator last,
@@ -665,9 +661,9 @@ HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &wo
 {
 }
 
-template<typename Collection>
-void HostBlock<Collection>::operator()(
-    const boost::ptr_vector<Collection> &splats,
+template<typename Set>
+void HostBlock<Set>::operator()(
+    const Set &splatSet,
     Bucket::Range::index_type numSplats,
     Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
     const Grid &grid, const Bucket::Recursion &recursionState) const
@@ -694,7 +690,7 @@ void HostBlock<Collection>::operator()(
             // Note: &localSplats[pos] is necessary to trigger the fast path in
             // FastPly::Reader. Using outSplats.begin() + pos would hit the
             // slow path.
-            splats[scan].read(i->start, i->start + i->size, &item->splats[pos]);
+            splatSet.getSplats()[scan].read(i->start, i->start + i->size, &item->splats[pos]);
             pos += i->size;
 
             if (i->size > 0)
@@ -725,11 +721,13 @@ void HostBlock<Collection>::operator()(
 /**
  * Second phase of execution, which is templated on the collection type
  * (which in turn depends on whether --sort was given or not).
+ *
+ * @todo --sort is gone for now.
  */
-template<typename Collection>
+template<typename Set>
 static void run2(const cl::Context &context, const cl::Device &device, const string &out,
                  const po::variables_map &vm,
-                 boost::ptr_vector<Collection> &splats,
+                 const Set &splatSet,
                  const Grid &grid)
 {
     const int subsampling = vm[Option::subsampling].as<int>();
@@ -774,7 +772,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
                 levels, subsampling));
         deviceWorkers.back().setGrid(grid);
     }
-    HostBlock<Collection> hostBlock(workQueueCoarse);
+    HostBlock<Set> hostBlock(workQueueCoarse);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
@@ -807,7 +805,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
             workerThreads.create_thread(boost::bind(boost::ref(deviceWorkers[i])));
         }
 
-        Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock, &progress);
+        Bucket::bucket(splatSet, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock, &progress);
 
         /* Shut down bucket threads. Note that these have to be completely shut
          * down before we start shutting down the worker threads, as otherwise
@@ -846,36 +844,20 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     prepareInputs(files, vm, smooth);
     Grid grid;
 
-#if HAVE_STXXL
-    const bool sortSplats = vm.count(Option::sortSplats);
-    if (sortSplats)
+    typedef SplatSet::BlobSet<boost::ptr_vector<FastPly::Reader>, std::vector<SplatSet::Blob> > Set;
+    boost::scoped_ptr<Set> splatSet;
+    try
     {
-        typedef StxxlVectorCollection<Splat> Collection;
-        typedef StxxlVectorCollection<Splat>::vector_type SplatVector;
-
-        cerr << 
-            "--sort does not currently work, because it would cause multithreaded access\n"
-            "to an stxxl::vector, which does not work.\n";
+        // TODO use this better
+        splatSet.reset(new Set(files, spacing, 511, &Log::log[Log::info]));
+    }
+    catch (std::length_error &e)
+    {
+        cerr << "At least one input point is required.\n";
         exit(1);
     }
-    else
-#endif
-    {
-        try
-        {
-            // TODO use this better
-            SplatSet::BlobSet<boost::ptr_vector<FastPly::Reader>, std::vector<SplatSet::Blob> >(files, spacing, 511, &Log::log[Log::info]);
 
-            Bucket::makeGrid(files, spacing, grid);
-        }
-        catch (std::length_error &e)
-        {
-            cerr << "At least one input point is required.\n";
-            exit(1);
-        }
-
-        run2(context, device, out, vm, files, grid);
-    }
+    run2(context, device, out, vm, *splatSet, grid);
     writeStatistics(vm);
 }
 

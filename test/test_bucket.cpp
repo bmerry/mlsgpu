@@ -10,6 +10,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <boost/bind.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/smart_ptr/shared_array.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
@@ -27,6 +28,7 @@
 #include "testmain.h"
 #include "../src/bucket.h"
 #include "../src/bucket_internal.h"
+#include "../src/splat_set.h"
 
 using namespace std;
 using namespace Bucket;
@@ -493,96 +495,6 @@ void TestForEachNode::testAsserts()
     CPPUNIT_ASSERT_THROW(forEachNode(dims, 3, dummyNodeFunc), std::invalid_argument);
 }
 
-/**
- * Test code for @ref Bucket::internal::forEachSplat.
- */
-class TestForEachSplat : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestForEachSplat);
-    CPPUNIT_TEST(testSimple);
-    CPPUNIT_TEST(testEmpty);
-    CPPUNIT_TEST_SUITE_END();
-private:
-    typedef pair<Range::scan_type, Range::index_type> Id;
-    typedef StdVectorCollection<Splat> Collection;
-
-    std::vector<std::vector<Splat> > splatData;
-    boost::ptr_vector<Collection> splats;
-
-    void splatFunc(Range::scan_type scan, Range::index_type id, const Splat &splat, vector<Id> &out);
-public:
-    virtual void setUp();
-
-    void testSimple();
-    void testEmpty();
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestForEachSplat, TestSet::perBuild());
-
-void TestForEachSplat::splatFunc(Range::scan_type scan, Range::index_type id,
-                                 const Splat &splat, vector<Id> &out)
-{
-    // Check that the ID information we're given matches what we encoded into the splats
-    CPPUNIT_ASSERT_EQUAL(scan, Range::scan_type(splat.position[0]));
-    CPPUNIT_ASSERT_EQUAL(id, Range::index_type(splat.position[1]));
-
-    out.push_back(Id(scan, id));
-}
-
-void TestForEachSplat::setUp()
-{
-    CppUnit::TestFixture::setUp();
-    int size = 100000;
-    int nFiles = 5;
-
-    splats.reserve(nFiles);
-    splatData.resize(nFiles);
-    for (int i = 0; i < nFiles; i++)
-    {
-        splatData[i].resize(size);
-        for (int j = 0; j < size; j++)
-            splatData[i][j] = makeSplat(i, j, 0.0f, 1.0f);
-        splats.push_back(new Collection(splatData[i]));
-    }
-}
-
-void TestForEachSplat::testSimple()
-{
-    vector<Id> expected, actual;
-    vector<Range> ranges;
-
-    ranges.push_back(Range(0, 0));
-    ranges.push_back(Range(0, 2, 3));
-    ranges.push_back(Range(1, 2, 3));
-    ranges.push_back(Range(2, 100, 40000)); // Large range to test buffering
-
-    BOOST_FOREACH(const Range &range, ranges)
-    {
-        for (Range::index_type i = 0; i < range.size; ++i)
-        {
-            expected.push_back(Id(range.scan, range.start + i));
-        }
-    }
-
-    forEachSplat(splats, ranges.begin(), ranges.end(),
-                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, _3, boost::ref(actual)));
-    CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
-    for (size_t i = 0; i < actual.size(); i++)
-    {
-        CPPUNIT_ASSERT_EQUAL(expected[i].first, actual[i].first);
-        CPPUNIT_ASSERT_EQUAL(expected[i].second, actual[i].second);
-    }
-}
-
-void TestForEachSplat::testEmpty()
-{
-    vector<Range> ranges;
-    vector<Id> actual;
-
-    forEachSplat(splats, ranges.begin(), ranges.end(),
-                 boost::bind(&TestForEachSplat::splatFunc, this, _1, _2, _3, boost::ref(actual)));
-    CPPUNIT_ASSERT(actual.empty());
-}
-
 /// Test for @ref Bucket::bucket.
 class TestBucket : public CppUnit::TestFixture
 {
@@ -603,17 +515,20 @@ private:
     };
 
     typedef StdVectorCollection<Splat> Collection;
+    typedef SplatSet::BlobSet<boost::ptr_vector<Collection>, std::vector<SplatSet::Blob> > Set;
+
     std::vector<std::vector<Splat> > splatData;
     boost::ptr_vector<Collection> splats;
+    boost::scoped_ptr<Set> splatSet;
 
     void setupSimple();
 
-    void validate(const boost::ptr_vector<Collection> &splats, const Grid &fullGrid,
+    void validate(const Set &splats, const Grid &fullGrid,
                   const vector<Block> &blocks, std::size_t maxSplats, Grid::size_type maxCells);
 
     static void bucketFunc(
         vector<Block> &blocks,
-        const boost::ptr_vector<Collection> &splats,
+        const Set &splats,
         Range::index_type numSplats,
         RangeConstIterator first,
         RangeConstIterator last,
@@ -631,7 +546,7 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBucket, TestSet::perBuild());
 
 void TestBucket::bucketFunc(
     vector<Block> &blocks,
-    const boost::ptr_vector<Collection> &splats,
+    const Set &splats,
     Range::index_type numSplats,
     RangeConstIterator first,
     RangeConstIterator last,
@@ -647,7 +562,7 @@ void TestBucket::bucketFunc(
 }
 
 void TestBucket::validate(
-    const boost::ptr_vector<Collection> &splats,
+    const Set &splats,
     const Grid &fullGrid,
     const vector<Block> &blocks,
     std::size_t maxSplats,
@@ -659,10 +574,10 @@ void TestBucket::validate(
      * areas of the intersections with the blocks and check that it adds up to
      * the full bounding box of the splat.
      */
-    vector<vector<double> > areas(splats.size());
-    for (std::size_t i = 0; i < splats.size(); i++)
+    vector<vector<double> > areas(splats.getSplats().size());
+    for (std::size_t i = 0; i < splats.getSplats().size(); i++)
     {
-        areas[i].resize(splats[i].size());
+        areas[i].resize(splats.getSplats()[i].size());
     }
 
     /* First validate each individual block */
@@ -715,7 +630,7 @@ void TestBucket::validate(
             }
 
             vector<Splat> buffer(range.size);
-            splats[range.scan].read(range.start, range.start + range.size, &buffer[0]);
+            splats.getSplats()[range.scan].read(range.start, range.start + range.size, &buffer[0]);
             for (Range::index_type j = range.start; j < range.start + range.size; j++)
             {
                 const Splat &splat = buffer[j - range.start];
@@ -743,12 +658,12 @@ void TestBucket::validate(
         }
 
     /* Check that each splat is fully covered */
-    for (Range::scan_type scan = 0; scan < splats.size(); scan++)
+    for (Range::scan_type scan = 0; scan < splats.getSplats().size(); scan++)
     {
-        for (Range::index_type id = 0; id < splats[scan].size(); id++)
+        for (Range::index_type id = 0; id < splats.getSplats()[scan].size(); id++)
         {
             Splat splat;
-            splats[scan].read(id, id + 1, &splat);
+            splats.getSplats()[scan].read(id, id + 1, &splat);
             double area = 8.0 * splat.radius * splat.radius * splat.radius;
             CPPUNIT_ASSERT_DOUBLES_EQUAL(area, areas[scan][id], 1e-6);
         }
@@ -811,6 +726,8 @@ pause -1
     splats.reserve(splatData.size());
     for (std::size_t i = 0; i < splatData.size(); i++)
         splats.push_back(new Collection(splatData[i]));
+
+    splatSet.reset(new Set(splats, 2.5f, 1));
 }
 
 void TestBucket::testSimple()
@@ -824,9 +741,9 @@ void TestBucket::testSimple()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(splats, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-    validate(splats, grid, blocks, maxSplats, maxCells);
+    validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
     // blocks by hand
@@ -844,7 +761,7 @@ void TestBucket::testDensityError()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
-        bucket(splats, grid, maxSplats, maxCells, maxSplit,
+        bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6)),
         DensityError);
 }
@@ -859,9 +776,9 @@ void TestBucket::testFlat()
     const int maxSplats = 15;
     const int maxCells = 32;
     const int maxSplit = 1000000;
-    bucket(splats, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-    validate(splats, grid, blocks, maxSplats, maxCells);
+    validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
     CPPUNIT_ASSERT_EQUAL(1, int(blocks.size()));
 }
@@ -874,7 +791,7 @@ void TestBucket::testEmpty()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(splats, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     CPPUNIT_ASSERT(blocks.empty());
 }
@@ -889,9 +806,9 @@ void TestBucket::testMultiLevel()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 8;
-    bucket(splats, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-    validate(splats, grid, blocks, maxSplats, maxCells);
+    validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
     // blocks by hand

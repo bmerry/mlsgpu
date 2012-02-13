@@ -74,6 +74,15 @@ struct Range
      * @retval false otherwise.
      */
     bool append(scan_type scan, index_type splat);
+
+    /**
+     * Attempts to merge this range with another range.
+     * @param scan            The scan for the new range.
+     * @param first,last      The new range.
+     * @retval true if the ranges were successfully merged
+     * @retval false otherwise (no change is made)
+     */
+    bool append(scan_type scan, index_type first, index_type last);
 };
 
 /**

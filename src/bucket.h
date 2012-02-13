@@ -106,8 +106,9 @@ public:
  * and splat count, and call a user callback function for each. This function
  * is designed to operate out-of-core and so very large inputs can be used.
  *
- * @param splats     The backing store of splats. All splats are used.
- * @param region     The region to process
+ * @param splats     The backing store of splats. All splats are used. This must
+ *                   be of type @ref SplatSet::SimpleSet or a compatible class.
+ * @param region     The region to process.
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
  * @param maxSplit   Maximum recursion fan-out. Larger values will usually
@@ -168,48 +169,12 @@ public:
 template<typename CollectionSet>
 void bucket(const CollectionSet &splats,
             const Grid &region,
-            Range::index_type maxSplats,
+            typename CollectionSet::index_type maxSplats,
             Grid::size_type maxCells,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
             ProgressDisplay *progress = NULL,
             const Recursion &recursionState = Recursion());
-
-#if HAVE_STXXL
-/**
- * Transfer splats into an @c stxxl::vector (optionally sorting) and
- * simultaneously compute a bounding grid. The resulting grid is suitable for
- * passing to @ref bucket.
- *
- * The grid is constructed as follows:
- *  -# The bounding box of the sample points is found, ignoring influence regions.
- *  -# The lower bound is used as the grid reference point.
- *  -# The grid extends are set to cover the full bounding box.
- *
- * @param[in]  files         PLY input files (already opened)
- * @param      spacing       The spacing between grid vertices.
- * @param[out] splats        Vector of loaded splats
- * @param[out] grid          Bounding grid.
- * @param      sort          Whether to sort the splats using @ref CompareSplatsMorton.
- *
- * @throw std::length_error if the files contain no splats.
- */
-template<typename CollectionSet>
-void loadSplats(const CollectionSet &files,
-                float spacing,
-                bool sort,
-                StxxlVectorCollection<Splat>::vector_type &splats,
-                Grid &grid);
-#endif
-
-/**
- * Compute a bounding grid for the splats. It uses the same
- * algorithm as @ref loadSplats, but does not make a copy of the splats.
- */
-template<typename CollectionSet>
-void makeGrid(const CollectionSet &files,
-              float spacing,
-              Grid &grid);
 
 } // namespace Bucket
 
