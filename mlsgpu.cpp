@@ -839,6 +839,10 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 {
     const float spacing = vm[Option::fitGrid].as<double>();
     const float smooth = vm[Option::fitSmooth].as<double>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const int levels = vm[Option::levels].as<int>();
+    const unsigned int block = 1U << (levels + subsampling - 1);
+    const unsigned int blockCells = block - 1;
 
     boost::ptr_vector<FastPly::Reader> files;
     prepareInputs(files, vm, smooth);
@@ -849,7 +853,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     try
     {
         // TODO use this better
-        splatSet.reset(new Set(files, spacing, 511, &Log::log[Log::info]));
+        splatSet.reset(new Set(files, spacing, blockCells, &Log::log[Log::info]));
     }
     catch (std::length_error &e)
     {
@@ -857,7 +861,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         exit(1);
     }
 
-    run2(context, device, out, vm, *splatSet, grid);
+    run2(context, device, out, vm, *splatSet, splatSet->getBoundingGrid());
     writeStatistics(vm);
 }
 
