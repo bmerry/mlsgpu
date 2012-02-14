@@ -171,7 +171,7 @@ void createSplats(std::vector<std::vector<Splat> > &splats)
     const float z = 10.0f;
 
     splats.clear();
-    splats.resize(3);
+    splats.resize(5);
 
     splats[0].push_back(makeSplat(10.0f, 20.0f, z, 2.0f));
     splats[0].push_back(makeSplat(30.0f, 17.0f, z, 1.0f));
@@ -186,9 +186,13 @@ void createSplats(std::vector<std::vector<Splat> > &splats)
     splats[1].push_back(makeSplat(13.0f, 38.0f, z, 1.0f));
     splats[1].push_back(makeSplat(17.0f, 32.0f, z, 1.0f));
 
-    splats[2].push_back(makeSplat(18.0f, 33.0f, z, 1.0f));
+    // Leave 2 empty to check skipping over empty ranges
 
-    splats[2].push_back(makeSplat(25.0f, 45.0f, z, 4.0f));
+    splats[3].push_back(makeSplat(18.0f, 33.0f, z, 1.0f));
+
+    splats[3].push_back(makeSplat(25.0f, 45.0f, z, 4.0f));
+
+    // Leave 4 empty to check empty ranges at the end
 }
 
 void createSplats(std::vector<std::vector<Splat> > &splats,
@@ -403,7 +407,7 @@ void TestSplatSet<SetType>::testForEachRange()
     ranges.push_back(Range(0, 3, 1));
     ranges.push_back(Range(1, 0, 1));
     ranges.push_back(Range(1, 3, 2));
-    ranges.push_back(Range(2, 0, 1));
+    ranges.push_back(Range(3, 0, 1));
 
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     Grid grid(ref, 2.5f, 0, 20, 0, 20, 0, 20);
@@ -419,7 +423,10 @@ void TestSplatSet<SetType>::testForEachRangeAll()
 {
     std::vector<Range> ranges;
     for (size_t i = 0; i < splatData.size(); i++)
-        ranges.push_back(Range(i, 0, splatData[i].size()));
+    {
+        if (!splatData[i].empty())
+            ranges.push_back(Range(i, 0, splatData[i].size()));
+    }
 
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     Grid grid(ref, 2.5f, -20, 20, 4, 20, -20, 20);

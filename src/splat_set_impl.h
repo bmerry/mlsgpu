@@ -250,6 +250,11 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
         typename SplatCollectionSet::const_iterator curScan = this->splats.begin();
         scan_type scan = 0;
         index_type index = 0;
+        while (curScan != this->splats.end() && curScan->size() == 0)
+        {
+            ++scan;
+            ++curScan;
+        }
 
         Grid::size_type ratio = bucketSize / blobBucket;
         // Adjustments from reference-relative to extent-relative buckets
@@ -260,6 +265,8 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
         typename BlobCollection::const_iterator cur = blobs.begin();
         while (cur != blobs.end())
         {
+            assert(curScan != this->splats.end());
+            assert(index < curScan->size());
             bool good = true;
 
             boost::array<Grid::difference_type, 3> lower, upper;
@@ -282,9 +289,9 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
                 func(scan, index, index + cur->size, lower, upper);
             }
             index += cur->size;
-            assert(curScan != this->splats.end() && index <= curScan->size());
-            if (index == curScan->size())
+            while (curScan != this->splats.end() && index >= curScan->size())
             {
+                assert(index == curScan->size());
                 ++scan;
                 ++curScan;
                 index = 0;
@@ -314,14 +321,18 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEachRange(
          */
         scan_type scan = 0;
         index_type index = 0;
+        while (scan < this->splats.size() && this->splats[scan].size() == 0)
+            scan++;
         for (RangeIterator i = first; i != last; ++i)
         {
             assert(i->scan < this->splats.size());
+            if (i->size == 0)
+                continue; // probably should not happen, but it might for empty scans
             if (i->scan == scan && i->start == index)
             {
                 index += i->size;
                 assert(index <= this->splats[scan].size());
-                if (index == this->splats[scan].size())
+                while (scan < this->splats.size() && index == this->splats[scan].size())
                 {
                     scan++;
                     index = 0;

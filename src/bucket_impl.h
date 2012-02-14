@@ -517,8 +517,12 @@ void bucket(const CollectionSet &splats,
     root.reserve(splats.getSplats().size());
     for (typename CollectionSet::scan_type i = 0; i < splats.getSplats().size(); i++)
     {
-        root.push_back(Range(i, 0, splats.getSplats()[i].size()));
-        numSplats += splats.getSplats()[i].size();
+        const typename CollectionSet::index_type size = splats.getSplats()[i].size();
+        if (size > 0)
+        {
+            root.push_back(Range(i, 0, size));
+            numSplats += size;
+        }
     }
 
     internal::BucketParameters params(maxSplats, maxCells, maxSplit, progress);
