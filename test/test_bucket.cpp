@@ -26,6 +26,7 @@
 #include <cstring>
 #include <tr1/cstdint>
 #include "testmain.h"
+#include "test_splat_set.h"
 #include "../src/bucket.h"
 #include "../src/bucket_internal.h"
 #include "../src/splat_set.h"
@@ -33,23 +34,6 @@
 using namespace std;
 using namespace Bucket;
 using namespace Bucket::internal;
-
-/**
- * Create a splat with given position and radius. The other fields
- * are given arbitrary values.
- */
-static Splat makeSplat(float x, float y, float z, float radius)
-{
-    Splat splat;
-    splat.position[0] = x;
-    splat.position[1] = y;
-    splat.position[2] = z;
-    splat.radius = radius;
-    splat.normal[0] = 1.0f;
-    splat.normal[1] = 0.0f;
-    splat.normal[2] = 0.0f;
-    return splat;
-}
 
 static bool gridsIntersect(const Grid &a, const Grid &b)
 {
@@ -60,128 +44,6 @@ static bool gridsIntersect(const Grid &a, const Grid &b)
             return false;
     }
     return true;
-}
-
-/**
- * Tests for Range.
- */
-class TestRange : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestRange);
-    CPPUNIT_TEST(testConstructor);
-    CPPUNIT_TEST(testAppendEmpty);
-    CPPUNIT_TEST(testAppendOverflow);
-    CPPUNIT_TEST(testAppendMiddle);
-    CPPUNIT_TEST(testAppendEnd);
-    CPPUNIT_TEST(testAppendGap);
-    CPPUNIT_TEST(testAppendNewScan);
-    CPPUNIT_TEST_SUITE_END();
-
-public:
-    void testConstructor();          ///< Test the constructors
-    void testAppendEmpty();          ///< Appending to an empty range
-    void testAppendOverflow();       ///< An append that would overflow the size
-    void testAppendMiddle();         ///< Append to the middle of an existing range
-    void testAppendEnd();            ///< Extend a range
-    void testAppendGap();            ///< Append outside (and not adjacent) to an existing range
-    void testAppendNewScan();        ///< Append with a different scan
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRange, TestSet::perBuild());
-
-void TestRange::testConstructor()
-{
-    Range empty;
-    Range single(3, 6);
-    Range range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x10);
-
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0), empty.size);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), single.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(6), single.start);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), single.size);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(2), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0xFFFFFFFFFFFFFFF0)), range.start);
-
-    CPPUNIT_ASSERT_THROW(Range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x11), std::out_of_range);
-}
-
-void TestRange::testAppendEmpty()
-{
-    Range range;
-    bool success;
-
-    success = range.append(3, 6);
-    CPPUNIT_ASSERT_EQUAL(true, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(6), range.start);
-}
-
-void TestRange::testAppendOverflow()
-{
-    Range range;
-    range.scan = 3;
-    range.start = 0x90000000U;
-    range.size = 0xFFFFFFFFU;
-    bool success = range.append(3, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFU), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0x90000000U), range.start);
-}
-
-void TestRange::testAppendMiddle()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(4, UINT64_C(0x12345678FFFF));
-    CPPUNIT_ASSERT_EQUAL(true, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendEnd()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(4, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(true, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10001), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendGap()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(4, range.start + range.size + 1);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendNewScan()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(5, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
 }
 
 
@@ -674,61 +536,7 @@ void TestBucket::validate(
 
 void TestBucket::setupSimple()
 {
-    /* To make this easy to visualise, all splats are placed on a single Z plane.
-     * This plane is along a major boundary, so each block can be expected to
-     * appear twice (once on each side of the boundary).
-     *
-     * To plot the points for debugging, run gnuplot over the following (the coordinates
-     * are in grid space):
-set xrange [0:16]
-set yrange [0:20]
-set size square
-set xtics 4
-set ytics 4
-set grid
-plot '-' with points
-4 8
-12 6.8
-12.8 4.8
-12.8 7.2
-14.8 7.2
-14 6.4
-4.8 14.8
-5.2 14.8
-4.8 15.2
-5.2 15.2
-6.8 12.8
-7.2 13.2
-10 18
-e
-pause -1
-     */
-    const float z = 10.0f;
-
-    splatData.resize(3);
-
-    splatData[0].push_back(makeSplat(10.0f, 20.0f, z, 2.0f));
-    splatData[0].push_back(makeSplat(30.0f, 17.0f, z, 1.0f));
-    splatData[0].push_back(makeSplat(32.0f, 12.0f, z, 1.0f));
-    splatData[0].push_back(makeSplat(32.0f, 18.0f, z, 1.0f));
-    splatData[0].push_back(makeSplat(37.0f, 18.0f, z, 1.0f));
-    splatData[0].push_back(makeSplat(35.0f, 16.0f, z, 3.0f));
-
-    splatData[1].push_back(makeSplat(12.0f, 37.0f, z, 1.0f));
-    splatData[1].push_back(makeSplat(13.0f, 37.0f, z, 1.0f));
-    splatData[1].push_back(makeSplat(12.0f, 38.0f, z, 1.0f));
-    splatData[1].push_back(makeSplat(13.0f, 38.0f, z, 1.0f));
-    splatData[1].push_back(makeSplat(17.0f, 32.0f, z, 1.0f));
-
-    splatData[2].push_back(makeSplat(18.0f, 33.0f, z, 1.0f));
-
-    splatData[2].push_back(makeSplat(25.0f, 45.0f, z, 4.0f));
-
-    splats.clear();
-    splats.reserve(splatData.size());
-    for (std::size_t i = 0; i < splatData.size(); i++)
-        splats.push_back(new Collection(splatData[i]));
-
+    createSplats(splatData, splats);
     splatSet.reset(new Set(splats, 2.5f, 1));
 }
 
