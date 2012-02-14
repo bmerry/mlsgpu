@@ -255,7 +255,7 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
         // Adjustments from reference-relative to extent-relative buckets
         Grid::difference_type adjust[3];
         for (unsigned int i = 0; i < 3; i++)
-            adjust[i] = grid.getExtent(i).first / blobBucket;
+            adjust[i] = grid.getExtent(i).first / Grid::difference_type(blobBucket);
 
         typename BlobCollection::const_iterator cur = blobs.begin();
         while (cur != blobs.end())

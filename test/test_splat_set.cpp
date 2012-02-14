@@ -422,7 +422,7 @@ void TestSplatSet<SetType>::testForEachRangeAll()
         ranges.push_back(Range(i, 0, splatData[i].size()));
 
     const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 2.5f, 0, 20, 0, 20, 0, 20);
+    Grid grid(ref, 2.5f, -20, 20, 4, 20, -20, 20);
     std::vector<Entry> entries;
     set->forEachRange(ranges.begin(), ranges.end(),
                       grid, 4, boost::bind(&TestSplatSet<SetType>::callback, this,
