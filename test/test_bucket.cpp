@@ -551,7 +551,7 @@ void TestBucket::testSimple()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
@@ -571,7 +571,7 @@ void TestBucket::testDensityError()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
-        bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
+        bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6)),
         DensityError);
 }
@@ -586,7 +586,7 @@ void TestBucket::testFlat()
     const int maxSplats = 15;
     const int maxCells = 32;
     const int maxSplit = 1000000;
-    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(*splatSet, grid, blocks, maxSplats, maxCells);
 
@@ -607,7 +607,7 @@ void TestBucket::testEmpty()
      */
     typedef SplatSet::SimpleSet<boost::ptr_vector<Collection> > Set;
     Set splatSet(splats);
-    bucket(splatSet, grid, maxSplats, maxCells, maxSplit,
+    bucket(splatSet, grid, maxSplats, maxCells, false, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     CPPUNIT_ASSERT(blocks.empty());
 }
@@ -622,7 +622,7 @@ void TestBucket::testMultiLevel()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 8;
-    bucket(*splatSet, grid, maxSplats, maxCells, maxSplit,
+    bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
     validate(*splatSet, grid, blocks, maxSplats, maxCells);
 

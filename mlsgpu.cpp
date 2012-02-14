@@ -627,7 +627,7 @@ void DeviceBlock::operator()()
         boost::ptr_vector<StdVectorCollection<Splat> > deviceSplats;
         SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(deviceSplats);
         deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
-        Bucket::bucket(splatSet, item->grid, maxSplats, maxCells, maxSplit,
+        Bucket::bucket(splatSet, item->grid, maxSplats, maxCells, false, maxSplit,
                        boost::ref(*this), progress, item->recursionState);
     }
 }
@@ -805,7 +805,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
             workerThreads.create_thread(boost::bind(boost::ref(deviceWorkers[i])));
         }
 
-        Bucket::bucket(splatSet, grid, maxHostSplats, INT_MAX, maxSplit, hostBlock, &progress);
+        Bucket::bucket(splatSet, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
 
         /* Shut down bucket threads. Note that these have to be completely shut
          * down before we start shutting down the worker threads, as otherwise

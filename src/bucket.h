@@ -111,6 +111,13 @@ public:
  * @param region     The region to process.
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
+ * @param maxCellsHint If true, @a maxCells does not constrain bucket sizes, and
+ *                   is instead used as a hint for sizing microblocks. It is
+ *                   most useful if the output of coarse bucketing is going to
+ *                   be used for a finer-grained bucketing with a constrained
+ *                   bucket size, in which case this can be used to ensure a
+ *                   balanced split. It is also useful for hitting the fast
+ *                   path in @ref SplatSet::BlobSet.
  * @param maxSplit   Maximum recursion fan-out. Larger values will usually
  *                   give higher performance by reducing recursion depth,
  *                   but at the cost of more memory.
@@ -145,6 +152,7 @@ public:
  *  of microblocks (specifically, nodes - see below). A microblock is a cube of
  *  cells.
  *  - @b Node: an octree node from an octree in which the leaves are microblocks.
+ *  - @b Bucket: a region that forms a leaf of the recursion.
  *
  * At each level of recursion, it takes the current region and subdivides it into
  * microblocks. Microblocks are chosen to be as small as possible (subject
@@ -171,6 +179,7 @@ void bucket(const CollectionSet &splats,
             const Grid &region,
             typename CollectionSet::index_type maxSplats,
             Grid::size_type maxCells,
+            bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
             ProgressDisplay *progress = NULL,

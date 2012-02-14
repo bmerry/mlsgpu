@@ -153,13 +153,15 @@ struct BucketParameters
 {
     Range::index_type maxSplats;        ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
+    bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
     ProgressDisplay *progress;          ///< Progress display to update for empty cells
 
     BucketParameters(Range::index_type maxSplats,
-                     Grid::size_type maxCells, std::size_t maxSplit,
+                     Grid::size_type maxCells, bool maxCellsHint, std::size_t maxSplit,
                      ProgressDisplay *progress)
-        : maxSplats(maxSplats), maxCells(maxCells), maxSplit(maxSplit), progress(progress) {}
+        : maxSplats(maxSplats), maxCells(maxCells), maxCellsHint(maxCellsHint),
+        maxSplit(maxSplit), progress(progress) {}
 };
 
 /**
@@ -420,7 +422,8 @@ void bucketRecurse(
         cellDims[i] = grid.numCells(i);
     Grid::size_type maxCellDim = std::max(std::max(cellDims[0], cellDims[1]), cellDims[2]);
 
-    if (numSplats <= params.maxSplats && maxCellDim <= params.maxCells)
+    if (numSplats <= params.maxSplats &&
+        (maxCellDim <= params.maxCells || params.maxCellsHint))
     {
         boost::unwrap_ref(process)(splats, numSplats, first, last, grid, recursionState);
     }
@@ -507,6 +510,7 @@ void bucket(const CollectionSet &splats,
             const Grid &region,
             typename CollectionSet::index_type maxSplats,
             Grid::size_type maxCells,
+            bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<CollectionSet>::type &process,
             ProgressDisplay *progress,
@@ -525,7 +529,7 @@ void bucket(const CollectionSet &splats,
         }
     }
 
-    internal::BucketParameters params(maxSplats, maxCells, maxSplit, progress);
+    internal::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
     Recursion childRecursion = recursionState;
     childRecursion.depth++;
     childRecursion.totalRanges += root.size();
