@@ -108,6 +108,56 @@ void TestDivUp::testTypes()
 }
 
 
+/// Tests for @ref divDown
+class TestDivDown : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestDivDown);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testZero);
+    CPPUNIT_TEST(testOverflow);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testSimple();           ///< Test normal use cases
+    void testZero();             ///< Test exception handling on divide-by-zero
+    void testOverflow();         ///< Test exception handling on @c INT_MIN
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestDivDown, TestSet::perBuild());
+
+void TestDivDown::testSimple()
+{
+    // Positive cases
+    CPPUNIT_ASSERT_EQUAL(2, divDown(20, 10));
+    CPPUNIT_ASSERT_EQUAL(2, divDown(21, 10));
+    CPPUNIT_ASSERT_EQUAL(2, divDown(29, 10));
+    CPPUNIT_ASSERT_EQUAL(UINT32_MAX, divDown(UINT32_MAX, 1));
+    CPPUNIT_ASSERT_EQUAL(UINT64_MAX / 2, divDown(UINT64_MAX, 2));
+    CPPUNIT_ASSERT_EQUAL(UINT64_C(2), divDown(UINT64_MAX, UINT64_MAX / 2));
+
+    // Negative cases
+    CPPUNIT_ASSERT_EQUAL(-2, divDown(-20, 10));
+    CPPUNIT_ASSERT_EQUAL(-3, divDown(-21, 10));
+    CPPUNIT_ASSERT_EQUAL(-3, divDown(-29, 10));
+    CPPUNIT_ASSERT_EQUAL(-1000000001, divDown(-2000000001, 2));
+    CPPUNIT_ASSERT_EQUAL(-INT64_MAX, divDown(-INT64_MAX, 1));
+}
+
+void TestDivDown::testZero()
+{
+    CPPUNIT_ASSERT_THROW(divDown(0, 0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(divDown(100, 0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(divDown(-100, 0), std::invalid_argument);
+}
+
+void TestDivDown::testOverflow()
+{
+    // This test is only valid on two's complement machines
+    if (INT32_MIN < -INT32_MAX)
+    {
+        CPPUNIT_ASSERT_THROW(divDown(INT32_MIN, 1), std::overflow_error);
+        CPPUNIT_ASSERT_THROW(divDown(INT32_MIN, 1000000), std::overflow_error);
+    }
+}
+
 /// Tests for @ref floatToBits.
 class TestFloatToBits : public CppUnit::TestFixture
 {

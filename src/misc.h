@@ -12,6 +12,7 @@
 #endif
 
 #include <boost/numeric/conversion/converter.hpp>
+#include <boost/type_traits/is_unsigned.hpp>
 #include <limits>
 #include <tr1/cstdint>
 #include <cstring>
@@ -75,6 +76,32 @@ static inline S roundUp(S a, T b)
 }
 
 /**
+ * Implementation of @ref divDown for unsigned numerators.
+ * Do not call this function directly.
+ */
+template<typename S, typename T>
+static inline S divDown_(S a, T b, boost::true_type)
+{
+    MLSGPU_ASSERT(b > 0, std::invalid_argument);
+    return a / b;
+}
+
+/**
+ * Implementation of @ref divDown for signed numerators.
+ * Do not call this function directly.
+ */
+template<typename S, typename T>
+static inline S divDown_(S a, T b, boost::false_type)
+{
+    MLSGPU_ASSERT(b > 0, std::invalid_argument);
+    MLSGPU_ASSERT(a >= -std::numeric_limits<S>::max(), std::overflow_error);
+    if (a < 0)
+        return -divUp(-a, b);
+    else
+        return a / b;
+}
+
+/**
  * Divide and round down, handling negative numerator.
  *
  * @pre @a b &gt 0, and @a -a is representable
@@ -84,12 +111,7 @@ static inline S roundUp(S a, T b)
 template<typename S, typename T>
 static inline S divDown(S a, T b)
 {
-    MLSGPU_ASSERT(b > 0, std::invalid_argument);
-    MLSGPU_ASSERT(a >= -std::numeric_limits<S>::max(), std::overflow_error);
-    if (a < 0)
-        return -divUp(-a, b);
-    else
-        return a / b;
+    return divDown_(a, b, typename boost::is_unsigned<S>::type());
 }
 
 /**
