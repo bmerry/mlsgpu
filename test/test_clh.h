@@ -5,6 +5,7 @@
  */
 
 #ifndef TEST_CLH_H
+#define TEST_CLH_H
 
 #if HAVE_CONFIG_H
 # include <config.h>
