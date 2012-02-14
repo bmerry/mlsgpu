@@ -263,16 +263,16 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
         {
             boost::array<Grid::difference_type, 3> lower, upper;
             for (unsigned int i = 0; i < 3; i++)
-                upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
+                lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
 
             if (cur->size == 0)
             {
                 ++cur;
                 for (unsigned int i = 0; i < 3; i++)
-                    lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
+                    upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
             }
             else
-                lower = upper;
+                upper = lower;
             if (lower[0] <= upper[0]) // skips over non-finite splats
             {
                 func(scan, index, index + cur->size, lower, upper);
