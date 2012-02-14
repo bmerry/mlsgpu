@@ -186,14 +186,13 @@ void BlobSet<SplatCollectionSet, BlobCollection>::processSplat(
         build.nonFinite++;
         flushBlob(build);
         // Create a blob with zero coverage
-        Blob blob;
         for (unsigned int i = 0; i < 3; i++)
         {
             build.blobLower[i] = 1;
             build.blobUpper[i] = 0;
         }
-        blob.size = 1;
-        blobs.push_back(blob);
+        build.blobSize = 1;
+        flushBlob(build);
     }
     else
     {
@@ -261,19 +260,24 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
         typename BlobCollection::const_iterator cur = blobs.begin();
         while (cur != blobs.end())
         {
+            bool good = true;
+
             boost::array<Grid::difference_type, 3> lower, upper;
             for (unsigned int i = 0; i < 3; i++)
                 lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
 
             if (cur->size == 0)
             {
+                Grid::difference_type lx = cur->coords[0];
                 ++cur;
+                if (cur->coords[0] < lx)
+                    good = false;   // this is how non-finite splats are encoded
                 for (unsigned int i = 0; i < 3; i++)
                     upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
             }
             else
                 upper = lower;
-            if (lower[0] <= upper[0]) // skips over non-finite splats
+            if (good) // skips over non-finite splats
             {
                 func(scan, index, index + cur->size, lower, upper);
             }
