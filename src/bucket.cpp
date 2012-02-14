@@ -153,6 +153,27 @@ void BucketState::upsweepCounts()
     }
 }
 
+bool BucketState::clamp(const boost::array<Grid::difference_type, 3> &lower,
+                        const boost::array<Grid::difference_type, 3> &upper,
+                        boost::array<Node::size_type, 3> &lo,
+                        boost::array<Node::size_type, 3> &hi)
+{
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        Grid::difference_type l = lower[i];
+        Grid::difference_type h = upper[i];
+        if (l < 0)
+            l = 0;
+        if (h >= Grid::difference_type(nodeCounts[0].shape()[i]))
+            h = Grid::difference_type(nodeCounts[0].shape()[i]) - 1;
+        if (l > h)
+            return false; // does not intersect the grid
+        lo[i] = l;
+        hi[i] = h;
+    }
+    return true;
+}
+
 std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
 {
     assert(node.getLevel() < nodeCounts.size());
@@ -168,13 +189,10 @@ void CountSplat::operator()(
     (void) scan;
 
     int level = 0;
-    Node::size_type lo[3], hi[3];
+    boost::array<Node::size_type, 3> lo, hi;
     Range::index_type count = last - first;
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        lo[i] = std::max(Node::size_type(lower[i]), Node::size_type(0));
-        hi[i] = std::min(Node::size_type(upper[i]), Node::size_type(state.nodeCounts[0].shape()[i]) - 1);
-    }
+    if (!state.clamp(lower, upper, lo, hi))
+        return;
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)

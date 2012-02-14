@@ -9,6 +9,7 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+#include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
@@ -247,6 +248,20 @@ struct BucketState
      * and before calling @ref getNodeCount.
      */
     void upsweepCounts();
+
+    /**
+     * Clamp a range of microblocks to the coverage of nodeCounts, checking for
+     * the case of no overlap. If there is no overlap, the output values are
+     * undefined.
+     *
+     * @param[in]  lower, upper  Inclusive range of microblock coordinates.
+     * @param[out] lo, hi        Microblock coordinates clamped to the microblock coverage.
+     * @return @c true if the range overlapped the coverage, otherwise @c false.
+     */
+    bool clamp(const boost::array<Grid::difference_type, 3> &lower,
+               const boost::array<Grid::difference_type, 3> &upper,
+               boost::array<Node::size_type, 3> &lo,
+               boost::array<Node::size_type, 3> &hi);
 };
 
 /**
@@ -319,12 +334,9 @@ void BucketSplat<CollectionSet>::operator()(
     const boost::array<Grid::difference_type, 3> &upper) const
 {
     Range::index_type count = last - first;
-    Node::size_type lo[3], hi[3];
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        lo[i] = std::max(Node::size_type(lower[i]), Node::size_type(0));
-        hi[i] = std::min(Node::size_type(upper[i]), Node::size_type(state.nodeCounts[0].shape()[i]) - 1);
-    }
+    boost::array<Node::size_type, 3> lo, hi;
+    if (!state.clamp(lower, upper, lo, hi))
+        return;
 
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
