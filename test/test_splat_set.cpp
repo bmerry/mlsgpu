@@ -20,6 +20,7 @@
 #include "../src/grid.h"
 #include "../src/splat_set.h"
 #include "../src/collection.h"
+#include "../src/logging.h"
 #include "test_splat_set.h"
 #include "testmain.h"
 
@@ -321,6 +322,7 @@ protected:
 
 public:
     virtual void setUp();
+    virtual void tearDown();
 
     void testForEach();              ///< Tests @c forEach
     void testForEachRange();         ///< Tests @c forEachRange
@@ -357,8 +359,22 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatSetBlob, TestSet::perBuild());
 template<typename SetType>
 void TestSplatSet<SetType>::setUp()
 {
+    CppUnit::TestFixture::setUp();
     createSplats(splatData, splats);
     set.reset(setFactory(splats, 2.5f, 2));
+    /* The testNan test normally causes a warning to be printed about
+     * invalid splats, but in this case it's intentional, so we
+     * suppress the warning.
+     */
+    Log::log.setLevel(Log::error);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::tearDown()
+{
+    // Restore the default log level
+    Log::log.setLevel(Log::warn);
+    CppUnit::TestFixture::tearDown();
 }
 
 template<typename SetType>
