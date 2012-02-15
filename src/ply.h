@@ -597,6 +597,7 @@ public:
         void validate() const
         {
             MLSGPU_ASSERT(owner != NULL, std::invalid_argument);
+            MLSGPU_ASSERT(owner->reader.currentReader != owner->reader.readers.end(), std::invalid_argument);
             MLSGPU_ASSERT(&*owner->reader.currentReader == owner, std::invalid_argument);
             MLSGPU_ASSERT(owner->reader.currentPos == pos, std::invalid_argument);
             MLSGPU_ASSERT(pos < owner->getNumber(), std::invalid_argument);
