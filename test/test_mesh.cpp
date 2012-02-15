@@ -312,8 +312,12 @@ void TestMeshBase::add(
                              indices);
     queue.finish();
 
+    cl::Event event;
     functor(queue, dVertices, dVertexKeys, dIndices,
-            numVertices, numInternalVertices, numIndices, NULL);
+            numVertices, numInternalVertices, numIndices, &event);
+
+    queue.flush();
+    event.wait();
 }
 
 void TestMeshBase::checkIsomorphic(
