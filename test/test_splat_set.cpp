@@ -21,6 +21,7 @@
 #include "../src/splat_set.h"
 #include "../src/collection.h"
 #include "../src/logging.h"
+#include "../src/statistics.h"
 #include "test_splat_set.h"
 #include "testmain.h"
 
@@ -324,9 +325,9 @@ public:
     virtual void setUp();
     virtual void tearDown();
 
-    void testForEach();              ///< Tests @c forEach
+    virtual void testForEach();      ///< Tests @c forEach
     void testForEachRange();         ///< Tests @c forEachRange
-    void testForEachRangeAll();      ///< Tests @c forEachRange where the ranges span everything
+    virtual void testForEachRangeAll(); ///< Tests @c forEachRange where the ranges span everything
     void testNan();                  ///< Tests handling of invalid splats
 };
 
@@ -352,6 +353,10 @@ protected:
                             float spacing, Grid::size_type bucketSize);
 public:
     void testGetBoundingGrid();      ///< Tests construction of the bounding grid
+
+    // Overloads that check that the fast path was hit
+    virtual void testForEach();
+    virtual void testForEachRangeAll();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatSetBlob, TestSet::perBuild());
 
@@ -576,4 +581,22 @@ void TestSplatSetBlob::testGetBoundingGrid()
     CPPUNIT_ASSERT_EQUAL(Grid::difference_type(20), grid.getExtent(1).second);
     CPPUNIT_ASSERT_EQUAL(Grid::difference_type(2), grid.getExtent(2).first);
     CPPUNIT_ASSERT_EQUAL(Grid::difference_type(6), grid.getExtent(2).second);
+}
+
+void TestSplatSetBlob::testForEach()
+{
+    Statistics::Variable &hits = Statistics::getStatistic<Statistics::Variable>("blobset.foreach.fast");
+    double oldTotal = hits.getNumSamples() > 0 ? hits.getMean() * hits.getNumSamples() : 0.0;
+    TestSplatSet<Set>::testForEach();
+    double newTotal = hits.getMean() * hits.getNumSamples();
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(oldTotal + 1.0, newTotal, 1e-2);
+}
+
+void TestSplatSetBlob::testForEachRangeAll()
+{
+    Statistics::Variable &hits = Statistics::getStatistic<Statistics::Variable>("blobset.foreachrange.fast");
+    double oldTotal = hits.getNumSamples() > 0 ? hits.getMean() * hits.getNumSamples() : 0.0;
+    TestSplatSet<Set>::testForEachRangeAll();
+    double newTotal = hits.getMean() * hits.getNumSamples();
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(oldTotal + 1.0, newTotal, 1e-2);
 }
