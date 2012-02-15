@@ -269,12 +269,27 @@ protected:
                   cl::Event *verticesEvent,
                   cl::Event *trianglesEvent) const;
 
+    /**
+     * Add external vertex keys to the key map and computes an index rewrite table.
+     * The index rewrite table maps local external indices for a block to their
+     * final values.
+     *
+     * @param vertexOffset    The final index for the first external vertex in the block.
+     * @param hKeys           Keys of the external vertices.
+     * @param[out] indexTable The index remapping table.
+     */
     std::size_t updateKeyMap(
-        cl_uint priorVertices,
-        std::size_t numInternalVertices,
+        cl_uint vertexOffset,
         const std::vector<cl_ulong> &hKeys,
         std::vector<cl_uint> &indexTable);
 
+    /**
+     * Writes indices in place from being block-relative to the final form.
+     * @param priorVertices        First vertex in the block (internal or external).
+     * @param numInternalVertices  Number of internal vertices in the block.
+     * @param indexTable           External index rewrite table computed by @ref updateKeyMap.
+     * @param[in,out] triangles    Vertex indices.
+     */
     void rewriteTriangles(
         cl_uint priorVertices,
         std::size_t numInternalVertices,

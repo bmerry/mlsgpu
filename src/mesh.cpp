@@ -439,12 +439,10 @@ void KeyMapMesh::loadData(
 }
 
 std::size_t KeyMapMesh::updateKeyMap(
-    cl_uint priorVertices,
-    std::size_t numInternalVertices,
+    cl_uint vertexOffset,
     const std::vector<cl_ulong> &hKeys,
     std::vector<cl_uint> &indexTable)
 {
-    cl_uint base = priorVertices + numInternalVertices;
     const std::size_t numExternalVertices = hKeys.size();
     std::size_t newKeys = 0;
 
@@ -452,7 +450,7 @@ std::size_t KeyMapMesh::updateKeyMap(
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         std::pair<map_type::iterator, bool> added;
-        added = keyMap.insert(std::make_pair(tmpVertexKeys[i], base + newKeys));
+        added = keyMap.insert(std::make_pair(tmpVertexKeys[i], vertexOffset + newKeys));
         if (added.second)
             newKeys++;
         indexTable[i] = added.first->second;
@@ -551,7 +549,7 @@ void BigMesh::add(const cl::CommandQueue &queue,
              &verticesEvent, &indicesEvent);
 
     std::size_t newKeys = updateKeyMap(
-        nextVertex, numInternalVertices,
+        nextVertex + numInternalVertices,
         tmpVertexKeys, tmpIndexTable);
 
     verticesEvent.wait();
@@ -664,7 +662,7 @@ void StxxlMesh::add(
              &verticesEvent, &indicesEvent);
 
     std::size_t newKeys = updateKeyMap(
-        priorVertices, numInternalVertices,
+        priorVertices + numInternalVertices,
         tmpVertexKeys, tmpIndexTable);
 
     /* Copy the vertices into storage */
