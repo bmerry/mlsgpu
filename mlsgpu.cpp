@@ -72,6 +72,8 @@ namespace Option
     const char * const maxSplit = "max-split";
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
+    const char * const bucketThreads = "bucket-threads";
+    const char * const deviceThreads = "device-threads";
     const char * const mesh = "mesh";
     const char * const writer = "writer";
 };
@@ -110,6 +112,8 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(50000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
+        (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
+        (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads for submitting OpenCL work")
         (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(BIG_MESH), "Mesh collector (simple | weld | big | stxxl)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
@@ -180,6 +184,8 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const int bucketThreads = vm[Option::bucketThreads].as<int>();
+    const int deviceThreads = vm[Option::deviceThreads].as<int>();
 
     int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
     /* TODO make dynamic, considering maximum image sizes etc */
@@ -220,13 +226,24 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
         exit(1);
     }
 
+    if (bucketThreads < 1)
+    {
+        cerr << "Value of --bucket-threads must be at least 1\n";
+        exit(1);
+    }
+    if (deviceThreads < 1)
+    {
+        cerr << "Value of --device-threads must be at least 1\n";
+        exit(1);
+    }
+
     /* Check that we have enough memory on the device. This is no guarantee against OOM, but
      * we can at least turn down silly requests before wasting any time.
      */
     const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> marchingMemory = Marching::deviceMemory(device, block, block);
     std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxDeviceSplats);
-    const std::tr1::uint64_t total = marchingMemory.first + splatTreeMemory.first;
+    const std::tr1::uint64_t total = deviceThreads * (marchingMemory.first + splatTreeMemory.first);
     const std::tr1::uint64_t max = std::max(marchingMemory.second, splatTreeMemory.second);
 
     const std::size_t deviceTotal = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
@@ -249,7 +266,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     Log::log[Log::info] << "About " << total / (1024 * 1024) << "MiB of device memory will be used.\n";
     if (total > deviceTotal * 0.8)
     {
-        Log::log[Log::warn] << "More than 80% of the device memory will be used.\n";
+        Log::log[Log::warn] << "WARNING: More than 80% of the device memory will be used.\n";
     }
 }
 
@@ -743,13 +760,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
 
     /*
      * TODO:
-     * - make tunable
-     * - update computation of whether we have enough device memory
      * - support multithreading at the next level down as well, to
      *   do better host-device overlap
      */
-    const unsigned int numBucketThreads = 4;
-    const unsigned int numDeviceThreads = 1;
+    const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
+    const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
     WorkQueue<boost::shared_ptr<HostWorkItem> > workQueueCoarse(1);
     WorkQueue<boost::shared_ptr<DeviceWorkItem> > workQueueFine(2);
