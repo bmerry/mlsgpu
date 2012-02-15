@@ -20,6 +20,7 @@
 #include <ostream>
 #include <cstddef>
 #include <iterator>
+#include <stxxl.h>
 #include "grid.h"
 #include "splat.h"
 #include "progress.h"
@@ -261,33 +262,35 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEachFast(
     for (unsigned int i = 0; i < 3; i++)
         adjust[i] = grid.getExtent(i).first / Grid::difference_type(blobBucket);
 
-    typename BlobCollection::const_iterator cur = blobs.begin();
-    while (cur != blobs.end())
+    typename stxxl::stream::streamify_traits<typename BlobCollection::const_iterator>::stream_type
+        blobStream = stxxl::stream::streamify(blobs.begin(), blobs.end());
+    while (!blobStream.empty())
     {
+        Blob cur = *blobStream; ++blobStream;
         assert(curScan != this->splats.end());
         assert(index < curScan->size());
         bool good = true;
 
         boost::array<Grid::difference_type, 3> lower, upper;
         for (unsigned int i = 0; i < 3; i++)
-            lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
+            lower[i] = divDown(cur.coords[i] - adjust[i], ratio);
 
-        if (cur->size == 0)
+        if (cur.size == 0)
         {
-            Grid::difference_type lx = cur->coords[0];
-            ++cur;
-            if (cur->coords[0] < lx)
+            Grid::difference_type lx = cur.coords[0];
+            cur = *blobStream; ++blobStream;
+            if (cur.coords[0] < lx)
                 good = false;   // this is how non-finite splats are encoded
             for (unsigned int i = 0; i < 3; i++)
-                upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
+                upper[i] = divDown(cur.coords[i] - adjust[i], ratio);
         }
         else
             upper = lower;
         if (good) // skips over non-finite splats
         {
-            func(scan, index, index + cur->size, lower, upper);
+            func(scan, index, index + cur.size, lower, upper);
         }
-        index += cur->size;
+        index += cur.size;
         while (curScan != this->splats.end() && index >= curScan->size())
         {
             assert(index == curScan->size());
@@ -295,8 +298,6 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEachFast(
             ++curScan;
             index = 0;
         }
-
-        ++cur;
     }
 }
 
