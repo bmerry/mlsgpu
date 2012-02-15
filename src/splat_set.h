@@ -326,6 +326,14 @@ private:
      * are interpreted as if passed to @ref forEach or @ref forEachRange.
      */
     bool fastGrid(const Grid &grid, Grid::size_type bucketSize) const;
+
+    /**
+     * The implementation of @ref forEach when using the fast path. This function does
+     * not check whether the fast path can be used (the caller does not), and does not
+     * increment the statistics indicating whether the fast path was hit.
+     */
+    template<typename Func>
+    void forEachFast(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 };
 
 } // namespace SplatSet

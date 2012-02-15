@@ -26,6 +26,7 @@
 #include "errors.h"
 #include "logging.h"
 #include "misc.h"
+#include "statistics.h"
 
 namespace SplatSet
 {
@@ -101,6 +102,7 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
 : SimpleSet<SplatCollectionSet>(splats), blobBucket(blobBucket)
 {
     MLSGPU_ASSERT(blobBucket > 0, std::invalid_argument);
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     // Reference point will be 0,0,0. Extents are set after reading all the splats
     boundingGrid.setSpacing(spacing);
@@ -121,6 +123,7 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
 
     Build build;
     build.nonFinite = 0;
+    // Set sentinel values
     fill(build.bboxMin, build.bboxMin + 3, std::numeric_limits<float>::infinity());
     fill(build.bboxMax, build.bboxMax + 3, -std::numeric_limits<float>::infinity());
     build.blobSize = 0;
@@ -133,6 +136,8 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
 
     if (build.nonFinite > 0)
         Log::log[Log::warn] << "Input contains " << build.nonFinite << " splat(s) with non-finite values\n";
+    registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(build.nonFinite);
+
     if (build.bboxMin[0] > build.bboxMax[0])
         throw std::length_error("Must be at least one splat");
 
@@ -150,8 +155,7 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
 
         boundingGrid.setExtent(i, lo, hi);
     }
-    Log::log[Log::info] << blobs.size() << " blobs extracted\n";
-    // TODO: record as a statistic instead
+    registry.getStatistic<Statistics::Variable>("blobset.blobs").add(blobs.size());
 }
 
 template<typename SplatCollectionSet, typename BlobCollection>
@@ -238,6 +242,66 @@ bool BlobSet<SplatCollectionSet, BlobCollection>::fastGrid(
 
 template<typename SplatCollectionSet, typename BlobCollection>
 template<typename Func>
+void BlobSet<SplatCollectionSet, BlobCollection>::forEachFast(
+    const Grid &grid, Grid::size_type bucketSize,
+    const Func &func) const
+{
+    typename SplatCollectionSet::const_iterator curScan = this->splats.begin();
+    scan_type scan = 0;
+    index_type index = 0;
+    while (curScan != this->splats.end() && curScan->size() == 0)
+    {
+        ++scan;
+        ++curScan;
+    }
+
+    Grid::size_type ratio = bucketSize / blobBucket;
+    // Adjustments from reference-relative to extent-relative buckets
+    Grid::difference_type adjust[3];
+    for (unsigned int i = 0; i < 3; i++)
+        adjust[i] = grid.getExtent(i).first / Grid::difference_type(blobBucket);
+
+    typename BlobCollection::const_iterator cur = blobs.begin();
+    while (cur != blobs.end())
+    {
+        assert(curScan != this->splats.end());
+        assert(index < curScan->size());
+        bool good = true;
+
+        boost::array<Grid::difference_type, 3> lower, upper;
+        for (unsigned int i = 0; i < 3; i++)
+            lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
+
+        if (cur->size == 0)
+        {
+            Grid::difference_type lx = cur->coords[0];
+            ++cur;
+            if (cur->coords[0] < lx)
+                good = false;   // this is how non-finite splats are encoded
+            for (unsigned int i = 0; i < 3; i++)
+                upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
+        }
+        else
+            upper = lower;
+        if (good) // skips over non-finite splats
+        {
+            func(scan, index, index + cur->size, lower, upper);
+        }
+        index += cur->size;
+        while (curScan != this->splats.end() && index >= curScan->size())
+        {
+            assert(index == curScan->size());
+            ++scan;
+            ++curScan;
+            index = 0;
+        }
+
+        ++cur;
+    }
+}
+
+template<typename SplatCollectionSet, typename BlobCollection>
+template<typename Func>
 void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
     const Grid &grid, Grid::size_type bucketSize,
     const Func &func) const
@@ -245,63 +309,13 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEach(
     bool fast = fastGrid(grid, bucketSize);
     if (fast)
     {
-        typename SplatCollectionSet::const_iterator curScan = this->splats.begin();
-        scan_type scan = 0;
-        index_type index = 0;
-        while (curScan != this->splats.end() && curScan->size() == 0)
-        {
-            ++scan;
-            ++curScan;
-        }
-
-        Grid::size_type ratio = bucketSize / blobBucket;
-        // Adjustments from reference-relative to extent-relative buckets
-        Grid::difference_type adjust[3];
-        for (unsigned int i = 0; i < 3; i++)
-            adjust[i] = grid.getExtent(i).first / Grid::difference_type(blobBucket);
-
-        typename BlobCollection::const_iterator cur = blobs.begin();
-        while (cur != blobs.end())
-        {
-            assert(curScan != this->splats.end());
-            assert(index < curScan->size());
-            bool good = true;
-
-            boost::array<Grid::difference_type, 3> lower, upper;
-            for (unsigned int i = 0; i < 3; i++)
-                lower[i] = divDown(cur->coords[i] - adjust[i], ratio);
-
-            if (cur->size == 0)
-            {
-                Grid::difference_type lx = cur->coords[0];
-                ++cur;
-                if (cur->coords[0] < lx)
-                    good = false;   // this is how non-finite splats are encoded
-                for (unsigned int i = 0; i < 3; i++)
-                    upper[i] = divDown(cur->coords[i] - adjust[i], ratio);
-            }
-            else
-                upper = lower;
-            if (good) // skips over non-finite splats
-            {
-                func(scan, index, index + cur->size, lower, upper);
-            }
-            index += cur->size;
-            while (curScan != this->splats.end() && index >= curScan->size())
-            {
-                assert(index == curScan->size());
-                ++scan;
-                ++curScan;
-                index = 0;
-            }
-
-            ++cur;
-        }
+        forEachFast(grid, bucketSize, func);
     }
     else
     {
         SimpleSet<SplatCollectionSet>::forEach(grid, bucketSize, func);
     }
+    Statistics::getStatistic<Statistics::Variable>("blobset.foreach.fast").add(fast);
 }
 
 template<typename SplatCollectionSet, typename BlobCollection>
@@ -343,9 +357,11 @@ void BlobSet<SplatCollectionSet, BlobCollection>::forEachRange(
     }
 
     if (fast)
-        forEach(grid, bucketSize, func);
+        forEachFast(grid, bucketSize, func);
     else
         SimpleSet<SplatCollectionSet>::forEachRange(first, last, grid, bucketSize, func);
+
+    Statistics::getStatistic<Statistics::Variable>("blobset.foreachrange.fast").add(fast);
 }
 
 } // namespace SplatSet
