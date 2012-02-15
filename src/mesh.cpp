@@ -555,6 +555,14 @@ void BigMesh::count(const cl::CommandQueue &queue,
             newKeys++;
     }
     nVertices += newKeys;
+
+    if (event != NULL && numExternalVertices == 0)
+    {
+        // No actual event, so make up a pre-signaled one
+        cl::UserEvent e(queue.getInfo<CL_QUEUE_CONTEXT>());
+        e.setStatus(CL_COMPLETE);
+        *event = e;
+    }
 }
 
 void BigMesh::add(const cl::CommandQueue &queue,
