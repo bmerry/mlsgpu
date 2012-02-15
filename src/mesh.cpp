@@ -335,7 +335,7 @@ void WeldMesh::finalize(std::ostream *progressStream)
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
     {
-        *progressStream << "Welding vertices\n";
+        *progressStream << "\nWelding vertices\n";
         progress.reset(new ProgressDisplay(externalVertices.size()));
     }
     for (size_t i = 0; i < externalVertices.size(); i++)
@@ -365,7 +365,7 @@ void WeldMesh::finalize(std::ostream *progressStream)
      */
     if (progressStream != NULL)
     {
-        *progressStream << "Adjusting indices\n";
+        *progressStream << "\nAdjusting indices\n";
         progress->restart(triangles.size());
     }
     for (std::size_t i = 0; i < triangles.size(); i++)
@@ -750,7 +750,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
     {
-        *progressStream << "Writing file\n";
+        *progressStream << "\nWriting file\n";
         progress.reset(new ProgressDisplay(vertices.size() + triangles.size()));
     }
 
