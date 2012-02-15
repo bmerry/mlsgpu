@@ -88,6 +88,24 @@ struct Range
 namespace detail
 {
 
+/**
+ * Computes the range of buckets that will be occupied by a splat's bounding
+ * box.  A bucket is a cube where each side has @a bucketSize cells.  The
+ * buckets are aligned to grid coordinates (0,0,0). The resulting range is not
+ * clamped to the grid; the grid just gives spacing and alignment.
+ *
+ * The coordinates are given in units of buckets, with (0,0,0) being the bucket
+ * overlapping cell (0,0,0).
+ *
+ * @param      splat         Input splat
+ * @param      grid          Grid for spacing and alignment
+ * @param[out] lower         Lower bound coordinates (inclusive)
+ * @param[out] upper         Upper bound coordinates (inclusive)
+ *
+ * @pre
+ * - <code>splat.isFinite()</code>
+ * - @a bucketSize &gt; 0
+ */
 void splatToBuckets(const Splat &splat,
                     const Grid &grid, Grid::size_type bucketSize,
                     boost::array<Grid::difference_type, 3> &lower,

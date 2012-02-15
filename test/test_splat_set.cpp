@@ -207,6 +207,70 @@ void createSplats(std::vector<std::vector<Splat> > &splats,
     }
 }
 
+/// Tests for @ref SplatSet::detail::splatToBuckets
+class TestSplatToBuckets : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestSplatToBuckets);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testNan);
+    CPPUNIT_TEST(testZero);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testSimple();         ///< Test standard case
+    void testNan();            ///< Test error checking for illegal splats
+    void testZero();           ///< Test error checking for zero @a bucketSize
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatToBuckets, TestSet::perBuild());
+
+void TestSplatToBuckets::testSimple()
+{
+    const float ref[3] = {10.0f, -50.0f, 40.0f};
+    Grid grid(ref, 20.0f, -1, 5, 1, 100, 2, 50);
+    // grid base is at (-10, -30, 80)
+    boost::array<Grid::difference_type, 3> lower, upper;
+
+    Splat s1 = makeSplat(115.0f, -31.0f, 1090.0f, 7.0f);
+    detail::splatToBuckets(s1, grid, 3, lower, upper);
+    CPPUNIT_ASSERT_EQUAL(1, int(lower[0]));
+    CPPUNIT_ASSERT_EQUAL(2, int(upper[0]));
+    CPPUNIT_ASSERT_EQUAL(-1, int(lower[1]));
+    CPPUNIT_ASSERT_EQUAL(0, int(upper[1]));
+    CPPUNIT_ASSERT_EQUAL(16, int(lower[2]));
+    CPPUNIT_ASSERT_EQUAL(16, int(upper[2]));
+
+    Splat s2 = makeSplat(-1000.0f, -1000.0f, -1000.0f, 100.0f);
+    detail::splatToBuckets(s2, grid, 3, lower, upper);
+    CPPUNIT_ASSERT_EQUAL(-19, int(lower[0]));
+    CPPUNIT_ASSERT_EQUAL(-15, int(upper[0]));
+    CPPUNIT_ASSERT_EQUAL(-18, int(lower[1]));
+    CPPUNIT_ASSERT_EQUAL(-15, int(upper[1]));
+    CPPUNIT_ASSERT_EQUAL(-20, int(lower[2]));
+    CPPUNIT_ASSERT_EQUAL(-17, int(upper[2]));
+}
+
+void TestSplatToBuckets::testNan()
+{
+    const float ref[3] = {10.0f, -50.0f, 40.0f};
+    Grid grid(ref, 20.0f, -1, 5, 1, 100, 2, 50);
+    // grid base is at (-10, -30, 80)
+    boost::array<Grid::difference_type, 3> lower, upper;
+    Splat s = makeSplat(115.0f, std::numeric_limits<float>::quiet_NaN(), 1090.0f, 7.0f);
+
+    CPPUNIT_ASSERT_THROW(detail::splatToBuckets(s, grid, 3, lower, upper), std::invalid_argument);
+}
+
+void TestSplatToBuckets::testZero()
+{
+    const float ref[3] = {10.0f, -50.0f, 40.0f};
+    Grid grid(ref, 20.0f, -1, 5, 1, 100, 2, 50);
+    // grid base is at (-10, -30, 80)
+    boost::array<Grid::difference_type, 3> lower, upper;
+
+    Splat s = makeSplat(115.0f, -31.0f, 1090.0f, 7.0f);
+
+    CPPUNIT_ASSERT_THROW(detail::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
+}
+
 /// Base class for testing @ref SplatSet::SimpleSet and equivalent classes.
 template<typename SetType>
 class TestSplatSet : public CppUnit::TestFixture

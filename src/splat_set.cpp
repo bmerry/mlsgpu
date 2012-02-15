@@ -69,6 +69,8 @@ void splatToBuckets(const Splat &splat,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper)
 {
+    MLSGPU_ASSERT(splat.isFinite(), std::invalid_argument);
+    MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     float lo[3], hi[3];
     float loWorld[3], hiWorld[3];
     for (unsigned int i = 0; i < 3; i++)
