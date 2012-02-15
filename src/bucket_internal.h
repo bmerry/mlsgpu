@@ -131,7 +131,7 @@ private:
 /**
  * Accepts a list of splat IDs and merges them into ranges which are then
  * output.
- * @param OutputIterator an output iterator that accepts assignments of @ref Range.
+ * @param OutputIterator an output iterator that accepts assignments of @ref SplatSet::Range.
  */
 template<typename OutputIterator>
 class RangeCollector

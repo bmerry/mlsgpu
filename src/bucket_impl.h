@@ -267,7 +267,7 @@ struct BucketState
 };
 
 /**
- * Function object for use with @ref Bucket::internal::forEachSplat that enters the splat
+ * Function object for use with @ref SplatSet::SimpleSet::forEachRange that enters the splat
  * into all corresponding counters in the tree.
  */
 class CountSplat
@@ -301,7 +301,7 @@ public:
 };
 
 /**
- * Functor for @ref Bucket::internal::forEachSplat that places splat information into
+ * Functor for @ref SplatSet::SimpleSet::forEachRange that places splat information into
  * bucket ranges.
  */
 template<typename CollectionSet>

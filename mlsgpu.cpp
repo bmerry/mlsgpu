@@ -396,7 +396,7 @@ struct DeviceWorkItem
  * it to the @ref MeshBase class. It pulls chunks of work off a queue,
  * which contains pre-bucketed splats.
  *
- * It is intended to be used as a function object for @ref boost::thread.
+ * It is intended to be used as a function object for @c boost::thread.
  */
 class DeviceWorker : public boost::noncopyable
 {

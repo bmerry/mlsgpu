@@ -85,6 +85,9 @@ struct Range
     bool append(scan_type scan, index_type first, index_type last);
 };
 
+/**
+ * Internal implementation details. Do not call these functions directly.
+ */
 namespace detail
 {
 
@@ -99,6 +102,7 @@ namespace detail
  *
  * @param      splat         Input splat
  * @param      grid          Grid for spacing and alignment
+ * @param      bucketSize    Size of buckets in cells
  * @param[out] lower         Lower bound coordinates (inclusive)
  * @param[out] upper         Upper bound coordinates (inclusive)
  *
@@ -118,6 +122,8 @@ void splatToBuckets(const Splat &splat,
  * This is both a concrete class and a concept that is reimplemented by subclasses.
  * It provides mechanisms for iterating over all splats using an interface designed
  * for efficient bucketing.
+ *
+ * @param SplatCollectionSet A random-access container of @ref Collection of @ref Splat.
  */
 template<typename SplatCollectionSet>
 class SimpleSet : public boost::noncopyable
@@ -128,8 +134,13 @@ public:
     typedef typename std::iterator_traits<typename SplatCollectionSet::iterator>::value_type Collection;
     typedef typename Collection::size_type index_type;
 
+    /**
+     * Constructor. The provided @a splats is kept as a reference rather than
+     * copied, so the caller must ensure that it is not destroyed.
+     */
     explicit SimpleSet(const SplatCollectionSet &splats);
 
+    /// Retrieves the referenced splats
     const SplatCollectionSet &getSplats() const { return splats; }
 
     /**
@@ -150,23 +161,39 @@ public:
      * Splats that do not intersect the grid might or might not be passed to
      * the callback. The same applies to non-finite splats.
      *
-     * @param func        The function to call.
+     * @param grid        The grid for defining cell coordinates and boundaries.
      * @param bucketSize  The number of grid cells per bucket (in each dimension).
+     * @param func        The function to call.
      */
     template<typename Func>
     void forEach(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 
+    /**
+     * Call a function for each contiguous range of splats occupying the
+     * same bucket, from a set of specified splat ranges. See @ref forEach for
+     * details.
+     *
+     * @param first Forward iterator to the first range.
+     * @param last  Forward iterator to one past the last range.
+     * @param grid        The grid for defining cell coordinates and boundaries.
+     * @param bucketSize  The number of grid cells per bucket (in each dimension).
+     * @param func        The function to call.
+     *
+     * @pre The ranges are non-empty.
+     */
     template<typename RangeIterator, typename Func>
     void forEachRange(RangeIterator first, RangeIterator last,
                       const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 
 protected:
-    /**
-     * The raw splats themselves.
-     */
+    /// The raw splats.
     const SplatCollectionSet &splats;
 
 private:
+    /**
+     * Process a single splat from either @ref forEach or @ref forEachRange.
+     * This is wrapped using @c boost::bind into a function object.
+     */
     template<typename Func>
     void forEachOne(
         scan_type scan, index_type index,
@@ -177,7 +204,7 @@ private:
 /**
  * Entry in a list representing splat positions in a compacted form.
  * Contiguous ranges of splats from the scans are placed into buckets
- * (which size is stored in @ref SplatSetBlobbed). Each contiguous range must
+ * (whose size is stored in @ref BlobSet). Each contiguous range must
  * intersect the same cuboid of buckets. There are two cases:
  *  -# They intersect a single bucket. The coordinates of the bucket
  *     (in units of buckets) are stored in @ref coords, and the number
@@ -194,9 +221,13 @@ private:
  */
 struct Blob
 {
+    /// Type representing the number of splats in a blob.
     typedef std::tr1::uint32_t size_type;
 
+    /// Coordinates of a bucket containing the blob
     boost::array<Grid::difference_type, 3> coords;
+
+    /// Number of buckets in the blob, or zero for the first half of a blob pair
     std::tr1::uint32_t size;
 };
 
@@ -208,6 +239,9 @@ struct Blob
  * For @ref forEach to be efficient, the provided grid must
  *  - have the same reference point and spacing as the grid given by @ref getBoundingGrid;
  *  - have a lower extent which is a multiple of the bucket size in each dimension.
+ *
+ * @ref forEachRange is optimized for the case where the ranges exactly cover all the
+ * splats (in order) and the conditions for @ref forEach are met.
  *
  * @param SplatCollectionSet A random access container of @ref Collection of @ref Splat.
  * @param BlobCollection A forward container of @ref Blob.
@@ -239,6 +273,10 @@ public:
     void forEachRange(RangeIterator first, RangeIterator last,
                       const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
 
+    /**
+     * Retrieve a bounding box created during construction.
+     * The grid spacing will match that passed to the constructor.
+     */
     const Grid &getBoundingGrid() const { return boundingGrid; }
 
 private:
@@ -254,11 +292,10 @@ private:
         Blob::size_type blobSize;
     };
 
+    /// Bounding box computed by the constructor
     Grid boundingGrid;
 
-    /**
-     * The number of grid cells per bucket for decoding the blobs in @ref blobs.
-     */
+    /// The number of grid cells per bucket for decoding the blobs in @ref blobs.
     Grid::size_type blobBucket;
 
     /**
@@ -270,10 +307,24 @@ private:
      */
     BlobCollection blobs;
 
+    /**
+     * Writes the blob defined by @a build to the blob collection.
+     * This is safe to call when @a build.blobSize is 0, in which case it does nothing.
+     * @post @a build.blobSize == 0.
+     */
     void flushBlob(Build &build);
 
+    /**
+     * Process a single splat during construction. This updates @a build with both
+     * bounding box information and partial blob information. If @a progress is non-NULL,
+     * it is incremented by one.
+     */
     void processSplat(const Splat &splat, Build &build, ProgressDisplay *progress);
 
+    /**
+     * Whether the fast path can be used with the given parameters. The parameters
+     * are interpreted as if passed to @ref forEach or @ref forEachRange.
+     */
     bool fastGrid(const Grid &grid, Grid::size_type bucketSize) const;
 };
 
