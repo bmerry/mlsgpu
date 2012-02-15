@@ -21,9 +21,7 @@
 #include "misc.h"
 #include "progress.h"
 #include "logging.h"
-#if HAVE_STXXL
-# include <stxxl.h>
-#endif
+#include <stxxl.h>
 
 namespace Bucket
 {

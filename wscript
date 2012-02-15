@@ -60,7 +60,6 @@ def options(opt):
     opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'debug', action = 'store', help = 'build variant', choices = variants.keys())
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
-    opt.add_option('--without-stxxl', action = 'store_true', help = 'Disable features requiring STXXL')
 
 def configure_variant(conf):
     if conf.env['assertions']:
@@ -120,16 +119,7 @@ def configure(conf):
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
     conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
     conf.check_cxx(header_name = 'clogs/clogs.h', lib = 'clogs', use = 'OPENCL', uselib_store = 'CLOGS')
-
-    if not conf.options.without_stxxl:
-        try:
-            conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
-        except conf.errors.ConfigurationError:
-            ctx.fatal('STXXL was not found. Either install it or pass --without-stxxl')
-        conf.define('HAVE_STXXL', 1)
-        conf.env['stxxl'] = 1
-    else:
-        conf.env['stxxl'] = 0
+    conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
 
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')

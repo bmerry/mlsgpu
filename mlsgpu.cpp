@@ -26,9 +26,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
-#if HAVE_STXXL
-# include <stxxl.h>
-#endif
+#include <stxxl.h>
 #include "src/misc.h"
 #include "src/clh.h"
 #include "src/logging.h"
@@ -863,7 +861,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     prepareInputs(files, vm, smooth);
     Grid grid;
 
-    typedef SplatSet::BlobSet<boost::ptr_vector<FastPly::Reader>, std::vector<SplatSet::Blob> > Set;
+    typedef stxxl::VECTOR_GENERATOR<SplatSet::Blob>::result BlobVector;
+    typedef SplatSet::BlobSet<boost::ptr_vector<FastPly::Reader>, BlobVector> Set;
     boost::scoped_ptr<Set> splatSet;
     try
     {

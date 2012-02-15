@@ -36,10 +36,8 @@ enum MeshType
 {
     SIMPLE_MESH,
     WELD_MESH,
-    BIG_MESH
-#if HAVE_STXXL
-    , STXXL_MESH
-#endif
+    BIG_MESH,
+    STXXL_MESH
 };
 
 /**
@@ -355,8 +353,6 @@ public:
     virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
 
-#if HAVE_STXXL
-
 #include <stxxl.h>
 
 /**
@@ -421,8 +417,6 @@ public:
     virtual void finalize();
     virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
 };
-
-#endif /* HAVE_STXXL */
 
 /**
  * Factory function to create a mesh of the specified type.

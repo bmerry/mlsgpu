@@ -105,8 +105,6 @@ static inline S divDown_(S a, T b, boost::false_type)
  * Divide and round down, handling negative numerator.
  *
  * @pre @a b &gt 0, and @a -a is representable
- *
- * @todo Write tests
  */
 template<typename S, typename T>
 static inline S divDown(S a, T b)

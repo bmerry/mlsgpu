@@ -129,7 +129,6 @@ class TestStdVectorCollection : public TestVectorCollection<StdVectorCollection<
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStdVectorCollection, TestSet::perBuild());
 
-#if HAVE_STXXL
 /// Tests for @ref StxxlVectorCollection
 class TestStxxlVectorCollection : public TestVectorCollection<StxxlVectorCollection<int> >
 {
@@ -138,7 +137,6 @@ class TestStxxlVectorCollection : public TestVectorCollection<StxxlVectorCollect
     CPPUNIT_TEST_SUITE_END();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlVectorCollection, TestSet::perBuild());
-#endif
 
 /// Tests for @ref CollectionStream
 class TestCollectionStream : public CppUnit::TestFixture

@@ -14,9 +14,6 @@
 #include <tr1/cstdint>
 #include <stdexcept>
 #include <boost/function.hpp>
-#if HAVE_STXXL
-# include <stxxl.h>
-#endif
 #include "splat.h"
 #include "grid.h"
 #include "collection.h"

@@ -38,9 +38,7 @@ std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
     ans["simple"] = SIMPLE_MESH;
     ans["weld"] = WELD_MESH;
     ans["big"] = BIG_MESH;
-#if HAVE_STXXL
     ans["stxxl"] = STXXL_MESH;
-#endif
     return ans;
 }
 
@@ -611,8 +609,6 @@ void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename) co
 }
 
 
-#if HAVE_STXXL
-
 StxxlMesh::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type capacity)
     : writer(writer), nextVertex(0)
 {
@@ -736,8 +732,6 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename) 
     }
 }
 
-#endif /* HAVE_STXXL */
-
 
 MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename)
 {
@@ -746,9 +740,7 @@ MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::stri
     case SIMPLE_MESH: return new SimpleMesh();
     case WELD_MESH:   return new WeldMesh();
     case BIG_MESH:    return new BigMesh(writer, filename);
-#if HAVE_STXXL
     case STXXL_MESH:  return new StxxlMesh();
-#endif
     }
     return NULL; // should never be reached
 }

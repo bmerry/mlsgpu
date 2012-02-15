@@ -724,8 +724,6 @@ MeshBase *TestBigMesh::meshFactory(FastPly::WriterBase &writer)
     return new BigMesh(writer, "");
 }
 
-#if HAVE_STXXL
-
 class TestStxxlMesh : public TestWeldMesh
 {
     CPPUNIT_TEST_SUB_SUITE(TestStxxlMesh, TestWeldMesh);
@@ -739,5 +737,3 @@ MeshBase *TestStxxlMesh::meshFactory(FastPly::WriterBase &)
 {
     return new StxxlMesh();
 }
-
-#endif /* HAVE_STXXL */
