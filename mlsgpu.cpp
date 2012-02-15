@@ -852,7 +852,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     boost::scoped_ptr<Set> splatSet;
     try
     {
-        // TODO use this better
+        Statistics::Timer timer("bbox.time");
         splatSet.reset(new Set(files, spacing, blockCells, &Log::log[Log::info]));
     }
     catch (std::length_error &e)
