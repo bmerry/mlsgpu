@@ -36,7 +36,6 @@ public:
 } // namespace internal
 
 extern internal::LogArray log;
-void setLevel(Level level);
 
 } // namespace Log
 
