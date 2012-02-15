@@ -145,10 +145,8 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
         /* The lower extent must be a multiple of the blob bucket size, to
          * make the blob data align properly.
          */
-        Grid::difference_type rem = lo % blobBucket;
-        if (rem < 0) rem += blobBucket;
-        lo -= rem;
-        assert(lo % blobBucket == 0);
+        lo = divDown(lo, blobBucket) * blobBucket;
+        assert(lo % Grid::difference_type(blobBucket) == 0);
 
         boundingGrid.setExtent(i, lo, hi);
     }
@@ -232,7 +230,7 @@ bool BlobSet<SplatCollectionSet, BlobCollection>::fastGrid(
     for (unsigned int i = 0; i < 3; i++)
     {
         if (grid.getReference()[i] != 0.0f
-            || grid.getExtent(i).first % blobBucket != 0)
+            || grid.getExtent(i).first % Grid::difference_type(blobBucket) != 0)
             return false;
     }
     return true;

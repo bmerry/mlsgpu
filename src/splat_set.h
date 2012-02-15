@@ -188,7 +188,7 @@ struct Blob
  * a bounding box during construction.
  *
  * For @ref forEach to be efficient, the provided grid must
- *  - have the same reference point and spacing as the grid given by @ref getBounding;
+ *  - have the same reference point and spacing as the grid given by @ref getBoundingGrid;
  *  - have a lower extent which is a multiple of the bucket size in each dimension.
  *
  * @param SplatCollectionSet A random access container of @ref Collection of @ref Splat.
