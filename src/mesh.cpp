@@ -20,6 +20,7 @@
 #include <boost/ref.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include <tr1/unordered_map>
 #include <cassert>
 #include <cstdlib>
@@ -27,10 +28,12 @@
 #include <iterator>
 #include <map>
 #include <string>
+#include <ostream>
 #include "mesh.h"
 #include "fast_ply.h"
 #include "logging.h"
 #include "errors.h"
+#include "progress.h"
 
 std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
 {
@@ -216,8 +219,11 @@ bool SimpleMesh::isManifold() const
 }
 #endif /* UNIT_TESTS */
 
-void SimpleMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+void SimpleMesh::write(FastPly::WriterBase &writer, const std::string &filename,
+                       std::ostream *progressStream) const
 {
+    (void) progressStream;
+
     writer.setNumVertices(vertices.size());
     writer.setNumTriangles(triangles.size());
     writer.open(filename);
@@ -314,7 +320,7 @@ void WeldMesh::add(const cl::CommandQueue &queue,
         *event = last; /* Waits for vertices to be transferred */
 }
 
-void WeldMesh::finalize()
+void WeldMesh::finalize(std::ostream *progressStream)
 {
     std::size_t welded = 0;
     std::tr1::unordered_map<cl_ulong, cl_uint> place; // maps keys to new positions
@@ -326,6 +332,12 @@ void WeldMesh::finalize()
     std::vector<cl_uint> remap(externalVertices.size());
 
     /* Weld the external vertices in place */
+    boost::scoped_ptr<ProgressDisplay> progress;
+    if (progressStream != NULL)
+    {
+        *progressStream << "Welding vertices\n";
+        progress.reset(new ProgressDisplay(externalVertices.size()));
+    }
     for (size_t i = 0; i < externalVertices.size(); i++)
     {
         cl_ulong key = externalKeys[i];
@@ -343,13 +355,21 @@ void WeldMesh::finalize()
         {
             remap[i] = pos->second + internalVertices.size();
         }
+        if (progress)
+            ++*progress;
     }
 
     /* Rewrite the indices that refer to external vertices
      * (TODO: is it possible to partition these as well, to
      * reduce the work?)
      */
+    if (progressStream != NULL)
+    {
+        *progressStream << "Adjusting indices\n";
+        progress->restart(triangles.size());
+    }
     for (std::size_t i = 0; i < triangles.size(); i++)
+    {
         for (unsigned int j = 0; j < 3; j++)
         {
             cl_uint &index = triangles[i][j];
@@ -359,6 +379,9 @@ void WeldMesh::finalize()
                 index = remap[~index];
             }
         }
+        if (progress)
+            ++*progress;
+    }
 
     /* Throw away unneeded data. */
     std::vector<cl_ulong>().swap(externalKeys);
@@ -372,8 +395,13 @@ bool WeldMesh::isManifold() const
 }
 #endif
 
-void WeldMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+void WeldMesh::write(FastPly::WriterBase &writer, const std::string &filename,
+                     std::ostream *progressStream) const
 {
+    // Probably not worth trying to use this given the amount of data that can be
+    // handled by WeldMesh
+    (void) progressStream;
+
     writer.setNumVertices(internalVertices.size() + externalVertices.size());
     writer.setNumTriangles(triangles.size());
     writer.open(filename);
@@ -596,12 +624,10 @@ Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
     }
 }
 
-void BigMesh::finalize()
+void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename,
+                    std::ostream *progressStream) const
 {
-}
-
-void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
-{
+    (void) progressStream;
     assert(&writer == &this->writer);
     assert(filename == this->filename);
 }
@@ -699,10 +725,6 @@ Marching::OutputFunctor StxxlMesh::outputFunctor(unsigned int pass)
     return serializeOutputFunctor(boost::bind(&StxxlMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
 }
 
-void StxxlMesh::finalize()
-{
-}
-
 void StxxlMesh::TriangleBuffer::flush()
 {
     writer.writeTriangles(nextTriangle, buffer.size(), &buffer[0][0]);
@@ -710,22 +732,47 @@ void StxxlMesh::TriangleBuffer::flush()
     buffer.clear();
 }
 
-void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename) const
+void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
+                      std::ostream *progressStream) const
 {
     writer.setNumVertices(vertices.size());
     writer.setNumTriangles(triangles.size());
     writer.open(filename);
 
-    // We need to use boost::bind here because stxxl::for_each does not handle unwrapping
-    // a reference to a function object to call it.
+    boost::scoped_ptr<ProgressDisplay> progress;
+    if (progressStream != NULL)
     {
+        *progressStream << "Writing file\n";
+        progress.reset(new ProgressDisplay(vertices.size() + triangles.size()));
+    }
+
+    {
+        stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
+            vertex_stream = stxxl::stream::streamify(vertices.begin(), vertices.end());
         VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
-        stxxl::for_each(vertices.begin(), vertices.end(), boost::bind(boost::ref(vb), _1), 4);
+        while (!vertex_stream.empty())
+        {
+            vertices_type::value_type vertex = *vertex_stream;
+            ++vertex_stream;
+            vb(vertex);
+            if (progress)
+                ++*progress;
+        }
         vb.flush();
     }
+
     {
+        stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
+            triangle_stream = stxxl::stream::streamify(triangles.begin(), triangles.end());
         TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
-        stxxl::for_each(triangles.begin(), triangles.end(), boost::bind(boost::ref(tb), _1), 4);
+        while (!triangle_stream.empty())
+        {
+            triangles_type::value_type triangle = *triangle_stream;
+            ++triangle_stream;
+            tb(triangle);
+            if (progress)
+                ++*progress;
+        }
         tb.flush();
     }
 }

@@ -842,8 +842,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     {
         Statistics::Timer timer("finalize.time");
 
-        mesh->finalize();
-        mesh->write(*writer, out);
+        mesh->finalize(&Log::log[Log::info]);
+        mesh->write(*writer, out, &Log::log[Log::info]);
     }
 }
 

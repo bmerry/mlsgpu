@@ -22,6 +22,7 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <iosfwd>
 #include <boost/array.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/mutex.hpp>
@@ -101,9 +102,11 @@ public:
     /**
      * Perform any final processing once the last pass has completed.
      *
+     * @param progressStream If non-NULL and finalization does significant work,
+     * a progress meter will be displayed.
      * @pre All passes have been executed.
      */
-    virtual void finalize() {}
+    virtual void finalize(std::ostream *progressStream = NULL) { (void) progressStream; }
 
 #if UNIT_TESTS
     /**
@@ -125,11 +128,15 @@ public:
      * Writes the data to file. The writer passed in must not yet have been opened
      * (this function will do that). The caller may optionally have set comments on it.
      *
+     * @param writer          Writer to write to (unopened).
+     * @param filename        Filename to write to.
+     * @param progressStream  If non-NULL, a log stream for a progress meter
      * @throw std::ios_base::failure on I/O failure (including failure to open the file).
      *
      * @pre @ref finalize() has been called.
      */
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const = 0;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+                       std::ostream *progressStream = NULL) const = 0;
 };
 
 /**
@@ -164,7 +171,8 @@ public:
     virtual bool isManifold() const;
 #endif
 
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+                       std::ostream *progressStream = NULL) const;
 };
 
 /**
@@ -203,13 +211,14 @@ private:
 public:
     virtual unsigned int numPasses() const { return 1; }
     virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
-    virtual void finalize();
+    virtual void finalize(std::ostream *progressStream = NULL);
 
 #if UNIT_TESTS
     virtual bool isManifold() const;
 #endif
 
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+                       std::ostream *progressStream = NULL) const;
 };
 
 namespace detail
@@ -360,12 +369,12 @@ public:
     BigMesh(FastPly::WriterBase &writer, const std::string &filename);
 
     virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
-    virtual void finalize();
 
     /**
      * Completes writing. The parameters must have the same values given to the constructor.
      */
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+                       std::ostream *progressStream = NULL) const;
 };
 
 #include <stxxl.h>
@@ -429,8 +438,8 @@ private:
 public:
     virtual unsigned int numPasses() const { return 1; }
     virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
-    virtual void finalize();
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename) const;
+    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+                       std::ostream *progressStream = NULL) const;
 };
 
 /**
