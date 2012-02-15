@@ -54,12 +54,14 @@ class TestRangeCollector : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestRangeCollector);
     CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testAppendRange);
     CPPUNIT_TEST(testFlush);
     CPPUNIT_TEST(testFlushEmpty);
     CPPUNIT_TEST_SUITE_END();
 
 public:
     void testSimple();            ///< Test basic functionality
+    void testAppendRange();       ///< Test appending a new range
     void testFlush();             ///< Test flushing and continuing
     void testFlushEmpty();        ///< Test flushing when nothing to flush
 };
@@ -96,6 +98,66 @@ void TestRangeCollector::testSimple()
     CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[3].scan);
     CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[3].size);
     CPPUNIT_ASSERT_EQUAL(Range::index_type(4), out[3].start);
+}
+
+void TestRangeCollector::testAppendRange()
+{
+    vector<Range> out;
+
+    RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
+    c.append(3, 5);
+    c.append(3, 4, 7);   // subsuming a range
+    c.append(4, 4, 6);   // change of scan
+    c.append(4, 5, 8);   // partially overlapping range (back)
+    c.append(4, 3, 5);   // partially overlapping range (front)
+    c.append(4, 5, 6);   // contained range
+    c.append(5, 2);
+    c.append(5, 3, 5);   // touching range
+    c.append(5, 6, 7);   // non-touching range
+    c.append(6, 2, UINT64_C(0x123456789)); // very large range
+    c.append(7, UINT64_C(0x123456789), UINT64_C(0x12345678F)); // small range, large base
+    c.append(8, 0, 0x3FFFFFFF);
+    c.append(8, 0x3FFFFFFF, UINT64_C(0x123456789)); // extend beyond 2^32 in size
+    c.append(9, 3, 3); // empty range
+    c.flush();
+
+    CPPUNIT_ASSERT_EQUAL(9, int(out.size()));
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(3), out[0].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(4), out[0].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), out[1].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(5), out[1].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(3), out[1].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[2].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(3), out[2].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(2), out[2].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[3].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[3].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(6), out[3].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(6), out[4].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFu), out[4].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(2), out[4].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(6), out[5].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x23456788), out[5].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x100000001)), out[5].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(7), out[6].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(6), out[6].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456789)), out[6].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(8), out[7].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFF), out[7].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(0), out[7].start);
+
+    CPPUNIT_ASSERT_EQUAL(Range::scan_type(8), out[8].scan);
+    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x12345678A), out[8].size);
+    CPPUNIT_ASSERT_EQUAL(Range::index_type(0xFFFFFFFF), out[8].start);
 }
 
 void TestRangeCollector::testFlush()
