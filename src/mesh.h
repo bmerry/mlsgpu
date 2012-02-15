@@ -84,6 +84,9 @@ protected:
     boost::mutex mutex;
 
 public:
+    /// Virtual destructor to allow destruction via base class pointer
+    virtual ~MeshBase() {}
+
     /// Number of passes required.
     virtual unsigned int numPasses() const = 0;
 
