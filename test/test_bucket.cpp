@@ -16,6 +16,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/foreach.hpp>
 #include <boost/ref.hpp>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <iterator>
@@ -25,6 +26,7 @@
 #include <sstream>
 #include <cstring>
 #include <tr1/cstdint>
+#include <tr1/random>
 #include "testmain.h"
 #include "test_splat_set.h"
 #include "../src/bucket.h"
@@ -428,6 +430,7 @@ class TestBucket : public CppUnit::TestFixture
     CPPUNIT_TEST(testMultiLevel);
     CPPUNIT_TEST(testFlat);
     CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST_SUITE_ADD_CUSTOM_TESTS(addRandom);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -460,14 +463,30 @@ private:
         const Grid &grid,
         const Recursion &recursionState);
 
+    /// Adds random tests to the fixture
+    static void addRandom(TestSuiteBuilderContextType &context);
+
 public:
     void testSimple();            ///< Test basic usage
     void testDensityError();      ///< Test that @ref Bucket::DensityError is thrown correctly
     void testMultiLevel();        ///< Test recursion of @c bucketRecurse works
     void testFlat();              ///< Top level already meets the requirements
     void testEmpty();             ///< Edge case with zero splats inside the grid
+    void testRandom(unsigned long seed); ///< Randomly-generated test case
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBucket, TestSet::perBuild());
+
+void TestBucket::addRandom(TestSuiteBuilderContextType &context)
+{
+    for (unsigned long seed = 0; seed < 30; seed++)
+    {
+        ostringstream name;
+        name << "testRandom(" << seed << ")";
+        context.addTest(new GenericTestCaller<TestBucket>(context.getTestNameFor(name.str()),
+                                                          boost::bind(&TestBucket::testRandom, _1, seed),
+                                                          context.makeFixture()));
+    }
+}
 
 template<typename T>
 void TestBucket::bucketFunc(
@@ -500,7 +519,7 @@ void TestBucket::validate(
      * areas of the intersections with the blocks and check that it adds up to
      * the full bounding box of the splat.
      */
-    vector<vector<double> > areas(splats.getSplats().size());
+    vector<vector<std::tr1::uint64_t> > areas(splats.getSplats().size());
     for (std::size_t i = 0; i < splats.getSplats().size(); i++)
     {
         areas[i].resize(splats.getSplats()[i].size());
@@ -534,13 +553,6 @@ void TestBucket::validate(
          *
          * At the same time, we accumulate the intersection area.
          */
-        float worldLower[3];
-        float worldUpper[3];
-        block.grid.getVertex(0, 0, 0, worldLower);
-        block.grid.getVertex(
-            block.grid.numCells(0),
-            block.grid.numCells(1),
-            block.grid.numCells(2), worldUpper);
         for (std::size_t i = 0; i < block.ranges.size(); i++)
         {
             const Range &range = block.ranges[i];
@@ -561,14 +573,14 @@ void TestBucket::validate(
             {
                 const Splat &splat = buffer[j - range.start];
                 double area = 1.0;
+                boost::array<Grid::difference_type, 3> lower, upper;
+                SplatSet::detail::splatToBuckets(splat, block.grid, 1, lower, upper);
                 for (int k = 0; k < 3; k++)
                 {
-                    float lower = splat.position[k] - splat.radius;
-                    float upper = splat.position[k] + splat.radius;
-                    lower = max(lower, worldLower[k]);
-                    upper = min(upper, worldUpper[k]);
-                    CPPUNIT_ASSERT(lower <= upper);
-                    area *= (upper - lower);
+                    lower[k] = max(lower[k], 0);
+                    upper[k] = min(upper[k], Grid::difference_type(block.grid.numCells(k)) - 1);
+                    CPPUNIT_ASSERT(lower[k] <= upper[k]);
+                    area *= (upper[k] - lower[k] + 1);
                 }
                 areas[range.scan][j] += area;
             }
@@ -590,8 +602,16 @@ void TestBucket::validate(
         {
             Splat splat;
             splats.getSplats()[scan].read(id, id + 1, &splat);
-            double area = 8.0 * splat.radius * splat.radius * splat.radius;
-            CPPUNIT_ASSERT_DOUBLES_EQUAL(area, areas[scan][id], 1e-6);
+
+            boost::array<Grid::difference_type, 3> lower, upper;
+            SplatSet::detail::splatToBuckets(splat, fullGrid, 1, lower, upper);
+            std::tr1::uint64_t area = 1;
+            for (unsigned int k = 0; k < 3; k++)
+                if (lower[k] <= upper[k])
+                    area *= upper[k] - lower[k] + 1;
+                else
+                    area = 0;
+            CPPUNIT_ASSERT_EQUAL(area, areas[scan][id]);
         }
     }
 }
@@ -691,4 +711,100 @@ void TestBucket::testMultiLevel()
     // 11 was found by inspecting the output and checking the
     // blocks by hand
     CPPUNIT_ASSERT_EQUAL(11, int(blocks.size()));
+}
+
+static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)
+{
+    using std::tr1::mt19937;
+    using std::tr1::uniform_int;
+    using std::tr1::variate_generator;
+
+    variate_generator<mt19937 &, uniform_int<int> > gen(engine, uniform_int<int>(min, max));
+    return gen();
+}
+
+static float simpleRandomFloat(std::tr1::mt19937 &engine, float min, float max)
+{
+    using std::tr1::mt19937;
+    using std::tr1::uniform_real;
+    using std::tr1::variate_generator;
+
+    variate_generator<mt19937 &, uniform_real<float> > gen(engine, uniform_real<float>(min, max));
+    return gen();
+}
+
+void TestBucket::testRandom(unsigned long seed)
+{
+    using std::tr1::mt19937;
+    using std::tr1::uniform_int;
+    using std::tr1::uniform_real;
+    using std::tr1::variate_generator;
+
+    mt19937 engine(seed);
+    unsigned int numScans = simpleRandomInt(engine, 0, 20);
+    unsigned int maxScan = simpleRandomInt(engine, 1, 10000); // maximum splats in one scan
+    unsigned int maxSplit = simpleRandomInt(engine, 8, 1000);
+    unsigned int maxCells = simpleRandomInt(engine, 1, 100);
+    unsigned int maxSplats = simpleRandomInt(engine, 20, 10000);
+    float minX = simpleRandomFloat(engine, -100.0f, 10.0f);
+    float maxX = simpleRandomFloat(engine, 20.0f, 100.0f);
+    float minY = simpleRandomFloat(engine, -100.0f, 1.0f);
+    float maxY = simpleRandomFloat(engine, 20.0f, 100.0f);
+    float minZ = simpleRandomFloat(engine, -100.0f, 1.0f);
+    float maxZ = simpleRandomFloat(engine, 20.0f, 100.0f);
+    float spacing = simpleRandomFloat(engine, 0.25f, 2.5f);
+    float maxRadius = simpleRandomFloat(engine, 0.25f, 100.0f);
+
+    variate_generator<mt19937 &, uniform_int<int> > genNum(engine, uniform_int<int>(0, maxScan));
+    variate_generator<mt19937 &, uniform_real<float> > genX(engine, uniform_real<float>(minX, maxX));
+    variate_generator<mt19937 &, uniform_real<float> > genY(engine, uniform_real<float>(minY, maxY));
+    variate_generator<mt19937 &, uniform_real<float> > genZ(engine, uniform_real<float>(minZ, maxZ));
+    variate_generator<mt19937 &, uniform_real<float> > genR(engine, uniform_real<float>(0.01f, maxRadius));
+
+    splatData.clear();
+    for (unsigned int i = 0; i < numScans; i++)
+    {
+        splatData.push_back(vector<Splat>());
+        unsigned int num = genNum();
+        for (unsigned int i = 0; i < num; i++)
+        {
+            Splat splat;
+            splat.position[0] = genX();
+            splat.position[1] = genY();
+            splat.position[2] = genZ();
+            splat.radius = genR();
+            splat.quality = 0.0f;
+            splat.normal[0] = splat.normal[1] = splat.normal[2] = 1.0f; // arbitrary
+            splatData.back().push_back(splat);
+        }
+    }
+
+    splats.clear();
+    splats.reserve(splatData.size());
+    for (std::size_t i = 0; i < splatData.size(); i++)
+    {
+        splats.push_back(new StdVectorCollection<Splat>(splatData[i]));
+    }
+
+    try
+    {
+        splatSet.reset(new Set(splats, spacing, maxCells));
+    }
+    catch (std::length_error &e)
+    {
+        // Harmless: caused if there are no splats
+        return;
+    }
+    const Grid grid = splatSet->getBoundingGrid();
+    vector<Block> blocks;
+    try
+    {
+        bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
+               boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
+        validate(*splatSet, grid, blocks, maxSplats, maxCells);
+    }
+    catch (DensityError &e)
+    {
+        // Harmless: it just mean the random parameters were too dense.
+    }
 }
