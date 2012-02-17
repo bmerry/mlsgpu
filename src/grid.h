@@ -12,6 +12,7 @@
 #endif
 #include <utility>
 #include <tr1/cstdint>
+#include <boost/numeric/conversion/converter.hpp>
 
 /**
  * Class representing a regular grid of points in 3D space.
@@ -34,6 +35,19 @@ public:
     typedef int difference_type;
     typedef unsigned int size_type;
     typedef std::pair<difference_type, difference_type> extent_type;
+
+    typedef boost::numeric::converter<
+        difference_type,
+        float,
+        boost::numeric::conversion_traits<difference_type, float>,
+        boost::numeric::def_overflow_handler,
+        boost::numeric::Ceil<float> > RoundUp;
+    typedef boost::numeric::converter<
+        difference_type,
+        float,
+        boost::numeric::conversion_traits<difference_type, float>,
+        boost::numeric::def_overflow_handler,
+        boost::numeric::Floor<float> > RoundDown;
 
     Grid();
     Grid(const float ref[3], float spacing,
@@ -109,6 +123,23 @@ public:
      * Inverse of @ref getVertex.
      */
     void worldToVertex(const float world[3], float out[3]) const;
+
+    /**
+     * Rounds result of @ref worldToVertex down to the next integer.  It is
+     * implemented in a way that is invariant to changes in the extents.  In
+     * other words, adding X to the base extent will cause the result to
+     * decrease by exactly X, which a naive implementation would not do
+     * due to different rounding.
+     *
+     * If an exception occurs, @a out will contain undefined values.
+     *
+     * @param world        World coordinates
+     * @param[out] out     Cell containing the world coordinates.
+     * @throw boost::bad_numeric_conversion on overflow or non-finite value. This
+     *        can happen because the cell coordinates are out of range either
+     *        before or after the extent bias is applied.
+     */
+    void worldToCell(const float world[3], difference_type out[3]) const;
 
     /**
      * Create a new grid that has the same reference point and spacing

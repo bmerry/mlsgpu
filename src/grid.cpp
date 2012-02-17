@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <tr1/cstdint>
+#include <tr1/cmath>
 #include "errors.h"
 #include "grid.h"
 
@@ -80,6 +81,28 @@ void Grid::worldToVertex(const float world[3], float out[3]) const
     for (unsigned int i = 0; i < 3; i++)
     {
         out[i] = (world[i] - reference[i]) / spacing - extents[i].first;
+    }
+}
+
+void Grid::worldToCell(const float world[3], difference_type out[3]) const
+{
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float raw = (world[i] - reference[i]) / spacing;
+        // boost::numeric_cast doesn't catch NaNs
+        if (!(std::tr1::isfinite(raw)))
+            throw boost::numeric::bad_numeric_cast();
+        Grid::difference_type d = RoundDown::convert(raw);
+        if (extents[i].first >= 0 &&
+            d < extents[i].first + std::numeric_limits<difference_type>::min())
+        {
+            throw boost::numeric::negative_overflow();
+        }
+        else if (extents[i].first <= 0 && d > extents[i].first + std::numeric_limits<difference_type>::max())
+        {
+            throw boost::numeric::positive_overflow();
+        }
+        out[i] = d - extents[i].first;
     }
 }
 

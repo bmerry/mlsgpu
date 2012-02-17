@@ -11,6 +11,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <utility>
+#include <boost/numeric/conversion/converter.hpp>
 #include "testmain.h"
 #include "../src/grid.h"
 
@@ -26,6 +27,8 @@ class TestGrid : public CppUnit::TestFixture
     CPPUNIT_TEST(testNumVertices);
     CPPUNIT_TEST(testGetVertex);
     CPPUNIT_TEST(testWorldToVertex);
+    CPPUNIT_TEST(testWorldToCell);
+    CPPUNIT_TEST(testWorldToCellOverflow);
     CPPUNIT_TEST(testSubGrid);
     CPPUNIT_TEST_SUITE_END();
 private:
@@ -44,6 +47,8 @@ public:
     void testNumVertices();
     void testGetVertex();
     void testWorldToVertex();
+    void testWorldToCell();
+    void testWorldToCellOverflow();
     void testSubGrid();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestGrid, TestSet::perBuild());
@@ -136,6 +141,60 @@ void TestGrid::testWorldToVertex()
     CPPUNIT_ASSERT_DOUBLES_EQUAL(5, test[0], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(7, test[1], 1e-6);
     CPPUNIT_ASSERT_DOUBLES_EQUAL(500, test[2], 1e-3);
+}
+
+void TestGrid::testWorldToCell()
+{
+    float world[3];
+    Grid::difference_type test[3];
+
+    world[0] = -13.4f; world[1] = 17.9f; world[2] = -2998.0f;
+    grid.worldToCell(world, test);
+    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(0), test[0]);
+    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(-1), test[1]);
+    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(-1), test[2]);
+
+    world[0] = 0.0f; world[1] = 0.0f; world[2] = 0.0f;
+    grid.worldToCell(world, test);
+    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(4), test[0]);
+    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(-6), test[1]); // corner case, may need to be changed
+    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(999), test[2]);
+}
+
+void TestGrid::testWorldToCellOverflow()
+{
+    float world[3];
+    Grid::difference_type test[3];
+
+    // NaN
+    world[0] = 0.0f;
+    world[1] = 0.0f;
+    world[2] = std::numeric_limits<float>::quiet_NaN();
+    CPPUNIT_ASSERT_THROW(grid.worldToCell(world, test), boost::numeric::bad_numeric_cast);
+
+    // Infinity
+    world[0] = 0.0f;
+    world[1] = std::numeric_limits<float>::infinity();
+    world[2] = 0.0f;
+    CPPUNIT_ASSERT_THROW(grid.worldToCell(world, test), boost::numeric::bad_numeric_cast);
+
+    // Overflow before biasing
+    world[0] = grid.getSpacing() * 3e9f;
+    CPPUNIT_ASSERT_THROW(grid.worldToCell(world, test), boost::numeric::bad_numeric_cast);
+
+    // Positive overflow after biasing
+    grid.setExtent(0, -2000000000, 0);
+    world[0] = grid.getSpacing() * 1.5e9f;
+    world[1] = 0.0f;
+    world[2] = 0.0f;
+    CPPUNIT_ASSERT_THROW(grid.worldToCell(world, test), boost::numeric::bad_numeric_cast);
+
+    // Negative overflow after biasing
+    grid.setExtent(0, 2000000000, 2000000002);
+    world[0] = grid.getSpacing() * -1.5e9f;
+    world[1] = 0.0f;
+    world[2] = 0.0f;
+    CPPUNIT_ASSERT_THROW(grid.worldToCell(world, test), boost::numeric::bad_numeric_cast);
 }
 
 void TestGrid::testSubGrid()
