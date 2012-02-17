@@ -742,9 +742,9 @@ void TestBucket::testRandom(unsigned long seed)
 
     mt19937 engine(seed);
     unsigned int numScans = simpleRandomInt(engine, 0, 20);
-    unsigned int maxScan = simpleRandomInt(engine, 1, 10000); // maximum splats in one scan
-    unsigned int maxSplit = simpleRandomInt(engine, 8, 1000);
-    unsigned int maxCells = simpleRandomInt(engine, 1, 100);
+    unsigned int maxScan = simpleRandomInt(engine, 1, 2000); // maximum splats in one scan
+    unsigned int maxSplit = simpleRandomInt(engine, 64, 1000);
+    unsigned int maxCells = simpleRandomInt(engine, 40, 100);
     unsigned int maxSplats = simpleRandomInt(engine, 20, 10000);
     float minX = simpleRandomFloat(engine, -100.0f, 10.0f);
     float maxX = simpleRandomFloat(engine, 20.0f, 100.0f);
@@ -753,7 +753,7 @@ void TestBucket::testRandom(unsigned long seed)
     float minZ = simpleRandomFloat(engine, -100.0f, 1.0f);
     float maxZ = simpleRandomFloat(engine, 20.0f, 100.0f);
     float spacing = simpleRandomFloat(engine, 0.25f, 2.5f);
-    float maxRadius = simpleRandomFloat(engine, 0.25f, 100.0f);
+    float maxRadius = simpleRandomFloat(engine, 0.25f, 10.0f);
 
     variate_generator<mt19937 &, uniform_int<int> > genNum(engine, uniform_int<int>(0, maxScan));
     variate_generator<mt19937 &, uniform_real<float> > genX(engine, uniform_real<float>(minX, maxX));
