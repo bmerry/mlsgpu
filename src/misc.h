@@ -18,19 +18,6 @@
 #include <cstring>
 #include "errors.h"
 
-typedef boost::numeric::converter<
-    int,
-    float,
-    boost::numeric::conversion_traits<int, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Ceil<float> > RoundUp;
-typedef boost::numeric::converter<
-    int,
-    float,
-    boost::numeric::conversion_traits<int, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Floor<float> > RoundDown;
-
 /**
  * Multiply @a a and @a b, clamping the result to the maximum value of the type
  * instead of overflowing.

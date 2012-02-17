@@ -112,18 +112,17 @@ void SplatTree::initialize()
             hi[i] = splat.position[i] + radius;
         }
 
-        float vlo[3], vhi[3];
-        grid.worldToVertex(lo, vlo);
-        grid.worldToVertex(hi, vhi);
+        Grid::difference_type ilo[3], ihi[3];
+        grid.worldToCell(lo, ilo);
+        grid.worldToCell(hi, ihi);
 
         // Start with the deepest level, then coarsen until we don't
         // take more than maxAmplify cells.
-        int ilo[3], ihi[3];
         unsigned int shift = 0;
         for (unsigned int i = 0; i < 3; i++)
         {
-            ilo[i] = std::max(std::min(RoundUp::convert(vlo[i]), (int) dims[i] - 1), 0);
-            ihi[i] = std::max(std::min(RoundDown::convert(vhi[i]), (int) dims[i] - 1), 0);
+            ilo[i] = std::max(std::min(ilo[i] + 1, (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
+            ihi[i] = std::max(std::min(ihi[i], (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
         }
         while (true)
         {

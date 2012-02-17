@@ -32,19 +32,6 @@
 namespace SplatSet
 {
 
-typedef boost::numeric::converter<
-    Grid::difference_type,
-    float,
-    boost::numeric::conversion_traits<Grid::difference_type, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Ceil<float> > GridRoundUp;
-typedef boost::numeric::converter<
-    Grid::difference_type,
-    float,
-    boost::numeric::conversion_traits<Grid::difference_type, float>,
-    boost::numeric::def_overflow_handler,
-    boost::numeric::Floor<float> > GridRoundDown;
-
 template<typename SplatCollectionSet>
 SimpleSet<SplatCollectionSet>::SimpleSet(const SplatCollectionSet &splats)
 : splats(splats)
@@ -146,8 +133,8 @@ BlobSet<SplatCollectionSet, BlobCollection>::BlobSet(
     {
         float l = build.bboxMin[i] / spacing;
         float h = build.bboxMax[i] / spacing;
-        Grid::difference_type lo = GridRoundDown::convert(l);
-        Grid::difference_type hi = GridRoundUp::convert(h);
+        Grid::difference_type lo = Grid::RoundDown::convert(l);
+        Grid::difference_type hi = Grid::RoundUp::convert(h);
         /* The lower extent must be a multiple of the blob bucket size, to
          * make the blob data align properly.
          */

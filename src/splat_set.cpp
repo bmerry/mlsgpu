@@ -71,19 +71,19 @@ void splatToBuckets(const Splat &splat,
 {
     MLSGPU_ASSERT(splat.isFinite(), std::invalid_argument);
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-    float lo[3], hi[3];
     float loWorld[3], hiWorld[3];
+    Grid::difference_type lo[3], hi[3];
     for (unsigned int i = 0; i < 3; i++)
     {
         loWorld[i] = splat.position[i] - splat.radius;
         hiWorld[i] = splat.position[i] + splat.radius;
     }
-    grid.worldToVertex(loWorld, lo);
-    grid.worldToVertex(hiWorld, hi);
+    grid.worldToCell(loWorld, lo);
+    grid.worldToCell(hiWorld, hi);
     for (unsigned int i = 0; i < 3; i++)
     {
-        lower[i] = divDown(GridRoundDown::convert(lo[i]), bucketSize);
-        upper[i] = divDown(GridRoundDown::convert(hi[i]), bucketSize);
+        lower[i] = divDown(lo[i], bucketSize);
+        upper[i] = divDown(hi[i], bucketSize);
     }
 }
 

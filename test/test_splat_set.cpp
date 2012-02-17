@@ -443,7 +443,6 @@ void TestSplatSet<SetType>::validate(const std::vector<Entry> &entries,
             set.getSplats()[entries[i].scan].read(j, j + 1, &splat);
 
             float loWorld[3], hiWorld[3];
-            float loVertex[3], hiVertex[3];
             Grid::difference_type loCell[3], hiCell[3];
             Grid::difference_type loBucket[3], hiBucket[3];
             for (unsigned int k = 0; k < 3; k++)
@@ -451,12 +450,10 @@ void TestSplatSet<SetType>::validate(const std::vector<Entry> &entries,
                 loWorld[k] = splat.position[k] - splat.radius;
                 hiWorld[k] = splat.position[k] + splat.radius;
             }
-            grid.worldToVertex(loWorld, loVertex);
-            grid.worldToVertex(hiWorld, hiVertex);
+            grid.worldToCell(loWorld, loCell);
+            grid.worldToCell(hiWorld, hiCell);
             for (unsigned int k = 0; k < 3; k++)
             {
-                loCell[k] = GridRoundDown::convert(loVertex[k]);
-                hiCell[k] = GridRoundDown::convert(hiVertex[k]);
                 loBucket[k] = divDown(loCell[k], bucketSize);
                 hiBucket[k] = divDown(hiCell[k], bucketSize);
             }
