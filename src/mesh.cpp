@@ -37,6 +37,7 @@
 #include "errors.h"
 #include "progress.h"
 #include "union_find.h"
+#include "statistics.h"
 
 std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
 {
@@ -819,18 +820,29 @@ void StxxlMesh::TriangleBuffer::flush()
 void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
                       std::ostream *progressStream) const
 {
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     // TODO: make a parameter
     const cl_uint thresholdVertices = (cl_uint) (vertices.size() * getPruneThreshold());
     FastPly::WriterBase::size_type numVertices = 0, numTriangles = 0;
+    clump_id keptComponents = 0, totalComponents = 0;
     BOOST_FOREACH(const Clump &clump, clumps)
     {
-        if (clump.isRoot() && clump.vertices() >= thresholdVertices)
+        if (clump.isRoot())
         {
-            numVertices += clump.vertices();
-            numTriangles += clump.triangles();
+            totalComponents++;
+            if (clump.vertices() >= thresholdVertices)
+            {
+                numVertices += clump.vertices();
+                numTriangles += clump.triangles();
+                keptComponents++;
+            }
         }
     }
+    registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
+    registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
+    registry.getStatistic<Statistics::Variable>("externalvertices").add(keyMap.size());
+
     // TODO: get from clumps
     writer.setNumVertices(numVertices);
     writer.setNumTriangles(numTriangles);
@@ -846,6 +858,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     stxxl::vector<cl_uint> vertexRemap;
     vertexRemap.reserve(vertices.size());
     cl_uint nextVertex = 0;
+    const cl_uint badIndex = std::numeric_limits<cl_uint>::max();
 
     {
         stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
@@ -863,13 +876,14 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             }
             else
             {
-                vertexRemap.push_back(std::numeric_limits<cl_uint>::max());
+                vertexRemap.push_back(badIndex);
             }
             if (progress)
                 ++*progress;
         }
         vb.flush();
     }
+    assert(nextVertex == numVertices);
 
     {
         stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
@@ -885,8 +899,17 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             {
                 rewritten[i] = vertexRemap[triangle[i]];
             }
-            if (rewritten[0] != std::numeric_limits<cl_uint>::max())
+            if (rewritten[0] != badIndex)
+            {
+                assert(rewritten[1] != badIndex);
+                assert(rewritten[2] != badIndex);
                 tb(rewritten);
+            }
+            else
+            {
+                assert(rewritten[1] == badIndex);
+                assert(rewritten[2] == badIndex);
+            }
             if (progress)
                 ++*progress;
         }
