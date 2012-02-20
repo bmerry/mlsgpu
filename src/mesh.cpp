@@ -855,7 +855,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
         progress.reset(new ProgressDisplay(vertices.size() + triangles.size()));
     }
 
-    stxxl::vector<cl_uint> vertexRemap;
+    stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result vertexRemap;
     vertexRemap.reserve(vertices.size());
     cl_uint nextVertex = 0;
     const cl_uint badIndex = std::numeric_limits<cl_uint>::max();
