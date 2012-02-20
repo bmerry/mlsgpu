@@ -58,6 +58,7 @@ namespace Option
 
     const char * const fitSmooth = "fit-smooth";
     const char * const fitGrid = "fit-grid";
+    const char * const fitPrune = "fit-prune";
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
@@ -89,7 +90,9 @@ static void addFitOptions(po::options_description &opts)
 {
     opts.add_options()
         (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
-        (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells");
+        (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
+        (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component");
+
 }
 
 static void addStatisticsOptions(po::options_description &opts)
@@ -184,6 +187,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
+    const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
     int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
     /* TODO make dynamic, considering maximum image sizes etc */
@@ -232,6 +236,11 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     if (deviceThreads < 1)
     {
         cerr << "Value of --device-threads must be at least 1\n";
+        exit(1);
+    }
+    if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
+    {
+        cerr << "Value of --fit-prune must be in [0, 1]\n";
         exit(1);
     }
 
@@ -752,6 +761,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -793,6 +803,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     writer->addComment("mlsgpu options:" + makeOptions(vm));
     makeInputComments(writer.get(), vm);
     boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
+    mesh->setPruneThreshold(pruneThreshold);
     for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
     {
         Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesh->numPasses() << endl;

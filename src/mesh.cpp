@@ -446,7 +446,7 @@ void KeyMapMesh::loadData(
     hVertices.resize(numVertices);
     hVertexKeys.resize(numExternalVertices);
     hTriangles.resize(numTriangles);
-    // TODO: revisit the dependency graph, here and in BigMesh
+    // TODO: revisit the dependency graph
     if (numExternalVertices > 0)
     {
         queue.enqueueReadBuffer(dVertexKeys, CL_FALSE,
@@ -539,6 +539,10 @@ std::size_t KeyMapMesh::updateKeyMap(
             // Unified two external vertices. Also need to unify their clumps.
             clump_id cid2 = added.first->second.clumpId;
             UnionFind::merge(clumps, cid, cid2);
+            // They will both have counted the common vertex, so we need to
+            // subtract it
+            cid = UnionFind::findRoot(clumps, cid);
+            clumps[cid].setVertices(clumps[cid].vertices() - 1);
         }
         indexTable[i] = added.first->second.vertexId;
     }
@@ -815,14 +819,15 @@ void StxxlMesh::TriangleBuffer::flush()
 void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
                       std::ostream *progressStream) const
 {
+
     // TODO: make a parameter
-    const clump_id pruneThreshold = 100000;
+    const cl_uint thresholdVertices = (cl_uint) (vertices.size() * getPruneThreshold());
     FastPly::WriterBase::size_type numVertices = 0, numTriangles = 0;
     BOOST_FOREACH(const Clump &clump, clumps)
     {
-        if (clump.isRoot() && clump.size() >= pruneThreshold)
+        if (clump.isRoot() && clump.vertices() >= thresholdVertices)
         {
-            numVertices += clump.size();
+            numVertices += clump.vertices();
             numTriangles += clump.triangles();
         }
     }
@@ -851,7 +856,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             vertices_type::value_type vertex = *vertex_stream;
             ++vertex_stream;
             clump_id clumpId = UnionFind::findRoot(clumps, vertex.second);
-            if (clumps[clumpId].size() >= pruneThreshold)
+            if (clumps[clumpId].vertices() >= thresholdVertices)
             {
                 vb(vertex.first);
                 vertexRemap.push_back(nextVertex++);

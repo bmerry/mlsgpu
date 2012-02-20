@@ -58,6 +58,7 @@ public:
  *
  * The basic procedure for using one of these classes is:
  * -# Instantiate it.
+ * -# Call @ref setPruneThreshold.
  * -# Uses @ref numPasses to determine how many passes are required.
  * -# For each pass, call @ref outputFunctor to obtain a functor, then
  *    make as many calls to @ref Marching::generate as desired using this
@@ -86,11 +87,27 @@ protected:
     boost::mutex mutex;
 
 public:
+    /// Constructor
+    MeshBase() : pruneThreshold(0.0) {}
+
     /// Virtual destructor to allow destruction via base class pointer
     virtual ~MeshBase() {}
 
     /// Number of passes required.
     virtual unsigned int numPasses() const = 0;
+
+    /**
+     * Sets the lower bound on component size. All components that are
+     * smaller will be pruned from the output, if supported by the mesh
+     * type. The default is not to prune anything.
+     *
+     * @param threshold The lower bound, specified as a fraction of the total
+     * number of pre-pruning vertices.
+     */
+    void setPruneThreshold(double threshold) { pruneThreshold = threshold; }
+
+    /// Retrieve the value set with @ref setPruneThreshold.
+    double getPruneThreshold() const { return pruneThreshold; }
 
     /**
      * Retrieves a functor to be passed to @ref Marching::generate in a
@@ -142,6 +159,10 @@ public:
      */
     virtual void write(FastPly::WriterBase &writer, const std::string &filename,
                        std::ostream *progressStream = NULL) const = 0;
+
+private:
+    /// Threshold set by @ref setPruneThreshold
+    double pruneThreshold;
 };
 
 /**
@@ -246,15 +267,22 @@ protected:
     class Clump : public UnionFind::Node<clump_id>
     {
     public:
-        explicit Clump(cl_int size) : UnionFind::Node<clump_id>(size), numTriangles(0) {}
+        explicit Clump(cl_uint numVertices) : numVertices(numVertices), numTriangles(0) {}
+
+        cl_uint vertices() const { return numVertices; }
         std::tr1::uint64_t triangles() const { return numTriangles; }
+
+        void setVertices(cl_uint vertices) { numVertices = vertices; }
         void setTriangles(std::tr1::uint64_t triangles) { numTriangles = triangles; }
+
         void merge(const Clump &b)
         {
             UnionFind::Node<cl_int>::merge(b);
+            numVertices += b.numVertices;
             numTriangles += b.numTriangles;
         }
     private:
+        cl_uint numVertices;
         std::tr1::uint64_t numTriangles;
     };
 
