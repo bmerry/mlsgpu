@@ -23,12 +23,14 @@
 #include <map>
 #include <string>
 #include <iosfwd>
+#include <utility>
 #include <boost/array.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/mutex.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
-#include "src/fast_ply.h"
+#include "fast_ply.h"
+#include "union_find.h"
 
 /**
  * Enumeration of the supported mesh types
@@ -239,10 +241,38 @@ namespace detail
 class KeyMapMesh : public MeshBase
 {
 protected:
-    typedef std::tr1::unordered_map<cl_ulong, cl_uint> map_type;
+    typedef std::tr1::int32_t clump_id;
+
+    class Clump : public UnionFind::Node<clump_id>
+    {
+    public:
+        explicit Clump(cl_int size) : UnionFind::Node<clump_id>(size), numTriangles(0) {}
+        std::tr1::uint64_t triangles() const { return numTriangles; }
+        void setTriangles(std::tr1::uint64_t triangles) { numTriangles = triangles; }
+        void merge(const Clump &b)
+        {
+            UnionFind::Node<cl_int>::merge(b);
+            numTriangles += b.numTriangles;
+        }
+    private:
+        std::tr1::uint64_t numTriangles;
+    };
+
+    struct ExternalVertexData
+    {
+        cl_uint vertexId;
+        clump_id clumpId;
+
+        ExternalVertexData(cl_uint vertexId, clump_id clumpId)
+            : vertexId(vertexId), clumpId(clumpId) {}
+    };
+
+    typedef std::tr1::unordered_map<cl_ulong, ExternalVertexData> map_type;
 
     /// Maps external vertex keys to external indices
     map_type keyMap;
+
+    std::vector<Clump> clumps;
 
     /**
      * @name
@@ -281,6 +311,11 @@ protected:
                   cl::Event *verticesEvent,
                   cl::Event *trianglesEvent) const;
 
+    void computeLocalComponents(
+        std::size_t numVertices,
+        const std::vector<boost::array<cl_uint, 3> > &triangles,
+        std::vector<clump_id> &clumpId);
+
     /**
      * Add external vertex keys to the key map and computes an index rewrite table.
      * The index rewrite table maps local external indices for a block to their
@@ -293,6 +328,7 @@ protected:
     std::size_t updateKeyMap(
         cl_uint vertexOffset,
         const std::vector<cl_ulong> &hKeys,
+        const std::vector<clump_id> &clumpId,
         std::vector<cl_uint> &indexTable);
 
     /**
@@ -393,7 +429,7 @@ class StxxlMesh : public detail::KeyMapMesh
 private:
     typedef FastPly::WriterBase::size_type size_type;
 
-    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3> >::result vertices_type;
+    typedef stxxl::VECTOR_GENERATOR<std::pair<boost::array<float, 3>, clump_id> >::result vertices_type;
     typedef stxxl::VECTOR_GENERATOR<boost::array<cl_uint, 3> >::result triangles_type;
     vertices_type vertices;
     triangles_type triangles;
