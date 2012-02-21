@@ -459,8 +459,11 @@ void KeyMapMesh::loadData(
         queue.flush();
     }
 
-    queue.enqueueReadBuffer(dVertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
-                            &hVertices[0][0], NULL, verticesEvent);
+    if (dVertices())
+    {
+        queue.enqueueReadBuffer(dVertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
+                                &hVertices[0][0], NULL, verticesEvent);
+    }
     queue.enqueueReadBuffer(dIndices, CL_FALSE,
                             0, numTriangles * (3 * sizeof(cl_uint)),
                             &hTriangles[0][0],
@@ -541,7 +544,7 @@ std::size_t KeyMapMesh::updateKeyMap(
             clump_id cid2 = added.first->second.clumpId;
             UnionFind::merge(clumps, cid, cid2);
             // They will both have counted the common vertex, so we need to
-            // subtract it
+            // subtract it.
             cid = UnionFind::findRoot(clumps, cid);
             clumps[cid].vertices--;
         }
@@ -571,8 +574,8 @@ void KeyMapMesh::rewriteTriangles(
 } // namespace detail
 
 BigMesh::BigMesh(FastPly::WriterBase &writer, const std::string &filename)
-    : writer(writer), filename(filename), nVertices(0), nTriangles(0),
-    nextVertex(0), nextTriangle(0)
+    : writer(writer), filename(filename),
+    nextVertex(0), nextTriangle(0), pruneThresholdVertices(0)
 {
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }
@@ -588,45 +591,39 @@ void BigMesh::count(const cl::CommandQueue &queue,
 {
     /* Unused parameters */
     (void) vertices;
-    (void) indices;
-    (void) numIndices;
 
-    std::size_t numExternalVertices = numVertices - numInternalVertices;
-    nTriangles += numIndices / 3;
+    cl::Event trianglesEvent;
+    const std::size_t numExternalVertices = numVertices - numInternalVertices;
+    const std::size_t numTriangles = numIndices / 3;
 
-    if (numExternalVertices > 0)
-    {
-        tmpVertexKeys.resize(numExternalVertices);
-        queue.enqueueReadBuffer(vertexKeys, CL_TRUE,
-                                numInternalVertices * sizeof(cl_ulong),
-                                numExternalVertices * sizeof(cl_ulong),
-                                &tmpVertexKeys[0],
-                                NULL, event);
-    }
+    loadData(queue, cl::Buffer(), vertexKeys, indices,
+             tmpVertices, tmpVertexKeys, tmpTriangles,
+             numVertices, numInternalVertices, numTriangles,
+             NULL, &trianglesEvent);
 
-    nVertices += numInternalVertices;
+    trianglesEvent.wait();
+    computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
 
-    /* Build keyMap, counting how many external vertices are really new.
-     * The values in the keymap are irrelevant since they will be destroyed
-     * for the second pass.
-     *
-     * TODO: see whether it is worth using a separate unordered_set for this.
-     */
-    std::size_t newKeys = 0;
+    /* Build keyClump */
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        if (keyMap.insert(std::make_pair(tmpVertexKeys[i], ExternalVertexData(0, 0))).second)
-            newKeys++;
+        std::pair<key_clump_type::iterator, bool> added;
+        clump_id cid = tmpClumpId[i + numInternalVertices];
+        added = keyClump.insert(std::make_pair(tmpVertexKeys[i], cid));
+        if (!added.second)
+        {
+            // Merge the clumps that share the external vertex
+            clump_id cid2 = added.first->second;
+            UnionFind::merge(clumps, cid, cid2);
+            // They will both have counted the common vertex, so we need to
+            // subtract it.
+            cid = UnionFind::findRoot(clumps, cid);
+            clumps[cid].vertices--;
+        }
     }
-    nVertices += newKeys;
 
-    if (event != NULL && numExternalVertices == 0)
-    {
-        // No actual event, so make up a pre-signaled one
-        cl::UserEvent e(queue.getInfo<CL_QUEUE_CONTEXT>());
-        e.setStatus(CL_COMPLETE);
-        *event = e;
-    }
+    if (event != NULL)
+        *event = trianglesEvent;
 }
 
 void BigMesh::add(const cl::CommandQueue &queue,
@@ -638,25 +635,89 @@ void BigMesh::add(const cl::CommandQueue &queue,
                   std::size_t numIndices,
                   cl::Event *event)
 {
-    cl::Event verticesEvent, indicesEvent;
-    const std::size_t numExternalVertices = numVertices - numInternalVertices;
-    const std::size_t numTriangles = numIndices / 3;
+    cl::Event verticesEvent, trianglesEvent;
+    std::size_t numExternalVertices = numVertices - numInternalVertices;
+    std::size_t numTriangles = numIndices / 3;
 
     loadData(queue,
              vertices, vertexKeys, indices,
              tmpVertices, tmpVertexKeys, tmpTriangles,
              numVertices, numInternalVertices, numTriangles,
-             &verticesEvent, &indicesEvent);
+             &verticesEvent, &trianglesEvent);
 
-    indicesEvent.wait();
+    trianglesEvent.wait();
+    clumps.clear();
     computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
+
+    /* Determine which components are valid. We no longer need the triangles
+     * member of Clump, so we overwrite it with a validity boolean. A clump
+     * is valid if either it has the requisite number of vertices on its
+     * own, or if it contains an external vertex that has been marked as
+     * valid.
+     */
+    for (std::size_t i = 0; i < clumps.size(); i++)
+    {
+        clumps[i].triangles = (clumps[i].vertices >= pruneThresholdVertices);
+    }
+    for (std::size_t i = 0; i < numExternalVertices; i++)
+    {
+        if (keyClump[tmpVertexKeys[i]])
+            clumps[tmpClumpId[i + numInternalVertices]].triangles = true;
+    }
+
+    verticesEvent.wait();
+
+    /* Apply clump validity to remove unwanted vertices */
+    std::size_t vptr = 0;  // next output vertex in compaction
+    std::size_t kptr = 0;  // next output key in compaction
+    tmpIndexTable.resize(numVertices);
+    for (std::size_t i = 0; i < numInternalVertices; i++)
+    {
+        if (clumps[tmpClumpId[i]].triangles)
+        {
+            tmpIndexTable[i] = vptr;
+            tmpVertices[vptr++] = tmpVertices[i];
+        }
+        else
+            tmpIndexTable[i] = 0xFFFFFFFFu;
+        // TODO: need to compact tmpVertexKeys as well!!!
+    }
+    for (std::size_t i = numInternalVertices; i < numVertices; i++)
+    {
+        if (clumps[tmpClumpId[i]].triangles)
+        {
+            tmpIndexTable[i] = vptr;
+            tmpVertices[vptr++] = tmpVertices[i];
+            tmpVertexKeys[kptr++] = tmpVertexKeys[i - numInternalVertices];
+        }
+        else
+            tmpIndexTable[i] = 0xFFFFFFFFu;
+    }
+    numVertices = vptr;
+    numExternalVertices = kptr;
+    numInternalVertices = vptr - kptr;
+    tmpVertices.resize(numVertices);
+    tmpVertexKeys.resize(numExternalVertices);
+
+    /* Use clump validity to remove dead triangles and rewrite remaining ones */
+    std::size_t tptr = 0;
+    for (std::size_t i = 0; i < numTriangles; i++)
+    {
+        if (tmpIndexTable[tmpTriangles[i][0]] != 0xFFFFFFFFu)
+        {
+            for (unsigned int j = 0; j < 3; j++)
+                tmpTriangles[tptr][j] = tmpIndexTable[tmpTriangles[i][j]];
+            tptr++;
+        }
+    }
+    numTriangles = tptr;
+    tmpTriangles.resize(numTriangles);
 
     std::size_t newKeys = updateKeyMap(
         nextVertex + numInternalVertices,
         tmpVertexKeys, tmpClumpId, tmpIndexTable);
 
-    verticesEvent.wait();
-    /* Compact the vertex list to keep only new external vertices */
+    /* Compact the vertex list (again) to keep only new external vertices */
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         const cl_uint pos = tmpIndexTable[i];
@@ -667,16 +728,76 @@ void BigMesh::add(const cl::CommandQueue &queue,
             tmpVertices[pos - nextVertex] = tmpVertices[numInternalVertices + i];
         }
     }
+    numVertices = numInternalVertices + newKeys;
+    tmpVertices.resize(numVertices);
 
+    /* Rewrite triangles (again) to global indices */
     rewriteTriangles(nextVertex, numInternalVertices, tmpIndexTable, tmpTriangles);
 
-    writer.writeVertices(nextVertex, numInternalVertices + newKeys, &tmpVertices[0][0]);
+    writer.writeVertices(nextVertex, numVertices, &tmpVertices[0][0]);
     writer.writeTriangles(nextTriangle, numTriangles, &tmpTriangles[0][0]);
     nextVertex += numInternalVertices + newKeys;
     nextTriangle += numTriangles;
 
     if (event != NULL)
-        *event = indicesEvent;
+        *event = trianglesEvent;
+}
+
+void BigMesh::prepareAdd()
+{
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+
+    size_type totalVertices = 0;
+    /* Count the vertices */
+    BOOST_FOREACH(const Clump &clump, clumps)
+    {
+        if (clump.isRoot())
+        {
+            totalVertices += clump.vertices;
+        }
+    }
+
+    size_type numVertices = 0, numTriangles = 0;
+    pruneThresholdVertices = (cl_uint) (totalVertices * getPruneThreshold());
+    clump_id keptComponents = 0, totalComponents = 0;
+
+    /* Determine the total number of vertices and triangles to retain */
+    BOOST_FOREACH(const Clump &clump, clumps)
+    {
+        if (clump.isRoot())
+        {
+            totalComponents++;
+            if (clump.vertices >= pruneThresholdVertices)
+            {
+                numVertices += clump.vertices;
+                numTriangles += clump.triangles;
+                keptComponents++;
+            }
+        }
+    }
+
+    registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
+    registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
+    registry.getStatistic<Statistics::Variable>("externalvertices").add(keyClump.size());
+
+    /* Determine which external vertices belong to valid clumps, replacing
+     * the clump IDs (which will become useless anyway) with a boolean
+     * indicating whether the external vertex should be retained.
+     */
+    for (key_clump_type::iterator i = keyClump.begin(); i != keyClump.end(); ++i)
+    {
+        clump_id cid = i->second;
+        cid = UnionFind::findRoot(clumps, cid);
+        i->second = clumps[cid].vertices >= pruneThresholdVertices;
+    }
+
+    nextVertex = 0;
+    nextTriangle = 0;
+    keyMap.clear();
+    clumps.clear();
+    writer.setNumVertices(numVertices);
+    writer.setNumTriangles(numTriangles);
+    writer.open(filename);
 }
 
 Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
@@ -686,12 +807,7 @@ Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
     case 0:
         return serializeOutputFunctor(boost::bind(&BigMesh::count, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
     case 1:
-        nextVertex = 0;
-        nextTriangle = 0;
-        keyMap.clear();
-        writer.setNumVertices(nVertices);
-        writer.setNumTriangles(nTriangles);
-        writer.open(filename);
+        prepareAdd();
         return serializeOutputFunctor(boost::bind(&BigMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
     default:
         abort();

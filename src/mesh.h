@@ -329,6 +329,10 @@ protected:
      * The supplied vectors are resized to the appropriate
      * size for the data that is being loaded.
      *
+     * Reading the vertex data is optional. To skip it, pass a
+     * default-constructed buffer for @a dVertices. In this case @a hVertices
+     * and @a verticesEvent will not be updated.
+     *
      * @post
      * - The read into hKeys is complete.
      * - The read into hVertices will be complete when @a verticesEvent is signalled.
@@ -424,11 +428,24 @@ private:
     FastPly::WriterBase &writer;
     const std::string filename;
 
-    size_type nVertices;    ///< Number of vertices seen in first pass
-    size_type nTriangles;   ///< Number of triangles seen in first pass
-
     size_type nextVertex;   ///< Number of vertices written so far
     size_type nextTriangle; ///< Number of triangles written so far
+
+    /**
+     * Minimum number of vertices to keep a component. This is only valid
+     * after @ref prepareAdd.
+     */
+    size_type pruneThresholdVertices;
+
+    typedef std::tr1::unordered_map<cl_ulong, clump_id> key_clump_type;
+    /**
+     * Clump information for external vertices. During the counting, it contains
+     * a clump ID for each external vertex key (note that external vertices belong
+     * to multiple clumps, but all in the same component). At the end of the
+     * counting pass it is converted to boolean values, indicating whether each
+     * external vertex belongs to a component that should be kept.
+     */
+    key_clump_type keyClump;
 
     /// Implementation of the first-pass functor
     void count(const cl::CommandQueue &queue,
@@ -439,6 +456,9 @@ private:
                std::size_t numInternalVertices,
                std::size_t numIndices,
                cl::Event *event);
+
+    /// Preparation for the second pass after the first pass
+    void prepareAdd();
 
     /// Implementation of the second-pass functor
     void add(const cl::CommandQueue &queue,
