@@ -475,36 +475,36 @@ void KeyMapMesh::computeLocalComponents(
     const std::vector<boost::array<cl_uint, 3> > &triangles,
     std::vector<clump_id> &clumpId)
 {
-    // TODO: allocate this as a tmp array
-    std::vector<UnionFind::Node<cl_int> > nodes(numVertices);
+    tmpNodes.clear();
+    tmpNodes.resize(numVertices);
     typedef boost::array<cl_uint, 3> triangle_type;
     BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         // Only need to use two edges in the union-find tree, since the
         // third will be redundant.
         for (unsigned int j = 0; j < 2; j++)
-            UnionFind::merge(nodes, triangle[j], triangle[j + 1]);
+            UnionFind::merge(tmpNodes, triangle[j], triangle[j + 1]);
     }
 
     // Allocate clumps for the local components
     clumpId.resize(numVertices);
     for (std::size_t i = 0; i < numVertices; i++)
     {
-        if (nodes[i].isRoot())
+        if (tmpNodes[i].isRoot())
         {
             if (clumps.size() > boost::make_unsigned<clump_id>::type(std::numeric_limits<clump_id>::max()))
             {
                 throw std::overflow_error("Too many clumps");
             }
             clumpId[i] = clumps.size();
-            clumps.push_back(Clump(nodes[i].size()));
+            clumps.push_back(Clump(tmpNodes[i].size()));
         }
     }
 
     // Compute clump IDs for the non-root vertices
     for (std::size_t i = 0; i < numVertices; i++)
     {
-        cl_int r = UnionFind::findRoot(nodes, i);
+        cl_int r = UnionFind::findRoot(tmpNodes, i);
         clumpId[i] = clumpId[r];
     }
 
@@ -512,7 +512,7 @@ void KeyMapMesh::computeLocalComponents(
     BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         Clump &clump = clumps[clumpId[triangle[0]]];
-        clump.setTriangles(clump.triangles() + 1);
+        clump.triangles++;
     }
 }
 
@@ -543,7 +543,7 @@ std::size_t KeyMapMesh::updateKeyMap(
             // They will both have counted the common vertex, so we need to
             // subtract it
             cid = UnionFind::findRoot(clumps, cid);
-            clumps[cid].setVertices(clumps[cid].vertices() - 1);
+            clumps[cid].vertices--;
         }
         indexTable[i] = added.first->second.vertexId;
     }
@@ -649,14 +649,11 @@ void BigMesh::add(const cl::CommandQueue &queue,
              &verticesEvent, &indicesEvent);
 
     indicesEvent.wait();
-
-    // TODO: allocate once-off
-    std::vector<clump_id> clumpId;
-    computeLocalComponents(numVertices, tmpTriangles, clumpId);
+    computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
 
     std::size_t newKeys = updateKeyMap(
         nextVertex + numInternalVertices,
-        tmpVertexKeys, clumpId, tmpIndexTable);
+        tmpVertexKeys, tmpClumpId, tmpIndexTable);
 
     verticesEvent.wait();
     /* Compact the vertex list to keep only new external vertices */
@@ -765,20 +762,18 @@ void StxxlMesh::add(
              &verticesEvent, &indicesEvent);
 
     indicesEvent.wait();
-    // TODO: allocate once-off
-    std::vector<clump_id> clumpId;
-    computeLocalComponents(numVertices, tmpTriangles, clumpId);
+    computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
 
     std::size_t newKeys = updateKeyMap(
         priorVertices + numInternalVertices,
-        tmpVertexKeys, clumpId, tmpIndexTable);
+        tmpVertexKeys, tmpClumpId, tmpIndexTable);
 
     /* Copy the vertices into storage */
     this->vertices.reserve(priorVertices + numInternalVertices + newKeys);
     verticesEvent.wait();
     for (std::size_t i = 0; i < numInternalVertices; i++)
     {
-        this->vertices.push_back(std::make_pair(tmpVertices[i], clumpId[i]));
+        this->vertices.push_back(std::make_pair(tmpVertices[i], tmpClumpId[i]));
     }
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
@@ -787,7 +782,7 @@ void StxxlMesh::add(
         {
             this->vertices.push_back(std::make_pair(
                     tmpVertices[numInternalVertices + i],
-                    clumpId[numInternalVertices + i]));
+                    tmpClumpId[numInternalVertices + i]));
         }
     }
 
@@ -831,10 +826,10 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
         if (clump.isRoot())
         {
             totalComponents++;
-            if (clump.vertices() >= thresholdVertices)
+            if (clump.vertices >= thresholdVertices)
             {
-                numVertices += clump.vertices();
-                numTriangles += clump.triangles();
+                numVertices += clump.vertices;
+                numTriangles += clump.triangles;
                 keptComponents++;
             }
         }
@@ -869,7 +864,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             vertices_type::value_type vertex = *vertex_stream;
             ++vertex_stream;
             clump_id clumpId = UnionFind::findRoot(clumps, vertex.second);
-            if (clumps[clumpId].vertices() >= thresholdVertices)
+            if (clumps[clumpId].vertices >= thresholdVertices)
             {
                 vb(vertex.first);
                 vertexRemap.push_back(nextVertex++);

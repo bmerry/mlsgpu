@@ -258,34 +258,40 @@ namespace detail
  * their final indices in the output. When a new chunk of data comes in,
  * new external vertices are entered into the key map and known ones are
  * discarded. The indices are then rewritten using the key map.
+ *
+ * Component identification is implemented with a two-level approach. Within each
+ * call to add(), a union-find is performed to identify local components. These
+ * components are referred to as @em clumps. Each vertex is given a <em>clump
+ * id</em>. During welding, external vertices are used to identify clumps that
+ * form part of the same component, and this is recorded in a union-find
+ * structure over the clumps.
  */
 class KeyMapMesh : public MeshBase
 {
 protected:
     typedef std::tr1::int32_t clump_id;
 
+    /**
+     * Component within a single block. The root clump also tracks the number of
+     * vertices and triangles in a component.
+     */
     class Clump : public UnionFind::Node<clump_id>
     {
     public:
-        explicit Clump(cl_uint numVertices) : numVertices(numVertices), numTriangles(0) {}
+        explicit Clump(cl_uint vertices) : vertices(vertices), triangles(0) {}
 
-        cl_uint vertices() const { return numVertices; }
-        std::tr1::uint64_t triangles() const { return numTriangles; }
-
-        void setVertices(cl_uint vertices) { numVertices = vertices; }
-        void setTriangles(std::tr1::uint64_t triangles) { numTriangles = triangles; }
+        cl_uint vertices;               ///< Vertices in the component (valid for root clumps)
+        std::tr1::uint64_t triangles;   ///< Triangles in the component (valid for root clumps)
 
         void merge(const Clump &b)
         {
             UnionFind::Node<cl_int>::merge(b);
-            numVertices += b.numVertices;
-            numTriangles += b.numTriangles;
+            vertices += b.vertices;
+            triangles += b.triangles;
         }
-    private:
-        cl_uint numVertices;
-        std::tr1::uint64_t numTriangles;
     };
 
+    /// Data kept regarding each external vertex.
     struct ExternalVertexData
     {
         cl_uint vertexId;
@@ -300,6 +306,7 @@ protected:
     /// Maps external vertex keys to external indices
     map_type keyMap;
 
+    /// All clumps, in a structure usable with @ref UnionFind.
     std::vector<Clump> clumps;
 
     /**
@@ -313,6 +320,8 @@ protected:
     std::vector<cl_ulong> tmpVertexKeys;
     std::vector<boost::array<cl_uint, 3> > tmpTriangles;
     std::vector<cl_uint> tmpIndexTable;
+    std::vector<UnionFind::Node<cl_int> > tmpNodes;
+    std::vector<clump_id> tmpClumpId;
     /** @} */
 
     /**
@@ -339,6 +348,20 @@ protected:
                   cl::Event *verticesEvent,
                   cl::Event *trianglesEvent) const;
 
+    /**
+     * Identifies clumps in the local set of triangles. Each new clump is
+     * appended to @ref clumps.
+     *
+     * @param numVertices    The number of vertices indexed by @a triangles
+     * @param triangles      Triangles, with indices in [0, @a numVertices)
+     * @param[out] clumpId   The index into @ref clumps for each vertex
+     *
+     * @post <code>clumpId.size() == numVertices</code>
+     *
+     * @warning This function is not reentrant, because it uses the @c
+     * tmpNodes vector for internal storage, and because it appends to
+     * @ref clumps.
+     */
     void computeLocalComponents(
         std::size_t numVertices,
         const std::vector<boost::array<cl_uint, 3> > &triangles,
@@ -347,11 +370,14 @@ protected:
     /**
      * Add external vertex keys to the key map and computes an index rewrite table.
      * The index rewrite table maps local external indices for a block to their
-     * final values.
+     * final values. It also does merging of clumps into components.
      *
      * @param vertexOffset    The final index for the first external vertex in the block.
      * @param hKeys           Keys of the external vertices.
+     * @param clumpId         The clump IDs of all vertices, as computed by @ref computeLocalComponents.
      * @param[out] indexTable The index remapping table.
+     *
+     * @note Only the last <code>hKeys.size()</code> elements of @a clumpId are relevant.
      */
     std::size_t updateKeyMap(
         cl_uint vertexOffset,
