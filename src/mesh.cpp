@@ -363,9 +363,7 @@ void WeldMesh::finalize(std::ostream *progressStream)
             ++*progress;
     }
 
-    /* Rewrite the indices that refer to external vertices
-     * (TODO: is it possible to partition these as well, to
-     * reduce the work?)
+    /* Rewrite the indices that refer to external vertices.
      */
     if (progressStream != NULL)
     {
@@ -387,9 +385,49 @@ void WeldMesh::finalize(std::ostream *progressStream)
             ++*progress;
     }
 
-    /* Throw away unneeded data. */
+    /* Throw away unneeded data and concatenate vertices */
     std::vector<cl_ulong>().swap(externalKeys);
     externalVertices.resize(welded);
+    internalVertices.insert(internalVertices.end(), externalVertices.begin(), externalVertices.end());
+    std::vector<boost::array<cl_float, 3> >().swap(externalVertices);
+
+    /* Now detect components and throw away undersized ones */
+    std::vector<UnionFind::Node<cl_int> > nodes(internalVertices.size());
+    typedef boost::array<cl_uint, 3> triangle_type;
+    BOOST_FOREACH(const triangle_type &triangle, triangles)
+    {
+        for (int j = 0; j < 2; j++)
+            UnionFind::merge(nodes, triangle[j], triangle[j + 1]);
+    }
+
+    remap.resize(internalVertices.size());
+    cl_uint newVertices = 0;
+    const cl_uint pruneThresholdVertices = (cl_uint) (internalVertices.size() * getPruneThreshold());
+    for (cl_uint i = 0; i < internalVertices.size(); i++)
+    {
+        cl_int root = UnionFind::findRoot(nodes, i);
+        if ((cl_uint) nodes[root].size() >= pruneThresholdVertices)
+        {
+            internalVertices[newVertices] = internalVertices[i];
+            remap[i] = newVertices;
+            newVertices++;
+        }
+        else
+            remap[i] = 0xFFFFFFFFu;
+    }
+    internalVertices.resize(newVertices);
+
+    std::size_t newTriangles = 0;
+    for (std::size_t i = 0; i < triangles.size(); i++)
+    {
+        if (remap[triangles[i][0]] != 0xFFFFFFFFu)
+        {
+            for (int j = 0; j < 3; j++)
+                triangles[newTriangles][j] = remap[triangles[i][j]];
+            newTriangles++;
+        }
+    }
+    triangles.resize(newTriangles);
 }
 
 #if UNIT_TESTS
@@ -406,11 +444,10 @@ void WeldMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     // handled by WeldMesh
     (void) progressStream;
 
-    writer.setNumVertices(internalVertices.size() + externalVertices.size());
+    writer.setNumVertices(internalVertices.size());
     writer.setNumTriangles(triangles.size());
     writer.open(filename);
     writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
-    writer.writeVertices(internalVertices.size(), externalVertices.size(), &externalVertices[0][0]);
     writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
 }
 
