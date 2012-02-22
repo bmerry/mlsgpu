@@ -596,6 +596,7 @@ class TestWeldMesh : public TestMeshBase
 {
     CPPUNIT_TEST_SUB_SUITE(TestWeldMesh, TestMeshBase);
     CPPUNIT_TEST(testWeld);
+    CPPUNIT_TEST(testPrune);
     CPPUNIT_TEST_SUITE_END();
 protected:
     virtual MeshBase *meshFactory(FastPly::WriterBase &writer);
@@ -606,6 +607,7 @@ protected:
     static const cl_uint indices3[];
 public:
     void testWeld();     ///< Tests vertex welding
+    void testPrune();    ///< Tests component pruning
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWeldMesh, TestSet::perBuild());
 
@@ -704,6 +706,183 @@ void TestWeldMesh::testWeld()
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(9, int(boost::size(indices3)));
+
+    checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
+                    expectedVertices, expectedIndices, writer);
+}
+
+void TestWeldMesh::testPrune()
+{
+    /* There are several cases to test:
+     * - A: Component entirely contained in one block, undersized: 5 vertices in block 0.
+     * - B: Component entirely contained in one block, large enough: 6 vertices in block 1.
+     * - C: Component split across blocks, whole component is undersized: 5 vertices split
+     *   between blocks 2 and 3.
+     * - D: Component split across blocks, some clumps of undersized but component
+     *   is large enough: 6 vertices split between blocks 0-3.
+     *
+     * The component of each vertex is indicated in the Y coordinate (0 = A etc). The
+     * X coordinate indexes within the component, and Z is zero. External keys follow
+     * a similar scheme, with the component given by the upper nibble.
+     */
+    const boost::array<cl_float, 3> internalVertices0[] =
+    {
+        {{ 0.0f, 0.0f, 0.0f }}, // 0
+        {{ 1.0f, 0.0f, 0.0f }}, // 1
+        {{ 2.0f, 0.0f, 0.0f }}, // 2
+        {{ 3.0f, 0.0f, 0.0f }}, // 3
+        {{ 4.0f, 0.0f, 0.0f }}  // 4
+    };
+    const boost::array<cl_float, 3> externalVertices0[] =
+    {
+        {{ 0.0f, 3.0f, 0.0f }}, // 5
+        {{ 1.0f, 3.0f, 0.0f }}, // 6
+        {{ 2.0f, 3.0f, 0.0f }}  // 7
+    };
+    const cl_ulong externalKeys0[] =
+    {
+        0x30, 0x31, 0x32
+    };
+    const cl_uint indices0[] =
+    {
+        0, 4, 1,
+        1, 4, 2,
+        2, 4, 3,
+        5, 7, 6
+    };
+
+    const boost::array<cl_float, 3> internalVertices1[] =
+    {
+        {{ 0.0f, 1.0f, 0.0f }}, // 0
+        {{ 1.0f, 1.0f, 0.0f }}, // 1
+        {{ 2.0f, 1.0f, 0.0f }}, // 2
+        {{ 3.0f, 1.0f, 0.0f }}, // 3
+        {{ 4.0f, 1.0f, 0.0f }}, // 4
+        {{ 5.0f, 1.0f, 0.0f }}, // 5
+
+        {{ 0.0f, 2.0f, 0.0f }}, // 6
+        {{ 3.0f, 2.0f, 0.0f }}  // 7
+    };
+    const boost::array<cl_float, 3> externalVertices1[] =
+    {
+        {{ 2.0f, 2.0f, 0.0f }}, // 8
+        {{ 4.0f, 2.0f, 0.0f }}, // 9
+        {{ 0.0f, 3.0f, 0.0f }}, // 10
+        {{ 2.0f, 3.0f, 0.0f }}, // 11
+        {{ 4.0f, 3.0f, 0.0f }}  // 12
+    };
+    const cl_ulong externalKeys1[] =
+    {
+        0x22, 0x24, 0x30, 0x32, 0x34
+    };
+    const cl_uint indices1[] =
+    {
+        0, 5, 1,
+        1, 5, 2,
+        2, 5, 3,
+        3, 5, 4,
+        6, 7, 9,
+        9, 7, 8,
+        10, 12, 11
+    };
+
+    // No internal vertices in block 2
+    const boost::array<cl_float, 3> externalVertices2[] =
+    {
+        {{ 1.0f, 3.0f, 0.0f }},
+        {{ 2.0f, 3.0f, 0.0f }},
+        {{ 3.0f, 3.0f, 0.0f }}
+    };
+    const cl_ulong externalKeys2[] =
+    {
+        0x31, 0x32, 0x33
+    };
+    const cl_uint indices2[] =
+    {
+        0, 1, 2
+    };
+
+    const boost::array<cl_float, 3> internalVertices3[] =
+    {
+        {{ 1.0f, 2.0f, 0.0f }}, // 0
+        {{ 5.0f, 3.0f, 0.0f }}  // 1
+    };
+    const boost::array<cl_float, 3> externalVertices3[] =
+    {
+        {{ 2.0f, 2.0f, 0.0f }}, // 2
+        {{ 3.0f, 3.0f, 0.0f }}, // 3
+        {{ 4.0f, 2.0f, 0.0f }}, // 4
+        {{ 4.0f, 3.0f, 0.0f }}, // 5
+        {{ 2.0f, 3.0f, 0.0f }}  // 6
+    };
+    const cl_ulong externalKeys3[] =
+    {
+        0x22, 0x33, 0x24, 0x34, 0x32
+    };
+    const cl_uint indices3[] =
+    {
+        6, 5, 3,
+        4, 2, 0,
+        3, 5, 1
+    };
+
+    const boost::array<cl_float, 3> expectedVertices[] =
+    {
+        {{ 0.0f, 1.0f, 0.0f }}, // 0
+        {{ 1.0f, 1.0f, 0.0f }}, // 1
+        {{ 2.0f, 1.0f, 0.0f }}, // 2
+        {{ 3.0f, 1.0f, 0.0f }}, // 3
+        {{ 4.0f, 1.0f, 0.0f }}, // 4
+        {{ 5.0f, 1.0f, 0.0f }}, // 5
+        {{ 0.0f, 3.0f, 0.0f }}, // 6
+        {{ 1.0f, 3.0f, 0.0f }}, // 7
+        {{ 2.0f, 3.0f, 0.0f }}, // 8
+        {{ 3.0f, 3.0f, 0.0f }}, // 9
+        {{ 4.0f, 3.0f, 0.0f }}, // 10
+        {{ 5.0f, 3.0f, 0.0f }}, // 11
+    };
+    const cl_uint expectedIndices[] =
+    {
+        0, 5, 1,
+        1, 5, 2,
+        2, 5, 3,
+        3, 5, 4,
+        6, 8, 7,
+        7, 8, 9,
+        9, 8, 10,
+        9, 10, 11,
+        6, 10, 8
+    };
+
+    MemoryWriter writer;
+    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
+    // There are 22 vertices total, and we want a threshold of 6
+    mesh->setPruneThreshold(6.5 / 22.0);
+    unsigned int passes = mesh->numPasses();
+    for (unsigned int i = 0; i < passes; i++)
+    {
+        Marching::OutputFunctor functor = mesh->outputFunctor(i);
+        add(functor,
+            boost::size(internalVertices0),
+            boost::size(externalVertices0),
+            boost::size(indices0),
+            internalVertices0, externalVertices0, externalKeys0, indices0);
+        add(functor,
+            boost::size(internalVertices1),
+            boost::size(externalVertices1),
+            boost::size(indices1),
+            internalVertices1, externalVertices1, externalKeys1, indices1);
+        add(functor,
+            0, boost::size(externalVertices2), boost::size(indices2),
+            NULL, externalVertices2, externalKeys2, indices2);
+        add(functor,
+            boost::size(internalVertices3),
+            boost::size(externalVertices3),
+            boost::size(indices3),
+            internalVertices3, externalVertices3, externalKeys3, indices3);
+    }
+    mesh->finalize();
+    mesh->write(writer, "");
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
