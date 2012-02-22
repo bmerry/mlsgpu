@@ -12,7 +12,7 @@
 #endif
 
 #include <ostream>
-#include <iosfwd>
+#include <iostream>
 #include <string>
 #include <boost/thread/mutex.hpp>
 #include <tr1/cstdint>
