@@ -987,6 +987,8 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             }
         }
     }
+    registry.getStatistic<Statistics::Variable>("components.vertices.total").add(vertices.size());
+    registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
     registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
     registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
     registry.getStatistic<Statistics::Variable>("externalvertices").add(keyMap.size());
@@ -1004,6 +1006,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     }
 
     stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result vertexRemap;
+    const stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result & vertexRemapConst = vertexRemap;
     vertexRemap.reserve(vertices.size());
     cl_uint nextVertex = 0;
     const cl_uint badIndex = std::numeric_limits<cl_uint>::max();
@@ -1045,7 +1048,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             boost::array<cl_uint, 3> rewritten;
             for (unsigned int i = 0; i < 3; i++)
             {
-                rewritten[i] = vertexRemap[triangle[i]];
+                rewritten[i] = vertexRemapConst[triangle[i]];
             }
             if (rewritten[0] != badIndex)
             {
