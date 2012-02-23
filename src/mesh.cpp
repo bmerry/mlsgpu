@@ -854,6 +854,8 @@ Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
 void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename,
                     std::ostream *progressStream) const
 {
+    (void) writer;
+    (void) filename;
     (void) progressStream;
     assert(&writer == &this->writer);
     assert(filename == this->filename);
