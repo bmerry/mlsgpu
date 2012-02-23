@@ -60,6 +60,7 @@ def options(opt):
     opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'debug', action = 'store', help = 'build variant', choices = variants.keys())
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
+    opt.add_option('--notests', action = 'store_true', default = False, help = 'Do not run unit tests')
 
 def configure_variant(conf):
     if conf.env['assertions']:
@@ -167,8 +168,11 @@ def build(bld):
             use = ['libmls', 'provenance', 'OPENCL'],
             lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'boost_thread-mt', 'rt'])
     if bld.env['unit_tests']:
+        test_features = 'cxx cxxprogram'
+        if not bld.options.notests:
+            test_features += ' test'
         bld.program(
-                features = 'test',
+                features = test_features,
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],

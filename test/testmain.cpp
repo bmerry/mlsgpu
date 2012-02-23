@@ -103,10 +103,19 @@ int main(int argc, const char **argv)
         g_vm = processOptions(argc, argv);
 
         CppUnit::TestSuite *rootSuite = new CppUnit::TestSuite("All tests");
+        CppUnit::TestSuite *buildSuite = new CppUnit::TestSuite("build");
+        CppUnit::TestSuite *commitSuite = new CppUnit::TestSuite("commit");
+        CppUnit::TestSuite *nightlySuite = new CppUnit::TestSuite("nightly");
+
         CppUnit::TestFactoryRegistry::getRegistry().addTestToSuite(rootSuite);
-        rootSuite->addTest(CppUnit::TestFactoryRegistry::getRegistry(TestSet::perCommit()).makeTest());
-        rootSuite->addTest(CppUnit::TestFactoryRegistry::getRegistry(TestSet::perBuild()).makeTest());
-        rootSuite->addTest(CppUnit::TestFactoryRegistry::getRegistry(TestSet::perNightly()).makeTest());
+        CppUnit::TestFactoryRegistry::getRegistry(TestSet::perBuild()).addTestToSuite(buildSuite);
+        CppUnit::TestFactoryRegistry::getRegistry(TestSet::perCommit()).addTestToSuite(commitSuite);
+        CppUnit::TestFactoryRegistry::getRegistry(TestSet::perNightly()).addTestToSuite(nightlySuite);
+
+        // Chain the subsuites, so that the bigger ones run the smaller ones too
+        commitSuite->addTest(buildSuite);
+        nightlySuite->addTest(commitSuite);
+        rootSuite->addTest(nightlySuite);
 
         if (g_vm.count("list"))
         {
