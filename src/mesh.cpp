@@ -1050,7 +1050,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
             boost::array<cl_uint, 3> rewritten;
             for (unsigned int i = 0; i < 3; i++)
             {
-                rewritten[i] = vertexRemapConst[triangle[i]];
+                rewritten[i] = vertexRemapConst[triangle[i]] + 1;
             }
             if (rewritten[0] != badIndex)
             {
