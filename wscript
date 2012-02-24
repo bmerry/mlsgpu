@@ -91,11 +91,12 @@ def configure_variant_gcc(conf):
     if conf.env['DEST_CPU'] == 'x86':
         # Avoids precision weirdness due to 80-bit 8087 registers
         ccflags.extend(['-mfpmath=sse', '-msse2'])
-    if conf.env['lto']:
+    lto = conf.env['lto'] and conf.env['optimize']
+    if lto:
         ccflags.extend(['-flto', '-B/usr/lib/gold-ld'])
     conf.env.append_value('CFLAGS', ccflags)
     conf.env.append_value('CXXFLAGS', ccflags)
-    if conf.env['lto']:
+    if lto:
         # -flto requires compilation flags to be provided at link time
         conf.env.append_value('LINKFLAGS', ccflags)
 
