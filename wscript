@@ -83,10 +83,9 @@ def configure_variant_gcc(conf):
     if conf.env['debuginfo']:
         ccflags.append('-g')
     if conf.env['coverage']:
-        ccflags.append('-fprofile-arcs')
-        ccflags.append('-ftest-coverage')
-        conf.env.append_value('LINKFLAGS', '-fprofile-arcs')
-        conf.env.append_value('LINKFLAGS', '-ftest-coverage')
+        ccflags.extend(['-O0', '-fno-inline', '-fno-inline-functions', '-fno-default-inline', '-fno-elide-constructors'])
+        ccflags.append('--coverage')
+        conf.env.append_value('LINKFLAGS', '--coverage')
     if not conf.env['symbols']:
         conf.env.append_value('LINKFLAGS', '-s')
     if conf.env['DEST_CPU'] == 'x86':
