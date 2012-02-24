@@ -1,3 +1,5 @@
+import os.path
+
 out = 'build'
 
 variants = {
@@ -117,6 +119,8 @@ def configure(conf):
     conf.check_cxx(header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT')
     if conf.options.cl_headers:
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
+    else:
+        conf.env.append_value('INCLUDES_OPENCL', [os.path.abspath('../../khronos_headers')])
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
     conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
     conf.check_cxx(header_name = 'clogs/clogs.h', lib = 'clogs', use = 'OPENCL', uselib_store = 'CLOGS')
