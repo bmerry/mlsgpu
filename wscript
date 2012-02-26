@@ -153,7 +153,7 @@ def print_unit_tests(bld):
 def build(bld):
     bld(
             rule = 'python ${SRC} ${TGT}',
-            source = ['clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
+            source = ['utils/clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
             target = 'src/kernels.cpp')
     sources = bld.path.ant_glob('src/*.cpp', excl = 'src/provenance.cpp') + ['src/kernels.cpp']
     bld(
