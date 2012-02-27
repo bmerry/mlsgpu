@@ -1004,7 +1004,7 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     if (progressStream != NULL)
     {
         *progressStream << "\nWriting file\n";
-        progress.reset(new ProgressDisplay(vertices.size() + triangles.size()));
+        progress.reset(new ProgressDisplay(vertices.size() + triangles.size(), *progressStream));
     }
 
     stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result vertexRemap;
