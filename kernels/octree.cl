@@ -54,23 +54,21 @@ float pointBoxDist2(float3 pos, float3 lo, float3 hi)
  * Transforms a splat to cell coordinates and computes the
  * coordinates for the first cell it is to be placed in.
  *
- * @param[out]  ilo             Coordinates for the first cell.
+ * @param[out]  ilo             Coordinates for the first cell, relative to the octree.
  * @param[out]  shift           Bits shifted off to produce @a ilo.
  * @param       minShift        Minimum allowed shift.
  * @param       maxShift        Maximum allowed shift (one less than number of levels).
- * @param       positionRadius  Position (xyz) and radius (w) of splat.
- * @param       invScale,invBias Transformation from world to grid coordinates.
+ * @param       positionRadius  Position (xyz) and radius (w) of splat, in global coordinates.
+ * @param       bias            Amount to subtract from global coordinates to get local ones.
  */
 inline void prepare(
     int3 *ilo, int *shift, int minShift, int maxShift,
-    float4 positionRadius, float3 invScale, float3 invBias)
+    float4 positionRadius, int3 bias)
 {
     float3 vlo = positionRadius.xyz - positionRadius.w;
     float3 vhi = positionRadius.xyz + positionRadius.w;
-    vlo = vlo * invScale + invBias;
-    vhi = vhi * invScale + invBias;
-    *ilo = max(convert_int3_rtn(vlo), 0);
-    int3 ihi = convert_int3_rtn(vhi);
+    *ilo = max(convert_int3_rtn(vlo) - bias, 0);
+    int3 ihi = convert_int3_rtn(vhi) - bias;
     *shift = clamp(levelShift(*ilo, ihi), minShift, maxShift);
     *ilo >>= *shift;
 }
@@ -82,17 +80,17 @@ inline void prepare(
  * @param shift           Bits shifted off to give @a cell.
  * @param position        Splat position in world coordinates.
  * @param radius2         Squared splat radius in world coordinates.
- * @param scale,bias      Transformation from grid to world coordinates.
+ * @param bias            Amount to subtract from global coordinates to get local ones.
  */
 inline bool goodEntry(
     int3 cell, int shift,
     float3 position, float radius2,
-    float3 scale, float3 bias)
+    int3 bias)
 {
-    int3 blo = cell << shift;
-    int3 bhi = ((cell + 1) << shift);
-    float3 vblo = convert_float3(blo) * scale + bias;
-    float3 vbhi = convert_float3(bhi) * scale + bias;
+    int3 blo = (cell << shift) + bias;
+    int3 bhi = ((cell + 1) << shift) + bias;
+    float3 vblo = convert_float3(blo);
+    float3 vbhi = convert_float3(bhi);
     return pointBoxDist2(position, vblo, vbhi) < radius2;
 }
 
@@ -137,8 +135,7 @@ inline uint makeCode(int3 xyz)
  * @param keys             The cell codes for the entries.
  * @param values           The splat IDs for the entries.
  * @param[in,out] splats   The original splats. On output, radius replaced by 1/radius^2.
- * @param scale,bias       The grid-to-world transformation.
- * @param invScale,invBias The world-to-grid transformation.
+ * @param bias             Amount to subtract from global coordinates to get local ones.
  * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @a maxShift + 1 values).
  * @param minShift         Minimum bit shift (determines subsampling of grid to give finest level).
  * @param maxShift         Maximum bit shift (determines base level).
@@ -147,10 +144,7 @@ __kernel void writeEntries(
     __global uint *keys,
     __global uint *values,
     __global Splat *splats,
-    float scale,
-    float3 bias,
-    float invScale,
-    float3 invBias,
+    int3 bias,
     __local uint *levelOffsets,
     uint minShift,
     uint maxShift)
@@ -176,7 +170,7 @@ __kernel void writeEntries(
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;
     int shift;
-    prepare(&ilo, &shift, minShift, maxShift, positionRadius, invScale, invBias);
+    prepare(&ilo, &shift, minShift, maxShift, positionRadius, bias);
 
     float radius2 = positionRadius.w * positionRadius.w;
     splats[gid].positionRadius.w = 1.0f / radius2; // replace with form used in mls.cl
@@ -190,7 +184,7 @@ __kernel void writeEntries(
             {
                 int3 addr = ilo + ofs;
                 uint key = makeCode(addr) + levelOffset;
-                bool isect = goodEntry(addr, shift, positionRadius.xyz, radius2, scale, bias);
+                bool isect = goodEntry(addr, shift, positionRadius.xyz, radius2, bias);
                 // Avoid going outside the octree bounds. ilo was already clamped to >= 0 in
                 // prepare so we don't need to worry about the lower bound
                 isect &= all(addr < bound);

@@ -144,8 +144,10 @@ __kernel void countElements(
  */
 inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3 offset1, float3 scale, float3 bias)
 {
+    // This needs to operate in an invariant manner, so take manual control over FMAs
+#pragma OPENCL FP_CONTRACT OFF
     float inv = 1.0f / (iso1 - iso0);
-    float3 lcoord = cell + (iso1 * offset0 - iso0 * offset1) * inv;
+    float3 lcoord = fma(iso1 * offset0 - iso0 * offset1, inv, cell);
     return fma(lcoord, scale, bias);
 }
 
