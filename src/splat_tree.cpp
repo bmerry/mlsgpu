@@ -121,7 +121,7 @@ void SplatTree::initialize()
         unsigned int shift = 0;
         for (unsigned int i = 0; i < 3; i++)
         {
-            ilo[i] = std::max(std::min(ilo[i] + 1, (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
+            ilo[i] = std::max(std::min(ilo[i], (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
             ihi[i] = std::max(std::min(ihi[i], (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
         }
         while (true)
@@ -161,7 +161,7 @@ void SplatTree::initialize()
                     ic0[2] = z << shift;
                     for (unsigned int i = 0; i < 3; i++)
                     {
-                        ic1[i] = std::min((int) dims[i], ic0[i] + (1 << shift)) - 1;
+                        ic1[i] = std::min((int) dims[i], ic0[i] + (1 << shift));
                     }
                     grid.getVertex(ic0[0], ic0[1], ic0[2], c0);
                     grid.getVertex(ic1[0], ic1[1], ic1[2], c1);

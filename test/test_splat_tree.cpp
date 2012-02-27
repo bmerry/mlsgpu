@@ -11,6 +11,8 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <vector>
+#include <set>
+#include <numeric>
 #include <tr1/random>
 #include "testmain.h"
 #include "../src/splat.h"
@@ -73,90 +75,71 @@ void TestSplatTree::testBuild()
     std::vector<command_type> start;
     build(numLevels, commands, start, splats, 9, 0, 1001, grid);
 
-    const command_type expectedCommands[] =
-    {
-        3, 4, -29, // code 000 000 000 000
-        3, -29,    // code 000 000 000 010
-        0, -29,    // code 000 111 111 111
-        0, -31,    // code 001 110 110 110
-        0, -23,    // code 010 101 101 101
-        0, -27,    // code 011 100 100 100
-        0, -37,    // code 100 001 001 001
-        0, -39,    // code 101 010 010 010
-        0, -41,    // code 110 001 001 001
-        0, -43,    // code 111 000 000 000
-        /* Eliminated because the sphere doesn't cut the cell:
-         * 1, ?,   // code 010 001
-         */
-        1, -33,    // code 010 101
-        1, -35,    // code 011 000
-        1, -35,    // code 011 100
-        2, -1,     // code 000
-        2, -1,     // code 001
-        2, -1,     // code 010
-        2, -1,     // code 011
-        2, -1,     // code 100
-        2, -1,     // code 101
-        2, -1,     // code 110
-        2, -1,     // code 111
-    };
-    const struct
-    {
-        unsigned int x0, y0, z0;
-        unsigned int x1, y1, z1;
-        unsigned int start;
-    } regions[] =
-    {
-        { 0, 0, 0,   8,  8,  8,  27 },
-        { 8, 0, 0,  16,  8,  8,  29 },
-        { 0, 8, 0,   8, 16,  8,  31 },
-        { 8, 8, 0,  16, 16,  8,  33 },
-        { 0, 0, 8,   8,  8, 16,  35 },
-        { 8, 0, 8,  16,  8, 16,  37 },
-        { 0, 8, 8,   8, 16, 16,  39 },
-        { 8, 8, 8,  16, 16, 16,  41 },
-        { 4, 8, 4,   8, 12,  8,  21 },
-        { 8, 8, 0,  12, 12,  4,  23 },
-        { 8, 8, 4,  12, 12,  8,  25 },
-        /* Eliminated because the sphere does not cut the cell.
-         * { 4, 8, 0,   8, 12,  4,  ? },
-         */
-        { 0, 0, 0,   1,  1,  1,   0 },
-        { 0, 1, 0,   1,  2,  1,   3 },
-        { 7, 7, 7,   8,  8,  8,   5 },
-        { 8, 7, 7,   9,  8,  8,   7 },
-        { 7, 8, 7,   8,  9,  8,   9 },
-        { 8, 8, 7,   9,  9,  8,  11 },
-        { 7, 7, 8,   8,  8,  9,  13 },
-        { 8, 7, 8,   9,  8,  9,  15 },
-        { 7, 8, 8,   8,  9,  9,  17 },
-        { 8, 8, 8,   9,  9,  9,  19 }
-    };
-
     CPPUNIT_ASSERT_EQUAL(std::size_t(5), numLevels);
 
-    // Validate commands
-    std::size_t nCommands = sizeof(expectedCommands) / sizeof(expectedCommands[0]);
-    CPPUNIT_ASSERT(nCommands <= commands.size());
-    for (size_t i = 0; i < nCommands; i++)
-        CPPUNIT_ASSERT_EQUAL(expectedCommands[i], commands[i]);
+    /* Check that no splat appears more than 8 times in the command list */
+    map<unsigned int, int> repeats;
+    for (unsigned int i = 0; i < commands.size(); i++)
+    {
+        command_type cmd = commands[i];
+        if (cmd >= 0)
+        {
+            repeats[cmd]++;
+            CPPUNIT_ASSERT(repeats[cmd] <= 8);
+        }
+    }
 
-    // Validate start
+    /* Do a walk from each octree cell to check that the right elements are visited */
     CPPUNIT_ASSERT(size_t(16 * 16 * 16) <= start.size());
     for (unsigned int z = 0; z < 12; z++)
         for (unsigned int y = 0; y < 16; y++)
             for (unsigned int x = 0; x < 16; x++)
             {
                 unsigned int idx = SplatTree::makeCode(x, y, z);
-                command_type expected = -1;
-                for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++)
+                command_type pos = start[idx];
+                set<unsigned int> foundSplats;
+                if (pos != -1)
                 {
-                    if (regions[i].x0 <= x && x < regions[i].x1
-                        && regions[i].y0 <= y && y < regions[i].y1
-                        && regions[i].z0 <= z && z < regions[i].z1)
-                        expected = regions[i].start;
+                    int ttl = 1000;
+                    while (ttl > 0)  // prevents a loop from making the test run forever
+                    {
+                        ttl--;
+                        CPPUNIT_ASSERT(pos >= 0 && pos < (command_type) commands.size());
+                        command_type cmd = commands[pos];
+                        if (cmd == -1)
+                            break;
+                        else if (cmd < 0)
+                        {
+                            pos = -2 - cmd;
+                            CPPUNIT_ASSERT(pos >= 0 && pos < (command_type) commands.size());
+                            cmd = commands[pos];
+                        }
+                        CPPUNIT_ASSERT(cmd >= 0 && cmd < (command_type) splats.size());
+                        CPPUNIT_ASSERT(!foundSplats.count(cmd));
+                        foundSplats.insert(cmd);
+                        pos++;
+                    }
+                    CPPUNIT_ASSERT(ttl > 0);
                 }
-                CPPUNIT_ASSERT_EQUAL(expected, start[idx]);
+
+                // Check against splats we must see
+                float lo[3], hi[3]; // corners of cell in world space
+                grid.getVertex(x, y, z, lo);
+                grid.getVertex(x + 1, y + 1, z + 1, hi);
+                for (unsigned int i = 0; i < splats.size(); i++)
+                {
+                    float dist2 = 0.0f; // squared distance from splat center to nearest point in cell
+                    for (unsigned int j = 0; j < 3; j++)
+                    {
+                        float n = max(min(splats[i].position[j], hi[j]), lo[j]);
+                        n -= splats[i].position[j];
+                        dist2 += n * n;
+                    }
+                    if (dist2 <= splats[i].radius * splats[i].radius)
+                    {
+                        CPPUNIT_ASSERT(foundSplats.count(i));
+                    }
+                }
             }
 }
 
