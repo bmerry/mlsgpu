@@ -51,7 +51,7 @@ float pointBoxDist2(float3 pos, float3 lo, float3 hi)
 }
 
 /**
- * Transforms a splat to grid coordinates and computes the
+ * Transforms a splat to cell coordinates and computes the
  * coordinates for the first cell it is to be placed in.
  *
  * @param[out]  ilo             Coordinates for the first cell.
@@ -69,7 +69,7 @@ inline void prepare(
     float3 vhi = positionRadius.xyz + positionRadius.w;
     vlo = vlo * invScale + invBias;
     vhi = vhi * invScale + invBias;
-    *ilo = max(convert_int3_rtp(vlo), (int3) (0, 0, 0));
+    *ilo = max(convert_int3_rtn(vlo), 0);
     int3 ihi = convert_int3_rtn(vhi);
     *shift = clamp(levelShift(*ilo, ihi), minShift, maxShift);
     *ilo >>= *shift;
@@ -90,7 +90,7 @@ inline bool goodEntry(
     float3 scale, float3 bias)
 {
     int3 blo = cell << shift;
-    int3 bhi = ((cell + 1) << shift) - 1;
+    int3 bhi = ((cell + 1) << shift);
     float3 vblo = convert_float3(blo) * scale + bias;
     float3 vbhi = convert_float3(bhi) * scale + bias;
     return pointBoxDist2(position, vblo, vbhi) < radius2;
