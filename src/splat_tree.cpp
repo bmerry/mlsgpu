@@ -61,20 +61,31 @@ SplatTree::code_type SplatTree::makeCode(code_type x, code_type y, code_type z)
     return ans;
 }
 
-SplatTree::SplatTree(const std::vector<Splat> &splats, const Grid &grid)
-    : splats(splats), grid(grid)
+SplatTree::SplatTree(const std::vector<Splat> &splats,
+                     const Grid::size_type size[3],
+                     const Grid::difference_type offset[3])
+    : splats(splats)
 {
     MLSGPU_ASSERT(splats.size() < (size_t) std::numeric_limits<command_type>::max() / (2 * maxAmplify), std::length_error);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        this->size[i] = size[i];
+        this->offset[i] = offset[i];
+    }
 }
 
-static bool splatCellIntersect(const Splat &splat, const float c0[3], const float c1[3])
+/**
+ * Determines whether the cell with bounds @a c0 to @a c1 is intersected by @a splat.
+ * The bounds have been pre-biased to the coordinate system of the splats.
+ */
+static bool splatCellIntersect(const Splat &splat, const Grid::difference_type c0[3], const Grid::difference_type c1[3])
 {
     float dist[3];
     for (unsigned int i = 0; i < 3; i++)
     {
-        float lo = std::min(c0[i], c1[i]);
-        float hi = std::max(c0[i], c1[i]);
         // Find the point in the cell closest to the splat center
+        float lo = c0[i];
+        float hi = c1[i];
         float nearest = std::min(hi, std::max(lo, splat.position[i]));
         dist[i] = nearest - splat.position[i];
     }
@@ -84,20 +95,13 @@ static bool splatCellIntersect(const Splat &splat, const float c0[3], const floa
 void SplatTree::initialize()
 {
     // Compute the number of levels and related data
-    code_type dims[3];
-    for (unsigned int i = 0; i < 3; i++)
-        dims[i] = grid.numVertices(i);
-    code_type size = *std::max_element(dims, dims + 3);
+    code_type maxSize = *std::max_element(size, size + 3);
     unsigned int maxLevel = 0;
-    while ((1U << maxLevel) < size)
+    while ((1U << maxLevel) < maxSize)
         maxLevel++;
     numLevels = maxLevel + 1;
 
-    /* Make a list of all octree entries, initially ordered by splat ID. TODO:
-     * this is memory-heavy, and takes O(N log N) time for sorting. Passes for
-     * counting, scanning, emitting would avoid this, but only if we allowed
-     * this function to read back data for the scan, or implemented the whole
-     * lot in CL.
+    /* Make a list of all octree entries, initially ordered by splat ID.
      */
     std::vector<Entry> entries;
     entries.reserve(maxAmplify * splats.size());
@@ -105,24 +109,20 @@ void SplatTree::initialize()
     {
         const Splat &splat = splats[splatId];
         const float radius = splat.radius;
-        float lo[3], hi[3];
+        Grid::difference_type ilo[3], ihi[3];
         for (unsigned int i = 0; i < 3; i++)
         {
-            lo[i] = splat.position[i] - radius;
-            hi[i] = splat.position[i] + radius;
+            ilo[i] = Grid::RoundDown::convert(splat.position[i] - radius) - offset[i];
+            ihi[i] = Grid::RoundDown::convert(splat.position[i] + radius) - offset[i];
         }
-
-        Grid::difference_type ilo[3], ihi[3];
-        grid.worldToCell(lo, ilo);
-        grid.worldToCell(hi, ihi);
 
         // Start with the deepest level, then coarsen until we don't
         // take more than maxAmplify cells.
         unsigned int shift = 0;
         for (unsigned int i = 0; i < 3; i++)
         {
-            ilo[i] = std::max(std::min(ilo[i], (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
-            ihi[i] = std::max(std::min(ihi[i], (Grid::difference_type) dims[i] - 1), Grid::difference_type(0));
+            ilo[i] = std::max(std::min(ilo[i], (Grid::difference_type) size[i] - 1), Grid::difference_type(0));
+            ihi[i] = std::max(std::min(ihi[i], (Grid::difference_type) size[i] - 1), Grid::difference_type(0));
         }
         while (true)
         {
@@ -150,21 +150,21 @@ void SplatTree::initialize()
         Entry e;
         e.splatId = splatId;
         e.level = shift;
-        for (unsigned int z = ilo[2]; z <= (unsigned int) ihi[2]; z++)
-            for (unsigned int y = ilo[1]; y <= (unsigned int) ihi[1]; y++)
-                for (unsigned int x = ilo[0]; x <= (unsigned int) ihi[0]; x++)
+        for (Grid::difference_type z = ilo[2]; z <= ihi[2]; z++)
+            for (Grid::difference_type y = ilo[1]; y <= ihi[1]; y++)
+                for (Grid::difference_type x = ilo[0]; x <= ihi[0]; x++)
                 {
-                    float c0[3], c1[3];
-                    int ic0[3], ic1[3];
-                    ic0[0] = x << shift;
-                    ic0[1] = y << shift;
-                    ic0[2] = z << shift;
+                    Grid::difference_type c0[3], c1[3];
+                    c0[0] = x << shift;
+                    c0[1] = y << shift;
+                    c0[2] = z << shift;
                     for (unsigned int i = 0; i < 3; i++)
                     {
-                        ic1[i] = std::min((int) dims[i], ic0[i] + (1 << shift));
+                        c1[i] = std::min((Grid::difference_type) size[i], c0[i] + (1 << shift));
+                        // bias both c0 and c1 back into splat coordinate system
+                        c0[i] += offset[i];
+                        c1[i] += offset[i];
                     }
-                    grid.getVertex(ic0[0], ic0[1], ic0[2], c0);
-                    grid.getVertex(ic1[0], ic1[1], ic1[2], c1);
                     if (splatCellIntersect(splat, c0, c1))
                     {
                         // Check that the sphere hits the cell, not just the bbox

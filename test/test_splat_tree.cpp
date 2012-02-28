@@ -51,30 +51,25 @@ static void addSplat(vector<Splat> &splats, float x, float y, float z, float r)
 void TestSplatTree::testBuild()
 {
     typedef SplatTree::command_type command_type;
-    const float ref[3] = {30.0f, 0.0f, 10.0f};
-    Grid grid(ref, 10.0f, 0, 15, 0, 15, 0, 11);
+    const Grid::size_type size[3] = {16, 16, 12};
+    const Grid::difference_type offset[3] = {3, 0, 1};
     vector<Splat> splats;
 
-    // bbox: 7,7,7 - 8,8,8. level 4, 8 nodes [7,7,7-9,9,9)
-    addSplat(splats, 105.0f, 75.0f, 85.0f, 10.0f);
-    // bbox: 7,8,3 - 10,11,6. level 2, 4 nodes [1,2,0-3,3,2) -> [4,8,0-12,12,8)
-    addSplat(splats, 115.0f, 95.0f, 55.0f, 20.0f);
-    // bbox: 3,6,1 - 11,14,9. level 1, 8 nodes [0,0,0-2,2,2) -> [0,0,0-16,16,16)
-    addSplat(splats, 100.0f, 100.0f, 60.0f, 45.0f);
-    // bbox: 0,0,0 - 0,1,0. level 4, 2 nodes [0,0,0-1,2,1).
-    addSplat(splats, 30.0f, 5.0f, 10.0f, 7.5f);
-    // bbox: 0,0,0 - 0,0,0. level 4, 1 node [0,0,0-1,1,1).
-    addSplat(splats, 30.0f, 0.0f, 10.0f, 5.0f);
+    addSplat(splats, 10.5f, 7.5f, 8.5f, 1.0f);
+    addSplat(splats, 11.5f, 9.5f, 5.5f, 2.0f);
+    addSplat(splats, 10.0f, 10.0f, 6.0f, 4.5f);
+    addSplat(splats, 3.0f, 0.5f, 1.0f, 0.75f);
+    addSplat(splats, 3.0f, 0.0f, 1.0f, 0.5f);
 
     // Various spheres lying entirely outside the octree
-    addSplat(splats, 190.0f, 80.0f, 50.0f, 6.0f);
-    addSplat(splats, 0.0f, 10.0f, 10.0f, 25.0f);
-    addSplat(splats, 50.0f, 10000.0f, 50.0f, 9000.0f);
+    addSplat(splats, 19.0f, 8.0f, 5.0f, 0.6f);
+    addSplat(splats, 0.0f, 1.0f, 1.0f, 2.5f);
+    addSplat(splats, 5.0f, 1000.0f, 5.0f, 900.0f);
 
     std::size_t numLevels;
     std::vector<command_type> commands;
     std::vector<command_type> start;
-    build(numLevels, commands, start, splats, 9, 0, 1001, grid);
+    build(numLevels, commands, start, splats, 9, 0, 1001, size, offset);
 
     CPPUNIT_ASSERT_EQUAL(std::size_t(5), numLevels);
 
@@ -116,15 +111,18 @@ void TestSplatTree::testBuild()
                 }
 
                 // Check against splats we must see
-                float lo[3], hi[3]; // corners of cell in world space
-                grid.getVertex(x, y, z, lo);
-                grid.getVertex(x + 1, y + 1, z + 1, hi);
+                float corner[3] =
+                {
+                    x + offset[0],
+                    y + offset[1],
+                    z + offset[2]
+                };
                 for (unsigned int i = 0; i < splats.size(); i++)
                 {
                     float dist2 = 0.0f; // squared distance from splat center to nearest point in cell
                     for (unsigned int j = 0; j < 3; j++)
                     {
-                        float n = max(min(splats[i].position[j], hi[j]), lo[j]);
+                        float n = max(min(splats[i].position[j], corner[j] + 1.0f), corner[j]);
                         n -= splats[i].position[j];
                         dist2 += n * n;
                     }
@@ -156,22 +154,19 @@ void TestSplatTree::testRandom()
     typedef tr1::variate_generator<engine_type &, dist_type> gen_type;
     engine_type engine;
 
-    // These values are chosen from a real-world failure case
     const int numSplats = 207;
     const int maxSplats = 1000;
     const int subsamplingShift = 2;
     const int maxLevels = 8;
-    const int cells[3] = {31, 31, 16};
+    const Grid::size_type cells[3] = {31, 31, 16};
+    const Grid::difference_type offset[3] = {1, 2, -1};
     gen_type xyzGen[3] =
     {
-        gen_type(engine, dist_type(-1.0f, cells[0] + 1.0f)),
-        gen_type(engine, dist_type(-1.0f, cells[1] + 1.0f)),
-        gen_type(engine, dist_type(-1.0f, cells[2] + 1.0f))
+        gen_type(engine, dist_type(-2.0f, cells[0] + 2.0f)),
+        gen_type(engine, dist_type(-2.0f, cells[1] + 2.0f)),
+        gen_type(engine, dist_type(-2.0f, cells[2] + 2.0f))
     };
     gen_type rGen(engine, dist_type(0.25f, 8.0f));
-
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 1.0f, 0, cells[0], 0, cells[1], 0, cells[2]);
 
     vector<Splat> splats;
     for (int i = 0; i < numSplats; i++)
@@ -182,12 +177,13 @@ void TestSplatTree::testRandom()
     std::size_t numLevels;
     std::vector<command_type> commands;
     std::vector<command_type> start;
-    build(numLevels, commands, start, splats, maxLevels, subsamplingShift, maxSplats, grid);
+    build(numLevels, commands, start, splats, maxLevels, subsamplingShift, maxSplats, cells, offset);
 
     // Try each start value and check that it gives a terminating sequence of valid splat IDs
-    for (int z = 0; z <= cells[2]; z += 1 << subsamplingShift)
-        for (int y = 0; y <= cells[1]; y += 1 << subsamplingShift)
-            for (int x = 0; x <= cells[0]; x += 1 << subsamplingShift)
+    // TODO: reuse the code from testBuild to do a more thorough test
+    for (Grid::size_type z = 0; z <= cells[2]; z += 1 << subsamplingShift)
+        for (Grid::size_type y = 0; y <= cells[1]; y += 1 << subsamplingShift)
+            for (Grid::size_type x = 0; x <= cells[0]; x += 1 << subsamplingShift)
             {
                 unsigned int idx = SplatTree::makeCode(x >> subsamplingShift,
                                                        y >> subsamplingShift,

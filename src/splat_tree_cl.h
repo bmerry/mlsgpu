@@ -117,7 +117,7 @@ private:
                              const cl::Buffer &values,
                              const cl::Buffer &splats,
                              command_type numSplats,
-                             const Grid &grid,
+                             const Grid::difference_type offset[3],
                              std::size_t minShift,
                              std::size_t maxShift,
                              std::vector<cl::Event> *events,
@@ -209,7 +209,8 @@ public:
      * @param queue         The command queue for the building operations.
      * @param splats        The splats to put in the octree.
      * @param numSplats     The size of the @a splats array.
-     * @param grid          The octree sampling grid.
+     * @param size          The number of cells to cover with the octree.
+     * @param offset        The offset of the octree within the overall grid.
      * @param subsamplingShift Number of fine levels to drop.
      * @param blockingCopy  If true, the @a splats array can be reused on return.
      *                      Otherwise, one must wait for @a uploadEvent.
@@ -218,13 +219,14 @@ public:
      * @param[out] event         Event that fires when the octree is ready to use (or @c NULL).
      *
      * @pre
-     * - @a grid has no more than 2^(maxLevels - subSamplingShift - 1) elements in any direction.
+     * - @a size is no more than 2^(maxLevels - subSamplingShift - 1) elements in any direction.
      * - @a numSplats is less than @a maxSplats.
      * - @a splats is not @c NULL.
      */
     void enqueueBuild(const cl::CommandQueue &queue,
                       const Splat *splats, std::size_t numSplats,
-                      const Grid &grid, unsigned int subsamplingShift, bool blockingCopy,
+                      const Grid::size_type size[3], const Grid::difference_type offset[3],
+                      unsigned int subsamplingShift, bool blockingCopy,
                       const std::vector<cl::Event> *events = NULL,
                       cl::Event *uploadEvent = NULL, cl::Event *event = NULL);
 

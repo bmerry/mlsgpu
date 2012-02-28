@@ -12,9 +12,9 @@
 #endif
 #include <vector>
 #include <tr1/cstdint>
+#include "grid.h"
 
 struct Splat;
-class Grid;
 class TestSplatTree;
 
 /**
@@ -45,9 +45,9 @@ class TestSplatTree;
  * It is guaranteed that the target of any jump is a splat ID. This simplifies
  * walking code by removing the need to re-check for special cases after a jump.
  *
- * Leaves are point-sampled at the vertices of a @ref Grid. That is, a splat is only
- * guaranteed to be found in a walk from a leaf cell if it overlaps the @em center
- * of that cell.
+ * The leaves correspond to grid cells. Thus, a splat will be found if it intersects
+ * any part of that cell. The boundary conditions are not formally defined, but
+ * in the current implementation they are half-open in each dimension.
  *
  * Note that splats can be found just by walking up (or down) the tree, without
  * visiting any neighbors.
@@ -86,9 +86,14 @@ protected:
     const std::vector<Splat> &splats;
 
     /**
-     * The sampling grid. Each grid vertex corresponds to a cell center.
+     * Size passed to the constructor.
      */
-    const Grid &grid;
+    Grid::size_type size[3];
+
+    /**
+     * Offset passed to the constructor.
+     */
+    Grid::difference_type offset[3];
 
     /**
      * Build the octree data from the splats and grid.
@@ -117,11 +122,15 @@ protected:
     /**
      * Constructor.
      *
-     * The tree holds references to the splats and the grid. They must not be
-     * deleted or changed until the SplatTree has been destroyed.
+     * The tree holds references to the splats. They must not be deleted or
+     * changed until the SplatTree has been destroyed. The splats must already
+     * have been transformed into the grid coordinate system, although this class
+     * allows for biasing by integer amounts to support building octrees on
+     * subgrids.
      *
      * @param splats        Underlying splats (holds a reference, not a copy).
-     * @param grid          Grid overlaying the splats (holds a reference, not a copy).
+     * @param size          Number of grid cells in each dimension.
+     * @param offset        First grid cell to use in each dimension.
      *
      * This does not initialize the octree. The subclass must first make preparation to
      * implement the allocators, then call @ref initialize.
@@ -134,7 +143,9 @@ protected:
      *
      * @todo Implement checks for the pre-conditions.
      */
-    SplatTree(const std::vector<Splat> &splats, const Grid &grid);
+    SplatTree(const std::vector<Splat> &splats,
+              const Grid::size_type size[3],
+              const Grid::difference_type offset[3]);
 
 public:
     unsigned int getNumLevels() const { return numLevels; }

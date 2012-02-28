@@ -39,7 +39,9 @@ public:
      * Constructor.
      * @see @ref SplatTree::SplatTree.
      */
-    SplatTreeHost(const std::vector<Splat> &splats, const Grid &grid);
+    SplatTreeHost(const std::vector<Splat> &splats,
+                  const Grid::size_type size[3],
+                  const Grid::difference_type offset[3]);
 
     const std::vector<command_type> &getCommands() { return commands; }
     const std::vector<command_type> &getStart() { return start; }

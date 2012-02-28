@@ -29,7 +29,7 @@ protected:
         std::vector<SplatTree::command_type> &start,
         const std::vector<Splat> &splats,
         int maxLevels, int subsamplingShift, std::size_t maxSplats,
-        const Grid &grid);
+        const Grid::size_type size[3], const Grid::difference_type offset[3]);
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatTreeHost, TestSet::perBuild());
 
@@ -39,12 +39,12 @@ void TestSplatTreeHost::build(
     std::vector<SplatTree::command_type> &start,
     const std::vector<Splat> &splats,
     int maxLevels, int subsamplingShift, std::size_t maxSplats,
-    const Grid &grid)
+    const Grid::size_type size[3], const Grid::difference_type offset[3])
 {
     (void) maxLevels;
     (void) subsamplingShift;
     (void) maxSplats;
-    SplatTreeHost tree(splats, grid);
+    SplatTreeHost tree(splats, size, offset);
     numLevels = tree.getNumLevels();
     commands = tree.getCommands();
     start = tree.getStart();

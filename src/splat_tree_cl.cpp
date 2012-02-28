@@ -117,29 +117,21 @@ void SplatTreeCL::enqueueWriteEntries(
     const cl::Buffer &values,
     const cl::Buffer &splats,
     command_type numSplats,
-    const Grid &grid,
+    const Grid::difference_type offset[3],
     std::size_t minShift,
     std::size_t maxShift,
     std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    const float zeros[3] = {0.0f, 0.0f, 0.0f};
-    cl_float scale = grid.getSpacing();
-    cl_float invScale = 1.0f / scale;
-    cl_float3 bias, invBias;
-    grid.getVertex(0, 0, 0, bias.s);
-    grid.worldToVertex(zeros, invBias.s);
+    cl_int3 offset3 = {{ offset[0], offset[1], offset[2] }};
 
     writeEntriesKernel.setArg(0, keys);
     writeEntriesKernel.setArg(1, values);
     writeEntriesKernel.setArg(2, splats);
-    writeEntriesKernel.setArg(3, scale);
-    writeEntriesKernel.setArg(4, bias);
-    writeEntriesKernel.setArg(5, invScale);
-    writeEntriesKernel.setArg(6, invBias);
-    writeEntriesKernel.setArg(7, cl::__local(sizeof(code_type) * (maxShift + 1)));
-    writeEntriesKernel.setArg(8, (cl_uint) minShift);
-    writeEntriesKernel.setArg(9, (cl_uint) maxShift);
+    writeEntriesKernel.setArg(3, offset3);
+    writeEntriesKernel.setArg(4, cl::__local(sizeof(code_type) * (maxShift + 1)));
+    writeEntriesKernel.setArg(5, (cl_uint) minShift);
+    writeEntriesKernel.setArg(6, (cl_uint) maxShift);
 
     queue.enqueueNDRangeKernel(writeEntriesKernel,
                                cl::NullRange,
@@ -237,7 +229,8 @@ void SplatTreeCL::enqueueWriteStart(
 void SplatTreeCL::enqueueBuild(
     const cl::CommandQueue &queue,
     const Splat *splats, std::size_t numSplats,
-    const Grid &grid, unsigned int subsamplingShift, bool blockingCopy,
+    const Grid::size_type size[3], const Grid::difference_type offset[3],
+    unsigned int subsamplingShift, bool blockingCopy,
     const std::vector<cl::Event> *events,
     cl::Event *uploadEvent, cl::Event *event)
 {
@@ -246,9 +239,9 @@ void SplatTreeCL::enqueueBuild(
         throw std::length_error("Too many splats");
     }
     unsigned int levels = 1;
-    while (grid.numVertices(0) > (1U << (levels - 1))
-           || grid.numVertices(1) > (1U << (levels - 1))
-           || grid.numVertices(2) > (1U << (levels - 1)))
+    while (size[0] > (1U << (levels - 1))
+           || size[1] > (1U << (levels - 1))
+           || size[2] > (1U << (levels - 1)))
         levels++;
     unsigned int maxShift = levels - 1;
     unsigned int minShift = std::min(subsamplingShift, maxShift);
@@ -277,7 +270,7 @@ void SplatTreeCL::enqueueBuild(
 
     const std::size_t numEntries = numSplats * 8;
     wait[0] = myUploadEvent;
-    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, grid, minShift, maxShift, &wait, &writeEntriesEvent);
+    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, offset, minShift, maxShift, &wait, &writeEntriesEvent);
     wait[0] = writeEntriesEvent;
     sort.enqueue(queue, entryKeys, entryValues, numEntries, 3 * (maxShift - minShift) + 1, &wait, &sortEvent);
     wait[0] = sortEvent;

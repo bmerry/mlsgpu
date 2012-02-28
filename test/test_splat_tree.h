@@ -35,7 +35,7 @@ protected:
         std::vector<SplatTree::command_type> &start,
         const std::vector<Splat> &splats,
         int maxLevels, int subsampling, std::size_t maxSplats,
-        const Grid &grid) = 0;
+        const Grid::size_type size[3], const Grid::difference_type offset[3]) = 0;
 
 public:
     void testMakeCode();         ///< Test @ref SplatTree::makeCode

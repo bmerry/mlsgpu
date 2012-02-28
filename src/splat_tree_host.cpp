@@ -24,8 +24,10 @@ SplatTree::command_type *SplatTreeHost::allocateStart(std::size_t size)
     return &start[0];
 }
 
-SplatTreeHost::SplatTreeHost(const std::vector<Splat> &splats, const Grid &grid)
-    : SplatTree(splats, grid)
+SplatTreeHost::SplatTreeHost(const std::vector<Splat> &splats,
+                             const Grid::size_type size[3],
+                             const Grid::difference_type offset[3])
+: SplatTree(splats, size, offset)
 {
     initialize();
 }
