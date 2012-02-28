@@ -518,7 +518,7 @@ void DeviceWorker::operator()()
                               size, offset, subsampling, CL_FALSE, NULL, &treeBuildEvent);
             wait[0] = treeBuildEvent;
 
-            input.set(expandedGrid, tree, subsampling);
+            input.set(size, offset, tree, subsampling);
 
             marching.generate(queue, input, output, item->grid, keyOffset, &wait);
         }

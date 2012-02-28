@@ -157,7 +157,7 @@ inline float projectDistOrigin(const float params[5])
     return -solveQuadratic(params[3], dot3(dir, g), params[4]);
 }
 
-float processCorner(command_type start, float3 coord,
+float processCorner(command_type start, int3 coord,
                     __global const Splat * restrict splats,
                     __global const command_type * restrict commands)
 {
@@ -178,9 +178,9 @@ float processCorner(command_type start, float3 coord,
 
         __global const Splat *splat = &splats[cmd];
         float4 positionRadius = splat->positionRadius;
-        float3 p = positionRadius.xyz - coord;
+        float3 p = positionRadius.xyz - convert_float3(coord);
         float pp = dot3(p, p);
-        float d = pp * positionRadius.w;
+        float d = pp * positionRadius.w; // .w is the inverse squared radius
         if (d < 0.99f)
         {
             float w = 1.0f - d;
@@ -206,9 +206,18 @@ float processCorner(command_type start, float3 coord,
 
 
 /**
- * Compute isovalues for all grid corners.
+ * Compute isovalues for all grid corners in a slice. Those with no defined
+ * isovalue are assigned a value of NaN.
  *
- * @todo Investigate making the global ID the linear ID and reversing @ref makeCode.
+ * @param[out] corners     The isovalues from a slice.
+ * @param      splats      Input splats, in global grid coordinates, and with the inverse squared radius in the w component.
+ * @param      commands, start Encoded octree for the region of interest.
+ * @param      startShift  Subsampling shift for octree, times 3.
+ * @param      offset      Difference between global grid coordinates and the local region of interest.
+ * @param      z           Z value of the slice, in local region coordinates.
+ *
+ * @todo Investigate making the global ID the linear ID and reversing @ref makeCode,
+ * for better coherence.
  */
 KERNEL(WGS_X, WGS_Y, 1)
 void processCorners(
@@ -216,11 +225,9 @@ void processCorners(
     __global const Splat * restrict splats,
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
-    float gridScale,
-    float2 gridBias,
     uint startShift,
-    int z,
-    float zWorld)
+    int3 offset,
+    int z)
 {
     int3 gid = (int3) (get_global_id(0), get_global_id(1), z);
     uint code = makeCode(gid) >> startShift;
@@ -229,9 +236,7 @@ void processCorners(
     float f = nan(0U);
     if (myStart >= 0)
     {
-        float3 coord;
-        coord.xy = convert_float2(gid.xy) * gridScale + gridBias;
-        coord.z = zWorld;
+        int3 coord = gid + offset;
         f = processCorner(myStart, coord, splats, commands);
     }
     write_imagef(corners, gid.xy, f);

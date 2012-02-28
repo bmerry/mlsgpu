@@ -28,31 +28,22 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
     kernel = cl::Kernel(program, "processCorners");
 }
 
-void MlsFunctor::set(const Grid &grid, const SplatTreeCL &tree, unsigned int subsamplingShift)
+void MlsFunctor::set(const Grid::size_type size[3], const Grid::difference_type offset[3],
+                     const SplatTreeCL &tree, unsigned int subsamplingShift)
 {
-    MLSGPU_ASSERT(grid.numVertices(0) % wgs[0] == 0, std::invalid_argument);
-    MLSGPU_ASSERT(grid.numVertices(1) % wgs[1] == 0, std::invalid_argument);
+    MLSGPU_ASSERT(size[0] % wgs[0] == 0, std::invalid_argument);
+    MLSGPU_ASSERT(size[1] % wgs[1] == 0, std::invalid_argument);
 
-    cl_float3 gridBias3;
-    grid.getVertex(0, 0, 0, gridBias3.s);
-
-    cl_float gridScale = grid.getSpacing();
-    cl_float2 gridBias;
-    for (unsigned int i = 0; i < 2; i++)
-        gridBias.s[i] = gridBias3.s[i];
-
-    zScale = gridScale;
-    zBias = gridBias3.s[2];
+    cl_int3 offset3 = {{ offset[0], offset[1], offset[2] }};
 
     kernel.setArg(1, tree.getSplats());
     kernel.setArg(2, tree.getCommands());
     kernel.setArg(3, tree.getStart());
-    kernel.setArg(4, gridScale);
-    kernel.setArg(5, gridBias);
-    kernel.setArg(6, 3 * subsamplingShift);
+    kernel.setArg(4, 3 * subsamplingShift);
+    kernel.setArg(5, offset3);
 
-    dims[0] = grid.numVertices(0);
-    dims[1] = grid.numVertices(1);
+    dims[0] = size[0];
+    dims[1] = size[1];
 }
 
 void MlsFunctor::operator()(
@@ -65,10 +56,8 @@ void MlsFunctor::operator()(
     MLSGPU_ASSERT(slice.getImageInfo<CL_IMAGE_WIDTH>() >= dims[0], std::length_error);
     MLSGPU_ASSERT(slice.getImageInfo<CL_IMAGE_HEIGHT>() >= dims[1], std::length_error);
 
-    cl_float zWorld = z * zScale + zBias;
     kernel.setArg(0, slice);
-    kernel.setArg(7, cl_int(z));
-    kernel.setArg(8, zWorld);
+    kernel.setArg(6, cl_int(z));
     queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
                                cl::NDRange(dims[0], dims[1]),

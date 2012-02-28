@@ -68,15 +68,20 @@ public:
 
     /**
      * Specify the parameters. This must be called before using this object as a functor.
+     * The vertices that will be sampled by the functor are from
+     * offset (inclusive) to offset + size (exclusive). Note that this means that the
+     * number of cells that will be processed by marching cubes will be one @em less
+     * than @a size in each dimension.
      *
-     * @param grid      Sampling grid on which the functor will be called (in slices).
-     * @param tree      Octree containing input splats.
+     * @param size, offset     Region of interest used to construct @a tree.
+     * @param tree             Octree containing input splats.
      * @param subsamplingShift Subsampling shift passed when building @a tree.
      *
      * @pre
-     * - @a tree was constructed with the same @a grid and @a subsamplingShift.
+     * - @a tree was constructed with the same @a size, @a offset and @a subsamplingShift.
      */
-    void set(const Grid &grid, const SplatTreeCL &tree, unsigned int subsamplingShift);
+    void set(const Grid::size_type size[3], const Grid::difference_type offset[3],
+             const SplatTreeCL &tree, unsigned int subsamplingShift);
 
     /**
      * Function object callback for use with @ref Marching.
