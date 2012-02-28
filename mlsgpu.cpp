@@ -488,20 +488,25 @@ void DeviceWorker::operator()()
         if (!item)
             break;
 
-        cl_uint3 keyOffset;
+        cl_uint3 keyOffset; 
         for (int i = 0; i < 3; i++)
             keyOffset.s[i] = item->grid.getExtent(i).first - fullGrid.getExtent(i).first;
+        // same thing, just as a different type for a different API
+        Grid::difference_type offset[3] = { keyOffset.s[0], keyOffset.s[1], keyOffset.s[2] };
 
-        /* We need to round up the tree size to a multiple of the granularity used for MLS. */
-        Grid expandedGrid = item->grid;
-        for (int i = 0; i < 2; i++)
+        Grid::size_type size[3];
+        for (int i = 0; i < 3; i++)
         {
-            pair<int, int> e = item->grid.getExtent(i);
-            int v = e.second - e.first + 1;
-            int w = MlsFunctor::wgs[i];
-            v = roundUp(v, w);
-            expandedGrid.setExtent(i, e.first, e.first + v - 1);
+            /* Note: numVertices not numCells, because Marching does per-vertex queries.
+             * So we need information about the cell that is just beyond the last vertex,
+             * just to avoid special-casing it.
+             */
+            size[i] = item->grid.numVertices(i);
         }
+
+        /* We need to round up the octree size to a multiple of the granularity used for MLS. */
+        for (int i = 0; i < 2; i++)
+            size[i] = roundUp(size[i], MlsFunctor::wgs[i]);
 
         // TODO: use mapping to transfer the data directly into a buffer
 
@@ -510,7 +515,7 @@ void DeviceWorker::operator()()
             cl::Event treeBuildEvent;
             vector<cl::Event> wait(1);
             tree.enqueueBuild(queue, &item->splats[0], item->splats.size(),
-                              expandedGrid, subsampling, CL_FALSE, NULL, &treeBuildEvent);
+                              size, offset, subsampling, CL_FALSE, NULL, &treeBuildEvent);
             wait[0] = treeBuildEvent;
 
             input.set(expandedGrid, tree, subsampling);
@@ -676,8 +681,10 @@ public:
         const Bucket::Recursion &recursionState) const;
 
     HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue);
+    void setGrid(const Grid &grid) { fullGrid = grid; }
 private:
     WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue;
+    Grid fullGrid;
 };
 
 template<typename Collection>
@@ -698,6 +705,7 @@ void HostBlock<Set>::operator()(
     boost::shared_ptr<HostWorkItem> item = boost::make_shared<HostWorkItem>();
     item->grid = grid;
     item->recursionState = recursionState;
+    float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
         Statistics::Timer timer("host.block.load");
@@ -716,6 +724,12 @@ void HostBlock<Set>::operator()(
             // FastPly::Reader. Using outSplats.begin() + pos would hit the
             // slow path.
             splatSet.getSplats()[scan].read(i->start, i->start + i->size, &item->splats[pos]);
+            /* Transform the splats into the grid's coordinate system */
+            for (size_t j = pos; j < pos + i->size; j++)
+            {
+                fullGrid.worldToVertex(item->splats[j].position, item->splats[j].position);
+                item->splats[j].radius *= invSpacing;
+            }
             pos += i->size;
 
             if (i->size > 0)
@@ -797,6 +811,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceWorkers.back().setGrid(grid);
     }
     HostBlock<Set> hostBlock(workQueueCoarse);
+    hostBlock.setGrid(grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());

@@ -120,7 +120,8 @@ public:
     std::tr1::uint64_t numCells() const;
 
     /**
-     * Inverse of @ref getVertex.
+     * Inverse of @ref getVertex. It is legal for @a world and @a out to be the
+     * same.
      */
     void worldToVertex(const float world[3], float out[3]) const;
 
