@@ -249,6 +249,7 @@ public:
      * @param name      Name of the property.
      * @param first     Start of the list of values.
      * @param last      End of the list of values.
+     * The @c Iterator type is guaranteed to be at least a forward iterator.
      */
     template<typename Iterator>
     void setProperty(const std::string &name, Iterator first, Iterator last);
@@ -260,7 +261,14 @@ public:
 };
 #endif // DOXYGEN_FAKE_CODE
 
+/**
+ * An implementation of the Builder concept that accepts any data and
+ * discards it.
+ */
 class EmptyBuilder
+#if DOXYGEN_FAKE_CODE
+: public Builder
+#endif
 {
 public:
     struct Element {};

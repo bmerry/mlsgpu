@@ -43,17 +43,20 @@ public:
 };
 
 /**
- * Determine whether a triangle mesh is manifold (possibly with boundary).
+ * Determine whether a triangle mesh is an oriented manifold with boundary.
  *
  * A mesh is considered non-manifold if it has out-of-range indices or
- * isolated vertices (not part of any triangle).
- *
- * @pre @ref finalize() has already been called.
+ * isolated vertices (not part of any triangle). Otherwise, the edges
+ * opposite each vertex must form either a ring or a disjoint collection of
+ * linear runs. Note that this is more general than the topological
+ * definition of a manifold, since it allows a single vertex to sit on multiple
+ * boundary loops. This situation does occur when removing arbitrary triangles
+ * from a manifold.
  */
-template<typename ForwardIterator>
-std::string isManifold(std::size_t numVertices, ForwardIterator first, ForwardIterator last, Metadata *data = NULL)
+template<typename InputIterator>
+std::string isManifold(std::size_t numVertices, InputIterator first, InputIterator last, Metadata *data = NULL)
 {
-    typedef typename std::iterator_traits<ForwardIterator>::value_type triangle_type;
+    typedef typename std::iterator_traits<InputIterator>::value_type triangle_type;
     typedef typename triangle_type::value_type index_type;
     std::ostringstream reason;
 
@@ -64,7 +67,7 @@ std::string isManifold(std::size_t numVertices, ForwardIterator first, ForwardIt
 
     // List of edges opposite each vertex
     std::vector<std::vector<std::pair<index_type, index_type> > > edges(numVertices);
-    for (ForwardIterator i = first; i != last; i++)
+    for (InputIterator i = first; i != last; ++i)
     {
         const triangle_type &triangle = *i;
         index_type indices[3] = {triangle[0], triangle[1], triangle[2]};
@@ -121,27 +124,41 @@ std::string isManifold(std::size_t numVertices, ForwardIterator first, ForwardIt
          * each vertex, so we have a collection of lines and rings.
          */
 
-        // Look for a starting point for a line
-        index_type start = neigh[0].first;
+        // Find lines
+        std::size_t len = 0;
         for (std::size_t j = 0; j < neigh.size(); j++)
         {
             if (!seen.count(neigh[j].first))
             {
-                start = neigh[j].first;
-                break;
+                index_type cur = neigh[j].first;
+                while (arrow.count(cur))
+                {
+                    cur = arrow[cur];
+                    len++;
+                }
             }
         }
-        std::size_t len = 0;
-        index_type cur = start;
-        do
+        if (len != 0 && len != neigh.size())
         {
-            cur = arrow[cur];
-            len++;
-        } while (arrow.count(cur) && cur != start);
-        if (len != neigh.size())
-        {
-            reason << "Vertex " << i << " contains multiple boundaries\n";
+            // There were lines but they didn't cover everything.
+            reason << "Vertex " << i << " is both in the interior and on the boundary\n";
             return reason.str();
+        }
+        else if (len == 0)
+        {
+            // There are only rings. Check that there is exactly one.
+            index_type start = neigh[0].first;
+            index_type cur = start;
+            do
+            {
+                cur = arrow[cur];
+                len++;
+            } while (cur != start);
+            if (len != neigh.size())
+            {
+                reason << "Vertex " << i << " tunnels between interior regions\n";
+                return reason.str();
+            }
         }
     }
 

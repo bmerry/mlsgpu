@@ -171,6 +171,9 @@ def build(bld):
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
             lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'boost_thread-mt', 'rt'])
+    bld.program(
+            source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
+            target = 'plymanifold')
     if bld.env['unit_tests']:
         test_features = 'cxx cxxprogram'
         if not bld.options.notests:
