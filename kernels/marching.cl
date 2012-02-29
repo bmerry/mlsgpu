@@ -142,17 +142,19 @@ __kernel void countElements(
  * @param offset1    Local coordinate offset from @a cell to corner @a iso1.
  * @param scale,bias Transformation from local to world coordinates.
  */
-inline float3 interp(float iso0, float iso1, float3 cell, float3 offset0, float3 offset1, float3 scale, float3 bias)
+inline float3 interp(float iso0, float iso1, uint3 cell, uint3 offset0, uint3 offset1, float3 scale, float3 bias)
 {
     // This needs to operate in an invariant manner, so take manual control over FMAs
 #pragma OPENCL FP_CONTRACT OFF
-    float inv = 1.0f / (iso1 - iso0);
-    float3 lcoord = fma(iso1 * offset0 - iso0 * offset1, inv, cell);
+    float inv = 1.0f / (iso0 - iso1);
+    uint3 base = cell + offset0;
+    uint3 delta = offset1 - offset0;
+    float3 lcoord = fma(iso0 * inv, convert_float3(delta), convert_float3(cell + offset0));
     return fma(lcoord, scale, bias);
 }
 
 #define INTERP(a, b) \
-    interp(iso[a], iso[b], cellf, (float3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (float3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
+    interp(iso[a], iso[b], globalCell, (uint3) (a & 1, (a >> 1) & 1, (a >> 2) & 1), (uint3) (b & 1, (b >> 1) & 1, (b >> 2) & 1), scale, bias)
 
 /**
  * Computes a key for coordinates. See @ref generateElements for the definition.
@@ -176,6 +178,14 @@ ulong computeKey(uint3 coords, uint3 top)
  * maximum z will naturally sort to the end, so they do not get explicitly
  * marked as external (which cannot necessarily be done when there is a split).
  *
+ * The @a gridOffset, @a scale and @a bias parameters control how cell coordinates
+ * are mapped to world space to produce output vertices. For a cell with local
+ * coordinates xyz, the corresponding position in world space is
+ * fma(xyz + gridOffset, scale, bias). While this has a redundant term (gridOffset
+ * could be folded into bias), the fact that the first term is computed in integers
+ * allows the computation to be made invariant between neighboring blocks of
+ * different sizes.
+ *
  * @param[out] vertices        Vertices in world coordinates (unwelded).
  * @param[out] vertexKeys      Vertex keys corresponding to @a vertices.
  * @param[out] indices         Indices into @a vertices.
@@ -187,7 +197,8 @@ ulong computeKey(uint3 coords, uint3 top)
  * @param      dataTable       Lookup table of vertex and index indices.
  * @param      keyTable        Lookup table for cell-relative vertex keys.
  * @param      z               Z coordinate of the current slice.
- * @param      scale,bias      Transformation from local to world coordinates.
+ * @param      scale,bias      Transformation from grid-global to world coordinates.
+ * @param      gridOffset      Transformation from grid-local to grid-global coordinates.
  * @param      offsets         Offset to add to all elements of @a viStart.
  * @param      top             See above.
  * @param      lvertices       Scratch space of @ref NUM_EDGES elements per work item.
@@ -206,6 +217,7 @@ __kernel void generateElements(
     uint z,
     float scale,
     float3 bias,
+    uint3 gridOffset,
     uint2 offsets,
     uint3 top,
     __local float3 *lvertices)
@@ -215,7 +227,7 @@ __kernel void generateElements(
     uint3 cell;
     cell.xy = cells[gid];
     cell.z = z;
-    const float3 cellf = convert_float3(cell);
+    const uint3 globalCell = cell + gridOffset;
     __local float3 *lverts = lvertices + NUM_EDGES * lid;
 
     float iso[8];

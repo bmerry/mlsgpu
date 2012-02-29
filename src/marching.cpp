@@ -534,7 +534,10 @@ void Marching::generate(
 
     cl_float gridScale = grid.getSpacing();
     cl_float3 gridBias;
-    grid.getVertex(0, 0, 0, gridBias.s);
+    grid.getVertex(-Grid::difference_type(keyOffset.s[0]),
+                   -Grid::difference_type(keyOffset.s[1]),
+                   -Grid::difference_type(keyOffset.s[2]),
+                   gridBias.s);
 
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
@@ -582,9 +585,10 @@ void Marching::generate(
             generateElementsKernel.setArg(10, cl_uint(z - 1));
             generateElementsKernel.setArg(11, gridScale);
             generateElementsKernel.setArg(12, gridBias);
-            generateElementsKernel.setArg(13, offsets);
-            generateElementsKernel.setArg(14, top);
-            generateElementsKernel.setArg(15, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(13, keyOffset);
+            generateElementsKernel.setArg(14, offsets);
+            generateElementsKernel.setArg(15, top);
+            generateElementsKernel.setArg(16, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),

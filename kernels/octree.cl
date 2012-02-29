@@ -16,27 +16,22 @@ typedef struct
 } Splat;
 
 /**
- * Determine the number of bits to shift off ilo and ihi so that they
- * differ by at most 1 in any dimension.
+ * Determine the octree level to use for a box of a given size.  When entered
+ * into the resulting level, the box is guaranteed to intersect no more than a
+ * 2x2x2 region of nodes.
  *
- * ihi = aaa1000???? and
- * ilo = aaa0111????.
- * where the number of ?'s is minimum (ihi is 1 or ilo is 0 at the first
- * one). Then shifting off the ?'s is the minimum shift such that the
- * difference becomes 1. The minimum difference is
- *       aaa10001000
- *     - aaa01111111
- *     = 00000001001
- * and the maximum is 11111. Thus, the shift count is either the number of
- * bits in ihi-ilo, or one less.
+ * The result will not always be the finest level at which this is guaranteed.
+ * However, the result is guaranteed to only depend on ihi - ilo, and hence is
+ * invariant across different alignments of the octree.
+ *
+ * @param ilo    Coordinates of minimum leaf (unclamped).
+ * @param ihi    Coordinates of maximum leaf (unclamped).
  */
 int levelShift(int3 ilo, int3 ihi)
 {
-    int3 diff = max(ihi - ilo, 1);
-    int3 first = 31 - clz(diff); // one less than the number of bits in diff
-    // Vector comparisons return -1 for true, hence -= instead of +=
-    first -= ((ihi >> first) - (ilo >> first) > 1);
-    return max(first.x, max(first.y, first.z));
+    int3 diff = ihi - ilo;
+    int big = max(max(max(diff.x, diff.y), diff.z), 1);
+    return 31 - clz(big);
 }
 
 /**
@@ -52,9 +47,9 @@ float pointBoxDist2(float3 pos, float3 lo, float3 hi)
 
 /**
  * Transforms a splat to cell coordinates and computes the
- * coordinates for the first cell it is to be placed in.
+ * coordinates for the first node it is to be placed in.
  *
- * @param[out]  ilo             Coordinates for the first cell, relative to the octree.
+ * @param[out]  ilo             Coordinates for the first node, relative to the octree.
  * @param[out]  shift           Bits shifted off to produce @a ilo.
  * @param       minShift        Minimum allowed shift.
  * @param       maxShift        Maximum allowed shift (one less than number of levels).
@@ -67,10 +62,10 @@ inline void prepare(
 {
     float3 vlo = positionRadius.xyz - positionRadius.w;
     float3 vhi = positionRadius.xyz + positionRadius.w;
-    *ilo = max(convert_int3_rtn(vlo) - bias, 0);
-    int3 ihi = convert_int3_rtn(vhi) - bias;
-    *shift = clamp(levelShift(*ilo, ihi), minShift, maxShift);
-    *ilo >>= *shift;
+    int3 lo = convert_int3_rtn(vlo);
+    int3 hi = convert_int3_rtn(vhi);
+    *shift = clamp(levelShift(lo, hi), minShift, maxShift);
+    *ilo = max(lo - bias, 0) >> *shift;
 }
 
 /**
