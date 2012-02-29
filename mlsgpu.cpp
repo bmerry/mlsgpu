@@ -433,7 +433,6 @@ private:
     MlsFunctor input;
     Marching marching;
     Marching::OutputFunctor output;
-    Grid fullGrid;
 
     std::size_t maxSplats;
     Grid::size_type maxCells;
@@ -455,7 +454,6 @@ public:
     void operator()();
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
-    void setGrid(const Grid &grid) { this->fullGrid = grid; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
 };
 
@@ -490,7 +488,7 @@ void DeviceWorker::operator()()
 
         cl_uint3 keyOffset; 
         for (int i = 0; i < 3; i++)
-            keyOffset.s[i] = item->grid.getExtent(i).first - fullGrid.getExtent(i).first;
+            keyOffset.s[i] = item->grid.getExtent(i).first;
         // same thing, just as a different type for a different API
         Grid::difference_type offset[3] = { keyOffset.s[0], keyOffset.s[1], keyOffset.s[2] };
 
@@ -559,6 +557,7 @@ public:
                 std::size_t maxSplats,
                 Grid::size_type maxCells,
                 std::size_t maxSplit);
+    void setGrid(const Grid &grid) { fullGrid = grid; }
 private:
     WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn;
     WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut;
@@ -567,6 +566,7 @@ private:
     Grid::size_type maxCells;
     std::size_t maxSplit;
     ProgressDisplay *progress;
+    Grid fullGrid;
 };
 
 DeviceBlock::DeviceBlock(
@@ -657,7 +657,20 @@ void DeviceBlock::operator()()
         boost::ptr_vector<StdVectorCollection<Splat> > deviceSplats;
         SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(deviceSplats);
         deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
-        Bucket::bucket(splatSet, item->grid, maxSplats, maxCells, false, maxSplit,
+
+        /* The host transformed splats from world space into fullGrid space, so we need to
+         * construct a new grid for this coordinate system.
+         */
+        const float ref[3] = {0.0f, 0.0f, 0.0f};
+        Grid grid(ref, 1.0f, 0, 1, 0, 1, 0, 1);
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            Grid::difference_type base = fullGrid.getExtent(i).first;
+            Grid::difference_type low = item->grid.getExtent(i).first - base;
+            Grid::difference_type high = item->grid.getExtent(i).second - base;
+            grid.setExtent(i, low, high);
+        }
+        Bucket::bucket(splatSet, grid, maxSplats, maxCells, false, maxSplit,
                        boost::ref(*this), progress, item->recursionState);
     }
 }
@@ -801,6 +814,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceBlocks.push_back(new DeviceBlock(
                 workQueueCoarse, workQueueFine,
                 maxDeviceSplats, blockCells, maxSplit));
+        deviceBlocks.back().setGrid(grid);
     }
     for (unsigned int i = 0; i < numDeviceThreads; i++)
     {
@@ -808,7 +822,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
                 workQueueFine, context, device,
                 maxDeviceSplats, blockCells,
                 levels, subsampling));
-        deviceWorkers.back().setGrid(grid);
     }
     HostBlock<Set> hostBlock(workQueueCoarse);
     hostBlock.setGrid(grid);
