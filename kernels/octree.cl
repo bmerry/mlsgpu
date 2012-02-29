@@ -159,8 +159,7 @@ __kernel void writeEntries(
     barrier(CLK_LOCAL_MEM_FENCE);
 
     uint gid = get_global_id(0);
-    uint stride = get_global_size(0);
-    uint pos = gid;
+    uint pos = gid * 8;
 
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;
@@ -187,7 +186,7 @@ __kernel void writeEntries(
 
                 values[pos] = gid;
                 keys[pos] = key;
-                pos += stride;
+                pos++;
             }
 }
 
