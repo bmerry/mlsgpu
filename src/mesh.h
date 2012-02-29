@@ -72,14 +72,6 @@ public:
 class MeshBase
 {
 protected:
-#if UNIT_TESTS
-    /**
-     * Internal implementation of manifold testing.
-     * @param numVertices The number of vertices.
-     * @param triangles   Indices indexing the range [0, @a numVertices).
-     */
-    static bool isManifold(std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles);
-#endif
 
     /**
      * Mutex used by subclasses to serialize their output functors.
@@ -130,22 +122,6 @@ public:
      */
     virtual void finalize(std::ostream *progressStream = NULL) { (void) progressStream; }
 
-#if UNIT_TESTS
-    /**
-     * Determine whether the mesh is manifold (possibly with boundary).
-     *
-     * This is intended for test code, and so is not necessarily efficient.
-     * It also need not be implemented by all classes. If unimplemented, it
-     * must return false (the default implementation provides this).
-     *
-     * A mesh is considered non-manifold if it has out-of-range indices or
-     * isolated vertices (not part of any triangle).
-     *
-     * @pre @ref finalize() has already been called.
-     */
-    virtual bool isManifold() const { return false; }
-#endif
-
     /**
      * Writes the data to file. The writer passed in must not yet have been opened
      * (this function will do that). The caller may optionally have set comments on it.
@@ -193,10 +169,6 @@ public:
     virtual unsigned int numPasses() const { return 1; }
     virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
 
-#if UNIT_TESTS
-    virtual bool isManifold() const;
-#endif
-
     virtual void write(FastPly::WriterBase &writer, const std::string &filename,
                        std::ostream *progressStream = NULL) const;
 };
@@ -238,10 +210,6 @@ public:
     virtual unsigned int numPasses() const { return 1; }
     virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
     virtual void finalize(std::ostream *progressStream = NULL);
-
-#if UNIT_TESTS
-    virtual bool isManifold() const;
-#endif
 
     virtual void write(FastPly::WriterBase &writer, const std::string &filename,
                        std::ostream *progressStream = NULL) const;

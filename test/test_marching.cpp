@@ -25,6 +25,8 @@
 #include <CL/cl.hpp>
 #include "testmain.h"
 #include "test_clh.h"
+#include "memory_writer.h"
+#include "manifold.h"
 #include "../src/clh.h"
 #include "../src/marching.h"
 #include "../src/mesh.h"
@@ -418,8 +420,13 @@ void TestMarching::testGenerate(
 
     mesh.finalize();
     FastPly::StreamWriter writer;
-    CPPUNIT_ASSERT(mesh.isManifold());
     mesh.write(writer, filename);
+
+    MemoryWriter mwriter;
+    mesh.write(mwriter, filename);
+    const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = mwriter.getTriangles();
+    std::string reason = Manifold::isManifold(mwriter.getVertices().size(), triangles.begin(), triangles.end());
+    CPPUNIT_ASSERT_EQUAL(string(""), reason);
 }
 
 void TestMarching::testSphere()

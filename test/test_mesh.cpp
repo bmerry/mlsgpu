@@ -31,93 +31,10 @@
 #include "testmain.h"
 #include "../src/fast_ply.h"
 #include "../src/mesh.h"
-#include "../src/errors.h"
 #include "test_clh.h"
+#include "memory_writer.h"
 
 using namespace std;
-
-/**
- * An implementation of the @ref FastPly::WriterBase
- * interface that does not actually write to file, but merely saves
- * a copy of the data in memory. It is aimed specifically at testing.
- */
-class MemoryWriter : public FastPly::WriterBase
-{
-public:
-    /// Constructor
-    MemoryWriter();
-
-    virtual void open(const std::string &filename);
-    virtual std::pair<char *, size_type> open();
-    virtual void close();
-    virtual void writeVertices(size_type first, size_type count, const float *data);
-    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
-    virtual bool supportsOutOfOrder() const;
-
-    const vector<boost::array<float, 3> > &getVertices() const { return vertices; }
-    const vector<boost::array<std::tr1::uint32_t, 3> > &getTriangles() const { return triangles; }
-
-private:
-    vector<boost::array<float, 3> > vertices;
-    vector<boost::array<std::tr1::uint32_t, 3> > triangles;
-};
-
-MemoryWriter::MemoryWriter()
-{
-}
-
-void MemoryWriter::open(const std::string &filename)
-{
-    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
-
-    // Ignore the filename
-    (void) filename;
-
-    // NaN is tempting, but violates the Strict Weak Ordering requirements
-    const boost::array<float, 3> badVertex = {{ -1000.0f, -1000.0f, -1000.0f }};
-    const boost::array<std::tr1::uint32_t, 3> badTriangle = {{ UINT32_MAX, UINT32_MAX, UINT32_MAX }};
-    vertices.resize(getNumVertices(), badVertex);
-    triangles.resize(getNumTriangles(), badTriangle);
-    setOpen(true);
-}
-
-std::pair<char *, MemoryWriter::size_type> MemoryWriter::open()
-{
-    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
-
-    vertices.resize(getNumVertices());
-    triangles.resize(getNumTriangles());
-    setOpen(true);
-
-    return make_pair((char *) NULL, size_type(0));
-}
-
-void MemoryWriter::close()
-{
-    setOpen(false);
-}
-
-void MemoryWriter::writeVertices(size_type first, size_type count, const float *data)
-{
-    MLSGPU_ASSERT(isOpen(), std::runtime_error);
-    MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-
-    std::memcpy(&vertices[first][0], data, count * 3 * sizeof(float));
-}
-
-void MemoryWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
-{
-    MLSGPU_ASSERT(isOpen(), std::runtime_error);
-    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-
-    std::memcpy(&triangles[first][0], data, count * 3 * sizeof(std::tr1::uint32_t));
-}
-
-bool MemoryWriter::supportsOutOfOrder() const
-{
-    return true;
-}
-
 
 /**
  * Tests that are shared across all the @ref MeshBase subclasses, including those
