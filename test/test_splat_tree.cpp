@@ -71,7 +71,7 @@ void TestSplatTree::testBuild()
     std::vector<command_type> start;
     build(numLevels, commands, start, splats, 9, 0, 1001, size, offset);
 
-    CPPUNIT_ASSERT_EQUAL(std::size_t(5), numLevels);
+    CPPUNIT_ASSERT(std::size_t(5) <= numLevels);
 
     /* Do a walk from each octree cell to check that the right elements are visited */
     CPPUNIT_ASSERT(size_t(16 * 16 * 16) <= start.size());

@@ -239,16 +239,14 @@ void SplatTreeCL::enqueueBuild(
         throw std::length_error("Too many splats");
     }
     unsigned int levels = 1;
-    while (size[0] > (1U << (levels - 1))
-           || size[1] > (1U << (levels - 1))
-           || size[2] > (1U << (levels - 1)))
-        levels++;
-    unsigned int maxShift = levels - 1;
-    unsigned int minShift = std::min(subsamplingShift, maxShift);
-    if (maxShift - minShift >= maxLevels)
-    {
+    Grid::size_type maxSize = Grid::size_type(1U) << (maxLevels + subsamplingShift - 1);
+    if (size[0] > maxSize || size[1] > maxSize || size[2] > maxSize)
         throw std::length_error("Grid is too large");
-    }
+    unsigned int maxShift = maxLevels + subsamplingShift - 1;
+    unsigned int minShift = std::min(subsamplingShift, maxShift);
+    // TODO: this will always construct a full-size octree, even if size[] only
+    // specifies a much smaller space. At a minimum, it should be possible to make
+    // levelOffsets more compact.
 
     this->numSplats = numSplats;
     std::size_t pos = 0;
