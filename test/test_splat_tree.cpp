@@ -13,6 +13,7 @@
 #include <vector>
 #include <set>
 #include <numeric>
+#include <algorithm>
 #include <tr1/random>
 #include "testmain.h"
 #include "../src/splat.h"
@@ -77,32 +78,23 @@ void TestSplatTree::testBuild()
 
     CPPUNIT_ASSERT_EQUAL(std::size_t(5), numLevels);
 
-    /* Check that no splat appears more than 8 times in the command list */
-    map<unsigned int, int> repeats;
-    for (unsigned int i = 0; i < commands.size(); i++)
-    {
-        command_type cmd = commands[i];
-        if (cmd >= 0)
-        {
-            repeats[cmd]++;
-            CPPUNIT_ASSERT(repeats[cmd] <= 8);
-        }
-    }
-
     /* Do a walk from each octree cell to check that the right elements are visited */
     CPPUNIT_ASSERT(size_t(16 * 16 * 16) <= start.size());
+    command_type maxPos = -1; // highest-numbered command used
     for (unsigned int z = 0; z < 12; z++)
         for (unsigned int y = 0; y < 16; y++)
             for (unsigned int x = 0; x < 16; x++)
             {
                 unsigned int idx = SplatTree::makeCode(x, y, z);
                 command_type pos = start[idx];
+                maxPos = max(maxPos, pos);
                 set<unsigned int> foundSplats;
                 if (pos != -1)
                 {
                     int ttl = 1000;
                     while (ttl > 0)  // prevents a loop from making the test run forever
                     {
+                        maxPos = max(maxPos, pos);
                         ttl--;
                         CPPUNIT_ASSERT(pos >= 0 && pos < (command_type) commands.size());
                         command_type cmd = commands[pos];
@@ -111,6 +103,7 @@ void TestSplatTree::testBuild()
                         else if (cmd < 0)
                         {
                             pos = -2 - cmd;
+                            maxPos = max(maxPos, pos);
                             CPPUNIT_ASSERT(pos >= 0 && pos < (command_type) commands.size());
                             cmd = commands[pos];
                         }
@@ -141,6 +134,18 @@ void TestSplatTree::testBuild()
                     }
                 }
             }
+
+    /* Check that no splat appears more than 8 times in the command list */
+    map<unsigned int, int> repeats;
+    for (command_type i = 0; i <= maxPos; i++)
+    {
+        command_type cmd = commands[i];
+        if (cmd >= 0)
+        {
+            repeats[cmd]++;
+            CPPUNIT_ASSERT(repeats[cmd] <= 8);
+        }
+    }
 }
 
 void TestSplatTree::testRandom()
