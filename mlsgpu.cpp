@@ -428,12 +428,13 @@ class DeviceWorker : public boost::noncopyable
 private:
     WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueue;
 
+    const Grid &fullGrid;
+
     const cl::CommandQueue queue;
     SplatTreeCL tree;
     MlsFunctor input;
     Marching marching;
     Marching::OutputFunctor output;
-    Grid fullGrid;
 
     std::size_t maxSplats;
     Grid::size_type maxCells;
@@ -447,6 +448,7 @@ public:
 
     DeviceWorker(
         WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueue,
+        const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling);
@@ -456,16 +458,17 @@ public:
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
-    void setGrid(const Grid &grid) { fullGrid = grid; }
 };
 
 DeviceWorker::DeviceWorker(
     WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueue,
+    const Grid &fullGrid,
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, int subsampling)
 :
     workQueue(workQueue),
+    fullGrid(fullGrid),
     queue(context, device),
     tree(context, levels, maxSplats),
     input(context),
@@ -562,30 +565,32 @@ public:
 
     DeviceBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn,
                 WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut,
+                const Grid &fullGrid,
                 std::size_t maxSplats,
                 Grid::size_type maxCells,
                 std::size_t maxSplit);
-    void setGrid(const Grid &grid) { fullGrid = grid; }
 private:
     WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn;
     WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut;
 
+    const Grid &fullGrid;
     std::size_t maxSplats;
     Grid::size_type maxCells;
     std::size_t maxSplit;
     ProgressDisplay *progress;
-    Grid fullGrid;
 };
 
 DeviceBlock::DeviceBlock(
     WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn,
     WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut,
+    const Grid &fullGrid,
     std::size_t maxSplats,
     Grid::size_type maxCells,
     std::size_t maxSplit)
 :
     workQueueIn(workQueueIn),
     workQueueOut(workQueueOut),
+    fullGrid(fullGrid),
     maxSplats(maxSplats),
     maxCells(maxCells),
     maxSplit(maxSplit),
@@ -701,16 +706,17 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState) const;
 
-    HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue);
-    void setGrid(const Grid &grid) { fullGrid = grid; }
+    HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue,
+              const Grid &fullGrid);
 private:
     WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue;
-    Grid fullGrid;
+    const Grid &fullGrid;
 };
 
 template<typename Collection>
-HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue)
-: workQueue(workQueue)
+HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue,
+                                 const Grid &fullGrid)
+: workQueue(workQueue), fullGrid(fullGrid)
 {
 }
 
@@ -820,20 +826,18 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     for (unsigned int i = 0; i < numBucketThreads; i++)
     {
         deviceBlocks.push_back(new DeviceBlock(
-                workQueueCoarse, workQueueFine,
+                workQueueCoarse, workQueueFine, grid,
                 maxDeviceSplats, blockCells, maxSplit));
-        deviceBlocks.back().setGrid(grid);
     }
     for (unsigned int i = 0; i < numDeviceThreads; i++)
     {
         deviceWorkers.push_back(new DeviceWorker(
-                workQueueFine, context, device,
+                workQueueFine, grid,
+                context, device,
                 maxDeviceSplats, blockCells,
                 levels, subsampling));
-        deviceWorkers.back().setGrid(grid);
     }
-    HostBlock<Set> hostBlock(workQueueCoarse);
-    hostBlock.setGrid(grid);
+    HostBlock<Set> hostBlock(workQueueCoarse, grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
