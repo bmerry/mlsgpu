@@ -263,6 +263,15 @@ void WeldMesh::finalize(std::ostream *progressStream)
         }
         else
         {
+            // Verify that vertex generation is invariant
+            if (externalVertices[i] != externalVertices[pos->second])
+            {
+                boost::array<cl_float, 3> v1 = externalVertices[i];
+                boost::array<cl_float, 3> v2 = externalVertices[pos->second];
+                Log::log[Log::warn] << "Vertex mismatch at vertex " << i << ":\n"
+                    << "(" << v1[0] << ", " << v1[1] << ", " << v1[2] << ") vs ("
+                    << v2[0] << ", " << v2[1] << ", " << v2[2] << ")\n";
+            }
             remap[i] = pos->second + internalVertices.size();
         }
         if (progress)
