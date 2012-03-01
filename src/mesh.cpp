@@ -246,7 +246,7 @@ void WeldMesh::finalize(std::ostream *progressStream)
     if (progressStream != NULL)
     {
         *progressStream << "\nWelding vertices\n";
-        progress.reset(new ProgressDisplay(externalVertices.size()));
+        progress.reset(new ProgressDisplay(externalVertices.size(), *progressStream));
     }
     for (size_t i = 0; i < externalVertices.size(); i++)
     {
