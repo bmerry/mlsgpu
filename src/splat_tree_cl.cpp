@@ -238,7 +238,6 @@ void SplatTreeCL::enqueueBuild(
     {
         throw std::length_error("Too many splats");
     }
-    unsigned int levels = 1;
     Grid::size_type maxSize = Grid::size_type(1U) << (maxLevels + subsamplingShift - 1);
     if (size[0] > maxSize || size[1] > maxSize || size[2] > maxSize)
         throw std::length_error("Grid is too large");
