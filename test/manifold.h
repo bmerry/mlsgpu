@@ -18,6 +18,7 @@
 #include <string>
 #include <algorithm>
 #include <sstream>
+#include <cassert>
 
 // Utilities for validating that a mesh is manifold and extracting metadata.
 namespace Manifold
