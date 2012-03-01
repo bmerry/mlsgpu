@@ -406,8 +406,9 @@ void TestMarching::testGenerate(
     const Marching::InputFunctor &input,
     const std::string &filename)
 {
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 1.0f, 0, width - 1, 0, height - 1, 0, depth - 1);
+    Grid::size_type size[3] = { width, height, depth };
+    cl_float scale = 1.0f;
+    cl_float3 bias = {{ 0.0f, 0.0f, 0.0f }};
 
     // Replace the command queue with an out-of-order one, to ensure that the
     // events are being handled correctly.
@@ -416,7 +417,7 @@ void TestMarching::testGenerate(
     Marching marching(context, device, maxWidth, maxHeight);
     WeldMesh mesh;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, mesh.outputFunctor(0), grid, keyOffset, NULL);
+    marching.generate(queue, input, mesh.outputFunctor(0), size, keyOffset, scale, bias, NULL);
 
     mesh.finalize();
     FastPly::StreamWriter writer;

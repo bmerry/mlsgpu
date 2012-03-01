@@ -433,6 +433,7 @@ private:
     MlsFunctor input;
     Marching marching;
     Marching::OutputFunctor output;
+    Grid fullGrid;
 
     std::size_t maxSplats;
     Grid::size_type maxCells;
@@ -455,6 +456,7 @@ public:
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
     void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
+    void setGrid(const Grid &grid) { fullGrid = grid; }
 };
 
 DeviceWorker::DeviceWorker(
@@ -476,6 +478,10 @@ DeviceWorker::DeviceWorker(
 
 void DeviceWorker::operator()()
 {
+    cl_float gridScale = fullGrid.getSpacing();
+    cl_float3 gridBias;
+    fullGrid.getVertex(0, 0, 0, gridBias.s);
+
     while (true)
     {
         boost::shared_ptr<DeviceWorkItem> item;
@@ -503,8 +509,10 @@ void DeviceWorker::operator()()
         }
 
         /* We need to round up the octree size to a multiple of the granularity used for MLS. */
+        Grid::size_type expandedSize[3];
         for (int i = 0; i < 2; i++)
-            size[i] = roundUp(size[i], MlsFunctor::wgs[i]);
+            expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
+        expandedSize[2] = size[2];
 
         // TODO: use mapping to transfer the data directly into a buffer
 
@@ -513,12 +521,12 @@ void DeviceWorker::operator()()
             cl::Event treeBuildEvent;
             vector<cl::Event> wait(1);
             tree.enqueueBuild(queue, &item->splats[0], item->splats.size(),
-                              size, offset, subsampling, CL_FALSE, NULL, &treeBuildEvent);
+                              expandedSize, offset, subsampling, CL_FALSE, NULL, &treeBuildEvent);
             wait[0] = treeBuildEvent;
 
-            input.set(size, offset, tree, subsampling);
+            input.set(expandedSize, offset, tree, subsampling);
 
-            marching.generate(queue, input, output, item->grid, keyOffset, &wait);
+            marching.generate(queue, input, output, size, keyOffset, gridScale, gridBias, &wait);
         }
 
         if (progress != NULL)
@@ -822,6 +830,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
                 workQueueFine, context, device,
                 maxDeviceSplats, blockCells,
                 levels, subsampling));
+        deviceWorkers.back().setGrid(grid);
     }
     HostBlock<Set> hostBlock(workQueueCoarse);
     hostBlock.setGrid(grid);

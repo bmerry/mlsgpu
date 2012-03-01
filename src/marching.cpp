@@ -515,8 +515,9 @@ void Marching::generate(
     const cl::CommandQueue &queue,
     const InputFunctor &input,
     const OutputFunctor &output,
-    const Grid &grid,
+    const Grid::size_type size[3],
     const cl_uint3 &keyOffset,
+    cl_float scale, const cl_float3 &bias,
     const std::vector<cl::Event> *events)
 {
     // Work group size for kernels that operate on compacted cells
@@ -525,19 +526,12 @@ void Marching::generate(
     // Pointers into @ref backingImages, which are swapped to advance to the next slice.
     cl::Image2D *images[2] = { &backingImages[0], &backingImages[1] };
 
-    std::size_t width = grid.numVertices(0);
-    std::size_t height = grid.numVertices(1);
-    std::size_t depth = grid.numVertices(2);
+    const Grid::size_type width = size[0];
+    const Grid::size_type height = size[1];
+    const Grid::size_type depth = size[2];
     MLSGPU_ASSERT(1U <= width && width <= maxWidth, std::length_error);
     MLSGPU_ASSERT(1U <= height && height <= maxHeight, std::length_error);
     MLSGPU_ASSERT(1U <= depth, std::length_error);
-
-    cl_float gridScale = grid.getSpacing();
-    cl_float3 gridBias;
-    grid.getVertex(-Grid::difference_type(keyOffset.s[0]),
-                   -Grid::difference_type(keyOffset.s[1]),
-                   -Grid::difference_type(keyOffset.s[2]),
-                   gridBias.s);
 
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
@@ -547,7 +541,7 @@ void Marching::generate(
     input(queue, *images[1], 0, events, &last);
     wait[0] = last;
 
-    for (std::size_t z = 1; z < depth; z++)
+    for (Grid::size_type z = 1; z < depth; z++)
     {
         std::swap(images[0], images[1]);
         input(queue, *images[1], z, &wait, &last);
@@ -555,7 +549,7 @@ void Marching::generate(
         wait[0] = last;
 
         std::size_t compacted = generateCells(queue, *images[0], *images[1],
-                                              grid.numVertices(0), grid.numVertices(1), &wait);
+                                              width, height, &wait);
         wait.clear();
         if (compacted > 0)
         {
@@ -583,8 +577,8 @@ void Marching::generate(
             generateElementsKernel.setArg(5, *images[0]);
             generateElementsKernel.setArg(6, *images[1]);
             generateElementsKernel.setArg(10, cl_uint(z - 1));
-            generateElementsKernel.setArg(11, gridScale);
-            generateElementsKernel.setArg(12, gridBias);
+            generateElementsKernel.setArg(11, scale);
+            generateElementsKernel.setArg(12, bias);
             generateElementsKernel.setArg(13, keyOffset);
             generateElementsKernel.setArg(14, offsets);
             generateElementsKernel.setArg(15, top);

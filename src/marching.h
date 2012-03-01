@@ -342,7 +342,7 @@ public:
      *
      * @param context        OpenCL context used to allocate buffers.
      * @param device         Device for which kernels are to be compiled.
-     * @param maxWidth, maxHeight Maximum X, Y dimensions of the provided sampling grid.
+     * @param maxWidth, maxHeight Maximum X, Y dimensions (in corners) of the provided sampling grid.
      *
      * @pre
      * - @a maxWidth and @a maxHeight are both between 2 and @ref MAX_DIMENSION.
@@ -355,26 +355,38 @@ public:
      *
      * @note Because this function needs to read back intermediate results
      * before enqueuing more work, this is not purely an enqueuing operation.
-     * It will block until somethe work has completed. To hide latency, it is
+     * It will block until some of the work has completed. To hide latency, it is
      * necessary to have something happening on another CPU thread.
+     *
+     * The region that is processed is assumed to be at an offset of @a
+     * keyOffset within some larger grid. To accommodate this, vertex keys for
+     * external vertices are offset by @a keyOffset. The output vertices are
+     * also transformed into world coordinate systems using the formula
+     * \f$v_{\text{out}} = (v_{\text{in}} - \text{keyOffset}) \times \text{scale} + \text{bias}.\f$
+     * The interpolation is done in a way that guarantees invariance, provided that the
+     * surrounding isovalues, @a scale and @a bias are invariant.
      *
      * @param queue          Command queue to enqueue the work to.
      * @param input          Generates slices of the function (see @ref InputFunctor).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
-     * @param grid           Sampling grid.
+     * @param size           Number of vertices in each dimension to process.
      * @param keyOffset      XYZ values to add to vertex keys of external vertices.
+     * @param scale,bias     Transformation parameters (see description above).
      * @param events         Previous events to wait for (can be @c NULL).
      *
      * @note @a keyOffset is specified in integer units, not fixed-point.
      *
-     * @pre The number of vertices in @a grid must not exceed the dimensions
+     * @note size is in units of corners, which is one more than the number of cells.
+     *
+     * @pre The X and Y values of @a size must not exceed the dimensions
      * passed to the constructor.
      */
     void generate(const cl::CommandQueue &queue,
                   const InputFunctor &input,
                   const OutputFunctor &output,
-                  const Grid &grid,
+                  const Grid::size_type size[3],
                   const cl_uint3 &keyOffset,
+                  cl_float scale, const cl_float3 &bias,
                   const std::vector<cl::Event> *events = NULL);
 
 private:
