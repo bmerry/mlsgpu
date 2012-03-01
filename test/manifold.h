@@ -19,27 +19,38 @@
 #include <algorithm>
 #include <sstream>
 #include <cassert>
+#include <tr1/cstdint>
+#include <boost/type_traits/make_signed.hpp>
+#include "../src/union_find.h"
 
-// Utilities for validating that a mesh is manifold and extracting metadata.
+/// Utilities for validating that a mesh is manifold and extracting metadata.
 namespace Manifold
 {
 
-class Metadata
+/**
+ * Returned data from @ref isManifold.
+ */
+struct Metadata
 {
-private:
-    std::size_t nVertices;
-    std::size_t nTriangles;
-    std::size_t nComponents;
-    std::size_t nBoundaries;
+    std::size_t numVertices;   ///< Number of vertices in the mesh.
+    std::size_t numTriangles;  ///< Number of triangles in the mesh.
+    /**
+     * Number of connected components in the mesh.
+     *
+     * This is equal to the number of connected components in the graph
+     * consisting of the vertices and edges. Note that this may be different
+     * to a topologically-inspired definition in which two triangles sharing
+     * only a vertex are not considered to be adjacent.
+     */
+    std::size_t numComponents;
 
-    template<typename ForwardIterator>
-    friend std::string isManifold(std::size_t numVertices, ForwardIterator first, ForwardIterator last, Metadata *data = NULL);
-public:
-    std::size_t vertices() const { return nVertices; }
-    std::size_t triangles() const { return nTriangles; }
-    std::size_t components() const { return nComponents; }
-    std::size_t boundaries() const { return nBoundaries; }
+    /**
+     * Number of boundary loops in the mesh. See @ref isManifold
+     * for a clarification about what constitutes a boundary loop.
+     */
+    std::size_t numBoundaries;
 
+    /// Constructor that sets all fields to zero.
     Metadata();
 };
 
@@ -52,7 +63,17 @@ public:
  * linear runs. Note that this is more general than the topological
  * definition of a manifold, since it allows a single vertex to sit on multiple
  * boundary loops. This situation does occur when removing arbitrary triangles
- * from a manifold.
+ * from a manifold. In the returned metadata, this case is considered to be a
+ * single boundary.
+ *
+ * @param numVertices  The number of vertices referenced by the triangles.
+ * @param first, last  An input range where each element is a random access container
+ *                     of three elements (normally <code>boost::array</code>) each of
+ *                     which is an unsigned integral vertex index.
+ * @param[out] data    If non-NULL, it is populated with metadata about the mesh on
+ *                     output. If the mesh is not manifold, it is set to all zeros.
+ * @return The empty string if the mesh is manifold, or a human-readable
+ * explanation if it is non-manifold.
  */
 template<typename InputIterator>
 std::string isManifold(std::size_t numVertices, InputIterator first, InputIterator last, Metadata *data = NULL)
@@ -60,11 +81,12 @@ std::string isManifold(std::size_t numVertices, InputIterator first, InputIterat
     typedef typename std::iterator_traits<InputIterator>::value_type triangle_type;
     typedef typename triangle_type::value_type index_type;
     std::ostringstream reason;
+    std::vector<UnionFind::Node<std::tr1::int64_t> > components(numVertices);
 
     if (data != NULL)
         *data = Metadata(); // prepare this so we can bail out on error
     Metadata out; // where we stage changes before copying them
-    out.nVertices = numVertices;
+    out.numVertices = numVertices;
 
     // List of edges opposite each vertex
     std::vector<std::vector<std::pair<index_type, index_type> > > edges(numVertices);
@@ -76,19 +98,29 @@ std::string isManifold(std::size_t numVertices, InputIterator first, InputIterat
         {
             if (indices[0] >= numVertices)
             {
-                reason << "Triangle " << out.nTriangles << " contains out-of-range index " << indices[0] << "\n";
+                reason << "Triangle " << out.numTriangles << " contains out-of-range index " << indices[0] << "\n";
                 return reason.str();
             }
             assert(indices[0] < numVertices);
             if (indices[0] == indices[1])
             {
-                reason << "Triangle " << out.nTriangles << " contains vertex " << indices[0] << " twice\n";
+                reason << "Triangle " << out.numTriangles << " contains vertex " << indices[0] << " twice\n";
                 return reason.str();
             }
             edges[indices[0]].push_back(std::make_pair(indices[1], indices[2]));
             std::rotate(indices, indices + 1, indices + 3);
         }
-        out.nTriangles++;
+        UnionFind::merge(components, indices[0], indices[1]);
+        UnionFind::merge(components, indices[1], indices[2]);
+        out.numTriangles++;
+    }
+
+    // Count components
+    for (std::size_t i = 0; i < numVertices; i++)
+    {
+        if (components[i].isRoot())
+            out.numComponents++;
+        components[i] = UnionFind::Node<std::tr1::int64_t>(); // reset to use for counting boundaries
     }
 
     // Now check that the neighborhood of each vertex is a line or ring
@@ -131,12 +163,16 @@ std::string isManifold(std::size_t numVertices, InputIterator first, InputIterat
         {
             if (!seen.count(neigh[j].first))
             {
-                index_type cur = neigh[j].first;
+                index_type first = neigh[j].first;
+                index_type cur = first;
                 while (arrow.count(cur))
                 {
                     cur = arrow[cur];
                     len++;
                 }
+                // track boundary loops
+                UnionFind::merge(components, first, i);
+                UnionFind::merge(components, cur, i);
             }
         }
         if (len != 0 && len != neigh.size())
@@ -161,6 +197,13 @@ std::string isManifold(std::size_t numVertices, InputIterator first, InputIterat
                 return reason.str();
             }
         }
+    }
+
+    // Count boundaries
+    for (std::size_t i = 0; i < numVertices; i++)
+    {
+        if (components[i].isRoot() && components[i].size() >= 3)
+            out.numBoundaries++;
     }
 
     if (data != NULL)

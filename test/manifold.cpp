@@ -13,7 +13,7 @@
 namespace Manifold
 {
 
-Metadata::Metadata() : nVertices(0), nTriangles(0), nComponents(0), nBoundaries(0)
+Metadata::Metadata() : numVertices(0), numTriangles(0), numComponents(0), numBoundaries(0)
 {
 }
 

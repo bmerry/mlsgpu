@@ -108,14 +108,21 @@ int main(int argc, const char **argv)
         PLY::ElementRangeReader<PLY::EmptyBuilder> &vertexReader = reader.skipTo<PLY::EmptyBuilder>("vertex");
         size_t numVertices = vertexReader.getNumber();
         PLY::ElementRangeReader<TriangleBuilder> &triangleReader = reader.skipTo<TriangleBuilder>("face");
-        string reason = Manifold::isManifold(numVertices, triangleReader.begin(), triangleReader.end());
+        Manifold::Metadata metadata;
+        string reason = Manifold::isManifold(numVertices, triangleReader.begin(), triangleReader.end(), &metadata);
         if (reason != "")
         {
             cout << "Mesh is not manifold: " << reason << "\n";
             return 1;
         }
         else
-            cout << "Mesh is manifold.\n";
+        {
+            cout << "Mesh is manifold."
+                << "\nVertices: " << metadata.numVertices
+                << "\nTriangles: " << metadata.numTriangles
+                << "\nComponents: " << metadata.numComponents
+                << "\nBoundaries: " << metadata.numBoundaries << endl;
+        }
     }
     catch (ios::failure &e)
     {
