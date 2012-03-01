@@ -30,8 +30,8 @@ typedef struct
 int levelShift(int3 ilo, int3 ihi)
 {
     int3 diff = ihi - ilo;
-    int big = max(max(max(diff.x, diff.y), diff.z), 1);
-    return 31 - clz(big);
+    int big = max(max(diff.x, diff.y), diff.z);
+    return big > 1 ? 32 - clz(big - 1) : 0;
 }
 
 /**

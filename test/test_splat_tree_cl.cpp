@@ -290,9 +290,10 @@ void TestSplatTreeCL::testLevelShift()
     CPPUNIT_ASSERT_EQUAL(1, callLevelShift(0, 1, 2,  2, 2, 3)); // 3x2x2
     CPPUNIT_ASSERT_EQUAL(1, callLevelShift(0, 1, 2,  1, 3, 3)); // 2x3x2
     CPPUNIT_ASSERT_EQUAL(1, callLevelShift(0, 1, 2,  1, 2, 4)); // 2x2x3
+    CPPUNIT_ASSERT_EQUAL(2, callLevelShift(31, 0, 0, 35, 0, 0)); // 011111 -> 100001
     CPPUNIT_ASSERT_EQUAL(3, callLevelShift(31, 0, 0, 36, 0, 0)); // 011111 -> 100100
     CPPUNIT_ASSERT_EQUAL(3, callLevelShift(27, 0, 0, 32, 0, 0)); // 011011 -> 100000
-    CPPUNIT_ASSERT_EQUAL(4, callLevelShift(48, 0, 0, 79, 0, 0)); // 0110000 -> 1001111
+    CPPUNIT_ASSERT_EQUAL(5, callLevelShift(48, 0, 0, 79, 0, 0)); // 0110000 -> 1001111
 }
 
 void TestSplatTreeCL::testPointBoxDist2()
