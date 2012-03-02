@@ -10,6 +10,9 @@
 #endif
 #include <boost/program_options.hpp>
 #include <boost/noncopyable.hpp>
+#include <vector>
+#include <string>
+#include <map>
 #include <CL/cl.hpp>
 
 /// OpenCL helper functions
@@ -123,6 +126,24 @@ cl::Program build(const cl::Context &context, const std::vector<cl::Device> &dev
 cl::Program build(const cl::Context &context,
                   const std::string &filename, const std::map<std::string, std::string> &defines = std::map<std::string, std::string>(),
                   const std::string &options = "");
+
+/**
+ * Implementation of clEnqueueMarkerWithWaitList which can be used in OpenCL
+ * 1.1. It differs from the OpenCL 1.2 function in several ways:
+ *  - If zero input events are passed, it does not wait for anything (it
+ *    returns an already-signaled user event), rather than waiting for all
+ *    previous work. However, if @c NULL is passed, it will follow the OpenCL
+ *    1.2 function.
+ *  - If exactly one input event is passed, it may return this event (with
+ *    an extra reference) instead of creating a new one.
+ *  - It may choose to wait on all previous events in the command queue.
+ *    Thus, if your algorithm depends on it not doing so (e.g. you've used
+ *    user events to create dependencies backwards in time) it may cause
+ *    a deadlock.
+ */
+void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
+                               const std::vector<cl::Event> *events,
+                               cl::Event *event);
 
 } // namespace CLH
 

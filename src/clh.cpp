@@ -199,4 +199,36 @@ cl::Program build(const cl::Context &context,
     return build(context, devices, filename, defines, options);
 }
 
+void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
+                               const std::vector<cl::Event> *events,
+                               cl::Event *event)
+{
+    if (events == NULL || events->size() > 1)
+    {
+        /* For the events->size() > 1 case this is inefficient but correct.
+         * Alternatives would be to enqueue a dummy task (which would have
+         * potentially large overhead to allocate a dummy buffer or
+         * something), or to create a separate thread to wait for completion
+         * of the events and signal a user event when done (which would
+         * force scheduling to round trip via multiple CPU threads).
+         */
+        queue.enqueueMarker(event);
+    }
+    else if (events->empty())
+    {
+        if (event != NULL)
+        {
+            cl::UserEvent signaled(queue.getInfo<CL_QUEUE_CONTEXT>());
+            signaled.setStatus(CL_COMPLETE);
+            *event = signaled;
+        }
+    }
+    else
+    {
+        // Exactly one input event, so just copy it to the output
+        if (event != NULL)
+            *event = (*events)[0];
+    }
+}
+
 } // namespace CLH
