@@ -12,6 +12,9 @@
  */
 #define KERNEL(xsize, ysize, zsize) __kernel __attribute__((reqd_work_group_size(xsize, ysize, zsize)))
 
+#define RADIUS_CUTOFF 0.99f
+#define HITS_CUTOFF 4
+
 typedef int command_type;
 
 typedef struct
@@ -181,7 +184,7 @@ float processCorner(command_type start, int3 coord,
         float3 p = positionRadius.xyz - convert_float3(coord);
         float pp = dot3(p, p);
         float d = pp * positionRadius.w; // .w is the inverse squared radius
-        if (d < 0.99f)
+        if (d < RADIUS_CUTOFF)
         {
             float w = 1.0f - d;
             w *= w; // raise to the 4th power
@@ -192,7 +195,7 @@ float processCorner(command_type start, int3 coord,
         }
         pos++;
     }
-    if (sf.hits >= 4)
+    if (sf.hits >= HITS_CUTOFF)
     {
         float params[5];
         fitSphere(&sf, params);
@@ -240,6 +243,82 @@ void processCorners(
         f = processCorner(myStart, coord, splats, commands);
     }
     write_imagef(corners, gid.xy, f);
+}
+
+__kernel
+void measureBoundaries(
+    __global float * restrict discriminant,
+    __global float3 * restrict vertices,
+    __global const Splat * restrict splats,
+    __global const command_type * restrict commands,
+    __global const command_type * restrict start,
+    uint startShift,
+    int3 offset)
+{
+    int gid = get_global_id(0);
+    float3 vertex = vertices[gid];
+    int3 coord = convert_int3_rtn(vertex) - offset;
+    uint code = makeCode(coord) >> startShift;
+    command_type myStart = start[code];
+
+    float f = 1000.0f;
+    if (myStart >= 0)
+    {
+        command_type pos = myStart;
+        float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
+        float3 sumWn = (float3) (0.0f, 0.0f, 0.0f);
+        float sumWpp = 0.0f;
+        float sumW = 0.0f;
+        uint hits = 0;
+        while (true)
+        {
+            command_type cmd = commands[pos];
+            if (cmd < 0)
+            {
+                if (cmd == -1)
+                    break;
+                pos = -2 - cmd;
+                cmd = commands[pos];
+            }
+
+            __global const Splat *splat = &splats[cmd];
+            float4 positionRadius = splat->positionRadius;
+            float3 p = positionRadius.xyz - vertex;
+            float pp = dot3(p, p);
+            float d = pp * positionRadius.w; // .w is the inverse squared radius
+            if (d < RADIUS_CUTOFF)
+            {
+                float w = 1.0f - d;
+                w *= w; // raise to the 4th power
+                w *= w;
+                w *= splat->normalQuality.w;
+
+                sumWp += w * p;
+                sumWpp += w * pp;
+                sumWn += w * splat->normalQuality.xyz;
+                sumW += w;
+                hits++;
+            }
+            pos++;
+        }
+        if (hits >= HITS_CUTOFF)
+        {
+            float invW = 1.0f / sumW;
+            float3 meanPos = sumWp * invW;
+            float scale = rsqrt(sumWpp * invW); // inverse of RMS distance
+            scale *= 0.75f * M_PI_F;   // from Bendels et al (Detecting Holes in Point Set Surfaces)
+            float3 normal = normalize(sumWn);
+            /* We want to find the portion of meanPos when projected onto a plane
+             * orthogonal to normal. The length of the cross product would give the
+             * answer, but involves 9 multiplications. Using Pythagorus requires
+             * only 7.
+             */
+            float normalLength = dot3(meanPos, normal);
+            float planeLength2 = dot3(meanPos, meanPos) - normalLength * normalLength;
+            f = sqrt(planeLength2) * scale - 1.0f;
+        }
+    }
+    discriminant[gid] = f;
 }
 
 /*******************************************************************************
