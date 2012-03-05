@@ -15,7 +15,11 @@ __kernel void classify(
 {
     uint gid = get_global_id(0);
     uint3 idx = vload3(gid, indices);
-    bool keep = vertexDist[idx.s0] <= 0.0f || vertexDist[idx.s1] <= 0.0f || vertexDist[idx.s2] <= 0.0f;
+    float3 dist;
+    dist.s0 = vertexDist[idx.s0];
+    dist.s1 = vertexDist[idx.s1];
+    dist.s2 = vertexDist[idx.s2];
+    bool keep = all(dist <= 0.0f);
     triangleKeep[gid] = keep;
     if (keep)
     {

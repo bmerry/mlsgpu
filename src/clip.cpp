@@ -28,9 +28,12 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
 :
     maxVertices(maxVertices), maxTriangles(maxTriangles),
     distances(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_float)),
-    vertexCompact(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_uint)),
-    triangleCompact(context, CL_MEM_READ_WRITE, maxTriangles * sizeof(cl_uint)),
-    compactScan(context, device, clogs::TYPE_UINT)
+    vertexCompact(context, CL_MEM_READ_WRITE, (maxVertices + 1) * sizeof(cl_uint)),
+    triangleCompact(context, CL_MEM_READ_WRITE, (maxTriangles + 1) * sizeof(cl_uint)),
+    compactScan(context, device, clogs::TYPE_UINT),
+    outVertices(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_float3)),
+    outVertexKeys(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_ulong)),
+    outIndices(context, CL_MEM_READ_WRITE, maxTriangles * (3 * sizeof(cl_uint)))
 {
     std::vector<cl::Device> devices(1, device);
     program = CLH::build(context, devices, "kernels/clip.cl");
@@ -67,7 +70,7 @@ void Clip::operator()(
     std::vector<cl::Event> wait;
 
     cl::Event distanceEvent;
-    distanceFunctor(queue, distances, vertices, NULL, &distanceEvent);
+    distanceFunctor(queue, distances, vertices, numVertices, NULL, &distanceEvent);
 
     /* TODO:
      * - Pretty much every call needs to use an explicit work group size
@@ -167,12 +170,19 @@ void Clip::operator()(
     wait[0] = internalVertexCountEvent;
     wait[1] = vertexCountEvent;
     wait[2] = triangleCountEvent;
-
-    // TODO: arrange to pass these into the following functor:
     wait[3] = vertexCompactEvent;
     wait[4] = triangleCompactEvent;
     cl::Event::waitForEvents(wait);
 
-    output(queue, outVertices, outVertexKeys, outIndices,
-           vertexCount, internalVertexCount, triangleCount * 3, event);
+    if (vertexCount > 0)
+    {
+        output(queue, outVertices, outVertexKeys, outIndices,
+               vertexCount, internalVertexCount, triangleCount * 3, event);
+    }
+    else if (event != NULL)
+    {
+        cl::UserEvent done(queue.getInfo<CL_QUEUE_CONTEXT>());
+        done.setStatus(CL_COMPLETE);
+        *event = done;
+    }
 }

@@ -48,6 +48,7 @@ public:
      * -# Output buffer of @c cl_float, containing signed distances (negative
      *   means inside/keep, positive means outside/clip).
      * -# Input buffer of vertices, of type @c cl_float3.
+     * -# The number of vertices.
      * -# Events to wait for. If this is non-NULL, the named events must be
      *    waited for before reading the input vertices.
      * -# Completion event. If this is non-NULL, it must be written with an
@@ -57,8 +58,9 @@ public:
         void(const cl::CommandQueue &,
              const cl::Buffer &,
              const cl::Buffer &,
+             std::size_t,
              const std::vector<cl::Event> *,
-             const cl::Event *)> DistanceFunctor;
+             cl::Event *)> DistanceFunctor;
 
     Clip(const cl::Context &context, const cl::Device &device,
          std::size_t maxVertices, std::size_t maxTriangles);
