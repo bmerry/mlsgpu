@@ -1,4 +1,13 @@
-__kernel void triangleClassifyKernel(
+/**
+ * Marks all vertices as rejected (@ref classify will mark the relevant ones as accepted).
+ */
+__kernel void vertexInit(
+    __global uint * restrict vertexKeep)
+{
+    vertexKeep[get_global_id(0)] = 0;
+}
+
+__kernel void classify(
     __global uint * restrict triangleKeep,
     __global uint * restrict vertexKeep,
     __global const uint * restrict indices,
@@ -16,7 +25,7 @@ __kernel void triangleClassifyKernel(
     }
 }
 
-__kernel void triangleCompactKernel(
+__kernel void triangleCompact(
     __global uint * restrict outIndices,
     __global const uint * restrict remap,
     __global const uint * restrict inIndices,
@@ -34,7 +43,7 @@ __kernel void triangleCompactKernel(
     }
 }
 
-__kernel void vertexCompactKernel(
+__kernel void vertexCompact(
     __global float3 * restrict outVertices,
     __global ulong * restrict outKeys,
     __global const uint * restrict remap,

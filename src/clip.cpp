@@ -21,21 +21,28 @@
 #include "marching.h"
 #include "clip.h"
 #include "statistics.h"
+#include "clh.h"
 
 Clip::Clip(const cl::Context &context, const cl::Device &device,
            std::size_t maxVertices, std::size_t maxTriangles)
 :
     maxVertices(maxVertices), maxTriangles(maxTriangles),
-    discriminant(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_float3)),
-    compact(context, CL_MEM_READ_WRITE, std::max(maxVertices, maxTriangles) * sizeof(cl_uint)),
+    distances(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_float)),
+    vertexCompact(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_uint)),
+    triangleCompact(context, CL_MEM_READ_WRITE, maxTriangles * sizeof(cl_uint)),
     compactScan(context, device, clogs::TYPE_UINT)
 {
-    // TODO: compile program and extract kernels
+    std::vector<cl::Device> devices(1, device);
+    program = CLH::build(context, devices, "kernels/clip.cl");
+    vertexInitKernel = cl::Kernel(program, "vertexInit");
+    classifyKernel = cl::Kernel(program, "classify");
+    triangleCompactKernel = cl::Kernel(program, "triangleCompact");
+    vertexCompactKernel = cl::Kernel(program, "vertexCompact");
 }
 
-void Clip::setDistance(const DistanceFunctor &distance)
+void Clip::setDistanceFunctor(const DistanceFunctor &distanceFunctor)
 {
-    this->distance = distance;
+    this->distanceFunctor = distanceFunctor;
 }
 
 void Clip::setOutput(const Marching::OutputFunctor &output)
@@ -60,80 +67,94 @@ void Clip::operator()(
     std::vector<cl::Event> wait;
 
     cl::Event distanceEvent;
-    distance(queue, discriminant, vertices, NULL, &distanceEvent);
+    distanceFunctor(queue, distances, vertices, NULL, &distanceEvent);
 
-    /* TODO: pretty much every call needs to use an explicit work group size
-     * and have some manner to handle the leftover bits.
+    /* TODO:
+     * - Pretty much every call needs to use an explicit work group size
+     *   and have some manner to handle the leftover bits.
+     * - Move setArg into constructor where feasible
+     * - If interpolation is being done, probably need to split welding
+     *   out of Marching and re-use it here.
+     * - Change interface to pass in wait events, to avoid waitForEvents
+     *   below.
      */
 
-    // TODO: set up kernel arguments
-    // TODO: vertices should be classified during triangle compaction?
-    // TODO: set up functions to return allocated memory
-    // TODO: if interpolation is being done, probably need to split welding
-    // out of Marching and re-use it here.
+    /*** Classify and compact vertices and indices ***/
 
-    /*** Classify and compact vertices and their keys ***/
-
-    wait.resize(1);
-    wait[0] = distanceEvent;
-    cl::Event vertexClassifyEvent;
-    queue.enqueueNDRangeKernel(vertexClassifyKernel,
+    cl::Event vertexInitEvent;
+    vertexInitKernel.setArg(0, vertexCompact);
+    queue.enqueueNDRangeKernel(vertexInitKernel,
                                cl::NullRange,
                                cl::NDRange(numVertices),
                                cl::NullRange,
-                               &wait, &vertexClassifyEvent);
+                               NULL, &vertexInitEvent);
+
+    wait.resize(2);
+    wait[0] = distanceEvent;
+    wait[1] = vertexInitEvent;
+    cl::Event classifyEvent;
+    classifyKernel.setArg(0, triangleCompact);
+    classifyKernel.setArg(1, vertexCompact);
+    classifyKernel.setArg(2, indices);
+    classifyKernel.setArg(3, distances);
+    queue.enqueueNDRangeKernel(classifyKernel,
+                               cl::NullRange,
+                               cl::NDRange(numTriangles),
+                               cl::NullRange,
+                               &wait, &classifyEvent);
+
+    /*** Compact vertices and their keys ***/
 
     wait.resize(1);
-    wait[0] = vertexClassifyEvent;
+    wait[0] = classifyEvent;
     cl::Event vertexScanEvent;
-    compactScan.enqueue(queue, compact, numVertices + 1, NULL, &wait, &vertexScanEvent);
+    compactScan.enqueue(queue, vertexCompact, numVertices + 1, NULL, &wait, &vertexScanEvent);
 
     wait.resize(1);
     wait[0] = vertexScanEvent;
     cl_uint vertexCount = 0, internalVertexCount = 0;
     cl::Event vertexCountEvent, internalVertexCountEvent;
-    queue.enqueueReadBuffer(compact, CL_FALSE, numInternalVertices * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(vertexCompact, CL_FALSE, numInternalVertices * sizeof(cl_uint), sizeof(cl_uint),
                             &internalVertexCount, &wait, &internalVertexCountEvent);
-    queue.enqueueReadBuffer(compact, CL_FALSE, numVertices * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(vertexCompact, CL_FALSE, numVertices * sizeof(cl_uint), sizeof(cl_uint),
                             &vertexCount, &wait, &vertexCountEvent);
 
     wait.resize(1);
     wait[0] = vertexScanEvent;
     cl::Event vertexCompactEvent;
+    vertexCompactKernel.setArg(0, outVertices);
+    vertexCompactKernel.setArg(1, outVertexKeys);
+    vertexCompactKernel.setArg(2, vertexCompact);
+    vertexCompactKernel.setArg(3, vertices);
+    vertexCompactKernel.setArg(4, vertexKeys);
     queue.enqueueNDRangeKernel(vertexCompactKernel,
                                cl::NullRange,
                                cl::NDRange(numVertices),
                                cl::NullRange,
                                &wait, &vertexCompactEvent);
 
-    /*** Classify and compact triangles, while also rewriting the indices ***/
-
-    wait.resize(3);
-    wait[0] = vertexClassifyEvent;
-    wait[1] = internalVertexCountEvent;
-    wait[2] = vertexCountEvent;
-    cl::Event triangleClassifyEvent;
-    queue.enqueueNDRangeKernel(triangleClassifyKernel,
-                               cl::NullRange,
-                               cl::NDRange(numTriangles),
-                               cl::NullRange,
-                               &wait, &triangleClassifyEvent);
+    /*** Compact triangles, while also rewriting the indices ***/
 
     wait.resize(1);
-    wait[0] = triangleClassifyEvent;
+    wait[0] = classifyEvent;
     cl::Event triangleScanEvent;
-    compactScan.enqueue(queue, compact, numTriangles + 1, NULL, &wait, &triangleScanEvent);
+    compactScan.enqueue(queue, triangleCompact, numTriangles + 1, NULL, &wait, &triangleScanEvent);
 
     wait.resize(1);
     wait[0] = triangleScanEvent;
     cl::Event triangleCountEvent;
     cl_uint triangleCount = 0;
-    queue.enqueueReadBuffer(compact, CL_FALSE, numTriangles * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(triangleCompact, CL_FALSE, numTriangles * sizeof(cl_uint), sizeof(cl_uint),
                             &triangleCount, &wait, &triangleCountEvent);
 
-    wait.resize(1);
+    wait.resize(2);
     wait[0] = triangleScanEvent;
+    wait[1] = vertexScanEvent;
     cl::Event triangleCompactEvent;
+    triangleCompactKernel.setArg(0, outIndices);
+    triangleCompactKernel.setArg(1, triangleCompact);
+    triangleCompactKernel.setArg(2, indices);
+    triangleCompactKernel.setArg(3, vertexCompact);
     queue.enqueueNDRangeKernel(triangleCompactKernel,
                                cl::NullRange,
                                cl::NDRange(numTriangles),

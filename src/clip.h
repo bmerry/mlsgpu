@@ -63,7 +63,7 @@ public:
     Clip(const cl::Context &context, const cl::Device &device,
          std::size_t maxVertices, std::size_t maxTriangles);
 
-    void setDistance(const DistanceFunctor &distance);
+    void setDistanceFunctor(const DistanceFunctor &distanceFunctor);
     void setOutput(const Marching::OutputFunctor &output);
 
     void operator()(
@@ -78,21 +78,30 @@ public:
 
 private:
     std::size_t maxVertices, maxTriangles;
-    DistanceFunctor distance;
+    DistanceFunctor distanceFunctor;
     Marching::OutputFunctor output;
 
-    cl::Buffer discriminant;
-    cl::Buffer compact;
-    clogs::Scan compactScan;
-    cl::Buffer outVertices;
-    cl::Buffer outVertexKeys;
-    cl::Buffer outIndices;
+    cl::Buffer distances;       ///< Signed distances from the clip boundary
+    /**
+     * Booleans indicating whether vertices should be kept; later scanned.
+     * The elements are of type @c cl_uint.
+     */
+    cl::Buffer vertexCompact;
+    /**
+     * Booleans indicating whether triangles should be kept; later scanned.
+     * The elements are of type @c cl_uint.
+     */
+    cl::Buffer triangleCompact;
+    clogs::Scan compactScan;    ///< Scanner object for scanning the compaction arrays
+    cl::Buffer outVertices;     ///< Compacted vertices.
+    cl::Buffer outVertexKeys;   ///< Compacted vertex keys.
+    cl::Buffer outIndices;      ///< Compacted triangle indices.
 
     cl::Program program;
-    cl::Kernel vertexClassifyKernel;
-    cl::Kernel vertexCompactKernel;
-    cl::Kernel triangleClassifyKernel;
+    cl::Kernel vertexInitKernel;
+    cl::Kernel classifyKernel;
     cl::Kernel triangleCompactKernel;
+    cl::Kernel vertexCompactKernel;
 };
 
 #endif /* !CLIP_H */
