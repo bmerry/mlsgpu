@@ -248,30 +248,29 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
      * we can at least turn down silly requests before wasting any time.
      */
     const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
-    std::pair<std::tr1::uint64_t, std::tr1::uint64_t> marchingMemory = Marching::deviceMemory(device, block, block);
-    std::pair<std::tr1::uint64_t, std::tr1::uint64_t> splatTreeMemory = SplatTreeCL::deviceMemory(device, levels, maxDeviceSplats);
-    const std::tr1::uint64_t total = deviceThreads * (marchingMemory.first + splatTreeMemory.first);
-    const std::tr1::uint64_t max = std::max(marchingMemory.second, splatTreeMemory.second);
+    CLH::ResourceUsage marchingUsage = Marching::resourceUsage(device, block, block);
+    CLH::ResourceUsage splatTreeUsage = SplatTreeCL::resourceUsage(device, levels, maxDeviceSplats);
+    CLH::ResourceUsage totalUsage = (marchingUsage + splatTreeUsage) * deviceThreads;
 
-    const std::size_t deviceTotal = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
-    const std::size_t deviceMax = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
-    if (max > deviceMax)
+    const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
+    const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
+    if (totalUsage.maxMemory > deviceMaxMemory)
     {
-        cerr << "Arguments require an allocation of " << max << ",\n"
-            << "but the OpenCL device only supports up to " << deviceMax << ".\n"
+        cerr << "Arguments require an allocation of " << totalUsage.maxMemory << ",\n"
+            << "but the OpenCL device only supports up to " << deviceMaxMemory << ".\n"
             << "Try reducing --levels or --subsampling.\n";
         exit(1);
     }
-    if (total > deviceTotal)
+    if (totalUsage.totalMemory > deviceTotalMemory)
     {
-        cerr << "Arguments require device memory of " << total << ",\n"
-            << "but the OpenCL device has " << deviceTotal << ".\n"
+        cerr << "Arguments require device memory of " << totalUsage.totalMemory << ",\n"
+            << "but the OpenCL device has " << deviceTotalMemory << ".\n"
             << "Try reducing --levels or --subsampling.\n";
         exit(1);
     }
 
-    Log::log[Log::info] << "About " << total / (1024 * 1024) << "MiB of device memory will be used.\n";
-    if (total > deviceTotal * 0.8)
+    Log::log[Log::info] << "About " << totalUsage.totalMemory / (1024 * 1024) << "MiB of device memory will be used.\n";
+    if (totalUsage.totalMemory > deviceTotalMemory * 0.8)
     {
         Log::log[Log::warn] << "WARNING: More than 80% of the device memory will be used.\n";
     }

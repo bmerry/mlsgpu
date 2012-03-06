@@ -16,7 +16,7 @@
 #include <boost/noncopyable.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include "splat_tree.h"
-#include "src/clh.h"
+#include "clh.h"
 #include "grid.h"
 #include "clogs/clogs.h"
 
@@ -176,14 +176,14 @@ public:
     static bool validateDevice(const cl::Device &device);
 
     /**
-     * Estimates the total memory needed and the largest single allocation, based on the
-     * constructor arguments.
+     * Estimates the device resources needed, based on the constructor
+     * arguments.
      *
      * @pre
      * - 1 <= @a maxLevels <= @ref MAX_LEVELS
      * - 1 <= @a maxSplats <= @ref MAX_SPLATS.
      */
-    static std::pair<std::tr1::uint64_t, std::tr1::uint64_t> deviceMemory(
+    static CLH::ResourceUsage resourceUsage(
         const cl::Device &device, std::size_t maxLevels, std::size_t maxSplats);
 
     /**

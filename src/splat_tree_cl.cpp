@@ -35,7 +35,7 @@ bool SplatTreeCL::validateDevice(const cl::Device &device)
     return true;
 }
 
-std::pair<std::tr1::uint64_t, std::tr1::uint64_t> SplatTreeCL::deviceMemory(
+CLH::ResourceUsage SplatTreeCL::resourceUsage(
     const cl::Device &device, const std::size_t maxLevels, const std::size_t maxSplats)
 {
     /* Not currently used, although it should be to determine constant overheads in
@@ -45,38 +45,41 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> SplatTreeCL::deviceMemory(
 
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
-    std::tr1::uint64_t ans = 0;
+    std::tr1::uint64_t total = 0;
     const std::tr1::uint64_t splats = maxSplats;
     const std::tr1::uint64_t start = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
 
     // Keep this up to date with the actual allocations below
 
     // splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
-    ans += splats * sizeof(Splat);
+    total += splats * sizeof(Splat);
     // start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    ans += start * sizeof(command_type);
+    total += start * sizeof(command_type);
     // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    ans += start * sizeof(command_type);
+    total += start * sizeof(command_type);
     // commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
-    ans += splats * 16 * sizeof(command_type);
+    total += splats * 16 * sizeof(command_type);
     // commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
-    ans += splats * 8 * sizeof(command_type);
+    total += splats * 8 * sizeof(command_type);
     // entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
-    ans += splats * 8 * sizeof(code_type);
+    total += splats * 8 * sizeof(code_type);
     // entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
-    ans += splats * 8 * sizeof(command_type);
+    total += splats * 8 * sizeof(command_type);
 
     // Temporary storage for the sort
     // tmpKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     // tmpValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
-    ans += splats * 8 * sizeof(code_type);
-    ans += splats * 8 * sizeof(command_type);
+    total += splats * 8 * sizeof(code_type);
+    total += splats * 8 * sizeof(command_type);
 
     // TODO: add in constant overheads for the scan and sort primitives
 
     std::tr1::uint64_t max = std::max(splats * std::max(16 * sizeof(command_type), sizeof(Splat)),
                                  start * sizeof(command_type));
-    return std::make_pair(ans, max);
+    CLH::ResourceUsage ans;
+    ans.totalMemory = total;
+    ans.maxMemory = max;
+    return ans;
 }
 
 SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)

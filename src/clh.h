@@ -14,6 +14,7 @@
 #include <string>
 #include <map>
 #include <CL/cl.hpp>
+#include <tr1/cstdint>
 
 /// OpenCL helper functions
 namespace CLH
@@ -67,6 +68,31 @@ public:
                  ::size_t *rowPitch, ::size_t *slicePitch);
 
     const cl::Image &getImage() const { return static_cast<const cl::Image &>(getMemory()); }
+};
+
+/**
+ * Represents the resources required or consumed by an algorithm class.
+ */
+struct ResourceUsage
+{
+    std::tr1::uint64_t maxMemory;     ///< Largest single memory allocation
+    std::tr1::uint64_t totalMemory;   ///< Sum of all allocations
+    std::size_t imageWidth;           ///< Maximum image width used (0 if no images)
+    std::size_t imageHeight;          ///< Maximum image height used (0 if no images)
+
+    ResourceUsage() : maxMemory(0), totalMemory(0), imageWidth(0), imageHeight(0) {}
+
+    /**
+     * Computes the combined requirements given the individual requirements for two
+     * steps. This assumes that the steps are active simultaneously, and hence that
+     * totals must be added.
+     */
+    ResourceUsage operator+(const ResourceUsage &r) const;
+
+    /**
+     * Adds @a n copies of the resource.
+     */
+    ResourceUsage operator*(unsigned int n) const;
 };
 
 /// Option names for OpenCL options

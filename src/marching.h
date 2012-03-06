@@ -19,6 +19,7 @@
 #include <clogs/clogs.h>
 #include "grid.h"
 #include "mesh.h"
+#include "clh.h"
 
 class TestMarching;
 
@@ -269,11 +270,11 @@ public:
      * fragmentation, alignment, parameters, programs, command buffers etc.
      *
      * @param device, maxWidth, maxHeight  Parameters that would be passed to the constructor.
-     * @return A pair containing total memory required and the largest single allocation.
+     * @return The required resources.
      *
      * @pre @a maxWidth and @a maxHeight do not exceed @ref MAX_DIMENSION.
      */
-    static std::pair<std::tr1::uint64_t, std::tr1::uint64_t> deviceMemory(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight);
+    static CLH::ResourceUsage resourceUsage(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight);
 
     /**
      * The function type to pass to @ref generate for sampling the isofunction.

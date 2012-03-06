@@ -14,6 +14,7 @@
 #include <sstream>
 #include <utility>
 #include <stdexcept>
+#include <algorithm>
 #include <map>
 #include "clh.h"
 #include "logging.h"
@@ -58,6 +59,28 @@ ImageMapping::ImageMapping(
     : detail::MemoryMapping(image, device)
 {
     setPointer(getQueue().enqueueMapImage(image, CL_TRUE, flags, origin, region, rowPitch, slicePitch));
+}
+
+ResourceUsage ResourceUsage::operator+(const ResourceUsage &b) const
+{
+    ResourceUsage out;
+    out.maxMemory = std::max(maxMemory, b.maxMemory);
+    out.totalMemory = totalMemory + b.totalMemory;
+    out.imageWidth = std::max(imageWidth, b.imageWidth);
+    out.imageHeight = std::max(imageHeight, b.imageHeight);
+    return out;
+}
+
+ResourceUsage ResourceUsage::operator*(unsigned int n) const
+{
+    if (n == 0)
+        return ResourceUsage();
+    else
+    {
+        ResourceUsage out = *this;
+        out.totalMemory *= n;
+        return out;
+    }
 }
 
 namespace detail

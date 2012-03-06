@@ -236,7 +236,7 @@ bool Marching::validateDevice(const cl::Device &device)
     return true;
 }
 
-std::pair<std::tr1::uint64_t, std::tr1::uint64_t> Marching::deviceMemory(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight)
+CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight)
 {
     MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
@@ -293,9 +293,12 @@ std::pair<std::tr1::uint64_t, std::tr1::uint64_t> Marching::deviceMemory(const c
 
     // TODO: constant space needed for tables, and temporaries for the sorter and scanners
 
-    std::tr1::uint64_t total = cells * numCells + corners * numCorners + fixed;
-    std::tr1::uint64_t max = numCells * MAX_CELL_VERTICES * sizeof(cl_float4);
-    return std::make_pair(total, max);
+    CLH::ResourceUsage ans;
+    ans.totalMemory = cells * numCells + corners * numCorners + fixed;
+    ans.maxMemory = numCells * MAX_CELL_VERTICES * sizeof(cl_float4);
+    ans.imageWidth = maxWidth;
+    ans.imageHeight = maxHeight;
+    return ans;
 }
 
 Marching::Marching(const cl::Context &context, const cl::Device &device,
