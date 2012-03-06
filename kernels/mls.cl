@@ -248,7 +248,7 @@ void processCorners(
 __kernel
 void measureBoundaries(
     __global float * restrict discriminant,
-    __global float3 * restrict vertices,
+    __global float * restrict vertices,
     __global const Splat * restrict splats,
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
@@ -256,7 +256,7 @@ void measureBoundaries(
     int3 offset)
 {
     int gid = get_global_id(0);
-    float3 vertex = vertices[gid];
+    float3 vertex = vload3(gid, vertices);
     int3 coord = convert_int3_rtn(vertex) - offset;
     uint code = makeCode(coord) >> startShift;
     command_type myStart = start[code];
