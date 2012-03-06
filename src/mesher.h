@@ -3,15 +3,15 @@
  *
  * Data structures for storing the output of @ref Marching.
  *
- * The classes in this file are @ref MeshBase, an abstract base class, and
+ * The classes in this file are @ref MesherBase, an abstract base class, and
  * several concrete instantiations of it. They differ in terms of
  *  - the number of passes needed
  *  - whether they support welding of external vertices
  *  - the amount of temporary memory required.
  */
 
-#ifndef MESH_H
-#define MESH_H
+#ifndef MESHER_H
+#define MESHER_H
 
 #if HAVE_CONFIG_H
 # include <config.h>
@@ -33,24 +33,24 @@
 #include "union_find.h"
 
 /**
- * Enumeration of the supported mesh types
+ * Enumeration of the supported mesher types
  */
-enum MeshType
+enum MesherType
 {
-    SIMPLE_MESH,
-    WELD_MESH,
-    BIG_MESH,
-    STXXL_MESH
+    SIMPLE_MESHER,
+    WELD_MESHER,
+    BIG_MESHER,
+    STXXL_MESHER
 };
 
 /**
- * Wrapper around @ref MeshType for use with @ref Choice.
+ * Wrapper around @ref MesherType for use with @ref Choice.
  */
-class MeshTypeWrapper
+class MesherTypeWrapper
 {
 public:
-    typedef MeshType type;
-    static std::map<std::string, MeshType> getNameMap();
+    typedef MesherType type;
+    static std::map<std::string, MesherType> getNameMap();
 };
 
 /**
@@ -69,7 +69,7 @@ public:
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
  */
-class MeshBase
+class MesherBase
 {
 protected:
 
@@ -80,17 +80,17 @@ protected:
 
 public:
     /// Constructor
-    MeshBase() : pruneThreshold(0.0) {}
+    MesherBase() : pruneThreshold(0.0) {}
 
     /// Virtual destructor to allow destruction via base class pointer
-    virtual ~MeshBase() {}
+    virtual ~MesherBase() {}
 
     /// Number of passes required.
     virtual unsigned int numPasses() const = 0;
 
     /**
      * Sets the lower bound on component size. All components that are
-     * smaller will be pruned from the output, if supported by the mesh
+     * smaller will be pruned from the output, if supported by the mesher
      * type. The default is not to prune anything.
      *
      * @param threshold The lower bound, specified as a fraction of the total
@@ -146,7 +146,7 @@ private:
  * external vertices. It simply collects all the vertices into one vector
  * and indices into another.
  */
-class SimpleMesh : public MeshBase
+class SimpleMesher : public MesherBase
 {
 private:
     /// Storage for vertices
@@ -157,12 +157,8 @@ private:
 
     /// Function called by the functor.
     void add(const cl::CommandQueue &queue,
-             const cl::Buffer &vertices,
-             const cl::Buffer &vertexKeys,
-             const cl::Buffer &indices,
-             std::size_t numVertices,
-             std::size_t numInternalVertices,
-             std::size_t numIndices,
+             const DeviceKeyMesh &mesh,
+             const std::vector<cl::Event> *events,
              cl::Event *event);
 
 public:
@@ -174,7 +170,7 @@ public:
 };
 
 /**
- * Mesh that operates in one pass, and implements welding of external
+ * Mesher that operates in one pass, and implements welding of external
  * vertices.
  *
  * Internal and external vertices are partitioned into separate arrays,
@@ -184,7 +180,7 @@ public:
  * the external vector. The external indices are rewritten during
  * @ref finalize().
  */
-class WeldMesh : public MeshBase
+class WeldMesher : public MesherBase
 {
 private:
     /// Storage for internal vertices
@@ -198,12 +194,8 @@ private:
 
     /// Implementation of the functor
     void add(const cl::CommandQueue &queue,
-             const cl::Buffer &vertices,
-             const cl::Buffer &vertexKeys,
-             const cl::Buffer &indices,
-             std::size_t numVertices,
-             std::size_t numInternalVertices,
-             std::size_t numIndices,
+             const DeviceKeyMesh &mesh,
+             const std::vector<cl::Event> *events,
              cl::Event *event);
 
 public:
@@ -219,7 +211,7 @@ namespace detail
 {
 
 /**
- * An internal base class for @ref BigMesh and @ref StxxlMesh, implementing
+ * An internal base class for @ref BigMesher and @ref StxxlMesher, implementing
  * algorithms common to both.
  *
  * External vertices are entered into a hash table that maps their keys to
@@ -234,7 +226,7 @@ namespace detail
  * form part of the same component, and this is recorded in a union-find
  * structure over the clumps.
  */
-class KeyMapMesh : public MeshBase
+class KeyMapMesher : public MesherBase
 {
 protected:
     typedef std::tr1::int32_t clump_id;
@@ -284,41 +276,11 @@ protected:
      * These are stored in the object so that memory can be recycled if
      * possible, rather than thrashing the allocator.
      */
-    std::vector<boost::array<cl_float, 3> > tmpVertices;
-    std::vector<cl_ulong> tmpVertexKeys;
-    std::vector<boost::array<cl_uint, 3> > tmpTriangles;
+    HostKeyMesh tmpMesh;
     std::vector<cl_uint> tmpIndexTable;
     std::vector<UnionFind::Node<cl_int> > tmpNodes;
     std::vector<clump_id> tmpClumpId;
     /** @} */
-
-    /**
-     * Load data from the OpenCL buffers into host memory.
-     * The supplied vectors are resized to the appropriate
-     * size for the data that is being loaded.
-     *
-     * Reading the vertex data is optional. To skip it, pass a
-     * default-constructed buffer for @a dVertices. In this case @a hVertices
-     * and @a verticesEvent will not be updated.
-     *
-     * @post
-     * - The read into hKeys is complete.
-     * - The read into hVertices will be complete when @a verticesEvent is signalled.
-     * - The read into hTriangles will be complete when @a trianglesEvent is signalled.
-     * - The events will complete is finish time (i.e., the queue will have been flushed).
-     */
-    void loadData(const cl::CommandQueue &queue,
-                  const cl::Buffer &dVertices,
-                  const cl::Buffer &dVertexKeys,
-                  const cl::Buffer &dIndices,
-                  std::vector<boost::array<cl_float, 3> > &hVertices,
-                  std::vector<cl_ulong> &hVertexKeys,
-                  std::vector<boost::array<cl_uint, 3> > &hTriangles,
-                  std::size_t numVertices,
-                  std::size_t numInternalVertices,
-                  std::size_t numTriangles,
-                  cl::Event *verticesEvent,
-                  cl::Event *trianglesEvent) const;
 
     /**
      * Identifies clumps in the local set of triangles. Each new clump is
@@ -335,8 +297,7 @@ protected:
      * @ref clumps.
      */
     void computeLocalComponents(
-        std::size_t numVertices,
-        const std::vector<boost::array<cl_uint, 3> > &triangles,
+        const HostMesh &mesh,
         std::vector<clump_id> &clumpId);
 
     /**
@@ -360,15 +321,13 @@ protected:
     /**
      * Writes indices in place from being block-relative to the final form.
      * @param priorVertices        First vertex in the block (internal or external).
-     * @param numInternalVertices  Number of internal vertices in the block.
      * @param indexTable           External index rewrite table computed by @ref updateKeyMap.
-     * @param[in,out] triangles    Vertex indices.
+     * @param[in,out] mesh         Triangles to rewrite (also uses the number of vertices).
      */
     void rewriteTriangles(
         cl_uint priorVertices,
-        std::size_t numInternalVertices,
         const std::vector<cl_uint> &indexTable,
-        std::vector<boost::array<cl_uint, 3> > &triangles) const;
+        HostKeyMesh &mesh) const;
 };
 
 } // namespace detail
@@ -383,12 +342,12 @@ protected:
  *    vertices.
  * 2. Write the data.
  *
- * Unlike @ref WeldMesh, the external vertices are written out as they come in
+ * Unlike @ref WeldMesher, the external vertices are written out as they come in
  * (immediately after the internal vertices for the corresponding chunk), which
  * avoids the need to buffer them up until the end. The only unbounded memory is
  * for the key map.
  */
-class BigMesh : public detail::KeyMapMesh
+class BigMesher : public detail::KeyMapMesher
 {
 private:
     typedef FastPly::WriterBase::size_type size_type;
@@ -417,12 +376,8 @@ private:
 
     /// Implementation of the first-pass functor
     void count(const cl::CommandQueue &queue,
-               const cl::Buffer &vertices,
-               const cl::Buffer &vertexKeys,
-               const cl::Buffer &indices,
-               std::size_t numVertices,
-               std::size_t numInternalVertices,
-               std::size_t numIndices,
+               const DeviceKeyMesh &mesh,
+               const std::vector<cl::Event> *events,
                cl::Event *event);
 
     /// Preparation for the second pass after the first pass
@@ -430,24 +385,20 @@ private:
 
     /// Implementation of the second-pass functor
     void add(const cl::CommandQueue &queue,
-             const cl::Buffer &vertices,
-             const cl::Buffer &vertexKeys,
-             const cl::Buffer &indices,
-             std::size_t numVertices,
-             std::size_t numInternalVertices,
-             std::size_t numIndices,
+             const DeviceKeyMesh &mesh,
+             const std::vector<cl::Event> *events,
              cl::Event *event);
 
 public:
     virtual unsigned int numPasses() const { return 2; }
 
     /**
-     * Constructor. Unlike the in-core mesh types, the file information must
+     * Constructor. Unlike the in-core mesher types, the file information must
      * be passed to the constructor so that results can be streamed into it.
      *
      * The file will be created on the second pass.
      */
-    BigMesh(FastPly::WriterBase &writer, const std::string &filename);
+    BigMesher(FastPly::WriterBase &writer, const std::string &filename);
 
     virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
 
@@ -461,12 +412,12 @@ public:
 #include <stxxl.h>
 
 /**
- * Mesh class that uses the same algorithm as @ref BigMesh, but stores
+ * Mesher class that uses the same algorithm as @ref BigMesher, but stores
  * the data in STXXL containers before concatenating them rather than
  * using multiple passes. It thus trades storage requirements against
- * performance, at least when @ref BigMesh is compute-bound.
+ * performance, at least when @ref BigMesher is compute-bound.
  */
-class StxxlMesh : public detail::KeyMapMesh
+class StxxlMesher : public detail::KeyMapMesher
 {
 private:
     typedef FastPly::WriterBase::size_type size_type;
@@ -478,12 +429,8 @@ private:
 
     /// Implementation of the functor
     void add(const cl::CommandQueue &queue,
-             const cl::Buffer &vertices,
-             const cl::Buffer &vertexKeys,
-             const cl::Buffer &indices,
-             std::size_t numVertices,
-             std::size_t numInternalVertices,
-             std::size_t numIndices,
+             const DeviceKeyMesh &mesh,
+             const std::vector<cl::Event> *events,
              cl::Event *event);
 
     /// Function object that accepts incoming vertices and writes them to a writer.
@@ -524,8 +471,8 @@ public:
 };
 
 /**
- * Factory function to create a mesh of the specified type.
+ * Factory function to create a mesher of the specified type.
  */
-MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename);
+MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename);
 
-#endif /* !MESH_H */
+#endif /* !MESHER_H */

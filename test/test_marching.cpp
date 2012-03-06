@@ -29,7 +29,7 @@
 #include "manifold.h"
 #include "../src/clh.h"
 #include "../src/marching.h"
-#include "../src/mesh.h"
+#include "../src/mesher.h"
 #include "../src/fast_ply.h"
 
 using namespace std;
@@ -415,16 +415,16 @@ void TestMarching::testGenerate(
     queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 
     Marching marching(context, device, maxWidth, maxHeight);
-    WeldMesh mesh;
+    WeldMesher mesher;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, mesh.outputFunctor(0), size, keyOffset, scale, bias, NULL);
+    marching.generate(queue, input, mesher.outputFunctor(0), size, keyOffset, scale, bias, NULL);
 
-    mesh.finalize();
+    mesher.finalize();
     FastPly::StreamWriter writer;
-    mesh.write(writer, filename);
+    mesher.write(writer, filename);
 
     MemoryWriter mwriter;
-    mesh.write(mwriter, filename);
+    mesher.write(mwriter, filename);
     const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = mwriter.getTriangles();
     std::string reason = Manifold::isManifold(mwriter.getVertices().size(), triangles.begin(), triangles.end());
     CPPUNIT_ASSERT_EQUAL(string(""), reason);

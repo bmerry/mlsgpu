@@ -31,21 +31,22 @@
 #include <map>
 #include <string>
 #include <ostream>
-#include "mesh.h"
+#include "mesher.h"
 #include "fast_ply.h"
 #include "logging.h"
 #include "errors.h"
 #include "progress.h"
 #include "union_find.h"
 #include "statistics.h"
+#include "clh.h"
 
-std::map<std::string, MeshType> MeshTypeWrapper::getNameMap()
+std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
-    std::map<std::string, MeshType> ans;
-    ans["simple"] = SIMPLE_MESH;
-    ans["weld"] = WELD_MESH;
-    ans["big"] = BIG_MESH;
-    ans["stxxl"] = STXXL_MESH;
+    std::map<std::string, MesherType> ans;
+    ans["simple"] = SIMPLE_MESHER;
+    ans["weld"] = WELD_MESHER;
+    ans["big"] = BIG_MESHER;
+    ans["stxxl"] = STXXL_MESHER;
     return ans;
 }
 
@@ -64,16 +65,12 @@ public:
         : out(out), mutex(mutex) {}
 
     void operator()(const cl::CommandQueue &queue,
-                    const cl::Buffer &vertices,
-                    const cl::Buffer &vertexKeys,
-                    const cl::Buffer &indices,
-                    std::size_t numVertices,
-                    std::size_t numInternalVertices,
-                    std::size_t numIndices,
+                    const DeviceKeyMesh &mesh,
+                    const std::vector<cl::Event> *events,
                     cl::Event *event)
     {
         boost::lock_guard<boost::mutex> lock(mutex);
-        out(queue, vertices, vertexKeys, indices, numVertices, numInternalVertices, numIndices, event);
+        out(queue, mesh, events, event);
     }
 };
 
@@ -88,49 +85,39 @@ static Marching::OutputFunctor serializeOutputFunctor(const T &out, boost::mutex
     return SerializeOutputFunctor<T>(out, mutex);
 }
 
-void SimpleMesh::add(const cl::CommandQueue &queue,
-                     const cl::Buffer &vertices,
-                     const cl::Buffer &vertexKeys,
-                     const cl::Buffer &indices,
-                     std::size_t numVertices,
-                     std::size_t numInternalVertices,
-                     std::size_t numIndices,
-                     cl::Event *event)
+void SimpleMesher::add(const cl::CommandQueue &queue,
+                       const DeviceKeyMesh &mesh,
+                       const std::vector<cl::Event> *events,
+                       cl::Event *event)
 {
-    /* Unused parameters */
-    (void) numInternalVertices;
-    (void) vertexKeys;
-
     std::size_t oldVertices = this->vertices.size();
     std::size_t oldTriangles = this->triangles.size();
-    std::size_t numTriangles = numIndices / 3;
-    this->vertices.resize(oldVertices + numVertices);
-    this->triangles.resize(oldTriangles + numTriangles);
+    this->vertices.resize(oldVertices + mesh.numVertices);
+    this->triangles.resize(oldTriangles + mesh.numTriangles);
 
-    std::vector<cl::Event> wait(1);
-    cl::Event last;
-    queue.enqueueReadBuffer(vertices, CL_FALSE,
-                            0, numVertices * (3 * sizeof(cl_float)),
-                            &this->vertices[oldVertices][0],
-                            NULL, &last);
-    wait[0] = last;
-    queue.enqueueReadBuffer(indices, CL_TRUE,
-                            0, numTriangles * (3 * sizeof(cl_uint)),
-                            &triangles[oldTriangles][0],
-                            &wait, &last);
+    cl::Event verticesEvent;
+    queue.enqueueReadBuffer(mesh.vertices, CL_FALSE,
+                            0, mesh.numVertices * (3 * sizeof(cl_float)),
+                            &vertices[oldVertices][0],
+                            events, &verticesEvent);
+    // Kick off this enqueue in the backward while enqueuing more work
     queue.flush();
+    queue.enqueueReadBuffer(mesh.triangles, CL_TRUE,
+                            0, mesh.numTriangles * (3 * sizeof(cl_uint)),
+                            &triangles[oldTriangles][0],
+                            events, NULL);
 
     /* Adjust the indices to be global */
-    for (std::size_t i = oldTriangles; i < oldTriangles + numTriangles; i++)
+    for (std::size_t i = oldTriangles; i < oldTriangles + mesh.numTriangles; i++)
         for (unsigned int j = 0; j < 3; j++)
             triangles[i][j] += oldVertices;
 
     if (event != NULL)
-        *event = last;
+        *event = verticesEvent;
 }
 
-void SimpleMesh::write(FastPly::WriterBase &writer, const std::string &filename,
-                       std::ostream *progressStream) const
+void SimpleMesher::write(FastPly::WriterBase &writer, const std::string &filename,
+                         std::ostream *progressStream) const
 {
     (void) progressStream;
 
@@ -141,41 +128,37 @@ void SimpleMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
 }
 
-Marching::OutputFunctor SimpleMesh::outputFunctor(unsigned int pass)
+Marching::OutputFunctor SimpleMesher::outputFunctor(unsigned int pass)
 {
     /* only one pass, so ignore it */
     (void) pass;
     assert(pass == 0);
 
-    return serializeOutputFunctor(boost::bind(&SimpleMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
+    return serializeOutputFunctor(boost::bind(&SimpleMesher::add, this, _1, _2, _3, _4), mutex);
 }
 
 
-void WeldMesh::add(const cl::CommandQueue &queue,
-                   const cl::Buffer &vertices,
-                   const cl::Buffer &vertexKeys,
-                   const cl::Buffer &indices,
-                   std::size_t numVertices,
-                   std::size_t numInternal,
-                   std::size_t numIndices,
-                   cl::Event *event)
+void WeldMesher::add(const cl::CommandQueue &queue,
+                     const DeviceKeyMesh &mesh,
+                     const std::vector<cl::Event> *events,
+                     cl::Event *event)
 {
-    std::size_t oldInternal = internalVertices.size();
-    std::size_t oldExternal = externalVertices.size();
-    std::size_t oldTriangles = triangles.size();
-    std::size_t numExternal = numVertices - numInternal;
-    std::size_t numTriangles = numIndices / 3;
+    const std::size_t oldInternal = internalVertices.size();
+    const std::size_t oldExternal = externalVertices.size();
+    const std::size_t oldTriangles = triangles.size();
+    const std::size_t numInternal = mesh.numInternalVertices;
+    const std::size_t numExternal = mesh.numVertices - numInternal;
 
     internalVertices.resize(oldInternal + numInternal);
     externalVertices.resize(oldExternal + numExternal);
     externalKeys.resize(externalVertices.size());
-    triangles.resize(oldTriangles + numTriangles);
+    triangles.resize(oldTriangles + mesh.numTriangles);
 
-    cl::Event indicesEvent, last;
+    cl::Event indicesEvent, internalVerticesEvent, externalVerticesEvent, vertexKeysEvent;
     std::vector<cl::Event> wait;
 
-    queue.enqueueReadBuffer(indices, CL_FALSE, 0, numTriangles * (3 * sizeof(cl_uint)),
-                            &triangles[oldTriangles][0], NULL, &indicesEvent);
+    queue.enqueueReadBuffer(mesh.triangles, CL_FALSE, 0, mesh.numTriangles * (3 * sizeof(cl_uint)),
+                            &triangles[oldTriangles][0], events, &indicesEvent);
     queue.flush(); // Kick off this read-back in the background while we queue more.
 
     /* Read back the vertex and key data. We don't need it now, so we just return
@@ -184,29 +167,27 @@ void WeldMesh::add(const cl::CommandQueue &queue,
      */
     if (numInternal > 0)
     {
-        queue.enqueueReadBuffer(vertices, CL_FALSE,
+        queue.enqueueReadBuffer(mesh.vertices, CL_FALSE,
                                 0,
                                 numInternal * (3 * sizeof(cl_float)),
                                 &internalVertices[oldInternal][0],
-                                NULL, &last);
-        wait.resize(1);
-        wait[0] = last;
+                                events, &internalVerticesEvent);
+        wait.push_back(internalVerticesEvent);
     }
     if (numExternal > 0)
     {
-        queue.enqueueReadBuffer(vertices, CL_FALSE,
+        queue.enqueueReadBuffer(mesh.vertices, CL_FALSE,
                                 numInternal * (3 * sizeof(cl_float)),
                                 numExternal * (3 * sizeof(cl_float)),
                                 &externalVertices[oldExternal][0],
-                                &wait, &last);
-        wait.resize(1);
-        wait[0] = last;
-        queue.enqueueReadBuffer(vertexKeys, CL_FALSE,
+                                events, &externalVerticesEvent);
+        queue.enqueueReadBuffer(mesh.vertexKeys, CL_FALSE,
                                 numInternal * sizeof(cl_ulong),
                                 numExternal * sizeof(cl_ulong),
                                 &externalKeys[oldExternal],
-                                &wait, &last);
-        wait[0] = last;
+                                events, &vertexKeysEvent);
+        wait.push_back(externalVerticesEvent);
+        wait.push_back(vertexKeysEvent);
     }
 
     /* Rewrite indices to refer to the two separate arrays, at the same time
@@ -214,10 +195,11 @@ void WeldMesh::add(const cl::CommandQueue &queue,
      * these offsets may wrap around, but that is well-defined for unsigned
      * values.
      */
+    queue.flush();
     indicesEvent.wait();
     cl_uint offsetInternal = oldInternal;
     cl_uint offsetExternal = oldExternal - numInternal;
-    for (std::size_t i = oldTriangles; i < oldTriangles + numTriangles; i++)
+    for (std::size_t i = oldTriangles; i < oldTriangles + mesh.numTriangles; i++)
         for (unsigned int j = 0; j < 3; j++)
         {
             cl_uint &index = triangles[i][j];
@@ -226,11 +208,15 @@ void WeldMesh::add(const cl::CommandQueue &queue,
             else
                 index = ~(index + offsetExternal);
         }
+
     if (event != NULL)
-        *event = last; /* Waits for vertices to be transferred */
+    {
+        CLH::enqueueMarkerWithWaitList(queue, &wait, event);
+        queue.flush();
+    }
 }
 
-void WeldMesh::finalize(std::ostream *progressStream)
+void WeldMesher::finalize(std::ostream *progressStream)
 {
     std::size_t welded = 0;
     std::tr1::unordered_map<cl_ulong, cl_uint> place; // maps keys to new positions
@@ -345,11 +331,11 @@ void WeldMesh::finalize(std::ostream *progressStream)
     triangles.resize(newTriangles);
 }
 
-void WeldMesh::write(FastPly::WriterBase &writer, const std::string &filename,
+void WeldMesher::write(FastPly::WriterBase &writer, const std::string &filename,
                      std::ostream *progressStream) const
 {
     // Probably not worth trying to use this given the amount of data that can be
-    // handled by WeldMesh
+    // handled by WeldMesher
     (void) progressStream;
 
     writer.setNumVertices(internalVertices.size());
@@ -359,74 +345,27 @@ void WeldMesh::write(FastPly::WriterBase &writer, const std::string &filename,
     writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
 }
 
-Marching::OutputFunctor WeldMesh::outputFunctor(unsigned int pass)
+Marching::OutputFunctor WeldMesher::outputFunctor(unsigned int pass)
 {
     /* only one pass, so ignore it */
     (void) pass;
     assert(pass == 0);
 
-    return serializeOutputFunctor(boost::bind(&WeldMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
+    return serializeOutputFunctor(boost::bind(&WeldMesher::add, this, _1, _2, _3, _4), mutex);
 }
 
 
 namespace detail
 {
 
-void KeyMapMesh::loadData(
-    const cl::CommandQueue &queue,
-    const cl::Buffer &dVertices,
-    const cl::Buffer &dVertexKeys,
-    const cl::Buffer &dIndices,
-    std::vector<boost::array<cl_float, 3> > &hVertices,
-    std::vector<cl_ulong> &hVertexKeys,
-    std::vector<boost::array<cl_uint, 3> > &hTriangles,
-    std::size_t numVertices,
-    std::size_t numInternalVertices,
-    std::size_t numTriangles,
-    cl::Event *verticesEvent,
-    cl::Event *trianglesEvent) const
-{
-    cl::Event keysEvent;
-    std::size_t numExternalVertices = numVertices - numInternalVertices;
-
-    hVertices.resize(numVertices);
-    hVertexKeys.resize(numExternalVertices);
-    hTriangles.resize(numTriangles);
-    // TODO: revisit the dependency graph
-    if (numExternalVertices > 0)
-    {
-        queue.enqueueReadBuffer(dVertexKeys, CL_FALSE,
-                                numInternalVertices * sizeof(cl_ulong),
-                                numExternalVertices * sizeof(cl_ulong),
-                                &hVertexKeys[0],
-                                NULL, &keysEvent);
-        /* Start this transfer going while we queue up the following ones */
-        queue.flush();
-    }
-
-    if (dVertices())
-    {
-        queue.enqueueReadBuffer(dVertices, CL_FALSE, 0, numVertices * (3 * sizeof(cl_float)),
-                                &hVertices[0][0], NULL, verticesEvent);
-    }
-    queue.enqueueReadBuffer(dIndices, CL_FALSE,
-                            0, numTriangles * (3 * sizeof(cl_uint)),
-                            &hTriangles[0][0],
-                            NULL, trianglesEvent);
-    queue.flush();
-    if (numExternalVertices > 0)
-        keysEvent.wait();
-}
-
-void KeyMapMesh::computeLocalComponents(
-    std::size_t numVertices,
-    const std::vector<boost::array<cl_uint, 3> > &triangles,
+void KeyMapMesher::computeLocalComponents(
+    const HostMesh &mesh,
     std::vector<clump_id> &clumpId)
 {
     tmpNodes.clear();
-    tmpNodes.resize(numVertices);
+    tmpNodes.resize(mesh.vertices.size());
     typedef boost::array<cl_uint, 3> triangle_type;
-    BOOST_FOREACH(const triangle_type &triangle, triangles)
+    BOOST_FOREACH(const triangle_type &triangle, mesh.triangles)
     {
         // Only need to use two edges in the union-find tree, since the
         // third will be redundant.
@@ -435,8 +374,8 @@ void KeyMapMesh::computeLocalComponents(
     }
 
     // Allocate clumps for the local components
-    clumpId.resize(numVertices);
-    for (std::size_t i = 0; i < numVertices; i++)
+    clumpId.resize(mesh.vertices.size());
+    for (std::size_t i = 0; i < mesh.vertices.size(); i++)
     {
         if (tmpNodes[i].isRoot())
         {
@@ -450,21 +389,21 @@ void KeyMapMesh::computeLocalComponents(
     }
 
     // Compute clump IDs for the non-root vertices
-    for (std::size_t i = 0; i < numVertices; i++)
+    for (std::size_t i = 0; i < mesh.vertices.size(); i++)
     {
         cl_int r = UnionFind::findRoot(tmpNodes, i);
         clumpId[i] = clumpId[r];
     }
 
     // Compute triangle counts for the clumps
-    BOOST_FOREACH(const triangle_type &triangle, triangles)
+    BOOST_FOREACH(const triangle_type &triangle, mesh.triangles)
     {
         Clump &clump = clumps[clumpId[triangle[0]]];
         clump.triangles++;
     }
 }
 
-std::size_t KeyMapMesh::updateKeyMap(
+std::size_t KeyMapMesher::updateKeyMap(
     cl_uint vertexOffset,
     const std::vector<cl_ulong> &hKeys,
     const std::vector<clump_id> &clumpId,
@@ -480,7 +419,7 @@ std::size_t KeyMapMesh::updateKeyMap(
         clump_id cid = clumpId[i + numInternalVertices];
         ExternalVertexData ed(vertexOffset + newKeys, cid);
         std::pair<map_type::iterator, bool> added;
-        added = keyMap.insert(std::make_pair(tmpVertexKeys[i], ed));
+        added = keyMap.insert(std::make_pair(tmpMesh.vertexKeys[i], ed));
         if (added.second)
             newKeys++;
         else
@@ -498,17 +437,17 @@ std::size_t KeyMapMesh::updateKeyMap(
     return newKeys;
 }
 
-void KeyMapMesh::rewriteTriangles(
+void KeyMapMesher::rewriteTriangles(
     cl_uint priorVertices,
-    std::size_t numInternalVertices,
     const std::vector<cl_uint> &indexTable,
-    std::vector<boost::array<cl_uint, 3> > &triangles) const
+    HostKeyMesh &mesh) const
 {
-    for (std::size_t i = 0; i < triangles.size(); i++)
+    const std::size_t numInternalVertices = mesh.vertices.size() - mesh.vertexKeys.size();
+    for (std::size_t i = 0; i < mesh.triangles.size(); i++)
         for (unsigned int j = 0; j < 3; j++)
         {
-            cl_uint &index = triangles[i][j];
-            assert(index < numInternalVertices + indexTable.size());
+            cl_uint &index = mesh.triangles[i][j];
+            assert(index < mesh.vertices.size());
             if (index < numInternalVertices)
                 index = priorVertices + index;
             else
@@ -518,43 +457,33 @@ void KeyMapMesh::rewriteTriangles(
 
 } // namespace detail
 
-BigMesh::BigMesh(FastPly::WriterBase &writer, const std::string &filename)
+BigMesher::BigMesher(FastPly::WriterBase &writer, const std::string &filename)
     : writer(writer), filename(filename),
     nextVertex(0), nextTriangle(0), pruneThresholdVertices(0)
 {
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }
 
-void BigMesh::count(const cl::CommandQueue &queue,
-                    const cl::Buffer &vertices,
-                    const cl::Buffer &vertexKeys,
-                    const cl::Buffer &indices,
-                    std::size_t numVertices,
-                    std::size_t numInternalVertices,
-                    std::size_t numIndices,
-                    cl::Event *event)
+void BigMesher::count(const cl::CommandQueue &queue,
+                      const DeviceKeyMesh &mesh,
+                      const std::vector<cl::Event> *events,
+                      cl::Event *event)
 {
-    /* Unused parameters */
-    (void) vertices;
+    cl::Event vertexKeysEvent, trianglesEvent;
+    const std::size_t numExternalVertices = mesh.numVertices - mesh.numInternalVertices;
 
-    cl::Event trianglesEvent;
-    const std::size_t numExternalVertices = numVertices - numInternalVertices;
-    const std::size_t numTriangles = numIndices / 3;
-
-    loadData(queue, cl::Buffer(), vertexKeys, indices,
-             tmpVertices, tmpVertexKeys, tmpTriangles,
-             numVertices, numInternalVertices, numTriangles,
-             NULL, &trianglesEvent);
+    enqueueReadMesh(queue, mesh, tmpMesh, events, NULL, &vertexKeysEvent, &trianglesEvent);
 
     trianglesEvent.wait();
-    computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
+    computeLocalComponents(tmpMesh, tmpClumpId);
 
     /* Build keyClump */
+    vertexKeysEvent.wait();
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         std::pair<key_clump_type::iterator, bool> added;
-        clump_id cid = tmpClumpId[i + numInternalVertices];
-        added = keyClump.insert(std::make_pair(tmpVertexKeys[i], cid));
+        clump_id cid = tmpClumpId[i + mesh.numInternalVertices];
+        added = keyClump.insert(std::make_pair(tmpMesh.vertexKeys[i], cid));
         if (!added.second)
         {
             // Merge the clumps that share the external vertex
@@ -568,31 +497,22 @@ void BigMesh::count(const cl::CommandQueue &queue,
     }
 
     if (event != NULL)
-        *event = trianglesEvent;
+        *event = vertexKeysEvent;
 }
 
-void BigMesh::add(const cl::CommandQueue &queue,
-                  const cl::Buffer &vertices,
-                  const cl::Buffer &vertexKeys,
-                  const cl::Buffer &indices,
-                  std::size_t numVertices,
-                  std::size_t numInternalVertices,
-                  std::size_t numIndices,
-                  cl::Event *event)
+void BigMesher::add(const cl::CommandQueue &queue,
+                    const DeviceKeyMesh &mesh,
+                    const std::vector<cl::Event> *events,
+                    cl::Event *event)
 {
-    cl::Event verticesEvent, trianglesEvent;
-    std::size_t numExternalVertices = numVertices - numInternalVertices;
-    std::size_t numTriangles = numIndices / 3;
+    cl::Event verticesEvent, vertexKeysEvent, trianglesEvent;
+    const std::size_t numExternalVertices = mesh.numVertices - mesh.numInternalVertices;
 
-    loadData(queue,
-             vertices, vertexKeys, indices,
-             tmpVertices, tmpVertexKeys, tmpTriangles,
-             numVertices, numInternalVertices, numTriangles,
-             &verticesEvent, &trianglesEvent);
+    enqueueReadMesh(queue, mesh, tmpMesh, events, &verticesEvent, &vertexKeysEvent, &trianglesEvent);
 
     trianglesEvent.wait();
     clumps.clear();
-    computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
+    computeLocalComponents(tmpMesh, tmpClumpId);
 
     /* Determine which components are valid. We no longer need the triangles
      * member of Clump, so we overwrite it with a validity boolean. A clump
@@ -604,10 +524,11 @@ void BigMesh::add(const cl::CommandQueue &queue,
     {
         clumps[i].triangles = (clumps[i].vertices >= pruneThresholdVertices);
     }
+    vertexKeysEvent.wait();
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        if (keyClump[tmpVertexKeys[i]])
-            clumps[tmpClumpId[i + numInternalVertices]].triangles = true;
+        if (keyClump[tmpMesh.vertexKeys[i]])
+            clumps[tmpClumpId[i + mesh.numInternalVertices]].triangles = true;
     }
 
     verticesEvent.wait();
@@ -615,80 +536,75 @@ void BigMesh::add(const cl::CommandQueue &queue,
     /* Apply clump validity to remove unwanted vertices */
     std::size_t vptr = 0;  // next output vertex in compaction
     std::size_t kptr = 0;  // next output key in compaction
-    tmpIndexTable.resize(numVertices);
-    for (std::size_t i = 0; i < numInternalVertices; i++)
+    tmpIndexTable.resize(mesh.numVertices);
+    for (std::size_t i = 0; i < mesh.numInternalVertices; i++)
     {
         if (clumps[tmpClumpId[i]].triangles)
         {
             tmpIndexTable[i] = vptr;
-            tmpVertices[vptr++] = tmpVertices[i];
+            tmpMesh.vertices[vptr++] = tmpMesh.vertices[i];
         }
         else
             tmpIndexTable[i] = 0xFFFFFFFFu;
-        // TODO: need to compact tmpVertexKeys as well!!!
     }
-    for (std::size_t i = numInternalVertices; i < numVertices; i++)
+    for (std::size_t i = mesh.numInternalVertices; i < mesh.numVertices; i++)
     {
         if (clumps[tmpClumpId[i]].triangles)
         {
             tmpIndexTable[i] = vptr;
-            tmpVertices[vptr++] = tmpVertices[i];
-            tmpVertexKeys[kptr++] = tmpVertexKeys[i - numInternalVertices];
+            tmpMesh.vertices[vptr++] = tmpMesh.vertices[i];
+            tmpMesh.vertexKeys[kptr++] = tmpMesh.vertexKeys[i - mesh.numInternalVertices];
         }
         else
             tmpIndexTable[i] = 0xFFFFFFFFu;
     }
-    numVertices = vptr;
-    numExternalVertices = kptr;
-    numInternalVertices = vptr - kptr;
-    tmpVertices.resize(numVertices);
-    tmpVertexKeys.resize(numExternalVertices);
+    tmpMesh.vertices.resize(vptr);
+    tmpMesh.vertexKeys.resize(kptr);
+    const std::size_t newInternalVertices = vptr - kptr;
 
     /* Use clump validity to remove dead triangles and rewrite remaining ones */
     std::size_t tptr = 0;
-    for (std::size_t i = 0; i < numTriangles; i++)
+    for (std::size_t i = 0; i < mesh.numTriangles; i++)
     {
-        if (tmpIndexTable[tmpTriangles[i][0]] != 0xFFFFFFFFu)
+        if (tmpIndexTable[tmpMesh.triangles[i][0]] != 0xFFFFFFFFu)
         {
             for (unsigned int j = 0; j < 3; j++)
-                tmpTriangles[tptr][j] = tmpIndexTable[tmpTriangles[i][j]];
+                tmpMesh.triangles[tptr][j] = tmpIndexTable[tmpMesh.triangles[i][j]];
             tptr++;
         }
     }
-    numTriangles = tptr;
-    tmpTriangles.resize(numTriangles);
+    tmpMesh.triangles.resize(tptr);
 
     std::size_t newKeys = updateKeyMap(
-        nextVertex + numInternalVertices,
-        tmpVertexKeys, tmpClumpId, tmpIndexTable);
+        nextVertex + newInternalVertices,
+        tmpMesh.vertexKeys, tmpClumpId, tmpIndexTable);
 
     /* Compact the vertex list (again) to keep only new external vertices */
-    for (std::size_t i = 0; i < numExternalVertices; i++)
+    for (std::size_t i = 0; i < tmpMesh.vertexKeys.size(); i++)
     {
         const cl_uint pos = tmpIndexTable[i];
         if (pos >= nextVertex)
         {
-            assert(pos - nextVertex >= numInternalVertices
-                   && pos - nextVertex <= numInternalVertices + i);
-            tmpVertices[pos - nextVertex] = tmpVertices[numInternalVertices + i];
+            assert(pos - nextVertex >= newInternalVertices
+                   && pos - nextVertex <= newInternalVertices + i);
+            tmpMesh.vertices[pos - nextVertex] = tmpMesh.vertices[newInternalVertices + i];
         }
     }
-    numVertices = numInternalVertices + newKeys;
-    tmpVertices.resize(numVertices);
 
     /* Rewrite triangles (again) to global indices */
-    rewriteTriangles(nextVertex, numInternalVertices, tmpIndexTable, tmpTriangles);
+    rewriteTriangles(nextVertex, tmpIndexTable, tmpMesh);
+    tmpMesh.vertices.resize(newInternalVertices + newKeys);
 
-    writer.writeVertices(nextVertex, numVertices, &tmpVertices[0][0]);
-    writer.writeTriangles(nextTriangle, numTriangles, &tmpTriangles[0][0]);
-    nextVertex += numInternalVertices + newKeys;
-    nextTriangle += numTriangles;
+    writer.writeVertices(nextVertex, tmpMesh.vertices.size(), &tmpMesh.vertices[0][0]);
+    writer.writeTriangles(nextTriangle, tmpMesh.triangles.size(), &tmpMesh.triangles[0][0]);
+    nextVertex += tmpMesh.vertices.size();
+    nextTriangle += tmpMesh.triangles.size();
 
     if (event != NULL)
         *event = trianglesEvent;
 }
 
-void BigMesh::prepareAdd()
+void BigMesher::prepareAdd()
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -745,22 +661,22 @@ void BigMesh::prepareAdd()
     writer.open(filename);
 }
 
-Marching::OutputFunctor BigMesh::outputFunctor(unsigned int pass)
+Marching::OutputFunctor BigMesher::outputFunctor(unsigned int pass)
 {
     switch (pass)
     {
     case 0:
-        return serializeOutputFunctor(boost::bind(&BigMesh::count, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
+        return serializeOutputFunctor(boost::bind(&BigMesher::count, this, _1, _2, _3, _4), mutex);
     case 1:
         prepareAdd();
-        return serializeOutputFunctor(boost::bind(&BigMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
+        return serializeOutputFunctor(boost::bind(&BigMesher::add, this, _1, _2, _3, _4), mutex);
     default:
         abort();
     }
 }
 
-void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename,
-                    std::ostream *progressStream) const
+void BigMesher::write(FastPly::WriterBase &writer, const std::string &filename,
+                      std::ostream *progressStream) const
 {
     (void) writer;
     (void) filename;
@@ -770,112 +686,106 @@ void BigMesh::write(FastPly::WriterBase &writer, const std::string &filename,
 }
 
 
-StxxlMesh::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type capacity)
+StxxlMesher::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type capacity)
     : writer(writer), nextVertex(0)
 {
     buffer.reserve(capacity);
 }
 
-void StxxlMesh::VertexBuffer::operator()(const boost::array<float, 3> &vertex)
+void StxxlMesher::VertexBuffer::operator()(const boost::array<float, 3> &vertex)
 {
     buffer.push_back(vertex);
     if (buffer.size() == buffer.capacity())
         flush();
 }
 
-void StxxlMesh::VertexBuffer::flush()
+void StxxlMesher::VertexBuffer::flush()
 {
     writer.writeVertices(nextVertex, buffer.size(), &buffer[0][0]);
     nextVertex += buffer.size();
     buffer.clear();
 }
 
-StxxlMesh::TriangleBuffer::TriangleBuffer(FastPly::WriterBase &writer, size_type capacity)
+StxxlMesher::TriangleBuffer::TriangleBuffer(FastPly::WriterBase &writer, size_type capacity)
     : writer(writer), nextTriangle(0)
 {
     nextTriangle = 0;
     buffer.reserve(capacity);
 }
 
-void StxxlMesh::TriangleBuffer::operator()(const boost::array<std::tr1::uint32_t, 3> &triangle)
+void StxxlMesher::TriangleBuffer::operator()(const boost::array<std::tr1::uint32_t, 3> &triangle)
 {
     buffer.push_back(triangle);
     if (buffer.size() == buffer.capacity())
         flush();
 }
 
-void StxxlMesh::add(
+void StxxlMesher::add(
     const cl::CommandQueue &queue,
-    const cl::Buffer &vertices,
-    const cl::Buffer &vertexKeys,
-    const cl::Buffer &indices,
-    std::size_t numVertices,
-    std::size_t numInternalVertices,
-    std::size_t numIndices,
+    const DeviceKeyMesh &mesh,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    cl::Event verticesEvent, indicesEvent;
-    const std::size_t numExternalVertices = numVertices - numInternalVertices;
-    const std::size_t numTriangles = numIndices / 3;
+    cl::Event verticesEvent, vertexKeysEvent, trianglesEvent;
+    const std::size_t numExternalVertices = mesh.numVertices - mesh.numInternalVertices;
     const size_type priorVertices = this->vertices.size();
 
-    loadData(queue, vertices, vertexKeys, indices,
-             tmpVertices, tmpVertexKeys, tmpTriangles,
-             numVertices, numInternalVertices, numTriangles,
-             &verticesEvent, &indicesEvent);
+    enqueueReadMesh(queue, mesh, tmpMesh, events,
+                    &verticesEvent, &vertexKeysEvent, &trianglesEvent);
 
-    indicesEvent.wait();
-    computeLocalComponents(numVertices, tmpTriangles, tmpClumpId);
+    trianglesEvent.wait();
+    computeLocalComponents(tmpMesh, tmpClumpId);
 
+    vertexKeysEvent.wait();
     std::size_t newKeys = updateKeyMap(
-        priorVertices + numInternalVertices,
-        tmpVertexKeys, tmpClumpId, tmpIndexTable);
+        priorVertices + mesh.numInternalVertices,
+        tmpMesh.vertexKeys, tmpClumpId, tmpIndexTable);
 
     /* Copy the vertices into storage */
-    this->vertices.reserve(priorVertices + numInternalVertices + newKeys);
+    vertices.reserve(priorVertices + mesh.numInternalVertices + newKeys);
     verticesEvent.wait();
-    for (std::size_t i = 0; i < numInternalVertices; i++)
+    for (std::size_t i = 0; i < mesh.numInternalVertices; i++)
     {
-        this->vertices.push_back(std::make_pair(tmpVertices[i], tmpClumpId[i]));
+        vertices.push_back(std::make_pair(tmpMesh.vertices[i], tmpClumpId[i]));
     }
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         const cl_uint pos = tmpIndexTable[i];
-        if (pos == this->vertices.size())
+        if (pos == vertices.size())
         {
-            this->vertices.push_back(std::make_pair(
-                    tmpVertices[numInternalVertices + i],
-                    tmpClumpId[numInternalVertices + i]));
+            vertices.push_back(std::make_pair(
+                    tmpMesh.vertices[mesh.numInternalVertices + i],
+                    tmpClumpId[mesh.numInternalVertices + i]));
         }
     }
 
-    rewriteTriangles(priorVertices, numInternalVertices, tmpIndexTable, tmpTriangles);
+    rewriteTriangles(priorVertices, tmpIndexTable, tmpMesh);
 
     // Store the output triangles
-    this->triangles.reserve(this->triangles.size() + tmpTriangles.size());
-    std::copy(tmpTriangles.begin(), tmpTriangles.end(), std::back_inserter(this->triangles));
+    this->triangles.reserve(this->triangles.size() + tmpMesh.triangles.size());
+    std::copy(tmpMesh.triangles.begin(), tmpMesh.triangles.end(), std::back_inserter(triangles));
 
     if (event != NULL)
-        *event = indicesEvent;
+        *event = trianglesEvent;
 }
 
-Marching::OutputFunctor StxxlMesh::outputFunctor(unsigned int pass)
+Marching::OutputFunctor StxxlMesher::outputFunctor(unsigned int pass)
 {
     /* only one pass, so ignore it */
     (void) pass;
     assert(pass == 0);
 
-    return serializeOutputFunctor(boost::bind(&StxxlMesh::add, this, _1, _2, _3, _4, _5, _6, _7, _8), mutex);
+    return serializeOutputFunctor(boost::bind(&StxxlMesher::add, this, _1, _2, _3, _4), mutex);
 }
 
-void StxxlMesh::TriangleBuffer::flush()
+void StxxlMesher::TriangleBuffer::flush()
 {
     writer.writeTriangles(nextTriangle, buffer.size(), &buffer[0][0]);
     nextTriangle += buffer.size();
     buffer.clear();
 }
 
-void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
+void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename,
                       std::ostream *progressStream) const
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
@@ -979,14 +889,14 @@ void StxxlMesh::write(FastPly::WriterBase &writer, const std::string &filename,
 }
 
 
-MeshBase *createMesh(MeshType type, FastPly::WriterBase &writer, const std::string &filename)
+MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename)
 {
     switch (type)
     {
-    case SIMPLE_MESH: return new SimpleMesh();
-    case WELD_MESH:   return new WeldMesh();
-    case BIG_MESH:    return new BigMesh(writer, filename);
-    case STXXL_MESH:  return new StxxlMesh();
+    case SIMPLE_MESHER: return new SimpleMesher();
+    case WELD_MESHER:   return new WeldMesher();
+    case BIG_MESHER:    return new BigMesher(writer, filename);
+    case STXXL_MESHER:  return new StxxlMesher();
     }
     return NULL; // should never be reached
 }

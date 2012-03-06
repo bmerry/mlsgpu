@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * Test code for @ref mesh.cpp.
+ * Test code for @ref mesher.cpp.
  */
 
 #if HAVE_CONFIG_H
@@ -30,19 +30,19 @@
 #include <CL/cl.hpp>
 #include "testmain.h"
 #include "../src/fast_ply.h"
-#include "../src/mesh.h"
+#include "../src/mesher.h"
 #include "test_clh.h"
 #include "memory_writer.h"
 
 using namespace std;
 
 /**
- * Tests that are shared across all the @ref MeshBase subclasses, including those
+ * Tests that are shared across all the @ref MesherBase subclasses, including those
  * that don't do welding.
  */
-class TestMeshBase : public CLH::Test::TestFixture
+class TestMesherBase : public CLH::Test::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestMeshBase);
+    CPPUNIT_TEST_SUITE(TestMesherBase);
     CPPUNIT_TEST(testSimple);
     CPPUNIT_TEST(testNoInternal);
     CPPUNIT_TEST(testNoExternal);
@@ -58,7 +58,7 @@ private:
         std::tr1::uint32_t idx2) const;
 
 protected:
-    virtual MeshBase *meshFactory(FastPly::WriterBase &writer) = 0;
+    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer) = 0;
 
     /**
      * Call the output functor with the data provided. This is a convenience
@@ -113,7 +113,7 @@ public:
     void testEmpty();           ///< Empty mesh
 };
 
-const boost::array<cl_float, 3> TestMeshBase::internalVertices0[] =
+const boost::array<cl_float, 3> TestMesherBase::internalVertices0[] =
 {
     {{ 0.0f, 0.0f, 1.0f }},
     {{ 0.0f, 0.0f, 2.0f }},
@@ -121,51 +121,51 @@ const boost::array<cl_float, 3> TestMeshBase::internalVertices0[] =
     {{ 0.0f, 0.0f, 4.0f }},
     {{ 0.0f, 0.0f, 5.0f }}
 };
-const cl_uint TestMeshBase::indices0[] =
+const cl_uint TestMesherBase::indices0[] =
 {
     0, 1, 3,
     1, 2, 3,
     3, 4, 0
 };
 
-const boost::array<cl_float, 3> TestMeshBase::externalVertices1[] =
+const boost::array<cl_float, 3> TestMesherBase::externalVertices1[] =
 {
     {{ 1.0f, 0.0f, 1.0f }},
     {{ 1.0f, 0.0f, 2.0f }},
     {{ 1.0f, 0.0f, 3.0f }},
     {{ 1.0f, 0.0f, 4.0f }}
 };
-const cl_ulong TestMeshBase::externalKeys1[] =
+const cl_ulong TestMesherBase::externalKeys1[] =
 {
     UINT64_C(0),
     UINT64_C(0x8000000000000000),
     UINT64_C(1),
     UINT64_C(0x8000000000000001)
 };
-const cl_uint TestMeshBase::indices1[] =
+const cl_uint TestMesherBase::indices1[] =
 {
     0, 1, 3,
     1, 2, 3,
     2, 0, 3
 };
 
-const boost::array<cl_float, 3> TestMeshBase::internalVertices2[] =
+const boost::array<cl_float, 3> TestMesherBase::internalVertices2[] =
 {
     {{ 0.0f, 1.0f, 0.0f }},
     {{ 0.0f, 2.0f, 0.0f }},
     {{ 0.0f, 3.0f, 0.0f }}
 };
-const boost::array<cl_float, 3> TestMeshBase::externalVertices2[] =
+const boost::array<cl_float, 3> TestMesherBase::externalVertices2[] =
 {
     {{ 2.0f, 0.0f, 1.0f }},
     {{ 2.0f, 0.0f, 2.0f }}
 };
-const cl_ulong TestMeshBase::externalKeys2[] =
+const cl_ulong TestMesherBase::externalKeys2[] =
 {
     UINT64_C(0x1234567812345678),
     UINT64_C(0x12345678)
 };
-const cl_uint TestMeshBase::indices2[] =
+const cl_uint TestMesherBase::indices2[] =
 {
     0, 1, 3,
     1, 4, 3,
@@ -175,7 +175,7 @@ const cl_uint TestMeshBase::indices2[] =
 };
 
 
-boost::array<std::tr1::uint32_t, 3> TestMeshBase::canonicalTriangle(
+boost::array<std::tr1::uint32_t, 3> TestMesherBase::canonicalTriangle(
     std::tr1::uint32_t idx0,
     std::tr1::uint32_t idx1,
     std::tr1::uint32_t idx2) const
@@ -189,7 +189,7 @@ boost::array<std::tr1::uint32_t, 3> TestMeshBase::canonicalTriangle(
     return *min_element(rot, rot + 3);
 }
 
-void TestMeshBase::add(
+void TestMesherBase::add(
     const Marching::OutputFunctor &functor,
     size_t numInternalVertices,
     size_t numExternalVertices,
@@ -199,45 +199,44 @@ void TestMeshBase::add(
     const cl_ulong *externalKeys,
     const cl_uint *indices)
 {
-    size_t numVertices = numInternalVertices + numExternalVertices;
+    const size_t numTriangles = numIndices / 3;
+    const size_t numVertices = numInternalVertices + numExternalVertices;
     assert(numVertices > 0 && numIndices > 0);
+    assert(numIndices % 3 == 0);
 
-    cl::Buffer dVertices(context, CL_MEM_READ_WRITE, numVertices * 3 * sizeof(cl_float));
-    cl::Buffer dVertexKeys(context, CL_MEM_READ_WRITE, numVertices * sizeof(cl_ulong));
-    cl::Buffer dIndices(context, CL_MEM_READ_WRITE, numIndices * sizeof(cl_uint));
+    DeviceKeyMesh dMesh(context, CL_MEM_READ_WRITE, numVertices, numInternalVertices, numTriangles);
     if (numInternalVertices > 0)
     {
-        queue.enqueueWriteBuffer(dVertices, CL_FALSE,
+        queue.enqueueWriteBuffer(dMesh.vertices, CL_FALSE,
                                  0,
-                                 numInternalVertices * 3 * sizeof(cl_float),
+                                 numInternalVertices * (3 * sizeof(cl_float)),
                                  internalVertices);
     }
     if (numExternalVertices > 0)
     {
-        queue.enqueueWriteBuffer(dVertices, CL_FALSE,
-                                 numInternalVertices * 3 * sizeof(cl_float),
-                                 numExternalVertices * 3 * sizeof(cl_float),
+        queue.enqueueWriteBuffer(dMesh.vertices, CL_FALSE,
+                                 numInternalVertices * (3 * sizeof(cl_float)),
+                                 numExternalVertices * (3 * sizeof(cl_float)),
                                  externalVertices);
-        queue.enqueueWriteBuffer(dVertexKeys, CL_FALSE,
+        queue.enqueueWriteBuffer(dMesh.vertexKeys, CL_FALSE,
                                  numInternalVertices * sizeof(cl_ulong),
                                  numExternalVertices * sizeof(cl_ulong),
                                  externalKeys);
     }
-    queue.enqueueWriteBuffer(dIndices, CL_FALSE,
+    queue.enqueueWriteBuffer(dMesh.triangles, CL_FALSE,
                              0,
-                             numIndices * sizeof(cl_uint),
+                             numTriangles * (3 * sizeof(cl_uint)),
                              indices);
     queue.finish();
 
     cl::Event event;
-    functor(queue, dVertices, dVertexKeys, dIndices,
-            numVertices, numInternalVertices, numIndices, &event);
+    functor(queue, dMesh, NULL, &event);
 
     queue.flush();
     event.wait();
 }
 
-void TestMeshBase::checkIsomorphic(
+void TestMesherBase::checkIsomorphic(
     size_t numVertices, size_t numIndices,
     const boost::array<cl_float, 3> *expectedVertices,
     const cl_uint *expectedIndices,
@@ -295,7 +294,7 @@ void TestMeshBase::checkIsomorphic(
     }
 }
 
-void TestMeshBase::testSimple()
+void TestMesherBase::testSimple()
 {
     const boost::array<cl_float, 3> expectedVertices[] =
     {
@@ -330,12 +329,12 @@ void TestMeshBase::testSimple()
     };
 
     MemoryWriter writer;
-    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
-    unsigned int passes = mesh->numPasses();
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
+    unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesh->outputFunctor(i);
-        /* Reverse the order on each pass, to ensure that the mesh
+        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        /* Reverse the order on each pass, to ensure that the mesher
          * classes are robust to non-deterministic reordering.
          */
         if (i % 2 == 0)
@@ -367,8 +366,8 @@ void TestMeshBase::testSimple()
                 internalVertices0, NULL, NULL, indices0);
         }
     }
-    mesh->finalize();
-    mesh->write(writer, "");
+    mesher->finalize();
+    mesher->write(writer, "");
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(5, int(boost::size(internalVertices0)));
@@ -377,7 +376,7 @@ void TestMeshBase::testSimple()
                     expectedVertices, expectedIndices, writer);
 }
 
-void TestMeshBase::testNoInternal()
+void TestMesherBase::testNoInternal()
 {
     // Shadows the class version, which is for internal+external.
     const cl_uint indices2[] =
@@ -406,11 +405,11 @@ void TestMeshBase::testNoInternal()
     };
 
     MemoryWriter writer;
-    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
-    unsigned int passes = mesh->numPasses();
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
+    unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesh->outputFunctor(i);
+        Marching::OutputFunctor functor = mesher->outputFunctor(i);
         add(functor,
             0, boost::size(externalVertices1), boost::size(indices1),
             NULL, externalVertices1, externalKeys1, indices1);
@@ -420,14 +419,14 @@ void TestMeshBase::testNoInternal()
             boost::size(indices2),
             NULL, externalVertices2, externalKeys2, indices2);
     }
-    mesh->finalize();
-    mesh->write(writer, "");
+    mesher->finalize();
+    mesher->write(writer, "");
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
 }
 
-void TestMeshBase::testNoExternal()
+void TestMesherBase::testNoExternal()
 {
     // Shadows the class version, which is for internal+external.
     const cl_uint indices2[] =
@@ -458,11 +457,11 @@ void TestMeshBase::testNoExternal()
     };
 
     MemoryWriter writer;
-    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
-    unsigned int passes = mesh->numPasses();
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
+    unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesh->outputFunctor(i);
+        Marching::OutputFunctor functor = mesher->outputFunctor(i);
         add(functor,
             boost::size(internalVertices0), 0, boost::size(indices0),
             internalVertices0, NULL, NULL, indices0);
@@ -472,51 +471,51 @@ void TestMeshBase::testNoExternal()
             boost::size(indices2),
             internalVertices2, NULL, NULL, indices2);
     }
-    mesh->finalize();
-    mesh->write(writer, "");
+    mesher->finalize();
+    mesher->write(writer, "");
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
 }
 
-void TestMeshBase::testEmpty()
+void TestMesherBase::testEmpty()
 {
     MemoryWriter writer;
-    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
-    unsigned int passes = mesh->numPasses();
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
+    unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesh->outputFunctor(i);
+        Marching::OutputFunctor functor = mesher->outputFunctor(i);
     }
-    mesh->finalize();
-    mesh->write(writer, "");
+    mesher->finalize();
+    mesher->write(writer, "");
 
     CPPUNIT_ASSERT(writer.getVertices().empty());
     CPPUNIT_ASSERT(writer.getTriangles().empty());
 }
 
-class TestSimpleMesh : public TestMeshBase
+class TestSimpleMesher : public TestMesherBase
 {
-    CPPUNIT_TEST_SUB_SUITE(TestSimpleMesh, TestMeshBase);
+    CPPUNIT_TEST_SUB_SUITE(TestSimpleMesher, TestMesherBase);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual MeshBase *meshFactory(FastPly::WriterBase &writer);
+    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSimpleMesh, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSimpleMesher, TestSet::perBuild());
 
-MeshBase *TestSimpleMesh::meshFactory(FastPly::WriterBase &)
+MesherBase *TestSimpleMesher::mesherFactory(FastPly::WriterBase &)
 {
-    return new SimpleMesh();
+    return new SimpleMesher();
 }
 
-class TestWeldMesh : public TestMeshBase
+class TestWeldMesher : public TestMesherBase
 {
-    CPPUNIT_TEST_SUB_SUITE(TestWeldMesh, TestMeshBase);
+    CPPUNIT_TEST_SUB_SUITE(TestWeldMesher, TestMesherBase);
     CPPUNIT_TEST(testWeld);
     CPPUNIT_TEST(testPrune);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual MeshBase *meshFactory(FastPly::WriterBase &writer);
+    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
 
     static const boost::array<cl_float, 3> internalVertices3[];
     static const boost::array<cl_float, 3> externalVertices3[];
@@ -526,14 +525,14 @@ public:
     void testWeld();     ///< Tests vertex welding
     void testPrune();    ///< Tests component pruning
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWeldMesh, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWeldMesher, TestSet::perBuild());
 
-const boost::array<cl_float, 3> TestWeldMesh::internalVertices3[] =
+const boost::array<cl_float, 3> TestWeldMesher::internalVertices3[] =
 {
     {{ 3.0f, 3.0f, 3.0f }}
 };
 
-const boost::array<cl_float, 3> TestWeldMesh::externalVertices3[] =
+const boost::array<cl_float, 3> TestWeldMesher::externalVertices3[] =
 {
     {{ 4.0f, 5.0f, 6.0f }},
     {{ 1.0f, 0.0f, 2.0f }},
@@ -541,7 +540,7 @@ const boost::array<cl_float, 3> TestWeldMesh::externalVertices3[] =
     {{ 2.0f, 0.0f, 2.0f }}
 };
 
-const cl_ulong TestWeldMesh::externalKeys3[] =
+const cl_ulong TestWeldMesher::externalKeys3[] =
 {
     100,
     UINT64_C(0x8000000000000000),   // shared with externalKeys1
@@ -549,14 +548,14 @@ const cl_ulong TestWeldMesh::externalKeys3[] =
     UINT64_C(0x12345678)            // shared with externalKeys2
 };
 
-const cl_uint TestWeldMesh::indices3[] =
+const cl_uint TestWeldMesher::indices3[] =
 {
     0, 2, 1,
     1, 2, 4,
     4, 2, 3
 };
 
-void TestWeldMesh::testWeld()
+void TestWeldMesher::testWeld()
 {
     const boost::array<cl_float, 3> expectedVertices[] =
     {
@@ -596,11 +595,11 @@ void TestWeldMesh::testWeld()
     };
 
     MemoryWriter writer;
-    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
-    unsigned int passes = mesh->numPasses();
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
+    unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesh->outputFunctor(i);
+        Marching::OutputFunctor functor = mesher->outputFunctor(i);
         add(functor,
             boost::size(internalVertices0), 0, boost::size(indices0),
             internalVertices0, NULL, NULL, indices0);
@@ -618,8 +617,8 @@ void TestWeldMesh::testWeld()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesh->finalize();
-    mesh->write(writer, "");
+    mesher->finalize();
+    mesher->write(writer, "");
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(9, int(boost::size(indices3)));
@@ -628,7 +627,7 @@ void TestWeldMesh::testWeld()
                     expectedVertices, expectedIndices, writer);
 }
 
-void TestWeldMesh::testPrune()
+void TestWeldMesher::testPrune()
 {
     /* There are several cases to test:
      * - A: Component entirely contained in one block, undersized: 5 vertices in block 0.
@@ -772,13 +771,13 @@ void TestWeldMesh::testPrune()
     };
 
     MemoryWriter writer;
-    boost::scoped_ptr<MeshBase> mesh(meshFactory(writer));
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     // There are 22 vertices total, and we want a threshold of 6
-    mesh->setPruneThreshold(6.5 / 22.0);
-    unsigned int passes = mesh->numPasses();
+    mesher->setPruneThreshold(6.5 / 22.0);
+    unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesh->outputFunctor(i);
+        Marching::OutputFunctor functor = mesher->outputFunctor(i);
         add(functor,
             boost::size(internalVertices0),
             boost::size(externalVertices0),
@@ -798,42 +797,42 @@ void TestWeldMesh::testPrune()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesh->finalize();
-    mesh->write(writer, "");
+    mesher->finalize();
+    mesher->write(writer, "");
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
 }
 
-MeshBase *TestWeldMesh::meshFactory(FastPly::WriterBase &)
+MesherBase *TestWeldMesher::mesherFactory(FastPly::WriterBase &)
 {
-    return new WeldMesh();
+    return new WeldMesher();
 }
 
-class TestBigMesh : public TestWeldMesh
+class TestBigMesher : public TestWeldMesher
 {
-    CPPUNIT_TEST_SUB_SUITE(TestBigMesh, TestWeldMesh);
+    CPPUNIT_TEST_SUB_SUITE(TestBigMesher, TestWeldMesher);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual MeshBase *meshFactory(FastPly::WriterBase &writer);
+    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesh, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesher, TestSet::perBuild());
 
-MeshBase *TestBigMesh::meshFactory(FastPly::WriterBase &writer)
+MesherBase *TestBigMesher::mesherFactory(FastPly::WriterBase &writer)
 {
-    return new BigMesh(writer, "");
+    return new BigMesher(writer, "");
 }
 
-class TestStxxlMesh : public TestWeldMesh
+class TestStxxlMesher : public TestWeldMesher
 {
-    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesh, TestWeldMesh);
+    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesher, TestWeldMesher);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual MeshBase *meshFactory(FastPly::WriterBase &writer);
+    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesh, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesher, TestSet::perBuild());
 
-MeshBase *TestStxxlMesh::meshFactory(FastPly::WriterBase &)
+MesherBase *TestStxxlMesher::mesherFactory(FastPly::WriterBase &)
 {
-    return new StxxlMesh();
+    return new StxxlMesher();
 }

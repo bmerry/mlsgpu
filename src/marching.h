@@ -18,6 +18,7 @@
 #include <boost/function.hpp>
 #include <clogs/clogs.h>
 #include "grid.h"
+#include "mesh.h"
 
 class TestMarching;
 
@@ -293,12 +294,18 @@ public:
      * However, it is not guaranteed that the commands enqueued by one call to the
      * functor will complete before the next host call to the functor.
      */
-    typedef boost::function<void(const cl::CommandQueue &, const cl::Image2D &, cl_uint z, const std::vector<cl::Event> *, cl::Event *)> InputFunctor;
+    typedef boost::function<void(
+        const cl::CommandQueue &,
+        const cl::Image2D &,
+        cl_uint z,
+        const std::vector<cl::Event> *,
+        cl::Event *)> InputFunctor;
 
     /**
      * The function type to pass to @ref generate for receiving output data.
      * When invoked, this function must enqueue commands to retrieve the data
-     * from the supplied buffers. It must return an event that will be signaled
+     * from the supplied buffers. It must wait for the given events before
+     * accessing the data, and it must return an event that will be signaled
      * when it is safe for the caller to overwrite the supplied buffers (if it
      * operates synchronously, it should just return an already-signaled user
      * event).
@@ -323,12 +330,8 @@ public:
      * same way as @a vertices, but the keys for internal vertices are undefined.
      */
     typedef boost::function<void(const cl::CommandQueue &,
-                                 const cl::Buffer &vertices,
-                                 const cl::Buffer &vertexKeys,
-                                 const cl::Buffer &indices,
-                                 std::size_t numVertices,
-                                 std::size_t numInternalVertices,
-                                 std::size_t numIndices,
+                                 const DeviceKeyMesh &mesh,
+                                 const std::vector<cl::Event> *events,
                                  cl::Event *event)> OutputFunctor;
 
     /**
@@ -355,7 +358,7 @@ public:
      *
      * @note Because this function needs to read back intermediate results
      * before enqueuing more work, this is not purely an enqueuing operation.
-     * It will block until some of the work has completed. To hide latency, it is
+     * It will block until all of the work has completed. To hide latency, it is
      * necessary to have something happening on another CPU thread.
      *
      * The region that is processed is assumed to be at an offset of @a

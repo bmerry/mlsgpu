@@ -504,11 +504,16 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                                cl::NDRange(sizes.s1),
                                cl::NullRange,
                                &wait, &last);
-    queue.finish(); // wait for readback of numWelded and firstExternal
+    queue.finish(); // wait for readback of numWelded and firstExternal (TODO: overkill)
 
-    output(queue, weldedVertices, weldedVertexKeys, indices, numWelded, hFirstExternal, sizes.s1, &last);
-    if (event != NULL)
-        *event = last;
+    DeviceKeyMesh outputMesh; // TODO: store buffers in this instead of copying references
+    outputMesh.vertices = weldedVertices;
+    outputMesh.vertexKeys = weldedVertexKeys;
+    outputMesh.triangles = indices;
+    outputMesh.numVertices = numWelded;
+    outputMesh.numInternalVertices = hFirstExternal;
+    outputMesh.numTriangles = sizes.s1 / 3;
+    output(queue, outputMesh, NULL, event);
 }
 
 void Marching::generate(

@@ -17,6 +17,7 @@
 #include <boost/function.hpp>
 #include <boost/noncopyable.hpp>
 #include "marching.h"
+#include "mesh.h"
 
 /**
  * Marching output functor for boundary clipping.
@@ -70,12 +71,8 @@ public:
 
     void operator()(
         const cl::CommandQueue &queue,
-        const cl::Buffer &vertices,
-        const cl::Buffer &vertexKeys,
-        const cl::Buffer &indices,
-        std::size_t numVertices,
-        std::size_t numInternalVertices,
-        std::size_t numIndices,
+        const DeviceKeyMesh &mesh,
+        const std::vector<cl::Event> *events,
         cl::Event *event);
 
 private:
@@ -95,9 +92,7 @@ private:
      */
     cl::Buffer triangleCompact;
     clogs::Scan compactScan;    ///< Scanner object for scanning the compaction arrays
-    cl::Buffer outVertices;     ///< Compacted vertices.
-    cl::Buffer outVertexKeys;   ///< Compacted vertex keys.
-    cl::Buffer outIndices;      ///< Compacted triangle indices.
+    DeviceKeyMesh outMesh;      ///< Compacted clipped mesh.
 
     cl::Program program;
     cl::Kernel vertexInitKernel;

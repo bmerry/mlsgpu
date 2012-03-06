@@ -48,17 +48,18 @@ __kernel void triangleCompact(
 }
 
 __kernel void vertexCompact(
-    __global float3 * restrict outVertices,
+    __global float * restrict outVertices,
     __global ulong * restrict outKeys,
     __global const uint * restrict remap,
-    __global const float3 * restrict inVertices,
+    __global const float * restrict inVertices,
     __global const ulong * restrict inKeys)
 {
     uint gid = get_global_id(0);
     uint offset = remap[gid];
     if (offset != remap[gid + 1])
     {
-        outVertices[offset] = inVertices[gid];
+        float3 vertex = vload3(gid, inVertices);
+        vstore3(vertex, offset, outVertices);
         outKeys[offset] = inKeys[gid];
     }
 }

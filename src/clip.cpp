@@ -31,9 +31,7 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
     vertexCompact(context, CL_MEM_READ_WRITE, (maxVertices + 1) * sizeof(cl_uint)),
     triangleCompact(context, CL_MEM_READ_WRITE, (maxTriangles + 1) * sizeof(cl_uint)),
     compactScan(context, device, clogs::TYPE_UINT),
-    outVertices(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_float3)),
-    outVertexKeys(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_ulong)),
-    outIndices(context, CL_MEM_READ_WRITE, maxTriangles * (3 * sizeof(cl_uint)))
+    outMesh(context, CL_MEM_READ_WRITE, maxVertices, 0, maxTriangles)
 {
     std::vector<cl::Device> devices(1, device);
     program = CLH::build(context, devices, "kernels/clip.cl");
@@ -55,22 +53,17 @@ void Clip::setOutput(const Marching::OutputFunctor &output)
 
 void Clip::operator()(
     const cl::CommandQueue &queue,
-    const cl::Buffer &vertices,
-    const cl::Buffer &vertexKeys,
-    const cl::Buffer &indices,
-    std::size_t numVertices,
-    std::size_t numInternalVertices,
-    std::size_t numIndices,
+    const DeviceKeyMesh &mesh,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    const std::size_t numTriangles = numIndices / 3;
-    MLSGPU_ASSERT(numVertices <= maxVertices, std::length_error);
-    MLSGPU_ASSERT(numTriangles <= maxTriangles, std::length_error);
-
-    std::vector<cl::Event> wait;
+    MLSGPU_ASSERT(mesh.numVertices <= maxVertices, std::length_error);
+    MLSGPU_ASSERT(mesh.numTriangles <= maxTriangles, std::length_error);
 
     cl::Event distanceEvent;
-    distanceFunctor(queue, distances, vertices, numVertices, NULL, &distanceEvent);
+    distanceFunctor(queue, distances, mesh.vertices, mesh.numVertices, events, &distanceEvent);
+
+    std::vector<cl::Event> wait;
 
     /* TODO:
      * - Pretty much every call needs to use an explicit work group size
@@ -88,7 +81,7 @@ void Clip::operator()(
     vertexInitKernel.setArg(0, vertexCompact);
     queue.enqueueNDRangeKernel(vertexInitKernel,
                                cl::NullRange,
-                               cl::NDRange(numVertices),
+                               cl::NDRange(mesh.numVertices),
                                cl::NullRange,
                                NULL, &vertexInitEvent);
 
@@ -98,11 +91,11 @@ void Clip::operator()(
     cl::Event classifyEvent;
     classifyKernel.setArg(0, triangleCompact);
     classifyKernel.setArg(1, vertexCompact);
-    classifyKernel.setArg(2, indices);
+    classifyKernel.setArg(2, mesh.triangles);
     classifyKernel.setArg(3, distances);
     queue.enqueueNDRangeKernel(classifyKernel,
                                cl::NullRange,
-                               cl::NDRange(numTriangles),
+                               cl::NDRange(mesh.numTriangles),
                                cl::NullRange,
                                &wait, &classifyEvent);
 
@@ -111,28 +104,30 @@ void Clip::operator()(
     wait.resize(1);
     wait[0] = classifyEvent;
     cl::Event vertexScanEvent;
-    compactScan.enqueue(queue, vertexCompact, numVertices + 1, NULL, &wait, &vertexScanEvent);
+    compactScan.enqueue(queue, vertexCompact, mesh.numVertices + 1, NULL, &wait, &vertexScanEvent);
 
     wait.resize(1);
     wait[0] = vertexScanEvent;
     cl_uint vertexCount = 0, internalVertexCount = 0;
     cl::Event vertexCountEvent, internalVertexCountEvent;
-    queue.enqueueReadBuffer(vertexCompact, CL_FALSE, numInternalVertices * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(vertexCompact, CL_FALSE,
+                            mesh.numInternalVertices * sizeof(cl_uint), sizeof(cl_uint),
                             &internalVertexCount, &wait, &internalVertexCountEvent);
-    queue.enqueueReadBuffer(vertexCompact, CL_FALSE, numVertices * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(vertexCompact, CL_FALSE,
+                            mesh.numVertices * sizeof(cl_uint), sizeof(cl_uint),
                             &vertexCount, &wait, &vertexCountEvent);
 
     wait.resize(1);
     wait[0] = vertexScanEvent;
     cl::Event vertexCompactEvent;
-    vertexCompactKernel.setArg(0, outVertices);
-    vertexCompactKernel.setArg(1, outVertexKeys);
+    vertexCompactKernel.setArg(0, outMesh.vertices);
+    vertexCompactKernel.setArg(1, outMesh.vertexKeys);
     vertexCompactKernel.setArg(2, vertexCompact);
-    vertexCompactKernel.setArg(3, vertices);
-    vertexCompactKernel.setArg(4, vertexKeys);
+    vertexCompactKernel.setArg(3, mesh.vertices);
+    vertexCompactKernel.setArg(4, mesh.vertexKeys);
     queue.enqueueNDRangeKernel(vertexCompactKernel,
                                cl::NullRange,
-                               cl::NDRange(numVertices),
+                               cl::NDRange(mesh.numVertices),
                                cl::NullRange,
                                &wait, &vertexCompactEvent);
 
@@ -141,48 +136,49 @@ void Clip::operator()(
     wait.resize(1);
     wait[0] = classifyEvent;
     cl::Event triangleScanEvent;
-    compactScan.enqueue(queue, triangleCompact, numTriangles + 1, NULL, &wait, &triangleScanEvent);
+    compactScan.enqueue(queue, triangleCompact, mesh.numTriangles + 1, NULL, &wait, &triangleScanEvent);
 
     wait.resize(1);
     wait[0] = triangleScanEvent;
     cl::Event triangleCountEvent;
     cl_uint triangleCount = 0;
-    queue.enqueueReadBuffer(triangleCompact, CL_FALSE, numTriangles * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(triangleCompact, CL_FALSE,
+                            mesh.numTriangles * sizeof(cl_uint), sizeof(cl_uint),
                             &triangleCount, &wait, &triangleCountEvent);
 
     wait.resize(2);
     wait[0] = triangleScanEvent;
     wait[1] = vertexScanEvent;
     cl::Event triangleCompactEvent;
-    triangleCompactKernel.setArg(0, outIndices);
+    triangleCompactKernel.setArg(0, outMesh.triangles);
     triangleCompactKernel.setArg(1, triangleCompact);
-    triangleCompactKernel.setArg(2, indices);
+    triangleCompactKernel.setArg(2, mesh.triangles);
     triangleCompactKernel.setArg(3, vertexCompact);
     queue.enqueueNDRangeKernel(triangleCompactKernel,
                                cl::NullRange,
-                               cl::NDRange(numTriangles),
+                               cl::NDRange(mesh.numTriangles),
                                cl::NullRange,
                                &wait, &triangleCompactEvent);
 
     // Some of these happen-after others and so some steps are redundant, but
     // checking for all of them is safe.
-    wait.resize(5);
+    wait.resize(3);
     wait[0] = internalVertexCountEvent;
     wait[1] = vertexCountEvent;
     wait[2] = triangleCountEvent;
-    wait[3] = vertexCompactEvent;
-    wait[4] = triangleCompactEvent;
+    queue.flush();
     cl::Event::waitForEvents(wait);
 
+    wait.resize(2);
+    wait[0] = vertexCompactEvent;
+    wait[1] = triangleCompactEvent;
     if (vertexCount > 0)
     {
-        output(queue, outVertices, outVertexKeys, outIndices,
-               vertexCount, internalVertexCount, triangleCount * 3, event);
+        outMesh.numVertices = vertexCount;
+        outMesh.numInternalVertices = internalVertexCount;
+        outMesh.numTriangles = triangleCount;
+        output(queue, outMesh, &wait, event);
     }
     else if (event != NULL)
-    {
-        cl::UserEvent done(queue.getInfo<CL_QUEUE_CONTEXT>());
-        done.setStatus(CL_COMPLETE);
-        *event = done;
-    }
+        CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 }

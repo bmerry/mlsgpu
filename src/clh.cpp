@@ -199,6 +199,26 @@ cl::Program build(const cl::Context &context,
     return build(context, devices, filename, defines, options);
 }
 
+void doneEvent(const cl::Context &context, cl::Event *event)
+{
+    if (event != NULL)
+    {
+        cl::UserEvent signaled(context);
+        signaled.setStatus(CL_COMPLETE);
+        *event = signaled;
+    }
+}
+
+void doneEvent(const cl::CommandQueue &queue, cl::Event *event)
+{
+    if (event != NULL)
+    {
+        cl::UserEvent signaled(queue.getInfo<CL_QUEUE_CONTEXT>());
+        signaled.setStatus(CL_COMPLETE);
+        *event = signaled;
+    }
+}
+
 void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
                                const std::vector<cl::Event> *events,
                                cl::Event *event)
@@ -216,12 +236,7 @@ void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
     }
     else if (events->empty())
     {
-        if (event != NULL)
-        {
-            cl::UserEvent signaled(queue.getInfo<CL_QUEUE_CONTEXT>());
-            signaled.setStatus(CL_COMPLETE);
-            *event = signaled;
-        }
+        doneEvent(queue, event);
     }
     else
     {

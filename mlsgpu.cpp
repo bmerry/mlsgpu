@@ -37,7 +37,7 @@
 #include "src/splat_tree_cl.h"
 #include "src/marching.h"
 #include "src/mls.h"
-#include "src/mesh.h"
+#include "src/mesher.h"
 #include "src/options.h"
 #include "src/splat_set.h"
 #include "src/bucket.h"
@@ -73,7 +73,7 @@ namespace Option
     const char * const subsampling = "subsampling";
     const char * const bucketThreads = "bucket-threads";
     const char * const deviceThreads = "device-threads";
-    const char * const mesh = "mesh";
+    const char * const mesher = "mesher";
     const char * const writer = "writer";
 };
 
@@ -115,7 +115,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads for submitting OpenCL work")
-        (Option::mesh,         po::value<Choice<MeshTypeWrapper> >()->default_value(STXXL_MESH), "Mesh collector (simple | weld | big | stxxl)")
+        (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (simple | weld | big | stxxl)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
 }
@@ -152,8 +152,8 @@ string makeOptions(const po::variables_map &vm)
                 opts << param.as<int>();
             else if (value.type() == typeid(std::size_t))
                 opts << param.as<std::size_t>();
-            else if (value.type() == typeid(Choice<MeshTypeWrapper>))
-                opts << param.as<Choice<MeshTypeWrapper> >();
+            else if (value.type() == typeid(Choice<MesherTypeWrapper>))
+                opts << param.as<Choice<MesherTypeWrapper> >();
             else if (value.type() == typeid(Choice<FastPly::WriterTypeWrapper>))
                 opts << param.as<Choice<FastPly::WriterTypeWrapper> >();
             else
@@ -418,7 +418,7 @@ struct DeviceWorkItem
 
 /**
  * Does the actual OpenCL calls necessary to compute the mesh and write
- * it to the @ref MeshBase class. It pulls chunks of work off a queue,
+ * it to the @ref MesherBase class. It pulls chunks of work off a queue,
  * which contains pre-bucketed splats.
  *
  * It is intended to be used as a function object for @c boost::thread.
@@ -799,7 +799,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    const MeshType meshType = vm[Option::mesh].as<Choice<MeshTypeWrapper> >();
+    const MesherType mesherType = vm[Option::mesher].as<Choice<MesherTypeWrapper> >();
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
@@ -844,17 +844,17 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     writer->addComment("mlsgpu variant: " + provenanceVariant());
     writer->addComment("mlsgpu options:" + makeOptions(vm));
     makeInputComments(writer.get(), vm);
-    boost::scoped_ptr<MeshBase> mesh(createMesh(meshType, *writer, out));
-    mesh->setPruneThreshold(pruneThreshold);
-    for (unsigned int pass = 0; pass < mesh->numPasses(); pass++)
+    boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, out));
+    mesher->setPruneThreshold(pruneThreshold);
+    for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
     {
-        Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesh->numPasses() << endl;
+        Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
         ostringstream passName;
         passName << "pass" << pass + 1 << ".time";
         Statistics::Timer timer(passName.str());
 
         ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
-        Marching::OutputFunctor out = mesh->outputFunctor(pass);
+        Marching::OutputFunctor out = mesher->outputFunctor(pass);
 
         // Start threads
         boost::thread_group bucketThreads;
@@ -895,8 +895,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     {
         Statistics::Timer timer("finalize.time");
 
-        mesh->finalize(&Log::log[Log::info]);
-        mesh->write(*writer, out, &Log::log[Log::info]);
+        mesher->finalize(&Log::log[Log::info]);
+        mesher->write(*writer, out, &Log::log[Log::info]);
     }
 }
 

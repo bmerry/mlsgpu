@@ -48,31 +48,14 @@ class TestClip : public CLH::Test::TestFixture
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    /**
-     * Data structure wrapping up mesh data. It exists mainly
-     * @todo Make this a separate class and use it in multiple places.
-     */
-    struct HostKeyMesh
-    {
-        std::vector<cl_float3> vertices;
-        std::vector<cl_ulong> vertexKeys;
-        std::vector<boost::array<cl_uint, 3> > triangles;
-        std::size_t numInternalVertices;
-
-        HostKeyMesh() : vertices(), vertexKeys(), triangles(), numInternalVertices(0) {}
-    };
 
     /**
      * Function object called by the clipper to give the output.
      */
     static void outputFunc(
         const cl::CommandQueue &queue,
-        const cl::Buffer &vertices,
-        const cl::Buffer &vertexKeys,
-        const cl::Buffer &indices,
-        std::size_t numVertices,
-        std::size_t numInternalVertices,
-        std::size_t numIndices,
+        const DeviceKeyMesh &mesh,
+        const std::vector<cl::Event> *events,
         cl::Event *event,
         HostKeyMesh &out);
 
@@ -102,33 +85,17 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestClip, TestSet::perCommit());
 
 void TestClip::outputFunc(
     const cl::CommandQueue &queue,
-    const cl::Buffer &vertices,
-    const cl::Buffer &vertexKeys,
-    const cl::Buffer &indices,
-    std::size_t numVertices,
-    std::size_t numInternalVertices,
-    std::size_t numIndices,
+    const DeviceKeyMesh &mesh,
+    const std::vector<cl::Event> *events,
     cl::Event *event,
     HostKeyMesh &out)
 {
-    CPPUNIT_ASSERT(numVertices > 0);
-    CPPUNIT_ASSERT(numIndices > 0);
-    CPPUNIT_ASSERT(numIndices % 3 == 0);
+    CPPUNIT_ASSERT(mesh.numVertices > 0);
+    CPPUNIT_ASSERT(mesh.numTriangles > 0);
 
-    const std::size_t numTriangles = numIndices / 3;
-    out.vertices.resize(numVertices);
-    out.vertexKeys.resize(numVertices);
-    out.triangles.resize(numTriangles);
-    out.numInternalVertices = numInternalVertices;
-
-    std::vector<cl::Event> events(3);
-    queue.enqueueReadBuffer(vertices, CL_FALSE, 0, numVertices * sizeof(cl_float3),
-                            &out.vertices[0], NULL, &events[0]);
-    queue.enqueueReadBuffer(vertexKeys, CL_FALSE, 0, numVertices * sizeof(cl_ulong),
-                            &out.vertexKeys[0], NULL, &events[1]);
-    queue.enqueueReadBuffer(indices, CL_FALSE, 0, numTriangles * (3 * sizeof(cl_uint)),
-                            &out.triangles[0][0], NULL, &events[2]);
-    CLH::enqueueMarkerWithWaitList(queue, &events, event);
+    std::vector<cl::Event> wait(3);
+    enqueueReadMesh(queue, mesh, out, events, &wait[0], &wait[1], &wait[2]);
+    CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 }
 
 void TestClip::distanceFunc(
@@ -140,12 +107,13 @@ void TestClip::distanceFunc(
     cl::Event *event,
     float cut)
 {
-    std::vector<cl_float3> hVertices(numVertices);
+
+    std::vector<boost::array<cl_float, 3> > hVertices(numVertices);
     std::vector<cl_float> hDistances(numVertices);
-    queue.enqueueReadBuffer(vertices, CL_TRUE, 0, numVertices * sizeof(cl_float3),
-                            &hVertices[0], events, NULL);
+    queue.enqueueReadBuffer(vertices, CL_TRUE, 0, numVertices * (3 * sizeof(cl_float)),
+                            &hVertices[0][0], events, NULL);
     for (std::size_t i = 0; i < numVertices; i++)
-        hDistances[i] = hVertices[i].s[0] - cut;
+        hDistances[i] = hVertices[i][0] - cut;
 
     queue.enqueueWriteBuffer(distances, CL_TRUE, 0, numVertices * sizeof(cl_float),
                              &hDistances[0], NULL, event);
@@ -158,18 +126,18 @@ void TestClip::testCase(int M, int N, int internalRows, int keepCols)
     for (int i = 0; i < M; i++)
         for (int j = 0; j < N; j++)
         {
-            cl_float3 v = {{ j * 20.0f, i * 10.0f, 0.0f }};
+            boost::array<cl_float, 3> v = {{ j * 20.0f, i * 10.0f, 0.0f }};
             cl_ulong key = UINT64_C(0xCAFEBABE00000000) + (i << 24) + (j << 16);
             in.vertices.push_back(v);
-            in.vertexKeys.push_back(key);
+            if (i >= internalRows)
+                in.vertexKeys.push_back(key);
             if (j < keepCols)
             {
                 expected.vertices.push_back(v);
-                expected.vertexKeys.push_back(key);
+                if (i >= internalRows)
+                   expected.vertexKeys.push_back(key);
             }
         }
-    in.numInternalVertices = internalRows * N;
-    expected.numInternalVertices = internalRows * keepCols;
     for (int i = 0; i < M - 1; i++)
         for (int j = 0; j < N - 1; j++)
         {
@@ -202,34 +170,55 @@ void TestClip::testCase(int M, int N, int internalRows, int keepCols)
     clip.setDistanceFunctor(boost::bind(&TestClip::distanceFunc,
                                         _1, _2, _3, _4, _5, _6, cut));
     clip.setOutput(boost::bind(&TestClip::outputFunc,
-                               _1, _2, _3, _4, _5, _6, _7, _8,
-                               boost::ref(out)));
+                               _1, _2, _3, _4, boost::ref(out)));
 
-    cl::Buffer dInVertices(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                           in.vertices.size() * sizeof(in.vertices[0]),
-                           &in.vertices[0]);
-    cl::Buffer dInVertexKeys(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                             in.vertexKeys.size() * sizeof(in.vertexKeys[0]),
-                             &in.vertexKeys[0]);
-    cl::Buffer dInIndices(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                          in.triangles.size() * sizeof(in.triangles[0]),
-                          &in.triangles[0][0]);
+    DeviceKeyMesh dIn(context, CL_MEM_READ_ONLY,
+                      in.vertices.size(),
+                      in.vertices.size() - in.vertexKeys.size(),
+                      in.triangles.size());
+    std::vector<cl::Event> wait;
+    {
+        cl::Event e;
+        queue.enqueueWriteBuffer(dIn.vertices, CL_FALSE,
+                                 0, in.vertices.size() * (3 * sizeof(cl_float)),
+                                 &in.vertices[0][0], NULL, &e);
+        wait.push_back(e);
+    }
+    if (!in.vertexKeys.empty())
+    {
+        cl::Event e;
+        queue.enqueueWriteBuffer(dIn.vertexKeys, CL_FALSE,
+                                 dIn.numInternalVertices * sizeof(cl_ulong),
+                                 in.vertexKeys.size() * sizeof(cl_ulong),
+                                 &in.vertexKeys[0], NULL, &e);
+        wait.push_back(e);
+    }
+    {
+        cl::Event e;
+        queue.enqueueWriteBuffer(dIn.triangles, CL_FALSE,
+                                 0, dIn.numTriangles * (3 * sizeof(cl_uint)),
+                                 &in.triangles[0][0], NULL, &e);
+        wait.push_back(e);
+    }
 
     cl::Event event;
-    clip(queue, dInVertices, dInVertexKeys, dInIndices,
-         in.vertices.size(), in.numInternalVertices, in.triangles.size() * 3, &event);
+    clip(queue, dIn, &wait, &event);
     event.wait();
 
     CPPUNIT_ASSERT_EQUAL(expected.vertices.size(), out.vertices.size());
-    CPPUNIT_ASSERT_EQUAL(expected.vertexKeys.size(), out.vertexKeys.size());
-    CPPUNIT_ASSERT_EQUAL(expected.numInternalVertices, out.numInternalVertices);
     for (size_t i = 0; i < expected.vertices.size(); i++)
     {
-        CPPUNIT_ASSERT_EQUAL(expected.vertices[i].s[0], out.vertices[i].s[0]);
-        CPPUNIT_ASSERT_EQUAL(expected.vertices[i].s[1], out.vertices[i].s[1]);
-        CPPUNIT_ASSERT_EQUAL(expected.vertices[i].s[2], out.vertices[i].s[2]);
+        CPPUNIT_ASSERT_EQUAL(expected.vertices[i][0], out.vertices[i][0]);
+        CPPUNIT_ASSERT_EQUAL(expected.vertices[i][1], out.vertices[i][1]);
+        CPPUNIT_ASSERT_EQUAL(expected.vertices[i][2], out.vertices[i][2]);
+    }
+
+    CPPUNIT_ASSERT_EQUAL(expected.vertexKeys.size(), out.vertexKeys.size());
+    for (size_t i = 0; i < expected.vertexKeys.size(); i++)
+    {
         CPPUNIT_ASSERT_EQUAL(expected.vertexKeys[i], out.vertexKeys[i]);
     }
+
     CPPUNIT_ASSERT_EQUAL(expected.triangles.size(), out.triangles.size());
     for (size_t i = 0; i < expected.triangles.size(); i++)
     {
