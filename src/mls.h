@@ -43,14 +43,6 @@ private:
      */
     mutable cl::Kernel kernel;
 
-    /**
-     * @name
-     * @{
-     * The scale and bias of the grid passed to @ref set, in the Z axis.
-     */
-    float zScale, zBias;
-    /** @} */
-
     /// Horizontal and vertical vertex count of the grid passed to @ref set
     std::size_t dims[2];
 
