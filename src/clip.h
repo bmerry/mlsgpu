@@ -49,7 +49,7 @@ public:
      * -# A command queue to use.
      * -# Output buffer of @c cl_float, containing signed distances (negative
      *   means inside/keep, positive means outside/clip).
-     * -# Input buffer of vertices, of type @c cl_float3.
+     * -# Input buffer of vertices, of tightly-packed triplets of @c cl_float.
      * -# The number of vertices.
      * -# Events to wait for. If this is non-NULL, the named events must be
      *    waited for before reading the input vertices.

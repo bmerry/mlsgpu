@@ -264,6 +264,18 @@ public:
     static bool validateDevice(const cl::Device &device);
 
     /**
+     * Returns the maximum number of vertices that may be passed in a call
+     * to the output function.
+     */
+    static std::tr1::uint64_t getMaxVertices(std::size_t maxWidth, std::size_t maxHeight);
+
+    /**
+     * Returns the maximum number of triangles that may be passed in a call
+     * to the output function.
+     */
+    static std::tr1::uint64_t getMaxTriangles(std::size_t maxWidth, std::size_t maxHeight);
+
+    /**
      * Estimates the device memory required for particular values of the
      * constructor arguments. This is intended to fairly accurately reflect
      * memory allocated in buffers and images, but excludes all overheads for

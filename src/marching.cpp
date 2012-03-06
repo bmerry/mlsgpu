@@ -236,6 +236,16 @@ bool Marching::validateDevice(const cl::Device &device)
     return true;
 }
 
+std::tr1::uint64_t Marching::getMaxVertices(std::size_t maxWidth, std::size_t maxHeight)
+{
+    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES;
+}
+
+std::tr1::uint64_t Marching::getMaxTriangles(std::size_t maxWidth, std::size_t maxHeight)
+{
+    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3);
+}
+
 CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight)
 {
     MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
@@ -246,8 +256,8 @@ CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t
 
     // The asserts above guarantee that these will not overflow
     const std::tr1::uint64_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
-    const std::tr1::uint64_t vertexSpace = sliceCells * MAX_CELL_VERTICES;
-    const std::tr1::uint64_t indexSpace = sliceCells * MAX_CELL_INDICES;
+    const std::tr1::uint64_t vertexSpace = getMaxVertices(maxWidth, maxHeight);
+    const std::tr1::uint64_t indexSpace = getMaxTriangles(maxWidth, maxHeight) * 3;
 
     // Keep this in sync with the actual allocations below
 

@@ -26,22 +26,27 @@
  * the code).
  *
  * This object is @em not thread-safe. Two calls to the () operator cannot be
- * made at the same time, as they will clobber the kernel arguments.
- *
- * @bug The grid positions use just a scale-and-bias relative to the local origin,
- * and so changing the grid extents while keeping the reference fixed may cause
- * perturbations.
+ * made at the same time, as they will clobber the kernel arguments. However,
+ * it is safe for back-to-back calls to the operator() without synchronization
+ * i.e. there is no internal device state.
  */
 class MlsFunctor
 {
 private:
     /// Program compiled from @ref mls.cl.
     cl::Program program;
+
     /**
      * Kernel generated from @ref processCorners.
      * It has to be mutable to allow arguments to be set.
      */
     mutable cl::Kernel kernel;
+
+    /**
+     * Kernel generated from @ref measureBoundaries.
+     * It has to be mutable to allow arguments to be set.
+     */
+    mutable cl::Kernel boundaryKernel;
 
     /// Horizontal and vertical vertex count of the grid passed to @ref set
     std::size_t dims[2];
@@ -80,12 +85,20 @@ public:
      *
      * @pre The memory allocated for slice must be padded up to the multiple of
      * the work group size.
-     *
-     * @bug This isn't currently queryable.
      */
     void operator()(const cl::CommandQueue &queue,
                     const cl::Image2D &slice,
                     cl_uint z,
+                    const std::vector<cl::Event> *events,
+                    cl::Event *event) const;
+
+    /**
+     * Function object for use with @ref Clip.
+     */
+    void operator()(const cl::CommandQueue &queue,
+                    const cl::Buffer &distance,
+                    const cl::Buffer &vertices,
+                    std::size_t numVertices,
                     const std::vector<cl::Event> *events,
                     cl::Event *event) const;
 };

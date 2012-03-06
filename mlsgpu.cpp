@@ -45,6 +45,7 @@
 #include "src/statistics.h"
 #include "src/work_queue.h"
 #include "src/progress.h"
+#include "src/clip.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -248,9 +249,12 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
      * we can at least turn down silly requests before wasting any time.
      */
     const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
+    const std::size_t maxVertices = Marching::getMaxVertices(block, block);
+    const std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
     CLH::ResourceUsage marchingUsage = Marching::resourceUsage(device, block, block);
     CLH::ResourceUsage splatTreeUsage = SplatTreeCL::resourceUsage(device, levels, maxDeviceSplats);
-    CLH::ResourceUsage totalUsage = (marchingUsage + splatTreeUsage) * deviceThreads;
+    CLH::ResourceUsage clipUsage = Clip::resourceUsage(device, maxVertices, maxTriangles);
+    CLH::ResourceUsage totalUsage = (marchingUsage + splatTreeUsage + clipUsage) * deviceThreads;
 
     const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
     const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
@@ -433,7 +437,7 @@ private:
     SplatTreeCL tree;
     MlsFunctor input;
     Marching marching;
-    Marching::OutputFunctor output;
+    Clip clip;
 
     std::size_t maxSplats;
     Grid::size_type maxCells;
@@ -456,7 +460,7 @@ public:
     void operator()();
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
-    void setOutput(const Marching::OutputFunctor &output) { this->output = output; }
+    void setOutput(const Marching::OutputFunctor &output) { clip.setOutput(output); }
 };
 
 DeviceWorker::DeviceWorker(
@@ -472,10 +476,14 @@ DeviceWorker::DeviceWorker(
     tree(context, levels, maxSplats),
     input(context),
     marching(context, device, maxCells + 1, maxCells + 1),
+    clip(context, device,
+         marching.getMaxVertices(maxCells + 1, maxCells + 1),
+         marching.getMaxTriangles(maxCells + 1, maxCells + 1)),
     maxSplats(maxSplats), maxCells(maxCells),
     subsampling(subsampling),
     progress(NULL)
 {
+    clip.setDistanceFunctor(input);
 }
 
 void DeviceWorker::operator()()
@@ -483,6 +491,11 @@ void DeviceWorker::operator()()
     cl_float gridScale = fullGrid.getSpacing();
     cl_float3 gridBias;
     fullGrid.getVertex(0, 0, 0, gridBias.s);
+
+    // TODO: HACK! Should move scale+bias out beyond the clipping stage. Currently
+    // this will cause everything to be in the wrong scale.
+    gridScale = 1.0f;
+    gridBias.x = gridBias.y = gridBias.z = 0.0f;
 
     while (true)
     {
@@ -527,8 +540,7 @@ void DeviceWorker::operator()()
             wait[0] = treeBuildEvent;
 
             input.set(expandedSize, offset, tree, subsampling);
-
-            marching.generate(queue, input, output, size, keyOffset, gridScale, gridBias, &wait);
+            marching.generate(queue, input, boost::ref(clip), size, keyOffset, gridScale, gridBias, &wait);
         }
 
         if (progress != NULL)

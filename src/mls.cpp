@@ -26,6 +26,7 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
     program = CLH::build(context, "kernels/mls.cl", defines);
     kernel = cl::Kernel(program, "processCorners");
+    boundaryKernel = cl::Kernel(program, "measureBoundaries");
 }
 
 void MlsFunctor::set(const Grid::size_type size[3], const Grid::difference_type offset[3],
@@ -41,6 +42,12 @@ void MlsFunctor::set(const Grid::size_type size[3], const Grid::difference_type 
     kernel.setArg(3, tree.getStart());
     kernel.setArg(4, 3 * subsamplingShift);
     kernel.setArg(5, offset3);
+
+    boundaryKernel.setArg(2, tree.getSplats());
+    boundaryKernel.setArg(3, tree.getCommands());
+    boundaryKernel.setArg(4, tree.getStart());
+    boundaryKernel.setArg(5, 3 * subsamplingShift);
+    boundaryKernel.setArg(6, offset3);
 
     dims[0] = size[0];
     dims[1] = size[1];
@@ -62,5 +69,26 @@ void MlsFunctor::operator()(
                                cl::NullRange,
                                cl::NDRange(dims[0], dims[1]),
                                cl::NDRange(wgs[0], wgs[1]),
+                               events, event);
+}
+
+void MlsFunctor::operator()(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &distance,
+    const cl::Buffer &vertices,
+    std::size_t numVertices,
+    const std::vector<cl::Event> *events,
+    cl::Event *event) const
+{
+    MLSGPU_ASSERT(distance.getInfo<CL_MEM_SIZE>() >= numVertices * sizeof(cl_float), std::length_error);
+    MLSGPU_ASSERT(vertices.getInfo<CL_MEM_SIZE>() >= numVertices * (3 * sizeof(cl_float)), std::length_error);
+
+    boundaryKernel.setArg(0, distance);
+    boundaryKernel.setArg(1, vertices);
+    // TODO: pick a useful work group size
+    queue.enqueueNDRangeKernel(boundaryKernel,
+                               cl::NullRange,
+                               cl::NDRange(numVertices),
+                               cl::NullRange,
                                events, event);
 }
