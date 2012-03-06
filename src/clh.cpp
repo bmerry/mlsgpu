@@ -83,6 +83,22 @@ ResourceUsage ResourceUsage::operator*(unsigned int n) const
     }
 }
 
+void ResourceUsage::addBuffer(std::tr1::uint64_t bytes)
+{
+    maxMemory = std::max(maxMemory, bytes);
+    totalMemory += bytes;
+}
+
+void ResourceUsage::addImage(std::size_t width, std::size_t height, std::size_t bytesPerPixel)
+{
+    std::tr1::uint64_t size = width;
+    size *= height;
+    size *= bytesPerPixel;
+    addBuffer(size);
+    imageWidth = std::max(imageWidth, width);
+    imageHeight = std::max(imageHeight, height);
+}
+
 namespace detail
 {
 // Implementation in generated code

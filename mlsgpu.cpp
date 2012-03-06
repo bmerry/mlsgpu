@@ -254,23 +254,23 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
 
     const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
     const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
-    if (totalUsage.maxMemory > deviceMaxMemory)
+    if (totalUsage.getMaxMemory() > deviceMaxMemory)
     {
-        cerr << "Arguments require an allocation of " << totalUsage.maxMemory << ",\n"
+        cerr << "Arguments require an allocation of " << totalUsage.getMaxMemory() << ",\n"
             << "but the OpenCL device only supports up to " << deviceMaxMemory << ".\n"
             << "Try reducing --levels or --subsampling.\n";
         exit(1);
     }
-    if (totalUsage.totalMemory > deviceTotalMemory)
+    if (totalUsage.getTotalMemory() > deviceTotalMemory)
     {
-        cerr << "Arguments require device memory of " << totalUsage.totalMemory << ",\n"
+        cerr << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
             << "but the OpenCL device has " << deviceTotalMemory << ".\n"
             << "Try reducing --levels or --subsampling.\n";
         exit(1);
     }
 
-    Log::log[Log::info] << "About " << totalUsage.totalMemory / (1024 * 1024) << "MiB of device memory will be used.\n";
-    if (totalUsage.totalMemory > deviceTotalMemory * 0.8)
+    Log::log[Log::info] << "About " << totalUsage.getTotalMemory() / (1024 * 1024) << "MiB of device memory will be used.\n";
+    if (totalUsage.getTotalMemory() > deviceTotalMemory * 0.8)
     {
         Log::log[Log::warn] << "WARNING: More than 80% of the device memory will be used.\n";
     }

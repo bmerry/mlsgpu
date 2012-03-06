@@ -242,62 +242,59 @@ CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t
     MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
     (void) device; // not currently used, but should be used to determine usage of clogs
 
+    CLH::ResourceUsage ans;
+
     // The asserts above guarantee that these will not overflow
-    const std::tr1::uint64_t numCells = (maxWidth - 1) * (maxHeight - 1);
-    const std::tr1::uint64_t numCorners = maxWidth * maxHeight;
-    std::size_t fixed = 0; // constant memory
-    std::size_t cells = 0; // scales with number of cells
-    std::size_t corners = 0; // scales with number of corners
+    const std::tr1::uint64_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
+    const std::tr1::uint64_t vertexSpace = sliceCells * MAX_CELL_VERTICES;
+    const std::tr1::uint64_t indexSpace = sliceCells * MAX_CELL_INDICES;
 
     // Keep this in sync with the actual allocations below
 
-    // for (unsigned int i = 0; i < 2; i++)
-    //     backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
-    corners += 2 * sizeof(cl_float);
+    for (unsigned int i = 0; i < 2; i++)
+    {
+        // backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
+        ans.addImage(maxWidth, maxHeight, sizeof(cl_float));
+    }
 
     // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
-    cells += sizeof(cl_uint2);
+    ans.addBuffer(sliceCells * sizeof(cl_uint2));
 
     // occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
-    cells += sizeof(cl_uint); fixed += sizeof(cl_uint);
+    ans.addBuffer((sliceCells + 1) * sizeof(cl_uint));
 
     // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
-    cells += sizeof(cl_uint2); fixed += sizeof(cl_uint2);
+    ans.addBuffer((sliceCells + 1) * sizeof(cl_uint2));
 
     // vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
-    cells += MAX_CELL_VERTICES * sizeof(cl_uint); fixed += sizeof(cl_uint);
+    ans.addBuffer((vertexSpace + 1) * sizeof(cl_uint));
 
     // indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
-    cells += MAX_CELL_VERTICES * sizeof(cl_uint);
+    ans.addBuffer(vertexSpace * sizeof(cl_uint));
 
     // unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
     // unweldedVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_ulong));
-    cells += MAX_CELL_VERTICES * sizeof(cl_float4);
-    cells += MAX_CELL_VERTICES * sizeof(cl_ulong); fixed += sizeof(cl_ulong);
+    ans.addBuffer(vertexSpace * sizeof(cl_float4));
+    ans.addBuffer((vertexSpace + 1) * sizeof(cl_ulong));
 
     // weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
     // weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
-    cells += MAX_CELL_VERTICES * 3 * sizeof(cl_float);
-    cells += MAX_CELL_VERTICES * sizeof(cl_ulong);
+    ans.addBuffer(vertexSpace * 3 * sizeof(cl_float));
+    ans.addBuffer(vertexSpace * sizeof(cl_ulong));
 
     // indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
-    cells += MAX_CELL_INDICES * sizeof(cl_uint);
+    ans.addBuffer(indexSpace * sizeof(cl_uint));
 
     // firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
-    fixed += sizeof(cl_uint);
+    ans.addBuffer(sizeof(cl_uint));
 
     // tmpVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
     // tmpVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
-    cells += MAX_CELL_VERTICES * sizeof(cl_ulong);
-    cells += MAX_CELL_VERTICES * sizeof(cl_float4);
+    ans.addBuffer(vertexSpace * sizeof(cl_ulong));
+    ans.addBuffer(vertexSpace * sizeof(cl_float4));
 
     // TODO: constant space needed for tables, and temporaries for the sorter and scanners
 
-    CLH::ResourceUsage ans;
-    ans.totalMemory = cells * numCells + corners * numCorners + fixed;
-    ans.maxMemory = numCells * MAX_CELL_VERTICES * sizeof(cl_float4);
-    ans.imageWidth = maxWidth;
-    ans.imageHeight = maxHeight;
     return ans;
 }
 

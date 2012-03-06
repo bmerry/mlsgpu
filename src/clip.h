@@ -18,6 +18,7 @@
 #include <boost/noncopyable.hpp>
 #include "marching.h"
 #include "mesh.h"
+#include "clh.h"
 
 /**
  * Marching output functor for boundary clipping.
@@ -62,6 +63,10 @@ public:
              std::size_t,
              const std::vector<cl::Event> *,
              cl::Event *)> DistanceFunctor;
+
+    static CLH::ResourceUsage resourceUsage(
+        const cl::Device &device,
+        std::size_t maxVertices, std::size_t maxTriangles);
 
     Clip(const cl::Context &context, const cl::Device &device,
          std::size_t maxVertices, std::size_t maxTriangles);

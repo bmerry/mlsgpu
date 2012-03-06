@@ -73,14 +73,19 @@ public:
 /**
  * Represents the resources required or consumed by an algorithm class.
  */
-struct ResourceUsage
+class ResourceUsage
 {
+private:
     std::tr1::uint64_t maxMemory;     ///< Largest single memory allocation
     std::tr1::uint64_t totalMemory;   ///< Sum of all allocations
     std::size_t imageWidth;           ///< Maximum image width used (0 if no images)
     std::size_t imageHeight;          ///< Maximum image height used (0 if no images)
 
+public:
     ResourceUsage() : maxMemory(0), totalMemory(0), imageWidth(0), imageHeight(0) {}
+
+    void addBuffer(std::tr1::uint64_t bytes);
+    void addImage(std::size_t width, std::size_t height, std::size_t bytesPerPixel);
 
     /**
      * Computes the combined requirements given the individual requirements for two
@@ -93,6 +98,11 @@ struct ResourceUsage
      * Adds @a n copies of the resource.
      */
     ResourceUsage operator*(unsigned int n) const;
+
+    std::tr1::uint64_t getMaxMemory() const { return maxMemory; }
+    std::tr1::uint64_t getTotalMemory() const { return totalMemory; }
+    std::size_t getImageWidth() const { return imageWidth; }
+    std::size_t getImageHeight() const { return imageHeight; }
 };
 
 /// Option names for OpenCL options

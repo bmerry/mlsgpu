@@ -23,6 +23,26 @@
 #include "statistics.h"
 #include "clh.h"
 
+CLH::ResourceUsage Clip::resourceUsage(
+    const cl::Device &device,
+    std::size_t maxVertices, std::size_t maxTriangles)
+{
+    // Not currently used, but should eventually account for the scanner
+    (void) device;
+
+    CLH::ResourceUsage ans;
+
+    ans.addBuffer(maxVertices * sizeof(cl_float)); // distances
+    ans.addBuffer((maxVertices + 1) * sizeof(cl_uint)); // vertexCompact
+    ans.addBuffer((maxTriangles + 1) * sizeof(cl_uint)); // triangleCompact
+    // output mesh
+    ans.addBuffer(maxVertices * (3 * sizeof(cl_float)));
+    ans.addBuffer(maxVertices * sizeof(cl_ulong));
+    ans.addBuffer(maxTriangles * (3 * sizeof(cl_uint)));
+    // TODO: fixed-sized memory for the scanner
+    return ans;
+}
+
 Clip::Clip(const cl::Context &context, const cl::Device &device,
            std::size_t maxVertices, std::size_t maxTriangles)
 :
