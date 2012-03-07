@@ -286,8 +286,7 @@ protected:
      * Identifies clumps in the local set of triangles. Each new clump is
      * appended to @ref clumps.
      *
-     * @param numVertices    The number of vertices indexed by @a triangles
-     * @param triangles      Triangles, with indices in [0, @a numVertices)
+     * @param mesh           The mesh to examine (only @a numVertices and @a triangles are used).
      * @param[out] clumpId   The index into @ref clumps for each vertex
      *
      * @post <code>clumpId.size() == numVertices</code>

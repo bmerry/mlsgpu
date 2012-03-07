@@ -96,7 +96,9 @@ public:
      * and the event returned is for completion of the filters that have already executed. The
      * output functor will not be called in this case.
      *
-     * @pre This object was not default constructed.
+     * @pre
+     * - The output functor has been set.
+     * - The @a mesh is not empty.
      */
     void operator()(
         const cl::CommandQueue &queue,
@@ -127,9 +129,16 @@ public:
      */
     ScaleBiasFilter(const cl::Context &context);
 
+    /// Set the scale and bias.
     void setScaleBias(float scale, float x, float y, float z);
+
+    /**
+     * Set the scale and bias from a grid. The scale and bias are set such that
+     * grid coordinates are transformed to world coordinates.
+     */
     void setScaleBias(const Grid &grid);
 
+    /// Filter operation (see @ref MeshFilter).
     void operator()(
         const cl::CommandQueue &queue,
         const DeviceKeyMesh &inMesh,

@@ -245,10 +245,18 @@ void processCorners(
     write_imagef(corners, gid.xy, f);
 }
 
+/**
+ * Boundary detector based on a half-disc criterion (see Bendels et al, Detecting Holes
+ * in Point Set Surfaces). There is one work-item per vertex to classify.
+ *
+ * @param[out] discriminant       Signed distances to the boundary (negative for inside).
+ * @param      vertices           Vertices to process, as tightly-packed xyz tuples.
+ * @param      splats,commands,start,startShift,offset See @ref processCorners.
+ */
 __kernel
 void measureBoundaries(
     __global float * restrict discriminant,
-    __global float * restrict vertices,
+    __global const float * restrict vertices,
     __global const Splat * restrict splats,
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
