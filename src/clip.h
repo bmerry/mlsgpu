@@ -23,14 +23,12 @@
 /**
  * Marching output functor for boundary clipping.
  *
- * This is a proxy functor that satisfies the requirements for @ref
- * Marching::OutputFunctor. It
+ * This is a functor that satisfies the requirements for @ref MeshFilter. It
  * -# Receives a collection of vertices and triangles.
  * -# Evaluates a user-provided function at the vertices.
  * -# Clips the geometry to the portion when the user-provided function is
  *   negative.
  * -# Compacts the resulting geometry.
- * -# Forwards the results to another output functor.
  *
  * Newly introduced vertices will created along existing edges. They will be
  * classified as external if both vertices on the original edge were external,
@@ -38,6 +36,9 @@
  *
  * @note This obtain maintains state, so it cannot be used directly as a
  * functor. It must be wrapped in @c boost::ref.
+ *
+ * @note Currently no actual clipping is done: triangles that intersect the
+ * boundary are simply discarded. This may change in future.
  */
 class Clip : public boost::noncopyable
 {
@@ -72,18 +73,17 @@ public:
          std::size_t maxVertices, std::size_t maxTriangles);
 
     void setDistanceFunctor(const DistanceFunctor &distanceFunctor);
-    void setOutput(const Marching::OutputFunctor &output);
 
     void operator()(
         const cl::CommandQueue &queue,
         const DeviceKeyMesh &mesh,
         const std::vector<cl::Event> *events,
-        cl::Event *event);
+        cl::Event *event,
+        DeviceKeyMesh &out);
 
 private:
     std::size_t maxVertices, maxTriangles;
     DistanceFunctor distanceFunctor;
-    Marching::OutputFunctor output;
 
     cl::Buffer distances;       ///< Signed distances from the clip boundary
     /**

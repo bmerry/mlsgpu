@@ -50,16 +50,6 @@ class TestClip : public CLH::Test::TestFixture
 private:
 
     /**
-     * Function object called by the clipper to give the output.
-     */
-    static void outputFunc(
-        const cl::CommandQueue &queue,
-        const DeviceKeyMesh &mesh,
-        const std::vector<cl::Event> *events,
-        cl::Event *event,
-        HostKeyMesh &out);
-
-    /**
      * Function object called by the clipper to retrieve signed
      * distances.
      */
@@ -82,21 +72,6 @@ public:
     void testEmpty()         { testCase(4, 7, 2, 0); }
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestClip, TestSet::perCommit());
-
-void TestClip::outputFunc(
-    const cl::CommandQueue &queue,
-    const DeviceKeyMesh &mesh,
-    const std::vector<cl::Event> *events,
-    cl::Event *event,
-    HostKeyMesh &out)
-{
-    CPPUNIT_ASSERT(mesh.numVertices > 0);
-    CPPUNIT_ASSERT(mesh.numTriangles > 0);
-
-    std::vector<cl::Event> wait(3);
-    enqueueReadMesh(queue, mesh, out, events, &wait[0], &wait[1], &wait[2]);
-    CLH::enqueueMarkerWithWaitList(queue, &wait, event);
-}
 
 void TestClip::distanceFunc(
     const cl::CommandQueue &queue,
@@ -169,8 +144,6 @@ void TestClip::testCase(int M, int N, int internalRows, int keepCols)
     Clip clip(context, device, in.vertices.size(), in.triangles.size());
     clip.setDistanceFunctor(boost::bind(&TestClip::distanceFunc,
                                         _1, _2, _3, _4, _5, _6, cut));
-    clip.setOutput(boost::bind(&TestClip::outputFunc,
-                               _1, _2, _3, _4, boost::ref(out)));
 
     DeviceKeyMesh dIn(context, CL_MEM_READ_ONLY,
                       in.vertices.size(),
@@ -201,9 +174,12 @@ void TestClip::testCase(int M, int N, int internalRows, int keepCols)
         wait.push_back(e);
     }
 
-    cl::Event event;
-    clip(queue, dIn, &wait, &event);
-    event.wait();
+    std::vector<cl::Event> clipEvent(1);
+    std::vector<cl::Event> readEvent(3);
+    DeviceKeyMesh dOut;
+    clip(queue, dIn, &wait, &clipEvent[1], dOut);
+    enqueueReadMesh(queue, dOut, out, &clipEvent, &readEvent[0], &readEvent[1], &readEvent[2]);
+    cl::Event::waitForEvents(readEvent);
 
     CPPUNIT_ASSERT_EQUAL(expected.vertices.size(), out.vertices.size());
     for (size_t i = 0; i < expected.vertices.size(); i++)

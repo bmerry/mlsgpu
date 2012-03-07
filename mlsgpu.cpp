@@ -46,6 +46,7 @@
 #include "src/work_queue.h"
 #include "src/progress.h"
 #include "src/clip.h"
+#include "src/mesh_filter.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -60,6 +61,7 @@ namespace Option
     const char * const fitSmooth = "fit-smooth";
     const char * const fitGrid = "fit-grid";
     const char * const fitPrune = "fit-prune";
+    const char * const fitKeepBoundary = "fit-keep-boundary";
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
@@ -92,8 +94,8 @@ static void addFitOptions(po::options_description &opts)
     opts.add_options()
         (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
         (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
-        (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component");
-
+        (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component")
+        (Option::fitKeepBoundary,                                           "Do not remove boundaries");
 }
 
 static void addStatisticsOptions(po::options_description &opts)
@@ -438,6 +440,8 @@ private:
     MlsFunctor input;
     Marching marching;
     Clip clip;
+    Marching::OutputFunctor output;
+    MeshFilterChain filterChain;
 
     std::size_t maxSplats;
     Grid::size_type maxCells;
@@ -460,7 +464,11 @@ public:
     void operator()();
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
-    void setOutput(const Marching::OutputFunctor &output) { clip.setOutput(output); }
+
+    void setOutput(const Marching::OutputFunctor &output)
+    {
+        filterChain.setOutput(output);
+    }
 };
 
 DeviceWorker::DeviceWorker(
@@ -483,6 +491,7 @@ DeviceWorker::DeviceWorker(
     subsampling(subsampling),
     progress(NULL)
 {
+    filterChain.addFilter(boost::ref(clip));
     clip.setDistanceFunctor(input);
 }
 
@@ -540,7 +549,7 @@ void DeviceWorker::operator()()
             wait[0] = treeBuildEvent;
 
             input.set(expandedSize, offset, tree, subsampling);
-            marching.generate(queue, input, boost::ref(clip), size, keyOffset, gridScale, gridBias, &wait);
+            marching.generate(queue, input, filterChain, size, keyOffset, gridScale, gridBias, &wait);
         }
 
         if (progress != NULL)

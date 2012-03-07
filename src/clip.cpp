@@ -66,16 +66,12 @@ void Clip::setDistanceFunctor(const DistanceFunctor &distanceFunctor)
     this->distanceFunctor = distanceFunctor;
 }
 
-void Clip::setOutput(const Marching::OutputFunctor &output)
-{
-    this->output = output;
-}
-
 void Clip::operator()(
     const cl::CommandQueue &queue,
     const DeviceKeyMesh &mesh,
     const std::vector<cl::Event> *events,
-    cl::Event *event)
+    cl::Event *event,
+    DeviceKeyMesh &out)
 {
     MLSGPU_ASSERT(mesh.numVertices <= maxVertices, std::length_error);
     MLSGPU_ASSERT(mesh.numTriangles <= maxTriangles, std::length_error);
@@ -192,13 +188,11 @@ void Clip::operator()(
     wait.resize(2);
     wait[0] = vertexCompactEvent;
     wait[1] = triangleCompactEvent;
-    if (vertexCount > 0)
-    {
-        outMesh.numVertices = vertexCount;
-        outMesh.numInternalVertices = internalVertexCount;
-        outMesh.numTriangles = triangleCount;
-        output(queue, outMesh, &wait, event);
-    }
-    else if (event != NULL)
+    if (event != NULL)
         CLH::enqueueMarkerWithWaitList(queue, &wait, event);
+
+    outMesh.numVertices = vertexCount;
+    outMesh.numInternalVertices = internalVertexCount;
+    outMesh.numTriangles = triangleCount;
+    out = outMesh;
 }
