@@ -458,7 +458,7 @@ public:
         const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, int subsampling);
+        int levels, int subsampling, bool keepBoundary);
 
     /// Thread function.
     void operator()();
@@ -476,7 +476,7 @@ DeviceWorker::DeviceWorker(
     const Grid &fullGrid,
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, int subsampling)
+    int levels, int subsampling, bool keepBoundary)
 :
     workQueue(workQueue),
     fullGrid(fullGrid),
@@ -485,13 +485,14 @@ DeviceWorker::DeviceWorker(
     input(context),
     marching(context, device, maxCells + 1, maxCells + 1),
     clip(context, device,
-         marching.getMaxVertices(maxCells + 1, maxCells + 1),
-         marching.getMaxTriangles(maxCells + 1, maxCells + 1)),
+         keepBoundary ? 1 : marching.getMaxVertices(maxCells + 1, maxCells + 1),
+         keepBoundary ? 1 : marching.getMaxTriangles(maxCells + 1, maxCells + 1)),
     maxSplats(maxSplats), maxCells(maxCells),
     subsampling(subsampling),
     progress(NULL)
 {
-    filterChain.addFilter(boost::ref(clip));
+    if (!keepBoundary)
+        filterChain.addFilter(boost::ref(clip));
     clip.setDistanceFunctor(input);
 }
 
@@ -709,7 +710,7 @@ void DeviceBlock::operator()()
 }
 
 /**
- * Handles coarse-level bucketing from external storage. Unless @ref
+ * Handles coarse-level bucketing from external storage. Unlike @ref
  * DeviceWorker and @ref DeviceBlock, there is only expected to be one of
  * these, and it does not run in a separate thread. It produces coarse
  * buckets, read the splats into memory and pushes the results to a queue.
@@ -824,6 +825,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
+    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -855,7 +857,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
                 workQueueFine, grid,
                 context, device,
                 maxDeviceSplats, blockCells,
-                levels, subsampling));
+                levels, subsampling, keepBoundary));
     }
     HostBlock<Set> hostBlock(workQueueCoarse, grid);
 
