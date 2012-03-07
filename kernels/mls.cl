@@ -303,10 +303,12 @@ void measureBoundaries(
         }
         if (hits >= HITS_CUTOFF)
         {
-            float invW = 1.0f / sumW;
-            float3 meanPos = sumWp * invW;
-            float scale = rsqrt(sumWpp * invW); // inverse of RMS distance
-            scale *= 0.75f * M_PI_F;   // from Bendels et al (Detecting Holes in Point Set Surfaces)
+            // (sqrt(6) * 512) / (693 * pi) (based on weight function)
+            const float factor = 0.5760530;
+            const float factor2 = factor * factor;
+
+            float3 meanPos = sumWp;       // mean position scaled by W
+            float scale2 = sumWpp * sumW; // mean squared (distance * W)
             float3 normal = normalize(sumWn);
             /* We want to find the portion of meanPos when projected onto a plane
              * orthogonal to normal. The length of the cross product would give the
@@ -315,7 +317,7 @@ void measureBoundaries(
              */
             float normalLength = dot3(meanPos, normal);
             float planeLength2 = dot3(meanPos, meanPos) - normalLength * normalLength;
-            f = sqrt(planeLength2) * scale - 1.0f;
+            f = sqrt(planeLength2 / (scale2 * factor2)) - 1.0f;
         }
     }
     discriminant[gid] = f;
