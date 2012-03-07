@@ -18,6 +18,8 @@
 #include "mesh.h"
 #include "marching.h"
 
+class Grid;
+
 /**
  * Function for accepting a mesh and transforming it in some way (on the
  * device). The output mesh will usually reference internal state of the
@@ -101,6 +103,39 @@ public:
         const DeviceKeyMesh &mesh,
         const std::vector<cl::Event> *events,
         cl::Event *event) const;
+};
+
+/**
+ * Mesh filter that applies a scale-and-bias. This class is not reentrant i.e.
+ * the @c operator() must not be called from multiple threads simultaneously.
+ * However, the queued work can proceed in parallel as there is no internal
+ * device state.
+ */
+class ScaleBiasFilter
+{
+private:
+    /**
+     * Kernel generated from @ref scaleBiasVertices. It is mutable so that
+     * the arguments can be set.
+     */
+    mutable cl::Kernel kernel;
+    cl_float4 scaleBias;          ///< Scale in w, bias in xyz
+
+public:
+    /**
+     * Default constructor. Sets a scale of 1 and a bias of 0.
+     */
+    ScaleBiasFilter(const cl::Context &context);
+
+    void setScaleBias(float scale, float x, float y, float z);
+    void setScaleBias(const Grid &grid);
+
+    void operator()(
+        const cl::CommandQueue &queue,
+        const DeviceKeyMesh &inMesh,
+        const std::vector<cl::Event> *events,
+        cl::Event *event,
+        DeviceKeyMesh &outMesh) const;
 };
 
 #endif /* !MESH_FILTER_H */

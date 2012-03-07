@@ -532,7 +532,6 @@ void Marching::generate(
     const OutputFunctor &output,
     const Grid::size_type size[3],
     const cl_uint3 &keyOffset,
-    cl_float scale, const cl_float3 &bias,
     const std::vector<cl::Event> *events)
 {
     // Work group size for kernels that operate on compacted cells
@@ -592,12 +591,10 @@ void Marching::generate(
             generateElementsKernel.setArg(5, *images[0]);
             generateElementsKernel.setArg(6, *images[1]);
             generateElementsKernel.setArg(10, cl_uint(z - 1));
-            generateElementsKernel.setArg(11, scale);
-            generateElementsKernel.setArg(12, bias);
-            generateElementsKernel.setArg(13, keyOffset);
-            generateElementsKernel.setArg(14, offsets);
-            generateElementsKernel.setArg(15, top);
-            generateElementsKernel.setArg(16, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(11, keyOffset);
+            generateElementsKernel.setArg(12, offsets);
+            generateElementsKernel.setArg(13, top);
+            generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             queue.enqueueNDRangeKernel(generateElementsKernel,
                                        cl::NullRange,
                                        cl::NDRange(compacted),

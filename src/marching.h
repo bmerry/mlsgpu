@@ -377,17 +377,16 @@ public:
      * The region that is processed is assumed to be at an offset of @a
      * keyOffset within some larger grid. To accommodate this, vertex keys for
      * external vertices are offset by @a keyOffset. The output vertices are
-     * also transformed into world coordinate systems using the formula
-     * \f$v_{\text{out}} = (v_{\text{in}} - \text{keyOffset}) \times \text{scale} + \text{bias}.\f$
+     * also transformed into the global grid coordinate systems using the formula
+     * \f$v_{\text{out}} = v_{\text{in}} - \text{keyOffset}.\f$
      * The interpolation is done in a way that guarantees invariance, provided that the
-     * surrounding isovalues, @a scale and @a bias are invariant.
+     * surrounding isovalues are invariant.
      *
      * @param queue          Command queue to enqueue the work to.
      * @param input          Generates slices of the function (see @ref InputFunctor).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param size           Number of vertices in each dimension to process.
      * @param keyOffset      XYZ values to add to vertex keys of external vertices.
-     * @param scale,bias     Transformation parameters (see description above).
      * @param events         Previous events to wait for (can be @c NULL).
      *
      * @note @a keyOffset is specified in integer units, not fixed-point.
@@ -402,7 +401,6 @@ public:
                   const OutputFunctor &output,
                   const Grid::size_type size[3],
                   const cl_uint3 &keyOffset,
-                  cl_float scale, const cl_float3 &bias,
                   const std::vector<cl::Event> *events = NULL);
 
 private:

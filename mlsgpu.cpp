@@ -440,6 +440,7 @@ private:
     MlsFunctor input;
     Marching marching;
     Clip clip;
+    ScaleBiasFilter scaleBias;
     Marching::OutputFunctor output;
     MeshFilterChain filterChain;
 
@@ -487,25 +488,21 @@ DeviceWorker::DeviceWorker(
     clip(context, device,
          keepBoundary ? 1 : marching.getMaxVertices(maxCells + 1, maxCells + 1),
          keepBoundary ? 1 : marching.getMaxTriangles(maxCells + 1, maxCells + 1)),
+    scaleBias(context),
     maxSplats(maxSplats), maxCells(maxCells),
     subsampling(subsampling),
     progress(NULL)
 {
+    clip.setDistanceFunctor(input);
+
     if (!keepBoundary)
         filterChain.addFilter(boost::ref(clip));
-    clip.setDistanceFunctor(input);
+    filterChain.addFilter(boost::ref(scaleBias));
 }
 
 void DeviceWorker::operator()()
 {
-    cl_float gridScale = fullGrid.getSpacing();
-    cl_float3 gridBias;
-    fullGrid.getVertex(0, 0, 0, gridBias.s);
-
-    // TODO: HACK! Should move scale+bias out beyond the clipping stage. Currently
-    // this will cause everything to be in the wrong scale.
-    gridScale = 1.0f;
-    gridBias.x = gridBias.y = gridBias.z = 0.0f;
+    scaleBias.setScaleBias(fullGrid);
 
     while (true)
     {
@@ -550,7 +547,7 @@ void DeviceWorker::operator()()
             wait[0] = treeBuildEvent;
 
             input.set(expandedSize, offset, tree, subsampling);
-            marching.generate(queue, input, filterChain, size, keyOffset, gridScale, gridBias, &wait);
+            marching.generate(queue, input, filterChain, size, keyOffset, &wait);
         }
 
         if (progress != NULL)

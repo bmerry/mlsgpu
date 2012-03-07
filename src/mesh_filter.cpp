@@ -19,6 +19,7 @@
 #include <boost/foreach.hpp>
 #include "mesh_filter.h"
 #include "errors.h"
+#include "grid.h"
 
 void MeshFilterChain::operator()(
     const cl::CommandQueue &queue,
@@ -50,4 +51,44 @@ void MeshFilterChain::operator()(
         }
     }
     output(queue, *inMesh, events, event);
+}
+
+ScaleBiasFilter::ScaleBiasFilter(const cl::Context &context)
+{
+    cl::Program program = CLH::build(context, "kernels/scale_bias.cl");
+    kernel = cl::Kernel(program, "scaleBiasVertices");
+    setScaleBias(1.0f, 0.0f, 0.0f, 0.0f);
+}
+
+void ScaleBiasFilter::setScaleBias(float scale, float x, float y, float z)
+{
+    scaleBias.x = x;
+    scaleBias.y = y;
+    scaleBias.z = z;
+    scaleBias.w = scale;
+    kernel.setArg(1, scaleBias);
+}
+
+void ScaleBiasFilter::setScaleBias(const Grid &grid)
+{
+    grid.getVertex(0, 0, 0, scaleBias.s);
+    scaleBias.w = grid.getSpacing();
+    kernel.setArg(1, scaleBias);
+}
+
+void ScaleBiasFilter::operator()(
+    const cl::CommandQueue &queue,
+    const DeviceKeyMesh &inMesh,
+    const std::vector<cl::Event> *events,
+    cl::Event *event,
+    DeviceKeyMesh &outMesh) const
+{
+    // TODO: pick a work group size
+    kernel.setArg(0, inMesh.vertices);
+    queue.enqueueNDRangeKernel(kernel,
+                               cl::NullRange,
+                               cl::NDRange(inMesh.numVertices),
+                               cl::NullRange,
+                               events, event);
+    outMesh = inMesh;
 }
