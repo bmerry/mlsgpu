@@ -93,6 +93,13 @@ public:
                     cl::Event *event) const;
 
     /**
+     * Sets the tuning factor for boundary clipping.
+     * A value of 1 is theoretically "correct" and is the default, but in
+     * reality tends to cause holes to open.
+     */
+    void setBoundaryLimit(float limit);
+
+    /**
      * Function object for use with @ref Clip.
      */
     void operator()(const cl::CommandQueue &queue,

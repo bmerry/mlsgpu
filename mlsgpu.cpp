@@ -62,6 +62,7 @@ namespace Option
     const char * const fitGrid = "fit-grid";
     const char * const fitPrune = "fit-prune";
     const char * const fitKeepBoundary = "fit-keep-boundary";
+    const char * const fitBoundaryLimit = "fit-boundary-limit";
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
@@ -95,7 +96,8 @@ static void addFitOptions(po::options_description &opts)
         (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
         (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
         (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component")
-        (Option::fitKeepBoundary,                                           "Do not remove boundaries");
+        (Option::fitKeepBoundary,                                           "Do not remove boundaries")
+        (Option::fitBoundaryLimit, po::value<double>()->default_value(1.5), "Tuning factor for boundary detection");
 }
 
 static void addStatisticsOptions(po::options_description &opts)
@@ -459,7 +461,7 @@ public:
         const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, int subsampling, bool keepBoundary);
+        int levels, int subsampling, bool keepBoundary, float boundaryLimit);
 
     /// Thread function.
     void operator()();
@@ -477,7 +479,7 @@ DeviceWorker::DeviceWorker(
     const Grid &fullGrid,
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, int subsampling, bool keepBoundary)
+    int levels, int subsampling, bool keepBoundary, float boundaryLimit)
 :
     workQueue(workQueue),
     fullGrid(fullGrid),
@@ -493,6 +495,7 @@ DeviceWorker::DeviceWorker(
     subsampling(subsampling),
     progress(NULL)
 {
+    input.setBoundaryLimit(boundaryLimit);
     clip.setDistanceFunctor(input);
 
     if (!keepBoundary)
@@ -823,6 +826,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const bool keepBoundary = vm.count(Option::fitKeepBoundary);
+    const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -854,7 +858,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
                 workQueueFine, grid,
                 context, device,
                 maxDeviceSplats, blockCells,
-                levels, subsampling, keepBoundary));
+                levels, subsampling,
+                keepBoundary, boundaryLimit));
     }
     HostBlock<Set> hostBlock(workQueueCoarse, grid);
 

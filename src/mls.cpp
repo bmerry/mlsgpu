@@ -14,6 +14,7 @@
 
 #include <CL/cl.hpp>
 #include <stdexcept>
+#include <boost/math/constants/constants.hpp>
 #include "errors.h"
 #include "mls.h"
 
@@ -27,6 +28,8 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
     program = CLH::build(context, "kernels/mls.cl", defines);
     kernel = cl::Kernel(program, "processCorners");
     boundaryKernel = cl::Kernel(program, "measureBoundaries");
+
+    setBoundaryLimit(1.0f);
 }
 
 void MlsFunctor::set(const Grid::size_type size[3], const Grid::difference_type offset[3],
@@ -70,6 +73,15 @@ void MlsFunctor::operator()(
                                cl::NDRange(dims[0], dims[1]),
                                cl::NDRange(wgs[0], wgs[1]),
                                events, event);
+}
+
+void MlsFunctor::setBoundaryLimit(float limit)
+{
+    // This is computed theoretically based on the weight function, and assuming a
+    // uniform distribution of samples and a straight boundary
+    const float boundaryScale = (sqrt(6) * 512) / (693 * boost::math::constants::pi<float>());
+
+    boundaryKernel.setArg(7, 1.0f / (boundaryScale * limit));
 }
 
 void MlsFunctor::operator()(

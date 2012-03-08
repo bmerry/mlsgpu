@@ -252,6 +252,7 @@ void processCorners(
  * @param[out] discriminant       Signed distances to the boundary (negative for inside).
  * @param      vertices           Vertices to process, as tightly-packed xyz tuples.
  * @param      splats,commands,start,startShift,offset See @ref processCorners.
+ * @param      boundaryFactor     Inverse of scaled boundary limit.
  */
 __kernel
 void measureBoundaries(
@@ -261,7 +262,8 @@ void measureBoundaries(
     __global const command_type * restrict commands,
     __global const command_type * restrict start,
     uint startShift,
-    int3 offset)
+    int3 offset,
+    float boundaryFactor)
 {
     int gid = get_global_id(0);
     float3 vertex = vload3(gid, vertices);
@@ -325,7 +327,7 @@ void measureBoundaries(
              */
             float normalLength = dot3(meanPos, normal);
             float planeLength2 = dot3(meanPos, meanPos) - normalLength * normalLength;
-            f = sqrt(planeLength2 / (scale2 * factor2)) - 1.0f;
+            f = fma(sqrt(planeLength2 / scale2), boundaryFactor, - 1.0f);
         }
     }
     discriminant[gid] = f;
