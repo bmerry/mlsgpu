@@ -411,10 +411,6 @@ void TestMarching::testGenerate(
 {
     Grid::size_type size[3] = { width, height, depth };
 
-    // Replace the command queue with an out-of-order one, to ensure that the
-    // events are being handled correctly.
-    queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
-
     Marching marching(context, device, maxWidth, maxHeight);
     WeldMesher mesher;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
