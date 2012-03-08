@@ -49,8 +49,6 @@ void TruncateFilter::operator()(
     cl::Event *event,
     DeviceKeyMesh &outMesh) const
 {
-    CPPUNIT_ASSERT(inMesh.numVertices > 0);
-    CPPUNIT_ASSERT(inMesh.numTriangles > 0);
     CPPUNIT_ASSERT(&inMesh != &outMesh);
     CPPUNIT_ASSERT(inMesh.vertices());
     CPPUNIT_ASSERT(inMesh.vertexKeys());
@@ -65,28 +63,31 @@ void TruncateFilter::operator()(
     cl::Event verticesEvent, vertexKeysEvent, trianglesEvent;
     std::vector<cl::Event> wait;
 
-    queue.enqueueCopyBuffer(inMesh.vertices, outMesh.vertices, 0, 0,
-                            inMesh.numVertices * (3 * sizeof(cl_float)),
-                            events, &verticesEvent);
+    CLH::enqueueCopyBuffer(queue,
+                           inMesh.vertices, outMesh.vertices, 0, 0,
+                           inMesh.numVertices * (3 * sizeof(cl_float)),
+                           events, &verticesEvent);
     wait.push_back(verticesEvent);
 
-    queue.enqueueCopyBuffer(inMesh.vertexKeys, outMesh.vertexKeys, 0, 0,
-                            inMesh.numVertices * sizeof(cl_ulong),
-                            events, &vertexKeysEvent);
+    CLH::enqueueCopyBuffer(queue,
+                           inMesh.vertexKeys, outMesh.vertexKeys, 0, 0,
+                           inMesh.numVertices * sizeof(cl_ulong),
+                           events, &vertexKeysEvent);
     wait.push_back(vertexKeysEvent);
 
-    if (inMesh.numTriangles > 1)
+    if (inMesh.numTriangles > 0)
     {
-        queue.enqueueCopyBuffer(inMesh.triangles, outMesh.triangles,
-                                3 * sizeof(cl_uint), 0,
-                                (inMesh.numTriangles - 1) * (3 * sizeof(cl_uint)),
-                                events, &trianglesEvent);
+        CLH::enqueueCopyBuffer(queue,
+                               inMesh.triangles, outMesh.triangles,
+                               3 * sizeof(cl_uint), 0,
+                               (inMesh.numTriangles - 1) * (3 * sizeof(cl_uint)),
+                               events, &trianglesEvent);
         wait.push_back(trianglesEvent);
     }
 
     outMesh.numVertices = inMesh.numVertices;
     outMesh.numInternalVertices = inMesh.numInternalVertices;
-    outMesh.numTriangles = inMesh.numTriangles - 1;
+    outMesh.numTriangles = inMesh.numTriangles ? inMesh.numTriangles - 1 : 0;
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 }
 
@@ -129,6 +130,7 @@ class TestMeshFilterChain : public CLH::Test::TestFixture
     CPPUNIT_TEST(testNoFilters);
     CPPUNIT_TEST(testFilters);
     CPPUNIT_TEST(testCull);
+    CPPUNIT_TEST(testEmpty);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -142,6 +144,7 @@ public:
     void testNoFilters();     ///< Test basic operation with no filters in the chain
     void testFilters();       ///< Test normal operation with filters in the chain
     void testCull();          ///< Test case where a filter completely eliminates the mesh
+    void testEmpty();         ///< Passes an empty mesh into the front end
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMeshFilterChain, TestSet::perBuild());
 
@@ -190,10 +193,35 @@ void TestMeshFilterChain::testCull()
     filterChain.addFilter(boost::ref(filter1));
     filterChain.addFilter(boost::ref(filter2));
     filterChain.addFilter(boost::ref(filter1));
-    filterChain.setOutput(CollectOutput());  // asserts that it was not called
 
     cl::Event event;
     filterChain(queue, dMesh, NULL, &event);
     queue.flush();
     event.wait();
+
+    CPPUNIT_ASSERT(hMesh.vertices.size() == 5);
+    CPPUNIT_ASSERT(hMesh.vertexKeys.size() == 1);
+    CPPUNIT_ASSERT(hMesh.triangles.size() == 0);
+}
+
+void TestMeshFilterChain::testEmpty()
+{
+    TruncateFilter filter1(context, 10, 10);
+    TruncateFilter filter2(context, 10, 10);
+    filterChain.addFilter(boost::ref(filter1));
+    filterChain.addFilter(boost::ref(filter2));
+    filterChain.addFilter(boost::ref(filter1));
+
+    dMesh.numTriangles = 0;
+    dMesh.numVertices = 0;
+    dMesh.numInternalVertices = 0;
+
+    cl::Event event;
+    filterChain(queue, dMesh, NULL, &event);
+    queue.flush();
+    event.wait();
+
+    CPPUNIT_ASSERT(hMesh.vertices.size() == 0);
+    CPPUNIT_ASSERT(hMesh.vertexKeys.size() == 0);
+    CPPUNIT_ASSERT(hMesh.triangles.size() == 0);
 }

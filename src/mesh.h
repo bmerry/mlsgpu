@@ -20,7 +20,8 @@
  * Encapsulates a mesh consisting of vertices and triangles in OpenCL buffers.
  *
  * The buffers are not required to be fully utilized; separate counts indicate
- * how much is allocated.
+ * how much is allocated. It is also valid for @a numTriangles or @a numVertices
+ * to be zero; consumers of device mesh objects must deal with this gracefully.
  *
  * It is unspecified whether a @c DeviceMesh is the unique owner of its memory
  * or whether it is shared via OpenCL's reference-counting mechanism.
@@ -47,14 +48,13 @@ struct DeviceMesh
 
     /**
      * Constructor. The buffers are allocated with just enough space to hold
-     * the specified number of vertices and triangles.
+     * the specified number of vertices and triangles. It is legal for
+     * @a numVertices or @a numTriangles to be zero.
      *
      * @param context       Context used to allocate buffers.
      * @param flags         Memory flags passed to create the buffer.
      * @param numVertices   The number of vertices to allocate.
      * @param numTriangles  The number of triangles to allocate.
-     *
-     * @pre @a numVertices and @a numTriangles are positive.
      */
     DeviceMesh(const cl::Context &context, cl_mem_flags flags, std::size_t numVertices, std::size_t numTriangles);
 };
@@ -76,9 +76,8 @@ struct DeviceKeyMesh : public DeviceMesh
 
     /**
      * Constructor. The buffers are allocated with just enough space to hold
-     * the specified number of vertices and triangles.
-     *
-     * @pre @a numVertices and @a numTriangles are positive.
+     * the specified number of vertices and triangles. It is legal for
+     * @a numVertices or @a numTriangles to be zero.
      */
     DeviceKeyMesh(const cl::Context &context, cl_mem_flags flags,
                   std::size_t numVertices, std::size_t numInternalVertices, std::size_t numTriangles);

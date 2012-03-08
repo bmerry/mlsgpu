@@ -32,8 +32,6 @@ class Grid;
  *  -# Events to wait for before reading from the input mesh (may be @c NULL).
  *  -# An event the caller must wait for before reading the output mesh (may be @c NULL).
  *  -# The output mesh.
- *
- * A filter may assume that the input is non-empty, and may output an empty mesh.
  */
 typedef boost::function<
     void(const cl::CommandQueue &queue,
@@ -92,13 +90,8 @@ public:
      * the filters in turn, passing the last output to the output functor provided to the
      * constructor.
      *
-     * If any of the filters outputs an empty mesh (zero triangles), processing is terminated
-     * and the event returned is for completion of the filters that have already executed. The
-     * output functor will not be called in this case.
-     *
      * @pre
      * - The output functor has been set.
-     * - The @a mesh is not empty.
      */
     void operator()(
         const cl::CommandQueue &queue,

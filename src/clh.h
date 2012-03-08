@@ -197,10 +197,68 @@ void doneEvent(const cl::CommandQueue &queue, cl::Event *event);
  *    Thus, if your algorithm depends on it not doing so (e.g. you've used
  *    user events to create dependencies backwards in time) it may cause
  *    a deadlock.
+ *  - It is legal for @a event to be @c NULL (in which case the marker is
+ *    still enqueued, so that if the wait list contained events from other
+ *    queues then a barrier on this queue would happen-after those events).
  */
-void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
-                               const std::vector<cl::Event> *events,
-                               cl::Event *event);
+cl_int enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
+                                 const std::vector<cl::Event> *events,
+                                 cl::Event *event);
+
+/**
+ * Extension of @c cl::CommandQueue::enqueueReadBuffer that allows the
+ * size to be zero.
+ */
+cl_int enqueueReadBuffer(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &buffer,
+    cl_bool blocking,
+    std::size_t offset,
+    std::size_t size,
+    void *ptr,
+    const std::vector<cl::Event> *events = NULL,
+    cl::Event *event = NULL);
+
+/**
+ * Extension of @c cl::CommandQueue::enqueueWriteBuffer that allows the
+ * size to be zero.
+ */
+cl_int enqueueWriteBuffer(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &buffer,
+    cl_bool blocking,
+    std::size_t offset,
+    std::size_t size,
+    const void *ptr,
+    const std::vector<cl::Event> *events = NULL,
+    cl::Event *event = NULL);
+
+/**
+ * Extension of @c cl::CommandQueue::enqueueCopyBuffer that allows the size
+ * to be zero.
+ */
+cl_int enqueueCopyBuffer(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &src,
+    const cl::Buffer &dst,
+    std::size_t srcOffset,
+    std::size_t dstOffset,
+    std::size_t size,
+    const std::vector<cl::Event> *events = NULL,
+    cl::Event *event = NULL);
+
+/**
+ * Extension of @c cl::CommandQueue::enqueueNDRangeKernel that allows the
+ * number of work-items to be zero.
+ */
+cl_int enqueueNDRangeKernel(
+    const cl::CommandQueue &queue,
+    const cl::Kernel &kernel,
+    const cl::NDRange &offset,
+    const cl::NDRange &global,
+    const cl::NDRange &local = cl::NullRange,
+    const std::vector<cl::Event> *events = NULL,
+    cl::Event *event = NULL);
 
 } // namespace CLH
 

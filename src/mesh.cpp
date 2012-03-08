@@ -16,13 +16,14 @@
 #include <vector>
 #include "mesh.h"
 #include "clh.h"
+#include "errors.h"
 
 DeviceMesh::DeviceMesh(
     const cl::Context &context, cl_mem_flags flags,
     std::size_t numVertices, std::size_t numTriangles)
 :
-    vertices(context, flags, numVertices * (3 * sizeof(cl_float))),
-    triangles(context, flags, numTriangles * (3 * sizeof(cl_uint))),
+    vertices(context, flags, numVertices ? numVertices * (3 * sizeof(cl_float)) : 1),
+    triangles(context, flags, numTriangles ? numTriangles * (3 * sizeof(cl_uint)) : 1),
     numVertices(numVertices),
     numTriangles(numTriangles)
 {
@@ -33,7 +34,7 @@ DeviceKeyMesh::DeviceKeyMesh(
     std::size_t numVertices, std::size_t numInternalVertices, std::size_t numTriangles)
 :
     DeviceMesh(context, flags, numVertices, numTriangles),
-    vertexKeys(context, flags, numVertices * sizeof(cl_ulong)),
+    vertexKeys(context, flags, numVertices ? numVertices * sizeof(cl_ulong) : 1),
     numInternalVertices(numInternalVertices)
 {
 }
@@ -45,13 +46,16 @@ void enqueueReadMesh(const cl::CommandQueue &queue,
                      cl::Event *vertexKeysEvent,
                      cl::Event *trianglesEvent)
 {
+    MLSGPU_ASSERT(dMesh.numInternalVertices <= dMesh.numVertices, std::invalid_argument);
+
     if (trianglesEvent != NULL)
     {
         hMesh.triangles.resize(dMesh.numTriangles);
-        queue.enqueueReadBuffer(dMesh.triangles, CL_FALSE,
-                                0, dMesh.numTriangles * (3 * sizeof(cl_uint)),
-                                &hMesh.triangles[0][0],
-                                events, trianglesEvent);
+        CLH::enqueueReadBuffer(queue,
+                               dMesh.triangles, CL_FALSE,
+                               0, dMesh.numTriangles * (3 * sizeof(cl_uint)),
+                               &hMesh.triangles[0][0],
+                               events, trianglesEvent);
         queue.flush();
     }
 
@@ -59,26 +63,23 @@ void enqueueReadMesh(const cl::CommandQueue &queue,
     {
         const std::size_t numExternalVertices = dMesh.numVertices - dMesh.numInternalVertices;
         hMesh.vertexKeys.resize(numExternalVertices);
-        if (numExternalVertices > 0)
-        {
-            queue.enqueueReadBuffer(dMesh.vertexKeys, CL_FALSE,
-                                    dMesh.numInternalVertices * sizeof(cl_ulong),
-                                    numExternalVertices * sizeof(cl_ulong),
-                                    &hMesh.vertexKeys[0],
-                                    events, vertexKeysEvent);
-            queue.flush();
-        }
-        else
-            CLH::doneEvent(queue, vertexKeysEvent);
+        CLH::enqueueReadBuffer(queue,
+                               dMesh.vertexKeys, CL_FALSE,
+                               dMesh.numInternalVertices * sizeof(cl_ulong),
+                               numExternalVertices * sizeof(cl_ulong),
+                               &hMesh.vertexKeys[0],
+                               events, vertexKeysEvent);
+        queue.flush();
     }
 
     if (verticesEvent != NULL)
     {
         hMesh.vertices.resize(dMesh.numVertices);
-        queue.enqueueReadBuffer(dMesh.vertices, CL_FALSE,
-                                0, dMesh.numVertices * (3 * sizeof(cl_float)),
-                                &hMesh.vertices[0][0],
-                                events, verticesEvent);
+        CLH::enqueueReadBuffer(queue,
+                               dMesh.vertices, CL_FALSE,
+                               0, dMesh.numVertices * (3 * sizeof(cl_float)),
+                               &hMesh.vertices[0][0],
+                               events, verticesEvent);
         queue.flush();
     }
 }

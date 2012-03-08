@@ -54,6 +54,7 @@ void Mixin::tearDownCL()
 cl::Buffer Mixin::createBuffer(cl_mem_flags flags, ::size_t size)
 {
     ::size_t words = divUp(size, 4);
+    if (words == 0) words = 1;
     boost::scoped_array<cl_uint> data(new cl_uint[words]);
     fill(data.get(), data.get() + words, 0xDEADBEEF);
     return cl::Buffer(context, flags | CL_MEM_COPY_HOST_PTR, size, data.get());

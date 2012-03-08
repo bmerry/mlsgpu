@@ -182,15 +182,17 @@ template<typename T>
 vector<T> TestMarching::bufferToVector(const cl::Buffer &buffer)
 {
     size_t size = buffer.getInfo<CL_MEM_SIZE>();
-    CPPUNIT_ASSERT(size % sizeof(T) == 0);
+    // We allow size == 1 so that empty buffers can be rounded up to a legal size.
+    CPPUNIT_ASSERT(size % sizeof(T) == 0 || size == 1);
     vector<T> ans(size / sizeof(T));
-    queue.enqueueReadBuffer(buffer, CL_TRUE, 0, size, &ans[0]);
+    CLH::enqueueReadBuffer(queue, buffer, CL_TRUE, 0, size, &ans[0]);
     return ans;
 }
 
 template<typename T>
 cl::Buffer TestMarching::vectorToBuffer(cl_mem_flags flags, const vector<T> &v)
 {
+    CPPUNIT_ASSERT(!v.empty());
     size_t size = v.size() * sizeof(T);
     return cl::Buffer(context, flags | CL_MEM_COPY_HOST_PTR, size, (void *) (&v[0]));
 }
@@ -305,10 +307,11 @@ void TestMarching::callCompactVertices(
     kernel.setArg(6, dInKeys);
     kernel.setArg(7, minExternalKey);
     kernel.setArg(8, cl_ulong(0));
-    queue.enqueueNDRangeKernel(kernel,
-                               cl::NullRange,
-                               cl::NDRange(inSize),
-                               cl::NullRange);
+    CLH::enqueueNDRangeKernel(queue,
+                              kernel,
+                              cl::NullRange,
+                              cl::NDRange(inSize),
+                              cl::NullRange);
     outVertices = bufferToVector<cl_float>(dOutVertices);
     outKeys = bufferToVector<cl_ulong>(dOutKeys);
     indexRemap = bufferToVector<cl_uint>(dIndexRemap);

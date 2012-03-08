@@ -42,6 +42,9 @@ protected:
      * @param flags    Flags to pass to CL (do not specify @c CL_MEM_COPY_HOST_PTR or @c CL_MEM_USE_HOST_PTR).
      * @param size     The buffer size.
      * @return The initialized buffer.
+     *
+     * @note The actual buffer size may be slightly larger than requested. Do not rely
+     * on querying the buffer size.
      */
     cl::Buffer createBuffer(cl_mem_flags flags, ::size_t size);
 };

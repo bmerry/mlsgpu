@@ -258,11 +258,15 @@ void doneEvent(const cl::CommandQueue &queue, cl::Event *event)
     }
 }
 
-void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
-                               const std::vector<cl::Event> *events,
-                               cl::Event *event)
+cl_int enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
+                                 const std::vector<cl::Event> *events,
+                                 cl::Event *event)
 {
-    if (events == NULL || events->size() > 1)
+    if (events == NULL && event == NULL)
+        return CL_SUCCESS;
+    else if (event == NULL)
+        return queue.enqueueWaitForEvents(*events);
+    else if (events == NULL || events->size() > 1)
     {
         /* For the events->size() > 1 case this is inefficient but correct.
          * Alternatives would be to enqueue a dummy task (which would have
@@ -271,7 +275,7 @@ void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
          * of the events and signal a user event when done (which would
          * force scheduling to round trip via multiple CPU threads).
          */
-        queue.enqueueMarker(event);
+        return queue.enqueueMarker(event);
     }
     else if (events->empty())
     {
@@ -283,6 +287,72 @@ void enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
         if (event != NULL)
             *event = (*events)[0];
     }
+    return CL_SUCCESS;
+}
+
+cl_int enqueueReadBuffer(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &buffer,
+    cl_bool blocking,
+    std::size_t offset,
+    std::size_t size,
+    void *ptr,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    if (size == 0)
+        return enqueueMarkerWithWaitList(queue, events, event);
+    else
+        return queue.enqueueReadBuffer(buffer, blocking, offset, size, ptr, events, event);
+}
+
+cl_int enqueueWriteBuffer(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &buffer,
+    cl_bool blocking,
+    std::size_t offset,
+    std::size_t size,
+    const void *ptr,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    if (size == 0)
+        return enqueueMarkerWithWaitList(queue, events, event);
+    else
+        return queue.enqueueWriteBuffer(buffer, blocking, offset, size, ptr, events, event);
+}
+
+cl_int enqueueCopyBuffer(
+    const cl::CommandQueue &queue,
+    const cl::Buffer &src,
+    const cl::Buffer &dst,
+    std::size_t srcOffset,
+    std::size_t dstOffset,
+    std::size_t size,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    if (size == 0)
+        return enqueueMarkerWithWaitList(queue, events, event);
+    else
+        return queue.enqueueCopyBuffer(src, dst, srcOffset, dstOffset, size, events, event);
+}
+
+cl_int enqueueNDRangeKernel(
+    const cl::CommandQueue &queue,
+    const cl::Kernel &kernel,
+    const cl::NDRange &offset,
+    const cl::NDRange &global,
+    const cl::NDRange &local,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    for (std::size_t i = 0; i < global.dimensions(); i++)
+        if (static_cast<const std::size_t *>(global)[i] == 0)
+        {
+            return enqueueMarkerWithWaitList(queue, events, event);
+        }
+    return queue.enqueueNDRangeKernel(kernel, offset, global, local, events, event);
 }
 
 } // namespace CLH

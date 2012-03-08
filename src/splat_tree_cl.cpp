@@ -131,11 +131,12 @@ void SplatTreeCL::enqueueWriteEntries(
     writeEntriesKernel.setArg(5, (cl_uint) minShift);
     writeEntriesKernel.setArg(6, (cl_uint) maxShift);
 
-    queue.enqueueNDRangeKernel(writeEntriesKernel,
-                               cl::NullRange,
-                               cl::NDRange(numSplats),
-                               cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernel(queue,
+                              writeEntriesKernel,
+                              cl::NullRange,
+                              cl::NDRange(numSplats),
+                              cl::NullRange,
+                              events, event);
 }
 
 void SplatTreeCL::enqueueCountCommands(
@@ -148,11 +149,12 @@ void SplatTreeCL::enqueueCountCommands(
 {
     countCommandsKernel.setArg(0, indicator);
     countCommandsKernel.setArg(1, keys);
-    queue.enqueueNDRangeKernel(countCommandsKernel,
-                               cl::NullRange,
-                               cl::NDRange(numKeys - 1),
-                               cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernel(queue,
+                              countCommandsKernel,
+                              cl::NullRange,
+                              cl::NDRange(numKeys - 1),
+                              cl::NullRange,
+                              events, event);
 }
 
 void SplatTreeCL::enqueueWriteSplatIds(
@@ -173,9 +175,10 @@ void SplatTreeCL::enqueueWriteSplatIds(
     writeSplatIdsKernel.setArg(3, commandMap);
     writeSplatIdsKernel.setArg(4, keys);
     writeSplatIdsKernel.setArg(5, splatIds);
-    queue.enqueueNDRangeKernel(writeSplatIdsKernel,
-                               cl::NullRange, cl::NDRange(numEntries), cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernel(queue,
+                              writeSplatIdsKernel,
+                              cl::NullRange, cl::NDRange(numEntries), cl::NullRange,
+                              events, event);
 }
 
 void SplatTreeCL::enqueueFill(
@@ -189,11 +192,12 @@ void SplatTreeCL::enqueueFill(
 {
     fillKernel.setArg(0, buffer);
     fillKernel.setArg(1, value);
-    queue.enqueueNDRangeKernel(fillKernel,
-                               cl::NDRange(offset),
-                               cl::NDRange(elements),
-                               cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernel(queue,
+                              fillKernel,
+                              cl::NDRange(offset),
+                              cl::NDRange(elements),
+                              cl::NullRange,
+                              events, event);
 }
 
 void SplatTreeCL::enqueueWriteStart(
@@ -216,11 +220,12 @@ void SplatTreeCL::enqueueWriteStart(
     if (havePrev)
         kernel.setArg(4, prevOffset);
 
-    queue.enqueueNDRangeKernel(kernel,
-                               cl::NullRange,
-                               cl::NDRange(numCodes),
-                               cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernel(queue,
+                              kernel,
+                              cl::NullRange,
+                              cl::NDRange(numCodes),
+                              cl::NullRange,
+                              events, event);
 }
 
 
@@ -260,7 +265,7 @@ void SplatTreeCL::enqueueBuild(
     // Copy splats to the GPU
     cl::Event myUploadEvent, writeEntriesEvent, sortEvent, countEvent, scanEvent,
         writeSplatIdsEvent, levelEvent, fillJumpPosEvent;
-    queue.enqueueWriteBuffer(this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
+    CLH::enqueueWriteBuffer(queue, this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
     queue.flush(); // Start the copy going while we do remaining queuing.
 
     const std::size_t numEntries = numSplats * 8;

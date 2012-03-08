@@ -435,11 +435,12 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
 
     countElementsKernel.setArg(2, sliceA);
     countElementsKernel.setArg(3, sliceB);
-    queue.enqueueNDRangeKernel(countElementsKernel,
-                               cl::NullRange,
-                               cl::NDRange(compacted),
-                               cl::NullRange,
-                               events, &last);
+    CLH::enqueueNDRangeKernel(queue,
+                              countElementsKernel,
+                              cl::NullRange,
+                              cl::NDRange(compacted),
+                              cl::NullRange,
+                              events, &last);
     wait[0] = last;
 
     scanElements.enqueue(queue, viCount, compacted + 1, NULL, &wait, &last);
@@ -459,8 +460,6 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                        const std::vector<cl::Event> *events,
                        cl::Event *event)
 {
-    assert(sizes.s0 > 0);
-
     std::vector<cl::Event> wait(1);
     cl::Event last;
 
@@ -475,11 +474,12 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     sortVertices.enqueue(queue, unweldedVertexKeys, unweldedVertices, sizes.s0, 0, &wait, &last);
     wait[0] = last;
 
-    queue.enqueueNDRangeKernel(countUniqueVerticesKernel,
-                               cl::NullRange,
-                               cl::NDRange(sizes.s0),
-                               cl::NullRange,
-                               &wait, &last);
+    CLH::enqueueNDRangeKernel(queue,
+                              countUniqueVerticesKernel,
+                              cl::NullRange,
+                              cl::NDRange(sizes.s0),
+                              cl::NullRange,
+                              &wait, &last);
     wait[0] = last;
 
     scanUint.enqueue(queue, vertexUnique, sizes.s0 + 1, NULL, &wait, &last);
@@ -499,21 +499,23 @@ void Marching::shipOut(const cl::CommandQueue &queue,
         | (cl_ulong(keyOffset.x) << 1);
     compactVerticesKernel.setArg(7, minExternalKey);
     compactVerticesKernel.setArg(8, keyOffsetL);
-    queue.enqueueNDRangeKernel(compactVerticesKernel,
-                               cl::NullRange,
-                               cl::NDRange(sizes.s0),
-                               cl::NullRange,
-                               &wait, &last);
+    CLH::enqueueNDRangeKernel(queue,
+                              compactVerticesKernel,
+                              cl::NullRange,
+                              cl::NDRange(sizes.s0),
+                              cl::NullRange,
+                              &wait, &last);
     wait[0] = last;
 
     cl_uint hFirstExternal;
     queue.enqueueReadBuffer(firstExternal, CL_FALSE, 0, sizeof(cl_uint), &hFirstExternal, &wait, NULL);
 
-    queue.enqueueNDRangeKernel(reindexKernel,
-                               cl::NullRange,
-                               cl::NDRange(sizes.s1),
-                               cl::NullRange,
-                               &wait, &last);
+    CLH::enqueueNDRangeKernel(queue,
+                              reindexKernel,
+                              cl::NullRange,
+                              cl::NDRange(sizes.s1),
+                              cl::NullRange,
+                              &wait, &last);
     queue.finish(); // wait for readback of numWelded and firstExternal (TODO: overkill)
 
     DeviceKeyMesh outputMesh; // TODO: store buffers in this instead of copying references
@@ -595,11 +597,12 @@ void Marching::generate(
             generateElementsKernel.setArg(12, offsets);
             generateElementsKernel.setArg(13, top);
             generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
-            queue.enqueueNDRangeKernel(generateElementsKernel,
-                                       cl::NullRange,
-                                       cl::NDRange(compacted),
-                                       cl::NDRange(wgsCompacted),
-                                       &wait, &last);
+            CLH::enqueueNDRangeKernel(queue,
+                                      generateElementsKernel,
+                                      cl::NullRange,
+                                      cl::NDRange(compacted),
+                                      cl::NDRange(wgsCompacted),
+                                      &wait, &last);
             wait.resize(1);
             wait[0] = last;
 

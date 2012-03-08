@@ -47,7 +47,7 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
            std::size_t maxVertices, std::size_t maxTriangles)
 :
     maxVertices(maxVertices), maxTriangles(maxTriangles),
-    distances(context, CL_MEM_READ_WRITE, maxVertices * sizeof(cl_float)),
+    distances(context, CL_MEM_READ_WRITE, maxVertices ? maxVertices * sizeof(cl_float) : 1),
     vertexCompact(context, CL_MEM_READ_WRITE, (maxVertices + 1) * sizeof(cl_uint)),
     triangleCompact(context, CL_MEM_READ_WRITE, (maxTriangles + 1) * sizeof(cl_uint)),
     compactScan(context, device, clogs::TYPE_UINT),
@@ -95,11 +95,12 @@ void Clip::operator()(
 
     cl::Event vertexInitEvent;
     vertexInitKernel.setArg(0, vertexCompact);
-    queue.enqueueNDRangeKernel(vertexInitKernel,
-                               cl::NullRange,
-                               cl::NDRange(mesh.numVertices),
-                               cl::NullRange,
-                               NULL, &vertexInitEvent);
+    CLH::enqueueNDRangeKernel(queue,
+                              vertexInitKernel,
+                              cl::NullRange,
+                              cl::NDRange(mesh.numVertices),
+                              cl::NullRange,
+                              NULL, &vertexInitEvent);
 
     wait.resize(2);
     wait[0] = distanceEvent;
@@ -109,11 +110,12 @@ void Clip::operator()(
     classifyKernel.setArg(1, vertexCompact);
     classifyKernel.setArg(2, mesh.triangles);
     classifyKernel.setArg(3, distances);
-    queue.enqueueNDRangeKernel(classifyKernel,
-                               cl::NullRange,
-                               cl::NDRange(mesh.numTriangles),
-                               cl::NullRange,
-                               &wait, &classifyEvent);
+    CLH::enqueueNDRangeKernel(queue,
+                              classifyKernel,
+                              cl::NullRange,
+                              cl::NDRange(mesh.numTriangles),
+                              cl::NullRange,
+                              &wait, &classifyEvent);
 
     /*** Compact vertices and their keys ***/
 
@@ -141,11 +143,12 @@ void Clip::operator()(
     vertexCompactKernel.setArg(2, vertexCompact);
     vertexCompactKernel.setArg(3, mesh.vertices);
     vertexCompactKernel.setArg(4, mesh.vertexKeys);
-    queue.enqueueNDRangeKernel(vertexCompactKernel,
-                               cl::NullRange,
-                               cl::NDRange(mesh.numVertices),
-                               cl::NullRange,
-                               &wait, &vertexCompactEvent);
+    CLH::enqueueNDRangeKernel(queue,
+                              vertexCompactKernel,
+                              cl::NullRange,
+                              cl::NDRange(mesh.numVertices),
+                              cl::NullRange,
+                              &wait, &vertexCompactEvent);
 
     /*** Compact triangles, while also rewriting the indices ***/
 
@@ -170,11 +173,12 @@ void Clip::operator()(
     triangleCompactKernel.setArg(1, triangleCompact);
     triangleCompactKernel.setArg(2, mesh.triangles);
     triangleCompactKernel.setArg(3, vertexCompact);
-    queue.enqueueNDRangeKernel(triangleCompactKernel,
-                               cl::NullRange,
-                               cl::NDRange(mesh.numTriangles),
-                               cl::NullRange,
-                               &wait, &triangleCompactEvent);
+    CLH::enqueueNDRangeKernel(queue,
+                              triangleCompactKernel,
+                              cl::NullRange,
+                              cl::NDRange(mesh.numTriangles),
+                              cl::NullRange,
+                              &wait, &triangleCompactEvent);
 
     // Some of these happen-after others and so some steps are redundant, but
     // checking for all of them is safe.

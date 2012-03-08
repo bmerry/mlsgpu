@@ -20,6 +20,7 @@
 #include "mesh_filter.h"
 #include "errors.h"
 #include "grid.h"
+#include "clh.h"
 
 void MeshFilterChain::operator()(
     const cl::CommandQueue &queue,
@@ -27,8 +28,6 @@ void MeshFilterChain::operator()(
     const std::vector<cl::Event> *events,
     cl::Event *event) const
 {
-    MLSGPU_ASSERT(mesh.numTriangles > 0 && mesh.numVertices > 0, std::invalid_argument);
-
     DeviceKeyMesh meshes[2]; // for ping-pong
     DeviceKeyMesh *inMesh = &meshes[0];
     DeviceKeyMesh *outMesh = &meshes[1];
@@ -42,13 +41,6 @@ void MeshFilterChain::operator()(
         wait[0] = last;
         events = &wait;
         std::swap(inMesh, outMesh);
-        if (inMesh->numTriangles == 0)
-        {
-            // Filter completed eliminated the mesh.
-            if (event != NULL)
-                *event = last;
-            return;
-        }
     }
     output(queue, *inMesh, events, event);
 }
@@ -85,10 +77,11 @@ void ScaleBiasFilter::operator()(
 {
     // TODO: pick a work group size
     kernel.setArg(0, inMesh.vertices);
-    queue.enqueueNDRangeKernel(kernel,
-                               cl::NullRange,
-                               cl::NDRange(inMesh.numVertices),
-                               cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernel(queue,
+                              kernel,
+                              cl::NullRange,
+                              cl::NDRange(inMesh.numVertices),
+                              cl::NullRange,
+                              events, event);
     outMesh = inMesh;
 }

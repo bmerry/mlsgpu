@@ -220,7 +220,7 @@ public:
      *
      * @pre
      * - @a size is no more than 2^(maxLevels - subSamplingShift - 1) elements in any direction.
-     * - @a numSplats is less than @a maxSplats.
+     * - @a numSplats is at most @a maxSplats.
      * - @a splats is not @c NULL.
      */
     void enqueueBuild(const cl::CommandQueue &queue,

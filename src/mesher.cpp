@@ -96,16 +96,18 @@ void SimpleMesher::add(const cl::CommandQueue &queue,
     this->triangles.resize(oldTriangles + mesh.numTriangles);
 
     cl::Event verticesEvent;
-    queue.enqueueReadBuffer(mesh.vertices, CL_FALSE,
-                            0, mesh.numVertices * (3 * sizeof(cl_float)),
-                            &vertices[oldVertices][0],
-                            events, &verticesEvent);
+    CLH::enqueueReadBuffer(queue,
+                           mesh.vertices, CL_FALSE,
+                           0, mesh.numVertices * (3 * sizeof(cl_float)),
+                           &vertices[oldVertices][0],
+                           events, &verticesEvent);
     // Kick off this enqueue in the backward while enqueuing more work
     queue.flush();
-    queue.enqueueReadBuffer(mesh.triangles, CL_TRUE,
-                            0, mesh.numTriangles * (3 * sizeof(cl_uint)),
-                            &triangles[oldTriangles][0],
-                            events, NULL);
+    CLH::enqueueReadBuffer(queue,
+                           mesh.triangles, CL_TRUE,
+                           0, mesh.numTriangles * (3 * sizeof(cl_uint)),
+                           &triangles[oldTriangles][0],
+                           events, NULL);
 
     /* Adjust the indices to be global */
     for (std::size_t i = oldTriangles; i < oldTriangles + mesh.numTriangles; i++)
@@ -157,38 +159,37 @@ void WeldMesher::add(const cl::CommandQueue &queue,
     cl::Event indicesEvent, internalVerticesEvent, externalVerticesEvent, vertexKeysEvent;
     std::vector<cl::Event> wait;
 
-    queue.enqueueReadBuffer(mesh.triangles, CL_FALSE, 0, mesh.numTriangles * (3 * sizeof(cl_uint)),
-                            &triangles[oldTriangles][0], events, &indicesEvent);
+    CLH::enqueueReadBuffer(queue,
+                           mesh.triangles, CL_FALSE, 0, mesh.numTriangles * (3 * sizeof(cl_uint)),
+                           &triangles[oldTriangles][0], events, &indicesEvent);
     queue.flush(); // Kick off this read-back in the background while we queue more.
 
     /* Read back the vertex and key data. We don't need it now, so we just return
      * an event for it.
      * TODO: allow them to proceed in parallel.
      */
-    if (numInternal > 0)
-    {
-        queue.enqueueReadBuffer(mesh.vertices, CL_FALSE,
-                                0,
-                                numInternal * (3 * sizeof(cl_float)),
-                                &internalVertices[oldInternal][0],
-                                events, &internalVerticesEvent);
-        wait.push_back(internalVerticesEvent);
-    }
-    if (numExternal > 0)
-    {
-        queue.enqueueReadBuffer(mesh.vertices, CL_FALSE,
-                                numInternal * (3 * sizeof(cl_float)),
-                                numExternal * (3 * sizeof(cl_float)),
-                                &externalVertices[oldExternal][0],
-                                events, &externalVerticesEvent);
-        queue.enqueueReadBuffer(mesh.vertexKeys, CL_FALSE,
-                                numInternal * sizeof(cl_ulong),
-                                numExternal * sizeof(cl_ulong),
-                                &externalKeys[oldExternal],
-                                events, &vertexKeysEvent);
-        wait.push_back(externalVerticesEvent);
-        wait.push_back(vertexKeysEvent);
-    }
+    CLH::enqueueReadBuffer(queue,
+                           mesh.vertices, CL_FALSE,
+                           0,
+                           numInternal * (3 * sizeof(cl_float)),
+                           &internalVertices[oldInternal][0],
+                           events, &internalVerticesEvent);
+    wait.push_back(internalVerticesEvent);
+
+    CLH::enqueueReadBuffer(queue,
+                           mesh.vertices, CL_FALSE,
+                           numInternal * (3 * sizeof(cl_float)),
+                           numExternal * (3 * sizeof(cl_float)),
+                           &externalVertices[oldExternal][0],
+                           events, &externalVerticesEvent);
+    CLH::enqueueReadBuffer(queue,
+                           mesh.vertexKeys, CL_FALSE,
+                           numInternal * sizeof(cl_ulong),
+                           numExternal * sizeof(cl_ulong),
+                           &externalKeys[oldExternal],
+                           events, &vertexKeysEvent);
+    wait.push_back(externalVerticesEvent);
+    wait.push_back(vertexKeysEvent);
 
     /* Rewrite indices to refer to the two separate arrays, at the same time
      * applying ~ to the external indices to disambiguate them. Note that

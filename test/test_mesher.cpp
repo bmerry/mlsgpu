@@ -201,32 +201,29 @@ void TestMesherBase::add(
 {
     const size_t numTriangles = numIndices / 3;
     const size_t numVertices = numInternalVertices + numExternalVertices;
-    assert(numVertices > 0 && numIndices > 0);
     assert(numIndices % 3 == 0);
 
     DeviceKeyMesh dMesh(context, CL_MEM_READ_WRITE, numVertices, numInternalVertices, numTriangles);
-    if (numInternalVertices > 0)
-    {
-        queue.enqueueWriteBuffer(dMesh.vertices, CL_FALSE,
-                                 0,
-                                 numInternalVertices * (3 * sizeof(cl_float)),
-                                 internalVertices);
-    }
-    if (numExternalVertices > 0)
-    {
-        queue.enqueueWriteBuffer(dMesh.vertices, CL_FALSE,
-                                 numInternalVertices * (3 * sizeof(cl_float)),
-                                 numExternalVertices * (3 * sizeof(cl_float)),
-                                 externalVertices);
-        queue.enqueueWriteBuffer(dMesh.vertexKeys, CL_FALSE,
-                                 numInternalVertices * sizeof(cl_ulong),
-                                 numExternalVertices * sizeof(cl_ulong),
-                                 externalKeys);
-    }
-    queue.enqueueWriteBuffer(dMesh.triangles, CL_FALSE,
-                             0,
-                             numTriangles * (3 * sizeof(cl_uint)),
-                             indices);
+    CLH::enqueueWriteBuffer(queue,
+                            dMesh.vertices, CL_FALSE,
+                            0,
+                            numInternalVertices * (3 * sizeof(cl_float)),
+                            internalVertices);
+    CLH::enqueueWriteBuffer(queue,
+                            dMesh.vertices, CL_FALSE,
+                            numInternalVertices * (3 * sizeof(cl_float)),
+                            numExternalVertices * (3 * sizeof(cl_float)),
+                            externalVertices);
+    CLH::enqueueWriteBuffer(queue,
+                            dMesh.vertexKeys, CL_FALSE,
+                            numInternalVertices * sizeof(cl_ulong),
+                            numExternalVertices * sizeof(cl_ulong),
+                            externalKeys);
+    CLH::enqueueWriteBuffer(queue,
+                            dMesh.triangles, CL_FALSE,
+                            0,
+                            numTriangles * (3 * sizeof(cl_uint)),
+                            indices);
     queue.finish();
 
     cl::Event event;
@@ -467,7 +464,7 @@ void TestMesherBase::testNoExternal()
             internalVertices0, NULL, NULL, indices0);
         add(functor,
             boost::size(internalVertices2),
-            0, 
+            0,
             boost::size(indices2),
             internalVertices2, NULL, NULL, indices2);
     }
@@ -486,6 +483,7 @@ void TestMesherBase::testEmpty()
     for (unsigned int i = 0; i < passes; i++)
     {
         Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        add(functor, 0, 0, 0, NULL, NULL, NULL, NULL);
     }
     mesher->finalize();
     mesher->write(writer, "");
