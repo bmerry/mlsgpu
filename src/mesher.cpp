@@ -359,13 +359,13 @@ namespace detail
 {
 
 void KeyMapMesher::computeLocalComponents(
-    const HostMesh &mesh,
+    std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles,
     std::vector<clump_id> &clumpId)
 {
     tmpNodes.clear();
-    tmpNodes.resize(mesh.vertices.size());
+    tmpNodes.resize(numVertices);
     typedef boost::array<cl_uint, 3> triangle_type;
-    BOOST_FOREACH(const triangle_type &triangle, mesh.triangles)
+    BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         // Only need to use two edges in the union-find tree, since the
         // third will be redundant.
@@ -374,8 +374,8 @@ void KeyMapMesher::computeLocalComponents(
     }
 
     // Allocate clumps for the local components
-    clumpId.resize(mesh.vertices.size());
-    for (std::size_t i = 0; i < mesh.vertices.size(); i++)
+    clumpId.resize(numVertices);
+    for (std::size_t i = 0; i < numVertices; i++)
     {
         if (tmpNodes[i].isRoot())
         {
@@ -389,14 +389,14 @@ void KeyMapMesher::computeLocalComponents(
     }
 
     // Compute clump IDs for the non-root vertices
-    for (std::size_t i = 0; i < mesh.vertices.size(); i++)
+    for (std::size_t i = 0; i < numVertices; i++)
     {
         cl_int r = UnionFind::findRoot(tmpNodes, i);
         clumpId[i] = clumpId[r];
     }
 
     // Compute triangle counts for the clumps
-    BOOST_FOREACH(const triangle_type &triangle, mesh.triangles)
+    BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         Clump &clump = clumps[clumpId[triangle[0]]];
         clump.triangles++;
@@ -475,7 +475,7 @@ void BigMesher::count(const cl::CommandQueue &queue,
     enqueueReadMesh(queue, mesh, tmpMesh, events, NULL, &vertexKeysEvent, &trianglesEvent);
 
     trianglesEvent.wait();
-    computeLocalComponents(tmpMesh, tmpClumpId);
+    computeLocalComponents(mesh.numVertices, tmpMesh.triangles, tmpClumpId);
 
     /* Build keyClump */
     vertexKeysEvent.wait();
@@ -512,7 +512,7 @@ void BigMesher::add(const cl::CommandQueue &queue,
 
     trianglesEvent.wait();
     clumps.clear();
-    computeLocalComponents(tmpMesh, tmpClumpId);
+    computeLocalComponents(mesh.numVertices, tmpMesh.triangles, tmpClumpId);
 
     /* Determine which components are valid. We no longer need the triangles
      * member of Clump, so we overwrite it with a validity boolean. A clump
@@ -734,7 +734,7 @@ void StxxlMesher::add(
                     &verticesEvent, &vertexKeysEvent, &trianglesEvent);
 
     trianglesEvent.wait();
-    computeLocalComponents(tmpMesh, tmpClumpId);
+    computeLocalComponents(mesh.numVertices, tmpMesh.triangles, tmpClumpId);
 
     vertexKeysEvent.wait();
     std::size_t newKeys = updateKeyMap(

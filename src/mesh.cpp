@@ -45,34 +45,40 @@ void enqueueReadMesh(const cl::CommandQueue &queue,
                      cl::Event *vertexKeysEvent,
                      cl::Event *trianglesEvent)
 {
-    const std::size_t numExternalVertices = dMesh.numVertices - dMesh.numInternalVertices;
-    hMesh.vertices.resize(dMesh.numVertices);
-    hMesh.vertexKeys.resize(numExternalVertices);
-    hMesh.triangles.resize(dMesh.numTriangles);
-
     if (trianglesEvent != NULL)
+    {
+        hMesh.triangles.resize(dMesh.numTriangles);
         queue.enqueueReadBuffer(dMesh.triangles, CL_FALSE,
                                 0, dMesh.numTriangles * (3 * sizeof(cl_uint)),
                                 &hMesh.triangles[0][0],
                                 events, trianglesEvent);
-
-    if (numExternalVertices > 0 && vertexKeysEvent != NULL)
-    {
-        queue.enqueueReadBuffer(dMesh.vertexKeys, CL_FALSE,
-                                dMesh.numInternalVertices * sizeof(cl_ulong),
-                                numExternalVertices * sizeof(cl_ulong),
-                                &hMesh.vertexKeys[0],
-                                events, vertexKeysEvent);
-        /* Start this transfer going while we queue up the following ones */
         queue.flush();
     }
-    else
-        CLH::doneEvent(queue, vertexKeysEvent);
+
+    if (vertexKeysEvent != NULL)
+    {
+        const std::size_t numExternalVertices = dMesh.numVertices - dMesh.numInternalVertices;
+        hMesh.vertexKeys.resize(numExternalVertices);
+        if (numExternalVertices > 0)
+        {
+            queue.enqueueReadBuffer(dMesh.vertexKeys, CL_FALSE,
+                                    dMesh.numInternalVertices * sizeof(cl_ulong),
+                                    numExternalVertices * sizeof(cl_ulong),
+                                    &hMesh.vertexKeys[0],
+                                    events, vertexKeysEvent);
+            queue.flush();
+        }
+        else
+            CLH::doneEvent(queue, vertexKeysEvent);
+    }
 
     if (verticesEvent != NULL)
+    {
+        hMesh.vertices.resize(dMesh.numVertices);
         queue.enqueueReadBuffer(dMesh.vertices, CL_FALSE,
                                 0, dMesh.numVertices * (3 * sizeof(cl_float)),
                                 &hMesh.vertices[0][0],
                                 events, verticesEvent);
-    queue.flush();
+        queue.flush();
+    }
 }

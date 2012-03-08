@@ -286,7 +286,8 @@ protected:
      * Identifies clumps in the local set of triangles. Each new clump is
      * appended to @ref clumps.
      *
-     * @param mesh           The mesh to examine (only @a numVertices and @a triangles are used).
+     * @param numVertices    The number of vertices indexed by the triangles.
+     * @param triangles      The triangles used to determine connectivity.
      * @param[out] clumpId   The index into @ref clumps for each vertex
      *
      * @post <code>clumpId.size() == numVertices</code>
@@ -296,7 +297,7 @@ protected:
      * @ref clumps.
      */
     void computeLocalComponents(
-        const HostMesh &mesh,
+        std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles,
         std::vector<clump_id> &clumpId);
 
     /**

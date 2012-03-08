@@ -45,7 +45,6 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
 
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
-    std::tr1::uint64_t total = 0;
     const std::tr1::uint64_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
 
     CLH::ResourceUsage ans;
