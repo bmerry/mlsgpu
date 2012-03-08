@@ -84,7 +84,10 @@ private:
 public:
     ResourceUsage() : maxMemory(0), totalMemory(0), imageWidth(0), imageHeight(0) {}
 
+    /// Indicate that memory for a buffer is required.
     void addBuffer(std::tr1::uint64_t bytes);
+
+    /// Indicate that memory for a 2D image is required.
     void addImage(std::size_t width, std::size_t height, std::size_t bytesPerPixel);
 
     /**
@@ -99,9 +102,13 @@ public:
      */
     ResourceUsage operator*(unsigned int n) const;
 
+    /// Retrieve the maximum single allocation size required.
     std::tr1::uint64_t getMaxMemory() const { return maxMemory; }
+    /// Retrieve the maximum total memory required.
     std::tr1::uint64_t getTotalMemory() const { return totalMemory; }
+    /// Retrieve the largest image width required (0 if no images).
     std::size_t getImageWidth() const { return imageWidth; }
+    /// Retrieve the largest image height required (0 if no images).
     std::size_t getImageHeight() const { return imageHeight; }
 };
 
