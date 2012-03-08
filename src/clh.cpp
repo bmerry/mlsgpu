@@ -238,16 +238,11 @@ cl::Program build(const cl::Context &context,
     return build(context, devices, filename, defines, options);
 }
 
-void doneEvent(const cl::Context &context, cl::Event *event)
-{
-    if (event != NULL)
-    {
-        cl::UserEvent signaled(context);
-        signaled.setStatus(CL_COMPLETE);
-        *event = signaled;
-    }
-}
-
+/**
+ * Return an event that is already signaled as @c CL_COMPLETE.
+ * This is equivalent to the other form but uses the queue to determine the
+ * context.
+ */
 void doneEvent(const cl::CommandQueue &queue, cl::Event *event)
 {
     if (event != NULL)
@@ -262,22 +257,26 @@ cl_int enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
                                  const std::vector<cl::Event> *events,
                                  cl::Event *event)
 {
+    if (events != NULL && events->empty())
+        events = NULL; // to avoid having to check for both conditions later
+
     if (events == NULL && event == NULL)
         return CL_SUCCESS;
     else if (event == NULL)
         return queue.enqueueWaitForEvents(*events);
-    else if (events == NULL || events->size() > 1)
+    else if (!(queue.getInfo<CL_QUEUE_PROPERTIES>() & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE)
+             || (events != NULL && events->size() > 1))
     {
-        /* For the events->size() > 1 case this is inefficient but correct.
-         * Alternatives would be to enqueue a dummy task (which would have
-         * potentially large overhead to allocate a dummy buffer or
-         * something), or to create a separate thread to wait for completion
-         * of the events and signal a user event when done (which would
-         * force scheduling to round trip via multiple CPU threads).
+        /* For the events->size() > 1, out-of-order case this is inefficient
+         * but correct.  Alternatives would be to enqueue a dummy task (which
+         * would have potentially large overhead to allocate a dummy buffer or
+         * something), or to create a separate thread to wait for completion of
+         * the events and signal a user event when done (which would force
+         * scheduling to round trip via multiple CPU threads).
          */
         return queue.enqueueMarker(event);
     }
-    else if (events->empty())
+    else if (events == NULL)
     {
         doneEvent(queue, event);
     }

@@ -171,26 +171,11 @@ cl::Program build(const cl::Context &context,
                   const std::string &options = "");
 
 /**
- * Return an event that is already signaled as @c CL_COMPLETE.
- * If @a event is @c NULL this is a no-op; otherwise it is replaced with
- * a user event that has been signaled.
- */
-void doneEvent(const cl::Context &context, cl::Event *event);
-
-/**
- * Return an event that is already signaled as @c CL_COMPLETE.
- * This is equivalent to the other form but uses the queue to determine the
- * context.
- */
-void doneEvent(const cl::CommandQueue &queue, cl::Event *event);
-
-/**
  * Implementation of clEnqueueMarkerWithWaitList which can be used in OpenCL
  * 1.1. It differs from the OpenCL 1.2 function in several ways:
- *  - If zero input events are passed, it does not wait for anything (it
- *    returns an already-signaled user event), rather than waiting for all
- *    previous work. However, if @c NULL is passed, it will follow the OpenCL
- *    1.2 function.
+ *  - If no input events are passed, it does not wait for anything (other than as
+ *    constrained by an in-order queue), rather than waiting for all previous
+ *    work.
  *  - If exactly one input event is passed, it may return this event (with
  *    an extra reference) instead of creating a new one.
  *  - It may choose to wait on all previous events in the command queue.
