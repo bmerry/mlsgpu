@@ -17,6 +17,7 @@
 #include <boost/math/constants/constants.hpp>
 #include "errors.h"
 #include "mls.h"
+#include "clh.h"
 
 const std::size_t MlsFunctor::wgs[2] = {16, 16};
 
@@ -98,9 +99,10 @@ void MlsFunctor::operator()(
     boundaryKernel.setArg(0, distance);
     boundaryKernel.setArg(1, vertices);
     // TODO: pick a useful work group size
-    queue.enqueueNDRangeKernel(boundaryKernel,
-                               cl::NullRange,
-                               cl::NDRange(numVertices),
-                               cl::NullRange,
-                               events, event);
+    CLH::enqueueNDRangeKernelSplit(queue,
+                                   boundaryKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(numVertices),
+                                   cl::NullRange,
+                                   events, event);
 }

@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <map>
+#include <cstdlib>
 #include "clh.h"
 #include "logging.h"
 
@@ -352,6 +353,100 @@ cl_int enqueueNDRangeKernel(
             return enqueueMarkerWithWaitList(queue, events, event);
         }
     return queue.enqueueNDRangeKernel(kernel, offset, global, local, events, event);
+}
+
+static cl::NDRange makeNDRange(cl_uint dimensions, const std::size_t *sizes)
+{
+    switch (dimensions)
+    {
+    case 0: return cl::NDRange();
+    case 1: return cl::NDRange(sizes[0]);
+    case 2: return cl::NDRange(sizes[0], sizes[1]);
+    case 3: return cl::NDRange(sizes[0], sizes[1], sizes[2]);
+    default: abort(); // should never be reached
+    }
+}
+
+cl_int enqueueNDRangeKernelSplit(
+    const cl::CommandQueue &queue,
+    const cl::Kernel &kernel,
+    const cl::NDRange &offset,
+    const cl::NDRange &global,
+    const cl::NDRange &local,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    /* If no size given, pick a default.
+     * TODO: get performance hint from CL_KERNEL_PREFERRED_KERNEL_WORK_GROUP_SIZE_MULTIPLE?
+     */
+    if (local.dimensions() == 0)
+    {
+        switch (global.dimensions())
+        {
+        case 1:
+            return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
+                                             cl::NDRange(256), events, event);
+        case 2:
+            return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
+                                             cl::NDRange(16, 16), events, event);
+        case 3:
+            return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
+                                             cl::NDRange(8, 8, 8), events, event);
+        default:
+            return enqueueNDRangeKernel(queue, kernel, offset, global, local, events, event);
+        }
+    }
+
+    const std::size_t *origGlobal = static_cast<const std::size_t *>(global);
+    const std::size_t *origLocal = static_cast<const std::size_t *>(local);
+    const std::size_t *origOffset = static_cast<const std::size_t *>(offset);
+    const std::size_t dims = global.dimensions();
+
+    std::size_t main[3], extra[3], extraOffset[3];
+
+    for (std::size_t i = 0; i < dims; i++)
+    {
+        if (origLocal[i] == 0)
+            throw cl::Error(CL_INVALID_WORK_GROUP_SIZE, "Local work group size is zero");
+        main[i] = origGlobal[i] / origLocal[i] * origLocal[i];
+        extra[i] = origGlobal[i] - main[i];
+        extraOffset[i] = origOffset[i] + main[i];
+    }
+
+    std::vector<cl::Event> wait;
+    for (std::size_t mask = 0; mask < (1U << dims); mask++)
+    {
+        std::size_t curOffset[3];
+        std::size_t curGlobal[3];
+        std::size_t curLocal[3];
+        bool use = false;
+        for (std::size_t i = 0; i < dims; i++)
+        {
+            if (mask & (1U << i))
+            {
+                curGlobal[i] = extra[i];
+                curOffset[i] = extraOffset[i];
+                curLocal[i] = extra[i];
+            }
+            else
+            {
+                curGlobal[i] = main[i];
+                curOffset[i] = offset[i];
+                curLocal[i] = origLocal[i];
+            }
+            use |= curGlobal[i] > 0;
+        }
+        if (use)
+        {
+            wait.push_back(cl::Event());
+            queue.enqueueNDRangeKernel(kernel,
+                                       makeNDRange(dims, curOffset),
+                                       makeNDRange(dims, curGlobal),
+                                       makeNDRange(dims, curLocal),
+                                       events, &wait.back());
+        }
+    }
+    return enqueueMarkerWithWaitList(queue, &wait, event);
 }
 
 } // namespace CLH

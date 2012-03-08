@@ -245,6 +245,31 @@ cl_int enqueueNDRangeKernel(
     const std::vector<cl::Event> *events = NULL,
     cl::Event *event = NULL);
 
+/**
+ * Extends kernel enqueuing by allowing the global size to not be a multiple of
+ * the local size. Where necessary, multiple launches are used to handle the
+ * left-over bits at the edges, adjusting the global offset to compensate.
+ *
+ * This does have some side-effects:
+ *  - Different work-items will participate in workgroups of different sizes.
+ *    Thus, the workgroup size cannot be baked into the kernel.
+ *  - @c get_global_id will work as expected, but @c get_group_id and
+ *    @c get_global_offset may not behave as expected.
+ * In general this function is best suited to cases where the workitems
+ * operate complete independently.
+ *
+ * The provided @a local is used both as the preferred work group size for the
+ * bulk of the work, and as an upper bound on work group size.
+ */
+cl_int enqueueNDRangeKernelSplit(
+    const cl::CommandQueue &queue,
+    const cl::Kernel &kernel,
+    const cl::NDRange &offset,
+    const cl::NDRange &global,
+    const cl::NDRange &local = cl::NullRange,
+    const std::vector<cl::Event> *events = NULL,
+    cl::Event *event = NULL);
+
 } // namespace CLH
 
 #endif /* !CLH_H */
