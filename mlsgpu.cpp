@@ -176,114 +176,6 @@ static void makeInputComments(FastPly::WriterBase *writer, const po::variables_m
     }
 }
 
-static void validateOptions(const cl::Device &device, const po::variables_map &vm)
-{
-    if (!Marching::validateDevice(device)
-        || !SplatTreeCL::validateDevice(device))
-    {
-        cerr << "This OpenCL device is not supported.\n";
-        exit(1);
-    }
-
-    const int levels = vm[Option::levels].as<int>();
-    const int subsampling = vm[Option::subsampling].as<int>();
-    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
-    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
-    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const int bucketThreads = vm[Option::bucketThreads].as<int>();
-    const int deviceThreads = vm[Option::deviceThreads].as<int>();
-    const double pruneThreshold = vm[Option::fitPrune].as<double>();
-
-    int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
-    /* TODO make dynamic, considering maximum image sizes etc */
-    if (levels < 1 || levels > maxLevels)
-    {
-        cerr << "Value of --levels must be in the range 1 to " << maxLevels << ".\n";
-        exit(1);
-    }
-    if (subsampling < 0)
-    {
-        cerr << "Value of --subsampling must be non-negative.\n";
-        exit(1);
-    }
-    if (maxDeviceSplats < 1)
-    {
-        cerr << "Value of --max-device-splats must be positive.\n";
-        exit(1);
-    }
-    if (maxHostSplats < maxDeviceSplats)
-    {
-        cerr << "Value of --max-host-splats must be at least that of --max-device-splats.\n";
-        exit(1);
-    }
-    if (maxSplit < 8)
-    {
-        cerr << "Value of --max-split must be at least 8.\n";
-        exit(1);
-    }
-    if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
-    {
-        cerr << "Sum of --subsampling and --levels is too large.\n";
-        exit(1);
-    }
-    const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
-    if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
-    {
-        cerr << "Sum of --subsampling and --levels it too small.\n";
-        exit(1);
-    }
-
-    if (bucketThreads < 1)
-    {
-        cerr << "Value of --bucket-threads must be at least 1\n";
-        exit(1);
-    }
-    if (deviceThreads < 1)
-    {
-        cerr << "Value of --device-threads must be at least 1\n";
-        exit(1);
-    }
-    if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
-    {
-        cerr << "Value of --fit-prune must be in [0, 1]\n";
-        exit(1);
-    }
-
-    /* Check that we have enough memory on the device. This is no guarantee against OOM, but
-     * we can at least turn down silly requests before wasting any time.
-     */
-    const std::size_t block = std::size_t(1U) << (levels + subsampling - 1);
-    const std::size_t maxVertices = Marching::getMaxVertices(block, block);
-    const std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
-    CLH::ResourceUsage marchingUsage = Marching::resourceUsage(device, block, block);
-    CLH::ResourceUsage splatTreeUsage = SplatTreeCL::resourceUsage(device, levels, maxDeviceSplats);
-    CLH::ResourceUsage clipUsage = Clip::resourceUsage(device, maxVertices, maxTriangles);
-    CLH::ResourceUsage totalUsage = (marchingUsage + splatTreeUsage + clipUsage) * deviceThreads;
-
-    const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
-    const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
-    if (totalUsage.getMaxMemory() > deviceMaxMemory)
-    {
-        cerr << "Arguments require an allocation of " << totalUsage.getMaxMemory() << ",\n"
-            << "but the OpenCL device only supports up to " << deviceMaxMemory << ".\n"
-            << "Try reducing --levels or --subsampling.\n";
-        exit(1);
-    }
-    if (totalUsage.getTotalMemory() > deviceTotalMemory)
-    {
-        cerr << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
-            << "but the OpenCL device has " << deviceTotalMemory << ".\n"
-            << "Try reducing --levels or --subsampling.\n";
-        exit(1);
-    }
-
-    Log::log[Log::info] << "About " << totalUsage.getTotalMemory() / (1024 * 1024) << "MiB of device memory will be used.\n";
-    if (totalUsage.getTotalMemory() > deviceTotalMemory * 0.8)
-    {
-        Log::log[Log::warn] << "WARNING: More than 80% of the device memory will be used.\n";
-    }
-}
-
 void writeStatistics(const boost::program_options::variables_map &vm, bool force = false)
 {
     if (force || vm.count(Option::statistics) || vm.count(Option::statisticsFile))
@@ -441,7 +333,7 @@ private:
     SplatTreeCL tree;
     MlsFunctor input;
     Marching marching;
-    Clip clip;
+    boost::scoped_ptr<Clip> clip;
     ScaleBiasFilter scaleBias;
     Marching::OutputFunctor output;
     MeshFilterChain filterChain;
@@ -462,6 +354,11 @@ public:
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling, bool keepBoundary, float boundaryLimit);
+
+    static CLH::ResourceUsage resourceUsage(
+        const cl::Device &device,
+        std::size_t maxSplats, Grid::size_type maxCells,
+        int levels, bool keepBoundary);
 
     /// Thread function.
     void operator()();
@@ -487,20 +384,38 @@ DeviceWorker::DeviceWorker(
     tree(context, levels, maxSplats),
     input(context),
     marching(context, device, maxCells + 1, maxCells + 1),
-    clip(context, device,
-         keepBoundary ? 1 : marching.getMaxVertices(maxCells + 1, maxCells + 1),
-         keepBoundary ? 1 : marching.getMaxTriangles(maxCells + 1, maxCells + 1)),
     scaleBias(context),
     maxSplats(maxSplats), maxCells(maxCells),
     subsampling(subsampling),
     progress(NULL)
 {
-    input.setBoundaryLimit(boundaryLimit);
-    clip.setDistanceFunctor(input);
-
     if (!keepBoundary)
-        filterChain.addFilter(boost::ref(clip));
+    {
+        input.setBoundaryLimit(boundaryLimit);
+        clip.reset(new Clip(context, device,
+                            marching.getMaxVertices(maxCells + 1, maxCells + 1),
+                            marching.getMaxTriangles(maxCells + 1, maxCells + 1)));
+        clip->setDistanceFunctor(input);
+        filterChain.addFilter(boost::ref(*clip));
+    }
+
     filterChain.addFilter(boost::ref(scaleBias));
+}
+
+CLH::ResourceUsage DeviceWorker::resourceUsage(
+    const cl::Device &device,
+    std::size_t maxSplats, Grid::size_type maxCells,
+    int levels, bool keepBoundary)
+{
+    Grid::size_type block = maxCells + 1;
+    std::size_t maxVertices = Marching::getMaxVertices(block, block);
+    std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
+    CLH::ResourceUsage marchingUsage = Marching::resourceUsage(device, block, block);
+    CLH::ResourceUsage splatTreeUsage = SplatTreeCL::resourceUsage(device, levels, maxSplats);
+    CLH::ResourceUsage clipUsage;
+    if (!keepBoundary)
+        clipUsage = Clip::resourceUsage(device, maxVertices, maxTriangles);
+    return marchingUsage + splatTreeUsage + clipUsage;
 }
 
 void DeviceWorker::operator()()
@@ -954,6 +869,112 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
 
     run2(context, device, out, vm, *splatSet, splatSet->getBoundingGrid());
     writeStatistics(vm);
+}
+
+static void validateOptions(const cl::Device &device, const po::variables_map &vm)
+{
+    if (!Marching::validateDevice(device)
+        || !SplatTreeCL::validateDevice(device))
+    {
+        cerr << "This OpenCL device is not supported.\n";
+        exit(1);
+    }
+
+    const int levels = vm[Option::levels].as<int>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
+    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const int bucketThreads = vm[Option::bucketThreads].as<int>();
+    const int deviceThreads = vm[Option::deviceThreads].as<int>();
+    const double pruneThreshold = vm[Option::fitPrune].as<double>();
+    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
+
+    int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
+    /* TODO make dynamic, considering maximum image sizes etc */
+    if (levels < 1 || levels > maxLevels)
+    {
+        cerr << "Value of --levels must be in the range 1 to " << maxLevels << ".\n";
+        exit(1);
+    }
+    if (subsampling < 0)
+    {
+        cerr << "Value of --subsampling must be non-negative.\n";
+        exit(1);
+    }
+    if (maxDeviceSplats < 1)
+    {
+        cerr << "Value of --max-device-splats must be positive.\n";
+        exit(1);
+    }
+    if (maxHostSplats < maxDeviceSplats)
+    {
+        cerr << "Value of --max-host-splats must be at least that of --max-device-splats.\n";
+        exit(1);
+    }
+    if (maxSplit < 8)
+    {
+        cerr << "Value of --max-split must be at least 8.\n";
+        exit(1);
+    }
+    if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
+    {
+        cerr << "Sum of --subsampling and --levels is too large.\n";
+        exit(1);
+    }
+    const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
+    if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
+    {
+        cerr << "Sum of --subsampling and --levels it too small.\n";
+        exit(1);
+    }
+
+    if (bucketThreads < 1)
+    {
+        cerr << "Value of --bucket-threads must be at least 1\n";
+        exit(1);
+    }
+    if (deviceThreads < 1)
+    {
+        cerr << "Value of --device-threads must be at least 1\n";
+        exit(1);
+    }
+    if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
+    {
+        cerr << "Value of --fit-prune must be in [0, 1]\n";
+        exit(1);
+    }
+
+    /* Check that we have enough memory on the device. This is no guarantee against OOM, but
+     * we can at least turn down silly requests before wasting any time.
+     */
+    const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
+    CLH::ResourceUsage threadUsage = DeviceWorker::resourceUsage(
+        device, maxDeviceSplats, maxCells, levels, keepBoundary);
+    CLH::ResourceUsage totalUsage = threadUsage * deviceThreads;
+
+    const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
+    const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
+    if (totalUsage.getMaxMemory() > deviceMaxMemory)
+    {
+        cerr << "Arguments require an allocation of " << totalUsage.getMaxMemory() << ",\n"
+            << "but the OpenCL device only supports up to " << deviceMaxMemory << ".\n"
+            << "Try reducing --levels or --subsampling.\n";
+        exit(1);
+    }
+    if (totalUsage.getTotalMemory() > deviceTotalMemory)
+    {
+        cerr << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
+            << "but the OpenCL device has " << deviceTotalMemory << ".\n"
+            << "Try reducing --levels or --subsampling.\n";
+        exit(1);
+    }
+
+    Log::log[Log::info] << "About " << totalUsage.getTotalMemory() / (1024 * 1024) << "MiB of device memory will be used.\n";
+    if (totalUsage.getTotalMemory() > deviceTotalMemory * 0.8)
+    {
+        Log::log[Log::warn] << "WARNING: More than 80% of the device memory will be used.\n";
+    }
 }
 
 int main(int argc, char **argv)
