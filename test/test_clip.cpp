@@ -177,7 +177,7 @@ void TestClip::testCase(int M, int N, int internalRows, int keepCols)
     std::vector<cl::Event> clipEvent(1);
     std::vector<cl::Event> readEvent(3);
     DeviceKeyMesh dOut;
-    clip(queue, dIn, &wait, &clipEvent[1], dOut);
+    clip(queue, dIn, &wait, &clipEvent[0], dOut);
     enqueueReadMesh(queue, dOut, out, &clipEvent, &readEvent[0], &readEvent[1], &readEvent[2]);
     cl::Event::waitForEvents(readEvent);
 
