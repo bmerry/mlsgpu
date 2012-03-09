@@ -23,6 +23,7 @@
 #include "marching.h"
 #include "grid.h"
 #include "errors.h"
+#include "statistics.h"
 
 /* Definitions of constants */
 const int Marching::KEY_AXIS_BITS;
@@ -536,6 +537,9 @@ void Marching::generate(
     const cl_uint3 &keyOffset,
     const std::vector<cl::Event> *events)
 {
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+    Statistics::Variable &nonempty = registry.getStatistic<Statistics::Variable>("marching.slice.nonempty");
+
     // Work group size for kernels that operate on compacted cells
     const std::size_t wgsCompacted = 1; // TODO: not very good at all!
 
@@ -557,6 +561,7 @@ void Marching::generate(
     input(queue, *images[1], 0, events, &last);
     wait[0] = last;
 
+    Grid::size_type shipOuts = 0;
     for (Grid::size_type z = 1; z < depth; z++)
     {
         std::swap(images[0], images[1]);
@@ -577,6 +582,7 @@ void Marching::generate(
                  * what we have before processing this layer.
                  */
                 shipOut(queue, keyOffset, offsets, z - 1, output, &wait, &last);
+                shipOuts++;
                 wait.resize(1);
                 wait[0] = last;
 
@@ -609,12 +615,16 @@ void Marching::generate(
             offsets.s0 += counts.s0;
             offsets.s1 += counts.s1;
         }
+        nonempty.add(compacted > 0);
     }
     if (offsets.s0 > 0)
     {
         shipOut(queue, keyOffset, offsets, depth - 1, output, &wait, &last);
+        shipOuts++;
         wait.resize(1);
         wait[0] = last;
     }
+    if (shipOuts > 0)
+        registry.getStatistic<Statistics::Variable>("marching.shipouts").add(shipOuts);
     queue.finish(); // will normally be finished already, but there may be corner cases
 }

@@ -763,12 +763,14 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     deviceWorkers.reserve(numDeviceThreads);
     for (unsigned int i = 0; i < numBucketThreads; i++)
     {
+        Statistics::Timer timer("device.block.init");
         deviceBlocks.push_back(new DeviceBlock(
                 workQueueCoarse, workQueueFine, grid,
                 maxDeviceSplats, blockCells, maxSplit));
     }
     for (unsigned int i = 0; i < numDeviceThreads; i++)
     {
+        Statistics::Timer timer("device.worker.init");
         deviceWorkers.push_back(new DeviceWorker(
                 workQueueFine, grid,
                 context, device,
