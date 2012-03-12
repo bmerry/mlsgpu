@@ -39,7 +39,7 @@ class Push<WorkQueue<ValueType> >
 public:
     typedef void result_type;
 
-    void operator()(WorkQueue<ValueType> &queue, const ValueType &value, typename WorkQueue<ValueType>::size_type) const
+    void operator()(WorkQueue<ValueType> &queue, const ValueType &value, std::size_t) const
     {
         queue.push(value);
     }
@@ -51,7 +51,7 @@ class Push<OrderedWorkQueue<ValueType> >
 public:
     typedef void result_type;
 
-    void operator()(OrderedWorkQueue<ValueType> &queue, const ValueType &value, typename OrderedWorkQueue<ValueType>::size_type id) const
+    void operator()(OrderedWorkQueue<ValueType> &queue, const ValueType &value, typename OrderedWorkQueue<ValueType>::id_type id) const
     {
         queue.push(value, id);
     }

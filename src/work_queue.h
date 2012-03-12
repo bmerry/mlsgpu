@@ -18,9 +18,8 @@
 #include <boost/thread/condition_variable.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/noncopyable.hpp>
+#include <tr1/cstdint>
 #include "errors.h"
-
-template<typename ValueType> class OrderedWorkQueue;
 
 /**
  * Thread-safe bounded queue, supporting multiple producers and
@@ -83,7 +82,7 @@ private:
     boost::mutex mutex;
     boost::scoped_array<value_type> values;
 
-    friend class OrderedWorkQueue<ValueType>;
+    template<typename ValueType2, typename IdType2> friend class OrderedWorkQueue;
 };
 
 /**
@@ -92,7 +91,7 @@ private:
  * will block until the prior items have been pushed. This reduces efficiency
  * but makes certain use-cases more deterministic.
  */
-template<typename ValueType>
+template<typename ValueType, typename IdType = std::tr1::uint64_t>
 class OrderedWorkQueue : private WorkQueue<ValueType>
 {
 private:
@@ -100,6 +99,7 @@ private:
 public:
     typedef typename Base::value_type value_type;
     typedef typename Base::size_type size_type;
+    typedef IdType id_type;
     using Base::capacity;
     using Base::size;
     using Base::pop;
@@ -117,14 +117,29 @@ public:
      * Add an item to the queue. This will block if the queue is full or
      * if @a id is not the next ID in sequence (starting from 0).
      */
-    void push(const value_type &item, size_type id);
+    void push(const value_type &item, id_type id);
+
+    /**
+     * Add an item to the queue and advance a range of IDs. This will block
+     * if the queue is full or if @a firstId is not the next ID in sequence
+     * (starting from 0). Afterwards, @a lastId will be the new next-ID.
+     */
+    void push(const value_type &items, id_type firstId, id_type lastId);
 
     /**
      * Indicate that nothing should be pushed on the queue for a specific
      * ID. This will block until @a id is the next ID in the sequence, but
      * will then push nothing on the queue.
      */
-    void skip(size_type id);
+    void skip(id_type id);
+
+    /**
+     * Indicate that nothing should be pushed on the queue for a specific
+     * range of IDs. This will block until @a firstId is the next ID in the
+     * sequence, but will then push nothing on the queue. Afterwards,
+     * @a lastId will become the new next-ID.
+     */
+    void skip(id_type firstId, id_type lastId);
 
 private:
     size_type next_;        ///< Next expected ID for @ref push or @ref skip
@@ -187,21 +202,27 @@ ValueType WorkQueue<ValueType>::pop()
 }
 
 
-template<typename ValueType>
-OrderedWorkQueue<ValueType>::OrderedWorkQueue(size_type capacity)
+template<typename ValueType, typename IdType>
+OrderedWorkQueue<ValueType, IdType>::OrderedWorkQueue(size_type capacity)
     : Base(capacity), next_(0)
 {
 }
 
-template<typename ValueType>
-void OrderedWorkQueue<ValueType>::push(const value_type &value, size_type id)
+template<typename ValueType, typename IdType>
+void OrderedWorkQueue<ValueType, IdType>::push(const value_type &value, id_type id)
+{
+    push(value, id, id + 1);
+}
+
+template<typename ValueType, typename IdType>
+void OrderedWorkQueue<ValueType, IdType>::push(const value_type &value, id_type firstId, id_type lastId)
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
-    while (id > next_)
+    while (next_ != firstId)
     {
         idCondition.wait(lock);
     }
-    next_++;
+    next_ = lastId;
     idCondition.notify_all();
 
     while (this->size_ == this->capacity_)
@@ -216,15 +237,21 @@ void OrderedWorkQueue<ValueType>::push(const value_type &value, size_type id)
     this->dataCondition.notify_one();
 }
 
-template<typename ValueType>
-void OrderedWorkQueue<ValueType>::skip(size_type id)
+template<typename ValueType, typename IdType>
+void OrderedWorkQueue<ValueType, IdType>::skip(id_type id)
+{
+    skip(id, id + 1);
+}
+
+template<typename ValueType, typename IdType>
+void OrderedWorkQueue<ValueType, IdType>::skip(id_type firstId, id_type lastId)
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
-    while (id > next_)
+    while (next_ != firstId)
     {
         idCondition.wait(lock);
     }
-    next_++;
+    next_ = lastId;
     idCondition.notify_all();
 }
 
