@@ -43,7 +43,6 @@
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
     std::map<std::string, MesherType> ans;
-    ans["simple"] = SIMPLE_MESHER;
     ans["weld"] = WELD_MESHER;
     ans["big"] = BIG_MESHER;
     ans["stxxl"] = STXXL_MESHER;
@@ -83,60 +82,6 @@ template<typename T>
 static Marching::OutputFunctor serializeOutputFunctor(const T &out, boost::mutex &mutex)
 {
     return SerializeOutputFunctor<T>(out, mutex);
-}
-
-void SimpleMesher::add(const cl::CommandQueue &queue,
-                       const DeviceKeyMesh &mesh,
-                       const std::vector<cl::Event> *events,
-                       cl::Event *event)
-{
-    std::size_t oldVertices = this->vertices.size();
-    std::size_t oldTriangles = this->triangles.size();
-    this->vertices.resize(oldVertices + mesh.numVertices);
-    this->triangles.resize(oldTriangles + mesh.numTriangles);
-
-    cl::Event verticesEvent;
-    CLH::enqueueReadBuffer(queue,
-                           mesh.vertices, CL_FALSE,
-                           0, mesh.numVertices * (3 * sizeof(cl_float)),
-                           &vertices[oldVertices][0],
-                           events, &verticesEvent);
-    // Kick off this enqueue in the backward while enqueuing more work
-    queue.flush();
-    CLH::enqueueReadBuffer(queue,
-                           mesh.triangles, CL_TRUE,
-                           0, mesh.numTriangles * (3 * sizeof(cl_uint)),
-                           &triangles[oldTriangles][0],
-                           events, NULL);
-
-    /* Adjust the indices to be global */
-    for (std::size_t i = oldTriangles; i < oldTriangles + mesh.numTriangles; i++)
-        for (unsigned int j = 0; j < 3; j++)
-            triangles[i][j] += oldVertices;
-
-    if (event != NULL)
-        *event = verticesEvent;
-}
-
-void SimpleMesher::write(FastPly::WriterBase &writer, const std::string &filename,
-                         std::ostream *progressStream) const
-{
-    (void) progressStream;
-
-    writer.setNumVertices(vertices.size());
-    writer.setNumTriangles(triangles.size());
-    writer.open(filename);
-    writer.writeVertices(0, vertices.size(), &vertices[0][0]);
-    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
-}
-
-Marching::OutputFunctor SimpleMesher::outputFunctor(unsigned int pass)
-{
-    /* only one pass, so ignore it */
-    (void) pass;
-    assert(pass == 0);
-
-    return serializeOutputFunctor(boost::bind(&SimpleMesher::add, this, _1, _2, _3, _4), mutex);
 }
 
 
@@ -894,7 +839,6 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std
 {
     switch (type)
     {
-    case SIMPLE_MESHER: return new SimpleMesher();
     case WELD_MESHER:   return new WeldMesher();
     case BIG_MESHER:    return new BigMesher(writer, filename);
     case STXXL_MESHER:  return new StxxlMesher();

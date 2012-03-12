@@ -37,8 +37,7 @@
 using namespace std;
 
 /**
- * Tests that are shared across all the @ref MesherBase subclasses, including those
- * that don't do welding.
+ * Tests that are shared across all the @ref MesherBase subclasses.
  */
 class TestMesherBase : public CLH::Test::TestFixture
 {
@@ -47,6 +46,8 @@ class TestMesherBase : public CLH::Test::TestFixture
     CPPUNIT_TEST(testNoInternal);
     CPPUNIT_TEST(testNoExternal);
     CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST(testWeld);
+    CPPUNIT_TEST(testPrune);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 private:
     /**
@@ -106,11 +107,18 @@ protected:
     static const cl_ulong externalKeys2[];
     static const cl_uint indices2[];
 
+    static const boost::array<cl_float, 3> internalVertices3[];
+    static const boost::array<cl_float, 3> externalVertices3[];
+    static const cl_ulong externalKeys3[];
+    static const cl_uint indices3[];
+
 public:
     void testSimple();          ///< Normal uses cases
     void testNoInternal();      ///< An entire mesh with no internal vertices
     void testNoExternal();      ///< An entire mesh with no external vertices
     void testEmpty();           ///< Empty mesh
+    void testWeld();            ///< Tests vertex welding
+    void testPrune();           ///< Tests component pruning
 };
 
 const boost::array<cl_float, 3> TestMesherBase::internalVertices0[] =
@@ -172,6 +180,34 @@ const cl_uint TestMesherBase::indices2[] =
     2, 3, 4,
     0, 2, 4,
     0, 3, 2
+};
+
+const boost::array<cl_float, 3> TestMesherBase::internalVertices3[] =
+{
+    {{ 3.0f, 3.0f, 3.0f }}
+};
+
+const boost::array<cl_float, 3> TestMesherBase::externalVertices3[] =
+{
+    {{ 4.0f, 5.0f, 6.0f }},
+    {{ 1.0f, 0.0f, 2.0f }},
+    {{ 1.0f, 0.0f, 3.0f }},
+    {{ 2.0f, 0.0f, 2.0f }}
+};
+
+const cl_ulong TestMesherBase::externalKeys3[] =
+{
+    100,
+    UINT64_C(0x8000000000000000),   // shared with externalKeys1
+    UINT64_C(1),                    // shared with externalKeys1
+    UINT64_C(0x12345678)            // shared with externalKeys2
+};
+
+const cl_uint TestMesherBase::indices3[] =
+{
+    0, 2, 1,
+    1, 2, 4,
+    4, 2, 3
 };
 
 
@@ -492,68 +528,7 @@ void TestMesherBase::testEmpty()
     CPPUNIT_ASSERT(writer.getTriangles().empty());
 }
 
-class TestSimpleMesher : public TestMesherBase
-{
-    CPPUNIT_TEST_SUB_SUITE(TestSimpleMesher, TestMesherBase);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSimpleMesher, TestSet::perBuild());
-
-MesherBase *TestSimpleMesher::mesherFactory(FastPly::WriterBase &)
-{
-    return new SimpleMesher();
-}
-
-class TestWeldMesher : public TestMesherBase
-{
-    CPPUNIT_TEST_SUB_SUITE(TestWeldMesher, TestMesherBase);
-    CPPUNIT_TEST(testWeld);
-    CPPUNIT_TEST(testPrune);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
-
-    static const boost::array<cl_float, 3> internalVertices3[];
-    static const boost::array<cl_float, 3> externalVertices3[];
-    static const cl_ulong externalKeys3[];
-    static const cl_uint indices3[];
-public:
-    void testWeld();     ///< Tests vertex welding
-    void testPrune();    ///< Tests component pruning
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWeldMesher, TestSet::perBuild());
-
-const boost::array<cl_float, 3> TestWeldMesher::internalVertices3[] =
-{
-    {{ 3.0f, 3.0f, 3.0f }}
-};
-
-const boost::array<cl_float, 3> TestWeldMesher::externalVertices3[] =
-{
-    {{ 4.0f, 5.0f, 6.0f }},
-    {{ 1.0f, 0.0f, 2.0f }},
-    {{ 1.0f, 0.0f, 3.0f }},
-    {{ 2.0f, 0.0f, 2.0f }}
-};
-
-const cl_ulong TestWeldMesher::externalKeys3[] =
-{
-    100,
-    UINT64_C(0x8000000000000000),   // shared with externalKeys1
-    UINT64_C(1),                    // shared with externalKeys1
-    UINT64_C(0x12345678)            // shared with externalKeys2
-};
-
-const cl_uint TestWeldMesher::indices3[] =
-{
-    0, 2, 1,
-    1, 2, 4,
-    4, 2, 3
-};
-
-void TestWeldMesher::testWeld()
+void TestMesherBase::testWeld()
 {
     const boost::array<cl_float, 3> expectedVertices[] =
     {
@@ -625,7 +600,7 @@ void TestWeldMesher::testWeld()
                     expectedVertices, expectedIndices, writer);
 }
 
-void TestWeldMesher::testPrune()
+void TestMesherBase::testPrune()
 {
     /* There are several cases to test:
      * - A: Component entirely contained in one block, undersized: 5 vertices in block 0.
@@ -801,6 +776,15 @@ void TestWeldMesher::testPrune()
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
 }
+
+class TestWeldMesher : public TestMesherBase
+{
+    CPPUNIT_TEST_SUB_SUITE(TestWeldMesher, TestMesherBase);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWeldMesher, TestSet::perBuild());
 
 MesherBase *TestWeldMesher::mesherFactory(FastPly::WriterBase &)
 {

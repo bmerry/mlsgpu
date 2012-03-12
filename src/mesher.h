@@ -37,7 +37,6 @@
  */
 enum MesherType
 {
-    SIMPLE_MESHER,
     WELD_MESHER,
     BIG_MESHER,
     STXXL_MESHER
@@ -139,34 +138,6 @@ public:
 private:
     /// Threshold set by @ref setPruneThreshold
     double pruneThreshold;
-};
-
-/**
- * Output collector for @ref Marching that does not do any welding of
- * external vertices. It simply collects all the vertices into one vector
- * and indices into another.
- */
-class SimpleMesher : public MesherBase
-{
-private:
-    /// Storage for vertices
-    std::vector<boost::array<cl_float, 3> > vertices;
-
-    /// Storage for indices.
-    std::vector<boost::array<cl_uint, 3> > triangles;
-
-    /// Function called by the functor.
-    void add(const cl::CommandQueue &queue,
-             const DeviceKeyMesh &mesh,
-             const std::vector<cl::Event> *events,
-             cl::Event *event);
-
-public:
-    virtual unsigned int numPasses() const { return 1; }
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
-
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
-                       std::ostream *progressStream = NULL) const;
 };
 
 /**
