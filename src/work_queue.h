@@ -20,6 +20,8 @@
 #include <boost/noncopyable.hpp>
 #include "errors.h"
 
+template<typename ValueType> class OrderedWorkQueue;
+
 /**
  * Thread-safe bounded queue, supporting multiple producers and
  * multiple consumers.
@@ -80,6 +82,53 @@ private:
     boost::condition_variable spaceCondition, dataCondition;
     boost::mutex mutex;
     boost::scoped_array<value_type> values;
+
+    friend class OrderedWorkQueue<ValueType>;
+};
+
+/**
+ * A variation on a work queue in which workitems have sequential IDs and
+ * can only be inserted in order. Attempting to push an out-of-order item
+ * will block until the prior items have been pushed. This reduces efficiency
+ * but makes certain use-cases more deterministic.
+ */
+template<typename ValueType>
+class OrderedWorkQueue : private WorkQueue<ValueType>
+{
+private:
+    typedef WorkQueue<ValueType> Base;
+public:
+    typedef typename Base::value_type value_type;
+    typedef typename Base::size_type size_type;
+    using Base::capacity;
+    using Base::size;
+    using Base::pop;
+
+    /**
+     * Constructor.
+     *
+     * @param capacity Maximum capacity of the queue.
+     *
+     * @pre @a capacity > 0.
+     */
+    OrderedWorkQueue(size_type capacity);
+
+    /**
+     * Add an item to the queue. This will block if the queue is full or
+     * if @a id is not the next ID in sequence (starting from 0).
+     */
+    void push(const value_type &item, size_type id);
+
+    /**
+     * Indicate that nothing should be pushed on the queue for a specific
+     * ID. This will block until @a id is the next ID in the sequence, but
+     * will then push nothing on the queue.
+     */
+    void skip(size_type id);
+
+private:
+    size_type next_;        ///< Next expected ID for @ref push or @ref skip
+    boost::condition_variable idCondition;
 };
 
 
@@ -135,6 +184,48 @@ ValueType WorkQueue<ValueType>::pop()
     size_--;
     spaceCondition.notify_one();
     return ans;
+}
+
+
+template<typename ValueType>
+OrderedWorkQueue<ValueType>::OrderedWorkQueue(size_type capacity)
+    : Base(capacity), next_(0)
+{
+}
+
+template<typename ValueType>
+void OrderedWorkQueue<ValueType>::push(const value_type &value, size_type id)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    while (id > next_)
+    {
+        idCondition.wait(lock);
+    }
+    next_++;
+    idCondition.notify_all();
+
+    while (this->size_ == this->capacity_)
+    {
+        this->spaceCondition.wait(lock);
+    }
+    this->values[this->tail_] = value;
+    this->tail_++;
+    if (this->tail_ == this->capacity_)
+        this->tail_ = 0;
+    this->size_++;
+    this->dataCondition.notify_one();
+}
+
+template<typename ValueType>
+void OrderedWorkQueue<ValueType>::skip(size_type id)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    while (id > next_)
+    {
+        idCondition.wait(lock);
+    }
+    next_++;
+    idCondition.notify_all();
 }
 
 #endif /* !WORK_QUEUE_H */

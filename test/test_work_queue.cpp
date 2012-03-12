@@ -22,39 +22,104 @@
 
 using namespace std;
 
-class TestWorkQueue : public CppUnit::TestFixture
+namespace
 {
-    CPPUNIT_TEST_SUITE(TestWorkQueue);
+
+/**
+ * Function object that wraps the class-specific push function.
+ */
+template<typename T>
+class Push
+{
+};
+
+template<typename ValueType>
+class Push<WorkQueue<ValueType> >
+{
+public:
+    typedef void result_type;
+
+    void operator()(WorkQueue<ValueType> &queue, const ValueType &value, typename WorkQueue<ValueType>::size_type) const
+    {
+        queue.push(value);
+    }
+};
+
+template<typename ValueType>
+class Push<OrderedWorkQueue<ValueType> >
+{
+public:
+    typedef void result_type;
+
+    void operator()(OrderedWorkQueue<ValueType> &queue, const ValueType &value, typename OrderedWorkQueue<ValueType>::size_type id) const
+    {
+        queue.push(value, id);
+    }
+};
+
+} // anonymous namespace
+
+/**
+ * Base class used by @ref TestWorkQueue and @ref TestOrderedWorkQueue. 
+ * @param T        A work queue class with a value type of @c int.
+ */
+template<typename T>
+class TestWorkQueueBase : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestWorkQueueBase<T>);
     CPPUNIT_TEST(testCapacity);
     CPPUNIT_TEST(testSize);
     CPPUNIT_TEST(testStress);
-    CPPUNIT_TEST_SUITE_END();
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
 private:
     /**
      * Adds a sequence of consecutive integers to the work queue.
      */
-    static void producerThread(WorkQueue<int> &queue, int start, int count);
+    static void producerThread(T &queue, int start, int count);
+
     /**
      * Pulls integers from a work queue and appends them to a vector. The
-     * vector is locked while adding to it. A negative valid in the queue is
+     * vector is locked while adding to it. A negative value in the queue is
      * used to signal shutdown.
      */
-    static void consumerThread(WorkQueue<int> &queue, vector<int> &out, boost::mutex &mutex);
+    static void consumerThread(T &queue, vector<int> &out, boost::mutex &mutex);
+
+protected:
+    ///< Many-threaded stress test
+    void testStressHelper(int numProducers, int numConsumers, bool ordered);
 
 public:
     void testCapacity();         ///< Test the capacity function and that it can hold that much
     void testSize();             ///< Test the size function
-    void testStress();           ///< Many-threaded stress test
+    void testStress();           ///< Stress test with multiple consumers and producers
+};
+
+class TestWorkQueue : public TestWorkQueueBase<WorkQueue<int> >
+{
+    CPPUNIT_TEST_SUB_SUITE(TestWorkQueue, TestWorkQueueBase<WorkQueue<int> >);
+    CPPUNIT_TEST_SUITE_END();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWorkQueue, TestSet::perCommit());
 
-void TestWorkQueue::producerThread(WorkQueue<int> &queue, int start, int end)
+class TestOrderedWorkQueue : public TestWorkQueueBase<OrderedWorkQueue<int> >
+{
+    CPPUNIT_TEST_SUB_SUITE(TestOrderedWorkQueue, TestWorkQueueBase<OrderedWorkQueue<int> >);
+    CPPUNIT_TEST(testOrdering);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testOrdering();       ///< Test that multiple producers preserve order
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOrderedWorkQueue, TestSet::perCommit());
+
+template<typename T>
+void TestWorkQueueBase<T>::producerThread(T &queue, int start, int end)
 {
     for (int i = start; i < end; i++)
-        queue.push(i);
+        Push<T>()(queue, i, i);
 }
 
-void TestWorkQueue::consumerThread(WorkQueue<int> &queue, vector<int> &out, boost::mutex &mutex)
+template<typename T>
+void TestWorkQueueBase<T>::consumerThread(T &queue, vector<int> &out, boost::mutex &mutex)
 {
     int next;
     while ((next = queue.pop()) >= 0)
@@ -64,64 +129,79 @@ void TestWorkQueue::consumerThread(WorkQueue<int> &queue, vector<int> &out, boos
     }
 }
 
-void TestWorkQueue::testCapacity()
+template<typename T>
+void TestWorkQueueBase<T>::testCapacity()
 {
-    WorkQueue<int> queue(5);
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(5), queue.capacity());
+    T queue(5);
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(5), queue.capacity());
     for (int i = 0; i < 5; i++)
-        queue.push(i);
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(5), queue.capacity());
+        Push<T>()(queue, i, i);
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(5), queue.capacity());
 }
 
-void TestWorkQueue::testSize()
+template<typename T>
+void TestWorkQueueBase<T>::testSize()
 {
-    WorkQueue<int> queue(2);
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(0), queue.size());
-    queue.push(1);
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(1), queue.size());
-    queue.push(2);
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(2), queue.size());
+    T queue(2);
+    Push<T> pusher;
+
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(0), queue.size());
+    pusher(queue, 1, 0);
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(1), queue.size());
+    pusher(queue, 2, 1);
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(2), queue.size());
     queue.pop();
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(1), queue.size());
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(1), queue.size());
     queue.pop();
-    CPPUNIT_ASSERT_EQUAL(WorkQueue<int>::size_type(0), queue.size());
+    CPPUNIT_ASSERT_EQUAL(typename T::size_type(0), queue.size());
 }
 
-void TestWorkQueue::testStress()
+template<typename T>
+void TestWorkQueueBase<T>::testStressHelper(int numProducers, int numConsumers, bool ordered)
 {
-    const int numProducers = 8;
-    const int numConsumers = 8;
     const int capacity = 4;
     const int elements = 1000000;
     boost::ptr_vector<boost::thread> producers;
     boost::ptr_vector<boost::thread> consumers;
     vector<int> out;
     boost::mutex outMutex;
-    WorkQueue<int> queue(capacity);
+    T queue(capacity);
 
     for (int i = 0; i < numProducers; i++)
     {
         int start = elements * i / numProducers;
         int end = elements * (i + 1) / numProducers;
         producers.push_back(new boost::thread(
-                boost::bind(&TestWorkQueue::producerThread, boost::ref(queue), start, end)));
+                boost::bind(&TestWorkQueueBase<T>::producerThread, boost::ref(queue), start, end)));
     }
     for (int i = 0; i < numConsumers; i++)
     {
         consumers.push_back(new boost::thread(
-                boost::bind(&TestWorkQueue::consumerThread,
+                boost::bind(&TestWorkQueueBase<T>::consumerThread,
                             boost::ref(queue), boost::ref(out), boost::ref(outMutex))));
     }
 
     for (int i = 0; i < numProducers; i++)
         producers[i].join();
     for (int i = 0; i < numConsumers; i++)
-        queue.push(-1); // signals one consumer to shut down
+        Push<T>()(queue, -1, elements + i); // signals one consumer to shut down
     for (int i = 0; i < numConsumers; i++)
         consumers[i].join();
 
     CPPUNIT_ASSERT_EQUAL(elements, int(out.size()));
-    sort(out.begin(), out.end());
+    if (!ordered)
+        sort(out.begin(), out.end());
     for (int i = 0; i < elements; i++)
         CPPUNIT_ASSERT_EQUAL(i, out[i]);
+}
+
+template<typename T>
+void TestWorkQueueBase<T>::testStress()
+{
+    testStressHelper(8, 8, false);
+}
+
+void TestOrderedWorkQueue::testOrdering()
+{
+    testStressHelper(8, 1, true);
 }
