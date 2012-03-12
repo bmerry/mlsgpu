@@ -276,7 +276,6 @@ void measureBoundaries(
     {
         command_type pos = myStart;
         float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
-        float3 sumWn = (float3) (0.0f, 0.0f, 0.0f);
         float sumWpp = 0.0f;
         float sumW = 0.0f;
         uint hits = 0;
@@ -305,7 +304,6 @@ void measureBoundaries(
 
                 sumWp += w * p;
                 sumWpp += w * pp;
-                sumWn += w * splat->normalQuality.xyz;
                 sumW += w;
                 hits++;
             }
@@ -319,15 +317,7 @@ void measureBoundaries(
 
             float3 meanPos = sumWp;       // mean position scaled by W
             float scale2 = sumWpp * sumW; // mean squared (distance * W)
-            float3 normal = normalize(sumWn);
-            /* We want to find the portion of meanPos when projected onto a plane
-             * orthogonal to normal. The length of the cross product would give the
-             * answer, but involves 9 multiplications. Using Pythagorus requires
-             * only 7.
-             */
-            float normalLength = dot3(meanPos, normal);
-            float planeLength2 = dot3(meanPos, meanPos) - normalLength * normalLength;
-            f = fma(sqrt(planeLength2 / scale2), boundaryFactor, - 1.0f);
+            f = fma(sqrt(dot3(meanPos, meanPos) / scale2), boundaryFactor, - 1.0f);
         }
     }
     discriminant[gid] = f;
