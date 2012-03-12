@@ -26,7 +26,8 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
-    program = CLH::build(context, "kernels/mls.cl", defines);
+
+    cl::Program program = CLH::build(context, "kernels/mls.cl", defines);
     kernel = cl::Kernel(program, "processCorners");
     boundaryKernel = cl::Kernel(program, "measureBoundaries");
 

@@ -99,7 +99,6 @@ private:
     clogs::Scan compactScan;    ///< Scanner object for scanning the compaction arrays
     DeviceKeyMesh outMesh;      ///< Compacted clipped mesh.
 
-    cl::Program program;
     cl::Kernel vertexInitKernel;
     cl::Kernel classifyKernel;
     cl::Kernel triangleCompactKernel;

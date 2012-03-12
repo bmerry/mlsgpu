@@ -54,7 +54,7 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
     outMesh(context, CL_MEM_READ_WRITE, maxVertices, 0, maxTriangles)
 {
     std::vector<cl::Device> devices(1, device);
-    program = CLH::build(context, devices, "kernels/clip.cl");
+    cl::Program program = CLH::build(context, devices, "kernels/clip.cl");
     vertexInitKernel = cl::Kernel(program, "vertexInit");
     classifyKernel = cl::Kernel(program, "classify");
     triangleCompactKernel = cl::Kernel(program, "triangleCompact");

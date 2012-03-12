@@ -344,7 +344,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     tmpVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
     sortVertices.setTemporaryBuffers(tmpVertexKeys, tmpVertices);
 
-    program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
+    cl::Program program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     countOccupiedKernel = cl::Kernel(program, "countOccupied");
     compactKernel = cl::Kernel(program, "compact");
     countElementsKernel = cl::Kernel(program, "countElements");

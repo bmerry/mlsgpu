@@ -33,9 +33,6 @@
 class MlsFunctor
 {
 private:
-    /// Program compiled from @ref mls.cl.
-    cl::Program program;
-
     /**
      * Kernel generated from @ref processCorners.
      * It has to be mutable to allow arguments to be set.

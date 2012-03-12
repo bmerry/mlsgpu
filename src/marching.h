@@ -217,7 +217,6 @@ private:
     cl::Buffer tmpVertexKeys, tmpVertices;
     /** @} */
 
-    cl::Program program;                    ///< Program compiled from @ref marching.cl.
     cl::Kernel countOccupiedKernel;         ///< Kernel compiled from @ref countOccupied.
     cl::Kernel compactKernel;               ///< Kernel compiled from @ref compact.
     cl::Kernel countElementsKernel;         ///< Kernel compiled from @ref countElements.

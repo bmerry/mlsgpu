@@ -62,9 +62,6 @@ public:
     static const std::size_t MAX_SPLATS = 0x7FFFFFFF / 16;
 
 private:
-    /// Program containing the internal kernels for building
-    cl::Program program;
-
     /**
      * @name
      * @{

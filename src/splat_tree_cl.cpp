@@ -100,7 +100,8 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
 
     std::map<std::string, std::string> defines;
     defines["MAX_LEVELS"] = boost::lexical_cast<std::string>(maxLevels);
-    program = CLH::build(context, "kernels/octree.cl", defines);
+
+    cl::Program program = CLH::build(context, "kernels/octree.cl", defines);
     writeEntriesKernel = cl::Kernel(program, "writeEntries");
     countCommandsKernel = cl::Kernel(program, "countCommands");
     writeSplatIdsKernel = cl::Kernel(program, "writeSplatIds");
