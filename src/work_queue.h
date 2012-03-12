@@ -222,8 +222,6 @@ void OrderedWorkQueue<ValueType, IdType>::push(const value_type &value, id_type 
     {
         idCondition.wait(lock);
     }
-    next_ = lastId;
-    idCondition.notify_all();
 
     while (this->size_ == this->capacity_)
     {
@@ -235,6 +233,8 @@ void OrderedWorkQueue<ValueType, IdType>::push(const value_type &value, id_type 
         this->tail_ = 0;
     this->size_++;
     this->dataCondition.notify_one();
+    next_ = lastId;
+    idCondition.notify_all();
 }
 
 template<typename ValueType, typename IdType>
