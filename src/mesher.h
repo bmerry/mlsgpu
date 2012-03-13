@@ -27,6 +27,8 @@
 #include <boost/array.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/mutex.hpp>
+#include <boost/thread/thread.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
@@ -65,7 +67,7 @@ struct MesherWork
 /**
  * Abstract base class for output collectors for @ref Marching. This class
  * only captures the host side of the process. It needs to be wrapped in
- * using @ref deviceMesher or @ref deviceMesherAsync to satisfy
+ * using @ref deviceMesher or @ref DeviceMesherAsync to satisfy
  * the requirements for @ref Marching.
  *
  * The basic procedure for using one of these classes is:
@@ -455,10 +457,59 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in);
 
 /**
- * Creates a @ref Marching::OutputFunctor that initiates the memory transfer
- * immediately but places the host work on a work queue to be dealt with by another
- * thread.
+ * Object for handling asynchronous meshing. For each pass:
+ *  -# Call @ref setInputFunctor to provide the per-pass mesher input functor.
+ *  -# Call @ref start to start up the thread which will do the actual processing.
+ *  -# Call @ref getOutputFunctor to get the functor which inserts work to the queue.
+ *  -# In each producer thread, use the output functor to supply data.
+ *  -# Shut down the producer threads (join with them).
+ *  -# Call @ref stop to shut down the consumer thread.
  */
-Marching::OutputFunctor deviceMesherAsync(WorkQueue<boost::shared_ptr<MesherWork> > &workQueue);
+class DeviceMesherAsync : public boost::noncopyable
+{
+public:
+    /**
+     * Constructor.
+     * @param capacity     The capacity of the internal work queue.
+     * @pre capacity > 0.
+     */
+    explicit DeviceMesherAsync(std::size_t capacity);
+
+    /// Set the functor to use for processing data received from the output functor.
+    void setInputFunctor(const MesherBase::InputFunctor &input) { this->input = input; }
+
+    /// Retrieve a functor that can be used in any thread to insert work into the queue.
+    Marching::OutputFunctor getOutputFunctor() const { return output; }
+
+    /**
+     * Start the consumer thread.
+     * @pre
+     * - The consumer thread is not already running.
+     * - The input functor has been set.
+     */
+    void start();
+
+    /**
+     * Shut down the consumer thread.
+     * @pre
+     * - The consumer thread is currently running.
+     * - No other thread will call the output functor while stopping is in progress.
+     */
+    void stop();
+
+private:
+    void consumerThread();
+
+    void outputFunc(
+        const cl::CommandQueue &queue,
+        const DeviceKeyMesh &mesh,
+        const std::vector<cl::Event> *events,
+        cl::Event *event);
+
+    WorkQueue<boost::shared_ptr<MesherWork> > workQueue;
+    boost::scoped_ptr<boost::thread> thread;
+    MesherBase::InputFunctor input;
+    Marching::OutputFunctor output;
+};
 
 #endif /* !MESHER_H */

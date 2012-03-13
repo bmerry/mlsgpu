@@ -816,35 +816,6 @@ public:
     DeviceMesher(const MesherBase::InputFunctor &in) : in(in) {}
 };
 
-class DeviceMesherAsync
-{
-private:
-    WorkQueue<boost::shared_ptr<MesherWork> > &workQueue;
-
-public:
-    typedef void result_type;
-
-    void operator()(
-        const cl::CommandQueue &queue,
-        const DeviceKeyMesh &mesh,
-        const std::vector<cl::Event> *events,
-        cl::Event *event) const
-    {
-        boost::shared_ptr<MesherWork> work = boost::make_shared<MesherWork>();
-        std::vector<cl::Event> wait(3);
-        enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
-        CLH::enqueueMarkerWithWaitList(queue, &wait, event);
-
-        work->verticesEvent = wait[0];
-        work->vertexKeysEvent = wait[1];
-        work->trianglesEvent = wait[2];
-        workQueue.push(work);
-    }
-
-    DeviceMesherAsync(WorkQueue<boost::shared_ptr<MesherWork> > &workQueue)
-        : workQueue(workQueue) {}
-};
-
 } // anonymous namespace
 
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in)
@@ -852,11 +823,56 @@ Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in)
     return DeviceMesher(in);
 }
 
-Marching::OutputFunctor deviceMesherAsync(WorkQueue<boost::shared_ptr<MesherWork> > &workQueue)
+
+DeviceMesherAsync::DeviceMesherAsync(std::size_t capacity)
+    : workQueue(capacity),
+    output(boost::bind(&DeviceMesherAsync::outputFunc, this, _1, _2, _3, _4))
 {
-    return DeviceMesherAsync(workQueue);
 }
 
+void DeviceMesherAsync::outputFunc(
+    const cl::CommandQueue &queue,
+    const DeviceKeyMesh &mesh,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    MLSGPU_ASSERT(input, std::runtime_error);
+
+    boost::shared_ptr<MesherWork> work = boost::make_shared<MesherWork>();
+    std::vector<cl::Event> wait(3);
+    enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
+    CLH::enqueueMarkerWithWaitList(queue, &wait, event);
+
+    work->verticesEvent = wait[0];
+    work->vertexKeysEvent = wait[1];
+    work->trianglesEvent = wait[2];
+    workQueue.push(work);
+}
+
+void DeviceMesherAsync::start()
+{
+    MLSGPU_ASSERT(!thread.get(), std::runtime_error);
+    thread.reset(new boost::thread(boost::bind(&DeviceMesherAsync::consumerThread, this)));
+}
+
+void DeviceMesherAsync::stop()
+{
+    MLSGPU_ASSERT(thread.get(), std::runtime_error);
+    workQueue.push(boost::shared_ptr<MesherWork>()); // empty item signals stop
+    thread->join();
+    thread.reset();
+}
+
+void DeviceMesherAsync::consumerThread()
+{
+    while (true)
+    {
+        boost::shared_ptr<MesherWork> work = workQueue.pop();
+        if (!work.get())
+            break;
+        input(*work);
+    }
+}
 
 MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename)
 {

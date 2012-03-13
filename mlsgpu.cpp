@@ -721,54 +721,6 @@ void HostBlock<Set>::operator()(
 }
 
 /**
- * Thread that pulls mesh data from a queue and passes it to the mesher class.
- */
-class MesherWorker
-{
-public:
-    typedef void result_type;
-
-    MesherWorker(const MesherBase::InputFunctor &functor, std::size_t capacity);
-
-    Marching::OutputFunctor getOutputFunctor();
-
-    /// Thread start callback
-    void operator()();
-
-    /// Cause the thread to exit (it must still be manually joined)
-    void stop();
-private:
-    MesherBase::InputFunctor functor;
-    WorkQueue<boost::shared_ptr<MesherWork> > workQueue;
-};
-
-MesherWorker::MesherWorker(const MesherBase::InputFunctor &functor, std::size_t capacity)
-    : functor(functor), workQueue(capacity)
-{
-}
-
-void MesherWorker::operator()()
-{
-    while (true)
-    {
-        boost::shared_ptr<MesherWork> work = workQueue.pop();
-        if (!work.get())
-            break;
-        functor(*work);
-    }
-}
-
-void MesherWorker::stop()
-{
-    workQueue.push(boost::shared_ptr<MesherWork>()); // empty pointer signals exit
-}
-
-Marching::OutputFunctor MesherWorker::getOutputFunctor()
-{
-    return deviceMesherAsync(workQueue);
-}
-
-/**
  * Second phase of execution, which is templated on the collection type
  * (which in turn depends on whether --sort was given or not).
  *
@@ -822,6 +774,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
                 keepBoundary, boundaryLimit));
     }
     HostBlock<Set> hostBlock(workQueueCoarse, grid);
+    DeviceMesherAsync deviceMesher(1);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
@@ -838,8 +791,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         Statistics::Timer timer(passName.str());
 
         ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
-        MesherWorker mesherWorker(mesher->functor(pass), 1);
-        Marching::OutputFunctor outputFunctor = mesherWorker.getOutputFunctor();
+        deviceMesher.setInputFunctor(mesher->functor(pass));
 
         // Start threads
         boost::thread_group bucketThreads;
@@ -851,11 +803,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         }
         for (unsigned int i = 0; i < numDeviceThreads; i++)
         {
-            deviceWorkers[i].setOutput(outputFunctor);
+            deviceWorkers[i].setOutput(deviceMesher.getOutputFunctor());
             deviceWorkers[i].setProgress(&progress);
             workerThreads.create_thread(boost::bind(boost::ref(deviceWorkers[i])));
         }
-        boost::thread mesherThread(boost::ref(mesherWorker));
+        deviceMesher.start();
 
         Bucket::bucket(splatSet, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
 
@@ -874,8 +826,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         workerThreads.join_all();
 
         // And finally the mesher thread
-        mesherWorker.stop();
-        mesherThread.join();
+        deviceMesher.stop();
 
         assert(workQueueCoarse.size() == 0);
         assert(workQueueFine.size() == 0);
