@@ -86,6 +86,19 @@ private:
 };
 
 /**
+ * A pool of items which can be added to and removed from, with thread safety.
+ * Currently this is just an alias to a WorkQueue, but in future it may be
+ * extended to use something like a stack which is more cache-friendly.
+ */
+template<typename T>
+class Pool : public WorkQueue<boost::shared_ptr<T> >
+{
+public:
+    Pool(typename WorkQueue<boost::shared_ptr<T> >::size_type capacity)
+        : WorkQueue<boost::shared_ptr<T> >(capacity) {}
+};
+
+/**
  * A variation on a work queue in which workitems have sequential IDs and
  * can only be inserted in order. Attempting to push an out-of-order item
  * will block until the prior items have been pushed. This reduces efficiency

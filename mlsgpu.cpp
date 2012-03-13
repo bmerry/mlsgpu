@@ -44,6 +44,7 @@
 #include "src/provenance.h"
 #include "src/statistics.h"
 #include "src/work_queue.h"
+#include "src/workers.h"
 #include "src/progress.h"
 #include "src/clip.h"
 #include "src/mesh_filter.h"
@@ -301,334 +302,12 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
     }
 }
 
-struct HostWorkItem
-{
-    std::vector<Splat> splats;
-    Grid grid;
-    Bucket::Recursion recursionState;
-};
-
-struct DeviceWorkItem
-{
-    std::vector<Splat> splats;
-    Grid grid;
-    Bucket::Recursion recursionState;
-};
-
-/**
- * Does the actual OpenCL calls necessary to compute the mesh and write
- * it to the @ref MesherBase class. It pulls chunks of work off a queue,
- * which contains pre-bucketed splats.
- *
- * It is intended to be used as a function object for @c boost::thread.
- */
-class DeviceWorker : public boost::noncopyable
-{
-private:
-    WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueue;
-
-    const Grid &fullGrid;
-
-    const cl::CommandQueue queue;
-    SplatTreeCL tree;
-    MlsFunctor input;
-    Marching marching;
-    boost::scoped_ptr<Clip> clip;
-    ScaleBiasFilter scaleBias;
-    Marching::OutputFunctor output;
-    MeshFilterChain filterChain;
-
-    std::size_t maxSplats;
-    Grid::size_type maxCells;
-    int subsampling;
-
-    ProgressDisplay *progress;
-
-public:
-    typedef void result_type;
-    typedef StdVectorCollection<Splat> Collection;
-
-    DeviceWorker(
-        WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueue,
-        const Grid &fullGrid,
-        const cl::Context &context, const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, int subsampling, bool keepBoundary, float boundaryLimit);
-
-    static CLH::ResourceUsage resourceUsage(
-        const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, bool keepBoundary);
-
-    /// Thread function.
-    void operator()();
-
-    void setProgress(ProgressDisplay *progress) { this->progress = progress; }
-
-    void setOutput(const Marching::OutputFunctor &output)
-    {
-        filterChain.setOutput(output);
-    }
-};
-
-DeviceWorker::DeviceWorker(
-    WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueue,
-    const Grid &fullGrid,
-    const cl::Context &context, const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, int subsampling, bool keepBoundary, float boundaryLimit)
-:
-    workQueue(workQueue),
-    fullGrid(fullGrid),
-    queue(context, device),
-    tree(context, levels, maxSplats),
-    input(context),
-    marching(context, device, maxCells + 1, maxCells + 1),
-    scaleBias(context),
-    maxSplats(maxSplats), maxCells(maxCells),
-    subsampling(subsampling),
-    progress(NULL)
-{
-    if (!keepBoundary)
-    {
-        input.setBoundaryLimit(boundaryLimit);
-        clip.reset(new Clip(context, device,
-                            marching.getMaxVertices(maxCells + 1, maxCells + 1),
-                            marching.getMaxTriangles(maxCells + 1, maxCells + 1)));
-        clip->setDistanceFunctor(input);
-        filterChain.addFilter(boost::ref(*clip));
-    }
-
-    filterChain.addFilter(boost::ref(scaleBias));
-}
-
-CLH::ResourceUsage DeviceWorker::resourceUsage(
-    const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, bool keepBoundary)
-{
-    Grid::size_type block = maxCells + 1;
-    std::size_t maxVertices = Marching::getMaxVertices(block, block);
-    std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
-    CLH::ResourceUsage marchingUsage = Marching::resourceUsage(device, block, block);
-    CLH::ResourceUsage splatTreeUsage = SplatTreeCL::resourceUsage(device, levels, maxSplats);
-    CLH::ResourceUsage clipUsage;
-    if (!keepBoundary)
-        clipUsage = Clip::resourceUsage(device, maxVertices, maxTriangles);
-    return marchingUsage + splatTreeUsage + clipUsage;
-}
-
-void DeviceWorker::operator()()
-{
-    scaleBias.setScaleBias(fullGrid);
-
-    while (true)
-    {
-        boost::shared_ptr<DeviceWorkItem> item;
-        {
-            Statistics::Timer timer("device.worker.pop");
-            item = workQueue.pop();
-        }
-        if (!item)
-            break;
-
-        cl_uint3 keyOffset; 
-        for (int i = 0; i < 3; i++)
-            keyOffset.s[i] = item->grid.getExtent(i).first;
-        // same thing, just as a different type for a different API
-        Grid::difference_type offset[3] = { keyOffset.s[0], keyOffset.s[1], keyOffset.s[2] };
-
-        Grid::size_type size[3];
-        for (int i = 0; i < 3; i++)
-        {
-            /* Note: numVertices not numCells, because Marching does per-vertex queries.
-             * So we need information about the cell that is just beyond the last vertex,
-             * just to avoid special-casing it.
-             */
-            size[i] = item->grid.numVertices(i);
-        }
-
-        /* We need to round up the octree size to a multiple of the granularity used for MLS. */
-        Grid::size_type expandedSize[3];
-        for (int i = 0; i < 2; i++)
-            expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
-        expandedSize[2] = size[2];
-
-        // TODO: use mapping to transfer the data directly into a buffer
-
-        {
-            Statistics::Timer timer("device.worker.time");
-            cl::Event treeBuildEvent;
-            vector<cl::Event> wait(1);
-            tree.enqueueBuild(queue, &item->splats[0], item->splats.size(),
-                              expandedSize, offset, subsampling, CL_FALSE, NULL, &treeBuildEvent);
-            wait[0] = treeBuildEvent;
-
-            input.set(expandedSize, offset, tree, subsampling);
-            marching.generate(queue, input, filterChain, size, keyOffset, &wait);
-        }
-
-        if (progress != NULL)
-            *progress += item->grid.numCells();
-    }
-}
-
-/**
- * A thread function object that handles coarse-to-fine bucketing. It pulls
- * work from one queue (containing regions of splats already read from storage),
- * calls @ref Bucket::bucket to subdivide the splats into buckets suitable for
- * device execution, and passes them on to another queue.
- */
-class DeviceBlock
-{
-public:
-    typedef void result_type;
-    typedef SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > Set;
-
-    /// Bucketing callback for blocks sized for device execution.
-    void operator()(
-        const Set &splatSet,
-        Bucket::Range::index_type numSplats,
-        Bucket::RangeConstIterator first,
-        Bucket::RangeConstIterator last,
-        const Grid &grid,
-        const Bucket::Recursion &recursionState);
-
-    /// Thread runner
-    void operator()();
-
-    void setProgress(ProgressDisplay *progress) { this->progress = progress; }
-
-    DeviceBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn,
-                WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut,
-                const Grid &fullGrid,
-                std::size_t maxSplats,
-                Grid::size_type maxCells,
-                std::size_t maxSplit);
-private:
-    WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn;
-    WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut;
-
-    const Grid &fullGrid;
-    std::size_t maxSplats;
-    Grid::size_type maxCells;
-    std::size_t maxSplit;
-    ProgressDisplay *progress;
-};
-
-DeviceBlock::DeviceBlock(
-    WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueueIn,
-    WorkQueue<boost::shared_ptr<DeviceWorkItem> > &workQueueOut,
-    const Grid &fullGrid,
-    std::size_t maxSplats,
-    Grid::size_type maxCells,
-    std::size_t maxSplit)
-:
-    workQueueIn(workQueueIn),
-    workQueueOut(workQueueOut),
-    fullGrid(fullGrid),
-    maxSplats(maxSplats),
-    maxCells(maxCells),
-    maxSplit(maxSplit),
-    progress(NULL)
-{
-}
-
-void DeviceBlock::operator()(
-    const Set &splatSet,
-    Bucket::Range::index_type numSplats,
-    Bucket::RangeConstIterator first,
-    Bucket::RangeConstIterator last,
-    const Grid &grid,
-    const Bucket::Recursion &recursionState)
-{
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-
-    vector<Splat> outSplats(numSplats);
-
-    std::size_t pos = 0;
-    // Stats bookkeeping
-    // TODO: reuse code from HostBlock
-    const int pageSize = 4096;
-    std::size_t numPages = 0;
-    std::size_t lastPage = (std::size_t) -1;
-    for (Bucket::RangeConstIterator i = first; i != last; i++)
-    {
-        assert(pos + i->size <= numSplats);
-        Bucket::Range::scan_type scan = i->scan;
-        // Note: &outSplats[pos] is necessary to trigger the fast path in
-        // FastPly::Reader. Using outSplats.begin() + pos would hit the
-        // slow path.
-        splatSet.getSplats()[scan].read(i->start, i->start + i->size, &outSplats[pos]);
-        pos += i->size;
-
-        if (i->size > 0)
-        {
-            std::size_t pageFirst = i->start / pageSize;
-            std::size_t pageLast = (i->start + i->size - 1) / pageSize;
-            numPages += pageLast - pageFirst + 1;
-            if (lastPage == pageFirst)
-                numPages--;
-            lastPage = pageLast;
-        }
-    }
-    assert(pos == numSplats);
-
-    registry.getStatistic<Statistics::Variable>("device.block.splats").add(numSplats);
-    registry.getStatistic<Statistics::Variable>("device.block.ranges").add(last - first);
-    registry.getStatistic<Statistics::Variable>("device.block.pagedSplats").add(numPages * pageSize);
-    registry.getStatistic<Statistics::Variable>("device.block.size").add(grid.numCells());
-
-    boost::shared_ptr<DeviceWorkItem> item = boost::make_shared<DeviceWorkItem>();
-    item->splats.swap(outSplats);
-    item->grid = grid;
-    item->recursionState = recursionState;
-
-    {
-        Statistics::Timer timer("device.block.push");
-        workQueueOut.push(item);
-    }
-}
-
-void DeviceBlock::operator()()
-{
-    while (true)
-    {
-        boost::shared_ptr<HostWorkItem> item;
-        {
-            Statistics::Timer timer("device.block.pop");
-            item = workQueueIn.pop();
-        }
-        if (!item)
-            break;
-
-        Statistics::Timer timer("device.block.exec");
-        boost::ptr_vector<StdVectorCollection<Splat> > deviceSplats;
-        SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(deviceSplats);
-        deviceSplats.push_back(new StdVectorCollection<Splat>(item->splats));
-
-        /* The host transformed splats from world space into fullGrid space, so we need to
-         * construct a new grid for this coordinate system.
-         */
-        const float ref[3] = {0.0f, 0.0f, 0.0f};
-        Grid grid(ref, 1.0f, 0, 1, 0, 1, 0, 1);
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            Grid::difference_type base = fullGrid.getExtent(i).first;
-            Grid::difference_type low = item->grid.getExtent(i).first - base;
-            Grid::difference_type high = item->grid.getExtent(i).second - base;
-            grid.setExtent(i, low, high);
-        }
-        Bucket::bucket(splatSet, grid, maxSplats, maxCells, false, maxSplit,
-                       boost::ref(*this), progress, item->recursionState);
-    }
-}
-
 /**
  * Handles coarse-level bucketing from external storage. Unlike @ref
- * DeviceWorker and @ref DeviceBlock, there is only expected to be one of
- * these, and it does not run in a separate thread. It produces coarse
- * buckets, read the splats into memory and pushes the results to a queue.
+ * DeviceWorkerGroup::Worker and @ref FineBucketGroup::Worker, there is only
+ * expected to be one of these, and it does not run in a separate thread. It
+ * produces coarse buckets, read the splats into memory and pushes the results
+ * to a @ref FineBucketGroup.
  */
 template<typename Set>
 class HostBlock
@@ -642,17 +321,15 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState) const;
 
-    HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue,
-              const Grid &fullGrid);
+    HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid);
 private:
-    WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue;
+    FineBucketGroup &outGroup;
     const Grid &fullGrid;
 };
 
 template<typename Collection>
-HostBlock<Collection>::HostBlock(WorkQueue<boost::shared_ptr<HostWorkItem> > &workQueue,
-                                 const Grid &fullGrid)
-: workQueue(workQueue), fullGrid(fullGrid)
+HostBlock<Collection>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid)
+: outGroup(outGroup), fullGrid(fullGrid)
 {
 }
 
@@ -665,7 +342,7 @@ void HostBlock<Set>::operator()(
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<HostWorkItem> item = boost::make_shared<HostWorkItem>();
+    boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
     item->grid = grid;
     item->recursionState = recursionState;
     float invSpacing = 1.0f / fullGrid.getSpacing();
@@ -683,7 +360,7 @@ void HostBlock<Set>::operator()(
         {
             assert(pos + i->size <= numSplats);
             Bucket::Range::scan_type scan = i->scan;
-            // Note: &localSplats[pos] is necessary to trigger the fast path in
+            // Note: &item->splats[pos] is necessary to trigger the fast path in
             // FastPly::Reader. Using outSplats.begin() + pos would hit the
             // slow path.
             splatSet.getSplats()[scan].read(i->start, i->start + i->size, &item->splats[pos]);
@@ -716,7 +393,7 @@ void HostBlock<Set>::operator()(
 
     {
         Statistics::Timer timer("host.block.push");
-        workQueue.push(item);
+        outGroup.push(item);
     }
 }
 
@@ -749,32 +426,15 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
-    WorkQueue<boost::shared_ptr<HostWorkItem> > workQueueCoarse(1);
-    WorkQueue<boost::shared_ptr<DeviceWorkItem> > workQueueFine(2);
-
-    boost::ptr_vector<DeviceBlock> deviceBlocks;
-    boost::ptr_vector<DeviceWorker> deviceWorkers;
-    deviceBlocks.reserve(numBucketThreads);
-    deviceWorkers.reserve(numDeviceThreads);
-    for (unsigned int i = 0; i < numBucketThreads; i++)
-    {
-        Statistics::Timer timer("device.block.init");
-        deviceBlocks.push_back(new DeviceBlock(
-                workQueueCoarse, workQueueFine, grid,
-                maxDeviceSplats, blockCells, maxSplit));
-    }
-    for (unsigned int i = 0; i < numDeviceThreads; i++)
-    {
-        Statistics::Timer timer("device.worker.init");
-        deviceWorkers.push_back(new DeviceWorker(
-                workQueueFine, grid,
-                context, device,
-                maxDeviceSplats, blockCells,
-                levels, subsampling,
-                keepBoundary, boundaryLimit));
-    }
-    HostBlock<Set> hostBlock(workQueueCoarse, grid);
     DeviceMesherAsync deviceMesher(1);
+    DeviceWorkerGroup deviceWorkerGroup(
+        numDeviceThreads, 2,
+        grid, context, device, maxDeviceSplats, blockCells, levels, subsampling,
+        keepBoundary, boundaryLimit);
+    FineBucketGroup fineBucketGroup(
+        numBucketThreads, 2, deviceWorkerGroup,
+        grid, context, device, maxDeviceSplats, blockCells, maxSplit);
+    HostBlock<Set> hostBlock(fineBucketGroup, grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
@@ -794,42 +454,19 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceMesher.setInputFunctor(mesher->functor(pass));
 
         // Start threads
-        boost::thread_group bucketThreads;
-        boost::thread_group workerThreads;
-        for (unsigned int i = 0; i < numBucketThreads; i++)
-        {
-            deviceBlocks[i].setProgress(&progress);
-            bucketThreads.create_thread(boost::bind(boost::ref(deviceBlocks[i])));
-        }
-        for (unsigned int i = 0; i < numDeviceThreads; i++)
-        {
-            deviceWorkers[i].setOutput(deviceMesher.getOutputFunctor());
-            deviceWorkers[i].setProgress(&progress);
-            workerThreads.create_thread(boost::bind(boost::ref(deviceWorkers[i])));
-        }
         deviceMesher.start();
+        deviceWorkerGroup.start();
+        fineBucketGroup.start();
 
         Bucket::bucket(splatSet, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
 
-        /* Shut down bucket threads. Note that these have to be completely shut
-         * down before we start shutting down the worker threads, as otherwise
-         * we might kill the worker threads before all their work has been
-         * queued to them.
+        /* Shut down threads. Note that it has to be done in forward order to
+         * satisfy the requirement that stop() is only called after producers
+         * are terminated.
          */
-        for (unsigned int i = 0; i < numBucketThreads; i++)
-            workQueueCoarse.push(boost::shared_ptr<HostWorkItem>());
-        bucketThreads.join_all();
-
-        // Now kill the worker threads
-        for (unsigned int i = 0; i < numDeviceThreads; i++)
-            workQueueFine.push(boost::shared_ptr<DeviceWorkItem>());
-        workerThreads.join_all();
-
-        // And finally the mesher thread
+        fineBucketGroup.stop();
+        deviceWorkerGroup.stop();
         deviceMesher.stop();
-
-        assert(workQueueCoarse.size() == 0);
-        assert(workQueueFine.size() == 0);
     }
 
 
@@ -951,9 +588,9 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
      * we can at least turn down silly requests before wasting any time.
      */
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
-    CLH::ResourceUsage threadUsage = DeviceWorker::resourceUsage(
-        device, maxDeviceSplats, maxCells, levels, keepBoundary);
-    CLH::ResourceUsage totalUsage = threadUsage * deviceThreads;
+    // TODO: use a global constant for capacity
+    CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
+        bucketThreads, 2, device, maxDeviceSplats, maxCells, levels, keepBoundary);
 
     const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
     const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();

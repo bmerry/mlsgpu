@@ -117,7 +117,7 @@ private:
                              const Grid::difference_type offset[3],
                              std::size_t minShift,
                              std::size_t maxShift,
-                             std::vector<cl::Event> *events,
+                             const std::vector<cl::Event> *events,
                              cl::Event *event);
 
     /// Wrapper to call @ref countCommands
@@ -125,7 +125,7 @@ private:
                               const cl::Buffer &indicator,
                               const cl::Buffer &keys,
                               command_type numKeys,
-                              std::vector<cl::Event> *events,
+                              const std::vector<cl::Event> *events,
                               cl::Event *event);
 
     /// Wrapper to call @ref writeSplatIds
@@ -137,7 +137,7 @@ private:
                               const cl::Buffer &keys,
                               const cl::Buffer &splatIds,
                               command_type numEntries,
-                              std::vector<cl::Event> *events,
+                              const std::vector<cl::Event> *events,
                               cl::Event *event);
 
     /**
@@ -153,7 +153,7 @@ private:
                            bool havePrev,
                            code_type prevOffset,
                            code_type numCodes,
-                           std::vector<cl::Event> *events,
+                           const std::vector<cl::Event> *events,
                            cl::Event *event);
 
     /// Wrapper to call @ref fill
@@ -162,7 +162,7 @@ private:
                      std::size_t offset,
                      std::size_t elements,
                      command_type value,
-                     std::vector<cl::Event> *events,
+                     const std::vector<cl::Event> *events,
                      cl::Event *event);
 
 public:
@@ -204,28 +204,26 @@ public:
      * progress, or while the octree is being traversed.
      *
      * @param queue         The command queue for the building operations.
-     * @param splats        The splats to put in the octree.
+     * @param splats        The splats to use in the octree.
      * @param numSplats     The size of the @a splats array.
      * @param size          The number of cells to cover with the octree.
      * @param offset        The offset of the octree within the overall grid.
      * @param subsamplingShift Number of fine levels to drop.
-     * @param blockingCopy  If true, the @a splats array can be reused on return.
-     *                      Otherwise, one must wait for @a uploadEvent.
      * @param events        Events to wait for (or @c NULL).
-     * @param[out] uploadEvent   Event that fires when @a splats may be reused (or @c NULL).
-     * @param[out] event         Event that fires when the octree is ready to use (or @c NULL).
+     * @param[out] event    Event that fires when the octree is ready to use (or @c NULL).
      *
      * @pre
      * - @a size is no more than 2^(maxLevels - subSamplingShift - 1) elements in any direction.
      * - @a numSplats is at most @a maxSplats.
-     * - @a splats is not @c NULL.
+     *
+     * @note @a splats is not copied. It becomes the backing store of splats for the octree.
      */
     void enqueueBuild(const cl::CommandQueue &queue,
-                      const Splat *splats, std::size_t numSplats,
+                      const cl::Buffer &splats, std::size_t numSplats,
                       const Grid::size_type size[3], const Grid::difference_type offset[3],
-                      unsigned int subsamplingShift, bool blockingCopy,
+                      unsigned int subsamplingShift,
                       const std::vector<cl::Event> *events = NULL,
-                      cl::Event *uploadEvent = NULL, cl::Event *event = NULL);
+                      cl::Event *event = NULL);
 
     /**
      * @name Getters for the buffers and images needed to use the octree.

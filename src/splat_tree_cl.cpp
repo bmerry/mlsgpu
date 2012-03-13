@@ -51,8 +51,6 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
 
     // Keep this up to date with the actual allocations below
 
-    // splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
-    ans.addBuffer(maxSplats * sizeof(Splat));
     // start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     ans.addBuffer(maxStart * sizeof(command_type));
     // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
@@ -87,7 +85,6 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
 
     std::size_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
     // If this section is modified, remember to update deviceMemory above
-    splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * sizeof(Splat));
     start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
@@ -119,7 +116,7 @@ void SplatTreeCL::enqueueWriteEntries(
     const Grid::difference_type offset[3],
     std::size_t minShift,
     std::size_t maxShift,
-    std::vector<cl::Event> *events,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     cl_int3 offset3 = {{ offset[0], offset[1], offset[2] }};
@@ -145,7 +142,7 @@ void SplatTreeCL::enqueueCountCommands(
     const cl::Buffer &indicator,
     const cl::Buffer &keys,
     command_type numKeys,
-    std::vector<cl::Event> *events,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     countCommandsKernel.setArg(0, indicator);
@@ -167,7 +164,7 @@ void SplatTreeCL::enqueueWriteSplatIds(
     const cl::Buffer &keys,
     const cl::Buffer &splatIds,
     command_type numEntries,
-    std::vector<cl::Event> *events,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     writeSplatIdsKernel.setArg(0, commands);
@@ -188,7 +185,7 @@ void SplatTreeCL::enqueueFill(
     std::size_t offset,
     std::size_t elements,
     command_type value,
-    std::vector<cl::Event> *events,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     fillKernel.setArg(0, buffer);
@@ -210,7 +207,7 @@ void SplatTreeCL::enqueueWriteStart(
     bool havePrev,
     code_type prevOffset,
     code_type numCodes,
-    std::vector<cl::Event> *events,
+    const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     cl::Kernel &kernel = havePrev ? writeStartKernel : writeStartTopKernel;
@@ -232,11 +229,11 @@ void SplatTreeCL::enqueueWriteStart(
 
 void SplatTreeCL::enqueueBuild(
     const cl::CommandQueue &queue,
-    const Splat *splats, std::size_t numSplats,
+    const cl::Buffer &splats, std::size_t numSplats,
     const Grid::size_type size[3], const Grid::difference_type offset[3],
-    unsigned int subsamplingShift, bool blockingCopy,
+    unsigned int subsamplingShift,
     const std::vector<cl::Event> *events,
-    cl::Event *uploadEvent, cl::Event *event)
+    cl::Event *event)
 {
     if (numSplats > maxSplats)
     {
@@ -263,15 +260,13 @@ void SplatTreeCL::enqueueBuild(
 
     std::vector<cl::Event> wait(1);
 
-    // Copy splats to the GPU
-    cl::Event myUploadEvent, writeEntriesEvent, sortEvent, countEvent, scanEvent,
+    cl::Event writeEntriesEvent, sortEvent, countEvent, scanEvent,
         writeSplatIdsEvent, levelEvent, fillJumpPosEvent;
-    CLH::enqueueWriteBuffer(queue, this->splats, CL_FALSE, 0, numSplats * sizeof(Splat), splats, events, &myUploadEvent);
-    queue.flush(); // Start the copy going while we do remaining queuing.
+    this->splats = splats;
 
+    // TODO: revisit this dependency tracking
     const std::size_t numEntries = numSplats * 8;
-    wait[0] = myUploadEvent;
-    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, offset, minShift, maxShift, &wait, &writeEntriesEvent);
+    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, offset, minShift, maxShift, events, &writeEntriesEvent);
     wait[0] = writeEntriesEvent;
     sort.enqueue(queue, entryKeys, entryValues, numEntries, 3 * (maxShift - minShift) + 1, &wait, &sortEvent);
     wait[0] = sortEvent;
@@ -299,8 +294,4 @@ void SplatTreeCL::enqueueBuild(
 
     if (event != NULL)
         *event = wait[0];
-    if (uploadEvent != NULL)
-        *uploadEvent = myUploadEvent;
-    if (blockingCopy)
-        myUploadEvent.wait();
 }

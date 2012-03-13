@@ -72,6 +72,15 @@ ResourceUsage ResourceUsage::operator+(const ResourceUsage &b) const
     return out;
 }
 
+ResourceUsage &ResourceUsage::operator+=(const ResourceUsage &b)
+{
+    maxMemory = std::max(maxMemory, b.maxMemory);
+    totalMemory += b.totalMemory;
+    imageWidth = std::max(imageWidth, b.imageWidth);
+    imageHeight = std::max(imageHeight, b.imageHeight);
+    return *this;
+}
+
 ResourceUsage ResourceUsage::operator*(unsigned int n) const
 {
     if (n == 0)

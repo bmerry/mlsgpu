@@ -98,6 +98,13 @@ public:
     ResourceUsage operator+(const ResourceUsage &r) const;
 
     /**
+     * Computes the combined requirements given the individual requirements for two
+     * steps. This assumes that the steps are active simultaneously, and hence that
+     * totals must be added.
+     */
+    ResourceUsage &operator+=(const ResourceUsage &r);
+
+    /**
      * Adds @a n copies of the resource.
      */
     ResourceUsage operator*(unsigned int n) const;
