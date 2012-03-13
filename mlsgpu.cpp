@@ -721,6 +721,54 @@ void HostBlock<Set>::operator()(
 }
 
 /**
+ * Thread that pulls mesh data from a queue and passes it to the mesher class.
+ */
+class MesherWorker
+{
+public:
+    typedef void result_type;
+
+    MesherWorker(const MesherBase::InputFunctor &functor, std::size_t capacity);
+
+    Marching::OutputFunctor getOutputFunctor();
+
+    /// Thread start callback
+    void operator()();
+
+    /// Cause the thread to exit (it must still be manually joined)
+    void stop();
+private:
+    MesherBase::InputFunctor functor;
+    WorkQueue<boost::shared_ptr<MesherWork> > workQueue;
+};
+
+MesherWorker::MesherWorker(const MesherBase::InputFunctor &functor, std::size_t capacity)
+    : functor(functor), workQueue(capacity)
+{
+}
+
+void MesherWorker::operator()()
+{
+    while (true)
+    {
+        boost::shared_ptr<MesherWork> work = workQueue.pop();
+        if (!work.get())
+            break;
+        functor(*work);
+    }
+}
+
+void MesherWorker::stop()
+{
+    workQueue.push(boost::shared_ptr<MesherWork>()); // empty pointer signals exit
+}
+
+Marching::OutputFunctor MesherWorker::getOutputFunctor()
+{
+    return deviceMesherAsync(workQueue);
+}
+
+/**
  * Second phase of execution, which is templated on the collection type
  * (which in turn depends on whether --sort was given or not).
  *
@@ -746,11 +794,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    /*
-     * TODO:
-     * - support multithreading at the next level down as well, to
-     *   do better host-device overlap
-     */
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
@@ -795,7 +838,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         Statistics::Timer timer(passName.str());
 
         ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
-        Marching::OutputFunctor out = deviceMesher(mesher->functor(pass));
+        MesherWorker mesherWorker(mesher->functor(pass), 1);
+        Marching::OutputFunctor outputFunctor = mesherWorker.getOutputFunctor();
 
         // Start threads
         boost::thread_group bucketThreads;
@@ -807,10 +851,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         }
         for (unsigned int i = 0; i < numDeviceThreads; i++)
         {
-            deviceWorkers[i].setOutput(out);
+            deviceWorkers[i].setOutput(outputFunctor);
             deviceWorkers[i].setProgress(&progress);
             workerThreads.create_thread(boost::bind(boost::ref(deviceWorkers[i])));
         }
+        boost::thread mesherThread(boost::ref(mesherWorker));
 
         Bucket::bucket(splatSet, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
 
@@ -827,6 +872,10 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         for (unsigned int i = 0; i < numDeviceThreads; i++)
             workQueueFine.push(boost::shared_ptr<DeviceWorkItem>());
         workerThreads.join_all();
+
+        // And finally the mesher thread
+        mesherWorker.stop();
+        mesherThread.join();
 
         assert(workQueueCoarse.size() == 0);
         assert(workQueueFine.size() == 0);

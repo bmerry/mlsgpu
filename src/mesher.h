@@ -27,10 +27,12 @@
 #include <boost/array.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/mutex.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
 #include "fast_ply.h"
 #include "union_find.h"
+#include "work_queue.h"
 
 /**
  * Enumeration of the supported mesher types
@@ -451,5 +453,12 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std
  * that reads the mesh from the device to the host synchronously.
  */
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in);
+
+/**
+ * Creates a @ref Marching::OutputFunctor that initiates the memory transfer
+ * immediately but places the host work on a work queue to be dealt with by another
+ * thread.
+ */
+Marching::OutputFunctor deviceMesherAsync(WorkQueue<boost::shared_ptr<MesherWork> > &workQueue);
 
 #endif /* !MESHER_H */

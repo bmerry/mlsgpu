@@ -21,6 +21,8 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
 #include <boost/foreach.hpp>
 #include <boost/type_traits/make_unsigned.hpp>
 #include <tr1/unordered_map>
@@ -814,11 +816,45 @@ public:
     DeviceMesher(const MesherBase::InputFunctor &in) : in(in) {}
 };
 
+class DeviceMesherAsync
+{
+private:
+    WorkQueue<boost::shared_ptr<MesherWork> > &workQueue;
+
+public:
+    typedef void result_type;
+
+    void operator()(
+        const cl::CommandQueue &queue,
+        const DeviceKeyMesh &mesh,
+        const std::vector<cl::Event> *events,
+        cl::Event *event) const
+    {
+        boost::shared_ptr<MesherWork> work = boost::make_shared<MesherWork>();
+        std::vector<cl::Event> wait(3);
+        enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
+        CLH::enqueueMarkerWithWaitList(queue, &wait, event);
+
+        work->verticesEvent = wait[0];
+        work->vertexKeysEvent = wait[1];
+        work->trianglesEvent = wait[2];
+        workQueue.push(work);
+    }
+
+    DeviceMesherAsync(WorkQueue<boost::shared_ptr<MesherWork> > &workQueue)
+        : workQueue(workQueue) {}
+};
+
 } // anonymous namespace
 
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in)
 {
     return DeviceMesher(in);
+}
+
+Marching::OutputFunctor deviceMesherAsync(WorkQueue<boost::shared_ptr<MesherWork> > &workQueue)
+{
+    return DeviceMesherAsync(workQueue);
 }
 
 
