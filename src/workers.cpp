@@ -75,6 +75,12 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     return workerUsage * numWorkers + itemUsage * capacity;
 }
 
+void DeviceWorkerGroup::setOutput(const Marching::OutputFunctor &output)
+{
+    for (std::size_t i = 0; i < numWorkers(); i++)
+        getWorker(i).setOutput(output);
+}
+
 DeviceWorkerGroupBase::Worker::Worker(
     DeviceWorkerGroup &owner,
     const cl::Context &context, const cl::Device &device,

@@ -68,6 +68,11 @@ public:
         threads.clear();
     }
 
+    std::size_t numWorkers() const
+    {
+        return workers.size();
+    }
+
 protected:
     void addWorker(Worker *worker)
     {
@@ -77,6 +82,11 @@ protected:
     void addPoolItem(boost::shared_ptr<WorkItem> item)
     {
         itemPool.push(item);
+    }
+
+    Worker &getWorker(std::size_t index)
+    {
+        return workers.at(index);
     }
 
     WorkerGroup(std::size_t numWorkers, std::size_t capacity)
@@ -154,6 +164,11 @@ public:
             DeviceWorkerGroup &owner,
             const cl::Context &context, const cl::Device &device,
             int levels, bool keepBoundary, float boundaryLimit);
+
+        void setOutput(const Marching::OutputFunctor &output)
+        {
+            filterChain.setOutput(output);
+        }
 
         void operator()(WorkItem &work);
     };

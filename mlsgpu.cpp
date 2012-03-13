@@ -451,7 +451,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         Statistics::Timer timer(passName.str());
 
         ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+
         deviceMesher.setInputFunctor(mesher->functor(pass));
+        deviceWorkerGroup.setProgress(&progress);
+        deviceWorkerGroup.setOutput(deviceMesher.getOutputFunctor());
+        fineBucketGroup.setProgress(&progress);
 
         // Start threads
         deviceMesher.start();
