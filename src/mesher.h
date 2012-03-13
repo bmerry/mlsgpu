@@ -78,10 +78,12 @@ struct MesherWork
  *    make as many calls to @ref Marching::generate as desired using this
  *    functor. Each call should set @a keyOffset so that vertex keys line up.
  *    Each pass must generate exactly the same geometry, but the chunks may
- *    be generated in different order. The functor may be called from
- *    multiple threads simultaneously.
+ *    be generated in different order.
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
+ *
+ * @warning The functor is @em not required to be thread-safe. The caller must
+ * serialize calls if necessary.
  */
 class MesherBase
 {
@@ -92,9 +94,6 @@ public:
      * modified as past of the implementation.
      */
     typedef boost::function<void(MesherWork &work)> InputFunctor;
-
-    /// Mutex used by subclasses to serialize their output functors.
-    boost::mutex mutex;
 
     /// Constructor
     MesherBase() : pruneThreshold(0.0) {}
@@ -126,6 +125,8 @@ public:
      * only be called once per pass.
      *
      * @pre @a pass is less than @ref numPasses().
+     *
+     * @warning The returned functor is @em not required to be thread-safe.
      */
     virtual InputFunctor functor(unsigned int pass) = 0;
 

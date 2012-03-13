@@ -51,44 +51,6 @@ std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
     return ans;
 }
 
-namespace
-{
-
-/**
- * Utility class used by @ref serializeFunctor.
- */
-template<typename T>
-class SerializeFunctor
-{
-private:
-    const T f;
-    boost::mutex &mutex;
-
-public:
-    SerializeFunctor(const T &f, boost::mutex &mutex)
-        : f(f), mutex(mutex) {}
-
-    void operator()(MesherWork &work)
-    {
-        boost::lock_guard<boost::mutex> lock(mutex);
-        f(work);
-    }
-};
-
-/**
- * Creates a wrapper around a function object that will take a lock before
- * forwarding to the wrapper. This allows a functor that is not thread-safe to
- * be made thread-safe.
- */
-template<typename T>
-static MesherBase::InputFunctor serializeFunctor(const T &functor, boost::mutex &mutex)
-{
-    return SerializeFunctor<T>(functor, mutex);
-}
-
-} // anonymous namespace
-
-
 void WeldMesher::add(MesherWork &work)
 {
     const HostKeyMesh &mesh = work.mesh;
@@ -271,7 +233,7 @@ MesherBase::InputFunctor WeldMesher::functor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return serializeFunctor(boost::bind(&WeldMesher::add, this, _1), mutex);
+    return boost::bind(&WeldMesher::add, this, _1);
 }
 
 
@@ -572,10 +534,10 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
     switch (pass)
     {
     case 0:
-        return serializeFunctor(boost::bind(&BigMesher::count, this, _1), mutex);
+        return boost::bind(&BigMesher::count, this, _1);
     case 1:
         prepareAdd();
-        return serializeFunctor(boost::bind(&BigMesher::add, this, _1), mutex);
+        return boost::bind(&BigMesher::add, this, _1);
     default:
         abort();
     }
@@ -672,7 +634,7 @@ MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return serializeFunctor(boost::bind(&StxxlMesher::add, this, _1), mutex);
+    return boost::bind(&StxxlMesher::add, this, _1);
 }
 
 void StxxlMesher::TriangleBuffer::flush()
