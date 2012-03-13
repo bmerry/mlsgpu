@@ -22,6 +22,7 @@
 #include <tr1/cstdint>
 #include <map>
 #include <algorithm>
+#include <iterator>
 #include <cstddef>
 #include <boost/array.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
@@ -66,7 +67,7 @@ protected:
      * function which takes care of loading the data into OpenCL buffers.
      */
     void add(
-        const Marching::OutputFunctor &functor,
+        const MesherBase::InputFunctor &functor,
         size_t numInternalVertices,
         size_t numExternalVertices,
         size_t numIndices,
@@ -226,7 +227,7 @@ boost::array<std::tr1::uint32_t, 3> TestMesherBase::canonicalTriangle(
 }
 
 void TestMesherBase::add(
-    const Marching::OutputFunctor &functor,
+    const MesherBase::InputFunctor &functor,
     size_t numInternalVertices,
     size_t numExternalVertices,
     size_t numIndices,
@@ -239,34 +240,31 @@ void TestMesherBase::add(
     const size_t numVertices = numInternalVertices + numExternalVertices;
     assert(numIndices % 3 == 0);
 
-    DeviceKeyMesh dMesh(context, CL_MEM_READ_WRITE, numVertices, numInternalVertices, numTriangles);
-    CLH::enqueueWriteBuffer(queue,
-                            dMesh.vertices, CL_FALSE,
-                            0,
-                            numInternalVertices * (3 * sizeof(cl_float)),
-                            internalVertices);
-    CLH::enqueueWriteBuffer(queue,
-                            dMesh.vertices, CL_FALSE,
-                            numInternalVertices * (3 * sizeof(cl_float)),
-                            numExternalVertices * (3 * sizeof(cl_float)),
-                            externalVertices);
-    CLH::enqueueWriteBuffer(queue,
-                            dMesh.vertexKeys, CL_FALSE,
-                            numInternalVertices * sizeof(cl_ulong),
-                            numExternalVertices * sizeof(cl_ulong),
-                            externalKeys);
-    CLH::enqueueWriteBuffer(queue,
-                            dMesh.triangles, CL_FALSE,
-                            0,
-                            numTriangles * (3 * sizeof(cl_uint)),
-                            indices);
-    queue.finish();
+    MesherWork work;
+    work.mesh.vertices.reserve(numVertices);
+    work.mesh.vertexKeys.reserve(numExternalVertices);
+    work.mesh.triangles.reserve(numTriangles);
+    std::copy(internalVertices, internalVertices + numInternalVertices,
+              std::back_inserter(work.mesh.vertices));
+    std::copy(externalVertices, externalVertices + numExternalVertices,
+              std::back_inserter(work.mesh.vertices));
+    std::copy(externalKeys, externalKeys + numExternalVertices,
+              std::back_inserter(work.mesh.vertexKeys));
+    for (std::size_t i = 0; i < numTriangles; i++)
+    {
+        boost::array<cl_uint, 3> triangle;
+        for (unsigned int j = 0; j < 3; j++)
+            triangle[j] = indices[i * 3 + j];
+        work.mesh.triangles.push_back(triangle);
+    }
 
-    cl::Event event;
-    functor(queue, dMesh, NULL, &event);
-
+    // Create already-signaled events
+    CLH::enqueueMarkerWithWaitList(queue, NULL, &work.verticesEvent);
+    CLH::enqueueMarkerWithWaitList(queue, NULL, &work.vertexKeysEvent);
+    CLH::enqueueMarkerWithWaitList(queue, NULL, &work.trianglesEvent);
     queue.flush();
-    event.wait();
+
+    functor(work);
 }
 
 void TestMesherBase::checkIsomorphic(
@@ -366,7 +364,7 @@ void TestMesherBase::testSimple()
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        const MesherBase::InputFunctor functor = mesher->functor(i);
         /* Reverse the order on each pass, to ensure that the mesher
          * classes are robust to non-deterministic reordering.
          */
@@ -442,7 +440,7 @@ void TestMesherBase::testNoInternal()
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        const MesherBase::InputFunctor functor = mesher->functor(i);
         add(functor,
             0, boost::size(externalVertices1), boost::size(indices1),
             NULL, externalVertices1, externalKeys1, indices1);
@@ -494,7 +492,7 @@ void TestMesherBase::testNoExternal()
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        const MesherBase::InputFunctor functor = mesher->functor(i);
         add(functor,
             boost::size(internalVertices0), 0, boost::size(indices0),
             internalVertices0, NULL, NULL, indices0);
@@ -518,7 +516,7 @@ void TestMesherBase::testEmpty()
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        const MesherBase::InputFunctor functor = mesher->functor(i);
         add(functor, 0, 0, 0, NULL, NULL, NULL, NULL);
     }
     mesher->finalize();
@@ -572,7 +570,7 @@ void TestMesherBase::testWeld()
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        const MesherBase::InputFunctor functor = mesher->functor(i);
         add(functor,
             boost::size(internalVertices0), 0, boost::size(indices0),
             internalVertices0, NULL, NULL, indices0);
@@ -750,7 +748,7 @@ void TestMesherBase::testPrune()
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
     {
-        Marching::OutputFunctor functor = mesher->outputFunctor(i);
+        const MesherBase::InputFunctor functor = mesher->functor(i);
         add(functor,
             boost::size(internalVertices0),
             boost::size(externalVertices0),

@@ -795,7 +795,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         Statistics::Timer timer(passName.str());
 
         ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
-        Marching::OutputFunctor out = mesher->outputFunctor(pass);
+        Marching::OutputFunctor out = deviceMesher(mesher->functor(pass));
 
         // Start threads
         boost::thread_group bucketThreads;

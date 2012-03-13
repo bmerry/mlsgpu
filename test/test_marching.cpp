@@ -414,7 +414,7 @@ void TestMarching::testGenerate(
     Marching marching(context, device, maxWidth, maxHeight);
     WeldMesher mesher;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, mesher.outputFunctor(0), size, keyOffset, NULL);
+    marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
 
     mesher.finalize();
     FastPly::StreamWriter writer;

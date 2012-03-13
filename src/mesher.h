@@ -52,8 +52,19 @@ public:
     static std::map<std::string, MesherType> getNameMap();
 };
 
+struct MesherWork
+{
+    HostKeyMesh mesh;
+    cl::Event verticesEvent;
+    cl::Event vertexKeysEvent;
+    cl::Event trianglesEvent;
+};
+
 /**
- * Abstract base class for output collectors for @ref Marching.
+ * Abstract base class for output collectors for @ref Marching. This class
+ * only captures the host side of the process. It needs to be wrapped in
+ * using @ref deviceMesher or @ref deviceMesherAsync to satisfy
+ * the requirements for @ref Marching.
  *
  * The basic procedure for using one of these classes is:
  * -# Instantiate it.
@@ -70,14 +81,17 @@ public:
  */
 class MesherBase
 {
-protected:
-
+public:
     /**
-     * Mutex used by subclasses to serialize their output functors.
+     * Type returned by @ref functor. The argument is a mesh to be processed.
+     * After the function returns the mesh is not used again, so it may be
+     * modified as past of the implementation.
      */
+    typedef boost::function<void(MesherWork &work)> InputFunctor;
+
+    /// Mutex used by subclasses to serialize their output functors.
     boost::mutex mutex;
 
-public:
     /// Constructor
     MesherBase() : pruneThreshold(0.0) {}
 
@@ -101,8 +115,7 @@ public:
     double getPruneThreshold() const { return pruneThreshold; }
 
     /**
-     * Retrieves a functor to be passed to @ref Marching::generate in a
-     * specific pass.
+     * Retrieves a functor that will accept data in a specific pass.
      * Multi-pass classes may do finalization on a previous pass before
      * returning the functor, so this function should only be called for
      * pass @a pass once pass @a pass - 1 has completed. It must also
@@ -110,7 +123,7 @@ public:
      *
      * @pre @a pass is less than @ref numPasses().
      */
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass) = 0;
+    virtual InputFunctor functor(unsigned int pass) = 0;
 
     /**
      * Perform any final processing once the last pass has completed.
@@ -164,14 +177,11 @@ private:
     std::vector<boost::array<cl_uint, 3> > triangles;
 
     /// Implementation of the functor
-    void add(const cl::CommandQueue &queue,
-             const DeviceKeyMesh &mesh,
-             const std::vector<cl::Event> *events,
-             cl::Event *event);
+    void add(MesherWork &work);
 
 public:
     virtual unsigned int numPasses() const { return 1; }
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
+    virtual InputFunctor functor(unsigned int pass);
     virtual void finalize(std::ostream *progressStream = NULL);
 
     virtual void write(FastPly::WriterBase &writer, const std::string &filename,
@@ -247,7 +257,6 @@ protected:
      * These are stored in the object so that memory can be recycled if
      * possible, rather than thrashing the allocator.
      */
-    HostKeyMesh tmpMesh;
     std::vector<cl_uint> tmpIndexTable;
     std::vector<UnionFind::Node<cl_int> > tmpNodes;
     std::vector<clump_id> tmpClumpId;
@@ -346,19 +355,13 @@ private:
     key_clump_type keyClump;
 
     /// Implementation of the first-pass functor
-    void count(const cl::CommandQueue &queue,
-               const DeviceKeyMesh &mesh,
-               const std::vector<cl::Event> *events,
-               cl::Event *event);
+    void count(MesherWork &work);
 
     /// Preparation for the second pass after the first pass
     void prepareAdd();
 
     /// Implementation of the second-pass functor
-    void add(const cl::CommandQueue &queue,
-             const DeviceKeyMesh &mesh,
-             const std::vector<cl::Event> *events,
-             cl::Event *event);
+    void add(MesherWork &work);
 
 public:
     virtual unsigned int numPasses() const { return 2; }
@@ -371,7 +374,7 @@ public:
      */
     BigMesher(FastPly::WriterBase &writer, const std::string &filename);
 
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
+    virtual InputFunctor functor(unsigned int pass);
 
     /**
      * Completes writing. The parameters must have the same values given to the constructor.
@@ -399,10 +402,7 @@ private:
     triangles_type triangles;
 
     /// Implementation of the functor
-    void add(const cl::CommandQueue &queue,
-             const DeviceKeyMesh &mesh,
-             const std::vector<cl::Event> *events,
-             cl::Event *event);
+    void add(MesherWork &work);
 
     /// Function object that accepts incoming vertices and writes them to a writer.
     class VertexBuffer : public boost::noncopyable
@@ -436,7 +436,7 @@ private:
 
 public:
     virtual unsigned int numPasses() const { return 1; }
-    virtual Marching::OutputFunctor outputFunctor(unsigned int pass);
+    virtual InputFunctor functor(unsigned int pass);
     virtual void write(FastPly::WriterBase &writer, const std::string &filename,
                        std::ostream *progressStream = NULL) const;
 };
@@ -445,5 +445,11 @@ public:
  * Factory function to create a mesher of the specified type.
  */
 MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename);
+
+/**
+ * Creates an adapter between @ref MesherBase::InputFunctor and @ref Marching::OutputFunctor
+ * that reads the mesh from the device to the host synchronously.
+ */
+Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in);
 
 #endif /* !MESHER_H */
