@@ -428,11 +428,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
 
     DeviceMesherAsync deviceMesher(1);
     DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, 2,
+        numDeviceThreads, numDeviceThreads + numBucketThreads,
         grid, context, device, maxDeviceSplats, blockCells, levels, subsampling,
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
-        numBucketThreads, 2, deviceWorkerGroup,
+        numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
         grid, context, device, maxDeviceSplats, blockCells, maxSplit);
     HostBlock<Set> hostBlock(fineBucketGroup, grid);
 
@@ -592,9 +592,8 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
      * we can at least turn down silly requests before wasting any time.
      */
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
-    // TODO: use a global constant for capacity
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
-        bucketThreads, 2, device, maxDeviceSplats, maxCells, levels, keepBoundary);
+        deviceThreads, deviceThreads + bucketThreads, device, maxDeviceSplats, maxCells, levels, keepBoundary);
 
     const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
     const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
