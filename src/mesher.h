@@ -74,7 +74,7 @@ struct MesherWork
  * -# Instantiate it.
  * -# Call @ref setPruneThreshold.
  * -# Uses @ref numPasses to determine how many passes are required.
- * -# For each pass, call @ref outputFunctor to obtain a functor, then
+ * -# For each pass, call @ref functor to obtain a functor, then
  *    make as many calls to @ref Marching::generate as desired using this
  *    functor. Each call should set @a keyOffset so that vertex keys line up.
  *    Each pass must generate exactly the same geometry, but the chunks may

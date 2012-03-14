@@ -34,20 +34,67 @@
 #include "clh.h"
 #include "errors.h"
 
+/**
+ * A collection of threads operating on work-items, fed by a queue.
+ *
+ * @param WorkItem     A POD type describing an item of work.
+ * @param Worker       Function object class that is called to process elements.
+ *
+ * The @a Worker class must have an @c operator() that accepts a reference to a
+ * @a WorkItem. The operator does not need to be @c const.  The worker class
+ * does not need to be copyable or default-constructable and may contain
+ * significant state.
+ *
+ * The workitems may also be large objects, and the design is based on
+ * recycling a fixed pool rather than having the caller construct them. Users
+ * of the class will call @ref get to retrieve an item from the pool, populate
+ * it, then call @ref push to enqueue the item for processing.
+ *
+ * At construction, the worker group is given both a number of threads and a
+ * capacity. The capacity determines the number of workitems that will be
+ * live. If capacity equals the number of workers, then it will only be
+ * possible to populate a new work item while one of the workers is idle. If
+ * capacity exceeds the number of threads, then it will be possible to
+ * populate spare work items while all worker threads are busy.
+ *
+ * The @ref start and @ref stop functions are not thread-safe: they should
+ * only be called by a single manager thread. The other functions are
+ * thread-safe, allowing for multiple producers.
+ */
 template<typename WorkItem, typename Worker>
 class WorkerGroup : public boost::noncopyable
 {
 public:
+    /**
+     * Retrieve an unused item from the pool to be populated with work. This
+     * may block if all the items are currently in use.
+     *
+     * @warning The returned item @em must be enqueued with @ref push, even
+     * if it turns out there is nothing to do. Failure to do so will lead
+     * to the item being lost to the pool, and possibly deadlock.
+     */
     boost::shared_ptr<WorkItem> get()
     {
         return itemPool.pop();
     }
 
+    /**
+     * Enqueue an item of work.
+     *
+     * @pre @a item was obtained by @ref get.
+     */
     void push(boost::shared_ptr<WorkItem> item)
     {
         workQueue.push(item);
     }
 
+    /**
+     * Start the worker threads running. It is not required to do this
+     * before calling @ref get or @ref push, but they may block until another
+     * thread calls @ref start.
+     *
+     * @pre The worker threads are not already running.
+     */
     void start()
     {
         MLSGPU_ASSERT(threads.empty(), std::runtime_error);
@@ -58,6 +105,15 @@ public:
         }
     }
 
+    /**
+     * Shut down the worker threads.
+     *
+     * @warning This method is not thread-safe relative to other calls such
+     * as @ref push. All producers must be shut down while this method is
+     * called.
+     *
+     * @pre The worker threads are currently running.
+     */
     void stop()
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), std::runtime_error);
@@ -68,35 +124,61 @@ public:
         threads.clear();
     }
 
+    /// Returns the number of workers.
     std::size_t numWorkers() const
     {
         return workers.size();
     }
 
 protected:
+    /**
+     * Register a worker during construction.
+     *
+     * @see @ref WorkerGroup::WorkerGroup.
+     */
     void addWorker(Worker *worker)
     {
         workers.push_back(worker);
     }
 
+    /**
+     * Register a work item during construction.
+     *
+     * @see @ref WorkerGroup::WorkerGroup.
+     */
     void addPoolItem(boost::shared_ptr<WorkItem> item)
     {
         itemPool.push(item);
     }
 
+    /// Retrieve a reference to a worker.
     Worker &getWorker(std::size_t index)
     {
         return workers.at(index);
     }
 
+    /**
+     * Constructor. The derived class must change to this, and then
+     * make exactly @a numWorkers calls to @ref addWorker and @a capacity
+     * calls to @ref addPoolItem to provide the constructed workers and
+     * work items.
+     *
+     * @param numWorkers     Number of worker threads to use.
+     * @param capacity       Number of work items to have in the pool.
+     *
+     * @pre @a numWorkers &gt; 0.
+     * @pre @a capacity &gt;= @a numWorkers.
+     */
     WorkerGroup(std::size_t numWorkers, std::size_t capacity)
         : workQueue(capacity), itemPool(capacity)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
+        MLSGPU_ASSERT(capacity >= numWorkers, std::invalid_argument);
         workers.reserve(numWorkers);
     }
 
 private:
+    /// Thread object that processes items from the queue.
     class Thread
     {
         WorkerGroup<WorkItem, Worker> &owner;
@@ -122,7 +204,16 @@ private:
     WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
     Pool<WorkItem> itemPool;
 
+    /**
+     * Threads. This is empty when no threads are running and contains the
+     * thread objects when it is running.
+     */
     boost::ptr_vector<boost::thread> threads;
+
+    /**
+     * Workers. This is populated during construction (by @ref addWorker) and
+     * persists until object destruction.
+     */
     boost::ptr_vector<Worker> workers;
 };
 
@@ -133,9 +224,9 @@ class DeviceWorkerGroupBase
 public:
     /**
      * Data about a fine-grained bucket. A shared pointer to this is obtained
-     * from @ref get and enqueued with @ref push.
+     * from @ref DeviceWorkerGroup::get and enqueued with @ref
+     * DeviceWorkerGroup::push.
      */
-
     struct WorkItem
     {
         cl::Buffer splats;
@@ -194,6 +285,20 @@ private:
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
 
+    /**
+     * Constructor.
+     *
+     * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
+     * @param capacity           Number of workitems to use.
+     * @param fullGrid           The overall bounding box grid.
+     * @param context, device    OpenCL context and device to run on.
+     * @param maxSplats          Space to allocate for holding splats.
+     * @param maxCells           Space to allocate for the octree.
+     * @param levels             Space to allocate for the octree.
+     * @param subsampling        Octree subsampling level.
+     * @param keepBoundary       If true, skips boundary clipping.
+     * @param boundaryLimit      Tuning factor for boundary clipping.
+     */
     DeviceWorkerGroup(
         std::size_t numWorkers, std::size_t capacity,
         const Grid &fullGrid,
@@ -201,14 +306,23 @@ public:
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling, bool keepBoundary, float boundaryLimit);
 
+    /// Returns total resources that would be used by all workers and workitems
     static CLH::ResourceUsage resourceUsage(
         std::size_t numWorkers, std::size_t capacity,
         const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, bool keepBoundary);
 
+    /**
+     * Sets a progress display that will be updated by the number of cells
+     * processed.
+     */
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
 
+    /**
+     * Sets the output functor to call with results. This must be called
+     * before starting the threads.
+     */
     void setOutput(const Marching::OutputFunctor &output);
 };
 

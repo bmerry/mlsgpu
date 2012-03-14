@@ -304,10 +304,10 @@ static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::v
 
 /**
  * Handles coarse-level bucketing from external storage. Unlike @ref
- * DeviceWorkerGroup::Worker and @ref FineBucketGroup::Worker, there is only
- * expected to be one of these, and it does not run in a separate thread. It
- * produces coarse buckets, read the splats into memory and pushes the results
- * to a @ref FineBucketGroup.
+ * DeviceWorkerGroupBase::Worker and @ref FineBucketGroupBase::Worker, there
+ * is only expected to be one of these, and it does not run in a separate
+ * thread. It produces coarse buckets, read the splats into memory and pushes
+ * the results to a @ref FineBucketGroup.
  */
 template<typename Set>
 class HostBlock
