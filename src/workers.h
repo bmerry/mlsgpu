@@ -33,6 +33,7 @@
 #include "splat_set.h"
 #include "clh.h"
 #include "errors.h"
+#include "statistics.h"
 
 template<typename WorkItem, typename Worker>
 class WorkerGroup : public boost::noncopyable
@@ -40,11 +41,13 @@ class WorkerGroup : public boost::noncopyable
 public:
     boost::shared_ptr<WorkItem> get()
     {
+        Statistics::Timer timer(getStat);
         return itemPool.pop();
     }
 
     void push(boost::shared_ptr<WorkItem> item)
     {
+        Statistics::Timer timer(pushStat);
         workQueue.push(item);
     }
 
@@ -89,8 +92,12 @@ protected:
         return workers.at(index);
     }
 
-    WorkerGroup(std::size_t numWorkers, std::size_t capacity)
-        : workQueue(capacity), itemPool(capacity)
+    WorkerGroup(std::size_t numWorkers, std::size_t capacity,
+                Statistics::Variable &pushStat,
+                Statistics::Variable &popStat,
+                Statistics::Variable &getStat)
+        : workQueue(capacity), itemPool(capacity),
+        pushStat(pushStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         workers.reserve(numWorkers);
@@ -110,9 +117,11 @@ private:
         {
             while (true)
             {
+                Timer timer;
                 boost::shared_ptr<WorkItem> item = owner.workQueue.pop();
                 if (!item.get())
                     break; // we have been asked to shut down
+                owner.popStat.add(timer.getElapsed());
                 worker(*item);
                 owner.itemPool.push(item);
             }
@@ -124,6 +133,10 @@ private:
 
     boost::ptr_vector<boost::thread> threads;
     boost::ptr_vector<Worker> workers;
+
+    Statistics::Variable &pushStat;
+    Statistics::Variable &popStat;
+    Statistics::Variable &getStat;
 };
 
 class DeviceWorkerGroup;
@@ -182,6 +195,7 @@ public:
 class DeviceWorkerGroup : protected DeviceWorkerGroupBase, public WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker>
 {
 private:
+    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker> Base;
     ProgressDisplay *progress;
 
     const Grid fullGrid;

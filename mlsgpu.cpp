@@ -391,10 +391,7 @@ void HostBlock<Set>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    {
-        Statistics::Timer timer("host.block.push");
-        outGroup.push(item);
-    }
+    outGroup.push(item);
 }
 
 /**
