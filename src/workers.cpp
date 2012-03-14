@@ -38,7 +38,11 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, int subsampling, bool keepBoundary, float boundaryLimit)
 :
-    WorkerGroup<DeviceWorkerGroup::WorkItem, DeviceWorkerGroup::Worker>(numWorkers, capacity),
+    WorkerGroup<DeviceWorkerGroup::WorkItem, DeviceWorkerGroup::Worker>(
+        numWorkers, capacity,
+        Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
+        Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
+        Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
     progress(NULL), fullGrid(fullGrid),
     maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
 {
@@ -159,7 +163,11 @@ FineBucketGroup::FineBucketGroup(
     Grid::size_type maxCells,
     std::size_t maxSplit)
 :
-    WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker>(numWorkers, capacity),
+    WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker>(
+        numWorkers, capacity,
+        Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
+        Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),
+        Statistics::getStatistic<Statistics::Variable>("bucket.fine.get")),
     outGroup(outGroup),
     fullGrid(fullGrid),
     maxSplats(maxSplats),

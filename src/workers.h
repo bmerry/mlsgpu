@@ -33,6 +33,7 @@
 #include "splat_set.h"
 #include "clh.h"
 #include "errors.h"
+#include "statistics.h"
 
 /**
  * A collection of threads operating on work-items, fed by a queue.
@@ -75,6 +76,7 @@ public:
      */
     boost::shared_ptr<WorkItem> get()
     {
+        Statistics::Timer timer(getStat);
         return itemPool.pop();
     }
 
@@ -85,6 +87,7 @@ public:
      */
     void push(boost::shared_ptr<WorkItem> item)
     {
+        Statistics::Timer timer(pushStat);
         workQueue.push(item);
     }
 
@@ -165,12 +168,19 @@ protected:
      *
      * @param numWorkers     Number of worker threads to use.
      * @param capacity       Number of work items to have in the pool.
+     * @param pushStat       Statistic for time blocked in @ref push.
+     * @param popStat        Statistic for time blocked in @ref pop.
+     * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
      * @pre @a capacity &gt;= @a numWorkers.
      */
-    WorkerGroup(std::size_t numWorkers, std::size_t capacity)
-        : workQueue(capacity), itemPool(capacity)
+    WorkerGroup(std::size_t numWorkers, std::size_t capacity,
+                Statistics::Variable &pushStat,
+                Statistics::Variable &popStat,
+                Statistics::Variable &getStat)
+        : workQueue(capacity), itemPool(capacity),
+        pushStat(pushStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         MLSGPU_ASSERT(capacity >= numWorkers, std::invalid_argument);
@@ -192,9 +202,11 @@ private:
         {
             while (true)
             {
+                Timer timer;
                 boost::shared_ptr<WorkItem> item = owner.workQueue.pop();
                 if (!item.get())
                     break; // we have been asked to shut down
+                owner.popStat.add(timer.getElapsed());
                 worker(*item);
                 owner.itemPool.push(item);
             }
@@ -215,6 +227,10 @@ private:
      * persists until object destruction.
      */
     boost::ptr_vector<Worker> workers;
+
+    Statistics::Variable &pushStat;
+    Statistics::Variable &popStat;
+    Statistics::Variable &getStat;
 };
 
 class DeviceWorkerGroup;
@@ -273,6 +289,7 @@ public:
 class DeviceWorkerGroup : protected DeviceWorkerGroupBase, public WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker>
 {
 private:
+    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker> Base;
     ProgressDisplay *progress;
 
     const Grid fullGrid;
