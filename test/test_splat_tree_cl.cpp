@@ -173,7 +173,9 @@ void TestSplatTreeCL::build(
 {
     SplatTreeCL tree(context, maxLevels, maxSplats);
     std::vector<cl::Event> events(1);
-    tree.enqueueBuild(queue, &splats[0], splats.size(), size, offset, subsamplingShift, CL_FALSE, NULL, NULL, &events[0]);
+    cl::Buffer splatBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                           splats.size() * sizeof(Splat), (void *) &splats[0]);
+    tree.enqueueBuild(queue, splatBuffer, splats.size(), size, offset, subsamplingShift, NULL, &events[0]);
 
     std::size_t commandsSize = tree.getCommands().getInfo<CL_MEM_SIZE>();
     std::size_t startSize = tree.getStart().getInfo<CL_MEM_SIZE>();
