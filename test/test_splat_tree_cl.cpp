@@ -159,6 +159,8 @@ void TestSplatTreeCL::setUp()
 
 void TestSplatTreeCL::tearDown()
 {
+    octreeProgram = NULL;
+    mlsProgram = NULL;
     tearDownCL();
     TestSplatTree::tearDown();
 }

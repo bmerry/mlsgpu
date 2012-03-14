@@ -140,6 +140,7 @@ private:
 
 public:
     virtual void setUp();     ///< Creates a device mesh with some data
+    virtual void tearDown();  ///< Destroy the device mesh
 
     void testNoFilters();     ///< Test basic operation with no filters in the chain
     void testFilters();       ///< Test normal operation with filters in the chain
@@ -155,6 +156,15 @@ void TestMeshFilterChain::setUp()
     dMesh = DeviceKeyMesh(context, CL_MEM_READ_WRITE, 5, 4, 3);
     // TODO: specify the member contents
     filterChain.setOutput(CollectOutput(&hMesh));
+}
+
+void TestMeshFilterChain::tearDown()
+{
+    dMesh.vertices = NULL;
+    dMesh.vertexKeys = NULL;
+    dMesh.triangles = NULL;
+    filterChain = MeshFilterChain();
+    CLH::Test::TestFixture::tearDown();
 }
 
 void TestMeshFilterChain::testNoFilters()
