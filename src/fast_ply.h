@@ -77,13 +77,8 @@ public:
  *
  * In addition to memory-mapping a file, it can also accept an existing
  * memory range (this is mainly provided to simplify testing).
- *
- * The interface models the @ref Collection concept.
  */
 class Reader
-#if DOXYGEN_FAKE_CODE
-: public Collection
-#endif
 {
     friend class ::TestFastPlyReader;
 public:
@@ -125,9 +120,6 @@ public:
      */
     template<typename OutputIterator>
     OutputIterator read(size_type first, size_type last, OutputIterator out) const;
-
-    template<typename Func>
-    void forEach(size_type first, size_type last, const Func &f) const;
 private:
     /// The memory mapping, if constructed from a filename; otherwise @c NULL.
     boost::scoped_ptr<boost::iostreams::mapped_file_source> mapping;
@@ -381,23 +373,6 @@ template<typename OutputIterator>
 OutputIterator Reader::read(size_type first, size_type last, OutputIterator out) const
 {
     return read(first, last, out, boost::is_pointer<OutputIterator>());
-}
-
-template<typename Func>
-void Reader::forEach(size_type first, size_type last, const Func &f) const
-{
-    MLSGPU_ASSERT(first <= last && last <= size(), std::out_of_range);
-
-    const size_type bufferSize = 8192;
-    value_type buffer[bufferSize];
-    while (first < last)
-    {
-        size_type size = std::min(bufferSize, last - first);
-        read(first, first + size, buffer);
-        for (size_type i = 0; i < size; i++)
-            boost::unwrap_ref(f)(first + i, buffer[i]);
-        first += size;
-    }
 }
 
 } // namespace FastPly

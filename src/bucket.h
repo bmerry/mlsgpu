@@ -16,7 +16,6 @@
 #include <boost/function.hpp>
 #include "splat.h"
 #include "grid.h"
-#include "collection.h"
 #include "fast_ply.h"
 #include "progress.h"
 #include "splat_set.h"

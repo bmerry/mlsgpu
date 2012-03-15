@@ -56,7 +56,6 @@ class TestFastPlyReader : public CppUnit::TestFixture
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
     CPPUNIT_TEST(testReadIterator);
-    CPPUNIT_TEST(testForEach);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -103,7 +102,6 @@ public:
     void testReadHeader();             ///< Checks that header-related fields are set properly
     void testRead();                   ///< Tests @ref FastPly::Reader::read with a pointer
     void testReadIterator();           ///< Tests @ref FastPly::Reader::read with an output iterator
-    void testForEach();                ///< Tests @ref FastPly::Reader::forEach
     /** @} */
 
     /**
@@ -405,29 +403,6 @@ void TestFastPlyReader::testReadIterator()
 static void forEachFunc(vector<pair<Reader::size_type, Splat> > &out, Reader::size_type index, const Splat &splat)
 {
     out.push_back(make_pair(index, splat));
-}
-
-void TestFastPlyReader::testForEach()
-{
-    setupRead(10000);
-
-    Reader r(content.data(), content.size(), 2.0f);
-    vector<pair<Reader::size_type, Splat> > out;
-    r.forEach(2, 9500, boost::bind(forEachFunc, boost::ref(out), _1, _2));
-    CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
-    for (int i = 2; i < 9500; i++)
-    {
-        const Splat &s = out[i - 2].second;
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 2.0f, s.position[0]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 0.0f, s.position[1]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 1.0f, s.position[2]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 3.0f, s.normal[0]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 4.0f, s.normal[1]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 5.0f, s.normal[2]);
-        CPPUNIT_ASSERT_EQUAL(2.0f * (i * 100.0f + 6.0f), s.radius);
-    }
-
-    CPPUNIT_ASSERT_THROW(r.forEach(1, 10001, boost::bind(forEachFunc, boost::ref(out), _1, _2)), std::out_of_range);
 }
 
 /**

@@ -28,7 +28,6 @@
 #include "progress.h"
 #include "work_queue.h"
 #include "bucket.h"
-#include "collection.h"
 #include "splat.h"
 #include "splat_set.h"
 #include "clh.h"

@@ -307,12 +307,12 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
  * thread. It produces coarse buckets, read the splats into memory and pushes
  * the results to a @ref FineBucketGroup.
  */
-template<typename Set>
+template<typename Splats>
 class HostBlock
 {
 public:
     void operator()(
-        const typename SplatSet::Traits<Set>::subset_type &splatSet,
+        const typename SplatSet::Traits<Splats>::subset_type &splatSet,
         const Grid &grid,
         const Bucket::Recursion &recursionState) const;
 
@@ -322,15 +322,15 @@ private:
     const Grid &fullGrid;
 };
 
-template<typename Collection>
-HostBlock<Collection>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid)
+template<typename Splats>
+HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid)
 : outGroup(outGroup), fullGrid(fullGrid)
 {
 }
 
-template<typename Set>
-void HostBlock<Set>::operator()(
-    const typename SplatSet::Traits<Set>::subset_type &splats,
+template<typename Splats>
+void HostBlock<Splats>::operator()(
+    const typename SplatSet::Traits<Splats>::subset_type &splats,
     const Grid &grid, const Bucket::Recursion &recursionState) const
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
@@ -370,10 +370,10 @@ void HostBlock<Set>::operator()(
  *
  * @todo --sort is gone for now.
  */
-template<typename Set>
+template<typename Splats>
 static void run2(const cl::Context &context, const cl::Device &device, const string &out,
                  const po::variables_map &vm,
-                 const Set &splats,
+                 const Splats &splats,
                  const Grid &grid)
 {
     const int subsampling = vm[Option::subsampling].as<int>();
@@ -401,7 +401,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     FineBucketGroup fineBucketGroup(
         numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
         grid, context, device, maxDeviceSplats, blockCells, maxSplit);
-    HostBlock<Set> hostBlock(fineBucketGroup, grid);
+    HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
@@ -459,8 +459,8 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Set;
-    Set splats;
+    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+    Splats splats;
 
     boost::ptr_vector<FastPly::Reader> files;
     prepareInputs(splats, vm, smooth);
