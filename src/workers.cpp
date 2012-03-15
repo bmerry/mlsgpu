@@ -193,70 +193,44 @@ FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner, const cl::Context &c
 };
 
 void FineBucketGroupBase::Worker::operator()(
-    const Set &splatSet,
-    Bucket::Range::index_type numSplats,
-    Bucket::RangeConstIterator first,
-    Bucket::RangeConstIterator last,
+    const SplatSet::Traits<SplatSet::VectorSet>::subset_type &splatSet,
     const Grid &grid,
     const Bucket::Recursion &recursionState)
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = owner.outGroup.get();
-    outItem->numSplats = numSplats;
+    outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
     Splat *splats = static_cast<Splat *>(
         queue.enqueueMapBuffer(outItem->splats, CL_TRUE, CL_MAP_WRITE,
-                               0, numSplats * sizeof(Splat)));
+                               0, splatSet.numSplats() * sizeof(Splat)));
 
 
     std::size_t pos = 0;
-    // Stats bookkeeping
-    // TODO: reuse code from HostBlock
-    const int pageSize = 4096;
-    std::size_t numPages = 0;
-    std::size_t lastPage = (std::size_t) -1;
-    for (Bucket::RangeConstIterator i = first; i != last; i++)
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
+    while (!splatStream->empty())
     {
-        assert(pos + i->size <= numSplats);
-        Bucket::Range::scan_type scan = i->scan;
-        splatSet.getSplats()[scan].read(i->start, i->start + i->size, splats + pos);
-        pos += i->size;
-
-        if (i->size > 0)
-        {
-            std::size_t pageFirst = i->start / pageSize;
-            std::size_t pageLast = (i->start + i->size - 1) / pageSize;
-            numPages += pageLast - pageFirst + 1;
-            if (lastPage == pageFirst)
-                numPages--;
-            lastPage = pageLast;
-        }
+        splats[pos] = **splatStream;
+        ++*splatStream;
+        ++pos;
     }
-    assert(pos == numSplats);
+    assert(pos == splatSet.numSplats());
 
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(last - first);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.pagedSplats").add(numPages * pageSize);
+    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
+    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
     registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
 
     queue.enqueueUnmapMemObject(outItem->splats, splats);
     queue.finish(); // TODO: see if this can be made asynchronous
 
-    {
-        Statistics::Timer timer("device.block.push");
-        owner.outGroup.push(outItem);
-    }
+    owner.outGroup.push(outItem);
 }
 
 void FineBucketGroup::Worker::operator()(WorkItem &work)
 {
     Statistics::Timer timer("bucket.fine.exec");
-    // TODO: see if it is possible to eliminate the 'new' here
-    boost::ptr_vector<StdVectorCollection<Splat> > splats;
-    splats.push_back(new StdVectorCollection<Splat>(work.splats));
-    SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > splatSet(splats);
 
     /* The host transformed splats from world space into fullGrid space, so we need to
      * construct a new grid for this coordinate system.
@@ -270,6 +244,6 @@ void FineBucketGroup::Worker::operator()(WorkItem &work)
         Grid::difference_type high = work.grid.getExtent(i).second - base;
         grid.setExtent(i, low, high);
     }
-    Bucket::bucket(splatSet, grid, owner.maxSplats, owner.maxCells, false, owner.maxSplit,
+    Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, false, owner.maxSplit,
                    boost::ref(*this), owner.progress, work.recursionState);
 }

@@ -129,60 +129,6 @@ private:
 };
 
 /**
- * Accepts a list of splat IDs and merges them into ranges which are then
- * output.
- * @param OutputIterator an output iterator that accepts assignments of @ref SplatSet::Range.
- */
-template<typename OutputIterator>
-class RangeCollector
-{
-public:
-    typedef OutputIterator iterator_type;
-
-private:
-    Range current;
-    iterator_type out;
-
-public:
-    /**
-     * Constructor.
-     *
-     * @param out     Output iterator to which completed ranges will be written.
-     */
-    RangeCollector(iterator_type out);
-
-    /**
-     * Destructor. It will flush any buffered ranges.
-     */
-    ~RangeCollector();
-
-    /**
-     * Adds a new splat to the list.
-     *
-     * @return The output iterator after the update.
-     */
-    iterator_type append(Range::scan_type scan, Range::index_type splat);
-
-    /**
-     * Add a contiguous range of new splats to the list.
-     *
-     * @return The output iterator after the update.
-     */
-    iterator_type append(Range::scan_type scan, Range::index_type first, Range::index_type last);
-
-    /**
-     * Force any buffered ranges to be emitted. This is done implicitly
-     * by the destructor, so it is only necessary if there are more
-     * ranges to be written later with the same object, or if lifetime
-     * management makes it inconvenient to destroy the object.
-     *
-     * @return The output iterator after the update.
-     */
-    iterator_type flush();
-};
-
-
-/**
  * Recursively walk an octree, calling a user-defined function on each node.
  * The function takes a @ref Node and returns a boolean indicating whether
  * the children should be visited in turn (ignored for leaves).

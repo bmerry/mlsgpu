@@ -27,8 +27,6 @@
 namespace Bucket
 {
 
-using SplatSet::Range;
-
 /**
  * Error that is thrown if too many splats cover a single cell, making it
  * impossible to satisfy the splat limit.
@@ -47,11 +45,6 @@ public:
 };
 
 /**
- * Type passed to @ref ProcessorType<CollectionSet>::type to delimit a range of ranges.
- */
-typedef std::vector<Range>::const_iterator RangeConstIterator;
-
-/**
  * Tracking of state across recursive calls.
  * This class has no impact on the algorithm, and exists for tracking metrics
  * and progress. It is used in several places:
@@ -65,35 +58,29 @@ typedef std::vector<Range>::const_iterator RangeConstIterator;
  */
 struct Recursion
 {
-    unsigned int depth;             ///< Current depth of recursion.
-    Range::index_type totalRanges;  ///< Ranges held in memory at all levels.
+    unsigned int depth;              ///< Current depth of recursion.
+    std::size_t totalRanges;         ///< Blob ranges held in memory at all levels.
 
     Recursion() : depth(0), totalRanges(0) {}
 };
 
 /**
  * Type-class for callback function called by @ref bucket. The parameters are:
- *  -# The backing store of splats.
- *  -# The number of splats in the bucket.
- *  -# A [first, last) pair indicating a range of splat ranges in the bucket
+ *  -# The splat collection.
  *  -# A grid covering the spatial extent of the bucket.
  *  -# A count of the number of grid cells already processed (before this one).
  *     The intended use is for progress meters.
  * It is guaranteed that the number of splats will be non-zero (empty buckets
  * are skipped). All splats that intersect the bucket will be passed, but
- * the intersection test is conservative so there may be extras. The ranges
- * will be ordered by scan so all splats from one scan are contiguous.
+ * the intersection test is conservative so there may be extras.
  */
-template<typename CollectionSet>
+template<typename Splats>
 class ProcessorType
 {
 public:
     /// The actual type.
     typedef boost::function<void(
-        const CollectionSet &,
-        Range::index_type,
-        RangeConstIterator,
-        RangeConstIterator,
+        const typename SplatSet::Traits<Splats>::subset_type &,
         const Grid &,
         const Recursion &recursionState)> type;
 };
@@ -103,8 +90,7 @@ public:
  * and splat count, and call a user callback function for each. This function
  * is designed to operate out-of-core and so very large inputs can be used.
  *
- * @param splats     The backing store of splats. All splats are used. This must
- *                   be of type @ref SplatSet::SimpleSet or a compatible class.
+ * @param splats     The backing store of splats.
  * @param region     The region to process.
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
@@ -171,14 +157,14 @@ public:
  *     subregion borders.
  * The subregions are then processed recursively.
  */
-template<typename CollectionSet>
-void bucket(const CollectionSet &splats,
+template<typename Splats>
+void bucket(const Splats &splats,
             const Grid &region,
-            typename CollectionSet::index_type maxSplats,
+            std::tr1::uint64_t maxSplats,
             Grid::size_type maxCells,
             bool maxCellsHint,
             std::size_t maxSplit,
-            const typename ProcessorType<CollectionSet>::type &process,
+            const typename ProcessorType<Splats>::type &process,
             ProgressDisplay *progress = NULL,
             const Recursion &recursionState = Recursion());
 

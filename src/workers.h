@@ -350,7 +350,7 @@ class FineBucketGroupBase
 public:
     struct WorkItem
     {
-        std::vector<Splat> splats;
+        SplatSet::VectorSet splats;
         Grid grid;
         Bucket::Recursion recursionState;
     };
@@ -363,16 +363,12 @@ public:
 
     public:
         typedef void result_type;
-        typedef SplatSet::SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > Set;
 
         Worker(FineBucketGroup &owner, const cl::Context &context, const cl::Device &device);
 
         /// Bucketing callback for blocks sized for device execution.
         void operator()(
-            const Set &splatSet,
-            Bucket::Range::index_type numSplats,
-            Bucket::RangeConstIterator first,
-            Bucket::RangeConstIterator last,
+            const SplatSet::Traits<SplatSet::VectorSet>::subset_type &splats,
             const Grid &grid,
             const Bucket::Recursion &recursionState);
 

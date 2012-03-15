@@ -1,8 +1,7 @@
 /**
  * @file
  *
- * Data structures for convenient and efficient iterations of collections of
- * collections of splats.
+ * Containers for splats supporting various forms of iteration.
  */
 
 #ifndef SPLAT_SET_H
@@ -11,333 +10,850 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
-#include <boost/noncopyable.hpp>
-#include <boost/array.hpp>
+
 #include <tr1/cstdint>
-#include <ostream>
+#include <vector>
+#include <utility>
+#include <algorithm>
+#include <stdexcept>
+#include <cassert>
 #include <cstddef>
-#include <iterator>
+#include <iosfwd>
+#include <boost/array.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/type_traits/integral_constant.hpp>
 #include "grid.h"
+#include "misc.h"
 #include "splat.h"
+#include "errors.h"
+#include "fast_ply.h"
+#include "statistics.h"
+#include "logging.h"
 #include "progress.h"
 
-/**
- * Data structures for convenient and efficient iterations of collections of
- * collections of splats.
- */
 namespace SplatSet
 {
 
-/**
- * Indexes a sequential range of splats from an input file.
- *
- * This is intended to be POD that can be put in a @c stxxl::vector.
- *
- * @invariant @ref start + @ref size - 1 does not overflow @ref index_type.
- * (maintained by constructor and by @ref append).
- */
-struct Range
+typedef std::tr1::uint64_t blob_id;
+typedef std::tr1::uint64_t splat_id;
+
+struct BlobInfo
 {
-    /// Type used to index the list of files
-    typedef std::tr1::uint32_t scan_type;
-    /// Type used to specify the length of a range
-    typedef std::tr1::uint32_t size_type;
-    /// Type used to index a splat within a file
-    typedef std::tr1::uint64_t index_type;
-
-    /* Note: the order of these is carefully chosen for alignment */
-    scan_type scan;    ///< Index of the originating file
-    size_type size;    ///< Size of the range
-    index_type start;  ///< Splat index in the file
-
-    /**
-     * Constructs an empty scan range.
-     */
-    Range();
-
-    /**
-     * Constructs a splat range with one splat.
-     */
-    Range(scan_type scan, index_type splat);
-
-    /**
-     * Constructs a splat range with multiple splats.
-     *
-     * @pre @a start + @a size - 1 must fit within @ref index_type.
-     */
-    Range(scan_type scan, index_type start, size_type size);
-
-    /**
-     * Attempts to extend this range with a new element.
-     * @param scan, splat     The new element
-     * @retval true if the element was successfully appended
-     * @retval false otherwise.
-     */
-    bool append(scan_type scan, index_type splat);
-
-    /**
-     * Attempts to merge this range with another range.
-     * @param scan            The scan for the new range.
-     * @param first,last      The new range.
-     * @retval true if the ranges were successfully merged
-     * @retval false otherwise (no change is made)
-     */
-    bool append(scan_type scan, index_type first, index_type last);
+    blob_id id;
+    splat_id numSplats;
+    boost::array<Grid::difference_type, 3> lower, upper;
 };
 
 /**
- * Internal implementation details. Do not call these functions directly.
+ * Polymorphic interface for iteration over a sequence of splats. This is based
+ * on the STXXL stream interface.
+ *
+ * Each splat has an ID. IDs are monotonic but not necessarily contiguous
+ * (although they must be mostly contiguous for efficiency). A splat stream
+ * iterates over all the valid IDs in a given range, or over all splats in a
+ * splat set.
+ *
+ * An implementation of this interface is required to filter out splats with
+ * non-finite elements. This can itself lead to discontiguous IDs, even if
+ * the the container is flat.
  */
-namespace detail
+class SplatStream : public boost::noncopyable
 {
+public:
+    typedef Splat value_type;
+    typedef const Splat &reference;
+
+    virtual ~SplatStream() {}
+
+    virtual SplatStream &operator++() = 0; ///< Advance to the next legal splat
+
+    /**
+     * Return the currently pointed-to splat.
+     * @pre !empty()
+     */
+    virtual const Splat &operator*() const = 0;
+
+    /**
+     * Determines whether there are any more splats to advance over.
+     */
+    virtual bool empty() const = 0;
+
+    /**
+     * Returns an ID for the current splat (the one that would be returned by
+     * <code>operator *</code>).
+     */
+    virtual splat_id currentId() const = 0;
+};
 
 /**
- * Computes the range of buckets that will be occupied by a splat's bounding
- * box.  A bucket is a cube where each side has @a bucketSize cells.  The
- * buckets are aligned to grid coordinates (0,0,0). The resulting range is not
- * clamped to the grid; the grid just gives spacing and alignment.
- *
- * The coordinates are given in units of buckets, with (0,0,0) being the bucket
- * overlapping cell (0,0,0).
- *
- * @param      splat         Input splat
- * @param      grid          Grid for spacing and alignment
- * @param      bucketSize    Size of buckets in cells
- * @param[out] lower         Lower bound coordinates (inclusive)
- * @param[out] upper         Upper bound coordinates (inclusive)
- *
- * @pre
- * - <code>splat.isFinite()</code>
- * - @a bucketSize &gt; 0
+ * A subclass of splat stream that is able to relatively efficiently do random
+ * access. It is still likely to be most effective when @ref reset is used
+ * sparingly due to overheads.
  */
+class SplatStreamReset : public SplatStream
+{
+public:
+    /**
+     * Restart iteration over a new range of IDs.
+     */
+    virtual void reset(splat_id first, splat_id last) = 0;
+};
+
+/**
+ * Polymorphic interface for iteration over a sequence of splats, with groups
+ * of splats potentially bucketed together. This is based on the STXXL stream
+ * interface. The implementation is required to filter out non-finite splats,
+ * and the counts returned in the @ref BlobInfo must accurately reflect this.
+ * Any blobs that end up empty must also be filtered out.
+ */
+class BlobStream : public boost::noncopyable
+{
+public:
+    typedef BlobInfo value_type;
+    typedef BlobInfo reference;
+
+    virtual ~BlobStream() {}
+
+    virtual BlobStream &operator++() = 0;
+    virtual BlobInfo operator*() const = 0;
+    virtual bool empty() const = 0;
+};
+
+class BlobStreamReset : public BlobStream
+{
+public:
+    virtual void reset(blob_id firstBlob, blob_id lastBlob) = 0;
+};
+
+namespace internal
+{
+
 void splatToBuckets(const Splat &splat,
                     const Grid &grid, Grid::size_type bucketSize,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper);
 
-} // namespace detail
-
-/**
- * A collection of collections of splats. Each collection is called a @em scan.
- * This is both a concrete class and a concept that is reimplemented by subclasses.
- * It provides mechanisms for iterating over all splats using an interface designed
- * for efficient bucketing.
- *
- * @param SplatCollectionSet A random-access container of @ref Collection of @ref Splat.
- */
-template<typename SplatCollectionSet>
-class SimpleSet : public boost::noncopyable
+class SimpleVectorSet : public std::vector<Splat>
 {
 public:
-    typedef SplatCollectionSet value_type;
-    typedef typename SplatCollectionSet::size_type scan_type;
-    typedef typename std::iterator_traits<typename SplatCollectionSet::iterator>::value_type Collection;
-    typedef typename Collection::size_type index_type;
+    size_type maxSplats() const { return size(); }
 
-    /**
-     * Constructor. The provided @a splats is kept as a reference rather than
-     * copied, so the caller must ensure that it is not destroyed.
-     */
-    explicit SimpleSet(const SplatCollectionSet &splats);
-
-    /// Retrieves the referenced splats
-    const SplatCollectionSet &getSplats() const { return splats; }
-
-    /**
-     * Call a function for each contiguous range of splats occupying the
-     * same bucket. Note that it is not guaranteed that the contiguous
-     * ranges are maximal; it is simply an interface that allows more efficient
-     * computation if the callee can process batches faster than individual
-     * elements.
-     *
-     * The function signature should be
-     * <code>void(scan_type scan, size_type first, size_type last,
-     *            const boost::array<Grid::difference_type, 3> &lower,
-     *            const boost::array<Grid::difference_type, 3> &upper);</code>
-     * The lower and upper bounds are inclusive and are in units of the
-     * buckets given on input. The function will be called sequentially (i.e.,
-     * in order) on the splats.
-     *
-     * Splats that do not intersect the grid might or might not be passed to
-     * the callback. The same applies to non-finite splats.
-     *
-     * @param grid        The grid for defining cell coordinates and boundaries.
-     * @param bucketSize  The number of grid cells per bucket (in each dimension).
-     * @param func        The function to call.
-     */
-    template<typename Func>
-    void forEach(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
-
-    /**
-     * Call a function for each contiguous range of splats occupying the
-     * same bucket, from a set of specified splat ranges. See @ref forEach for
-     * details.
-     *
-     * @param first Forward iterator to the first range.
-     * @param last  Forward iterator to one past the last range.
-     * @param grid        The grid for defining cell coordinates and boundaries.
-     * @param bucketSize  The number of grid cells per bucket (in each dimension).
-     * @param func        The function to call.
-     *
-     * @pre The ranges are non-empty.
-     */
-    template<typename RangeIterator, typename Func>
-    void forEachRange(RangeIterator first, RangeIterator last,
-                      const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
-
-protected:
-    /// The raw splats.
-    const SplatCollectionSet &splats;
-
-private:
-    /**
-     * Process a single splat from either @ref forEach or @ref forEachRange.
-     * This is wrapped using @c boost::bind into a function object.
-     */
-    template<typename Func>
-    void forEachOne(
-        scan_type scan, index_type index,
-        const Grid &grid, Grid::size_type bucketSize,
-        const Splat &splat, const Func &func) const;
-};
-
-/**
- * Entry in a list representing splat positions in a compacted form.
- * Contiguous ranges of splats from the scans are placed into buckets
- * (whose size is stored in @ref BlobSet). Each contiguous range must
- * intersect the same cuboid of buckets. There are two cases:
- *  -# They intersect a single bucket. The coordinates of the bucket
- *     (in units of buckets) are stored in @ref coords, and the number
- *     of splats is stored in @ref size.
- *  -# They intersect multiple buckets. Two consecutive blobs are used
- *     to encode the range. The first has the lower-bound (inclusive)
- *     coordinates, and a @ref size of zero. The second has the
- *     upper-bound (inclusive) coordinates and the actual size of the
- *     range.
- * The coordinates are relative to the grid reference point rather than
- * the edge of the grid, and so need correcting before they can be useful.
- * The lower grid extent is deliberately chosen to be a multiple of the
- * bucket size so that alignment is not an issue.
- */
-struct Blob
-{
-    /// Type representing the number of splats in a blob.
-    typedef std::tr1::uint32_t size_type;
-
-    /// Coordinates of a bucket containing the blob
-    boost::array<Grid::difference_type, 3> coords;
-
-    /// Number of buckets in the blob, or zero for the first half of a blob pair
-    std::tr1::uint32_t size;
-};
-
-/**
- * Contains a list of splat collections, together with metadata
- * that allows the splats to be bucketed more efficiently. It also computes
- * a bounding box during construction.
- *
- * For @ref forEach to be efficient, the provided grid must
- *  - have the same reference point and spacing as the grid given by @ref getBoundingGrid;
- *  - have a lower extent which is a multiple of the bucket size in each dimension.
- *
- * @ref forEachRange is optimized for the case where the ranges exactly cover all the
- * splats (in order) and the conditions for @ref forEach are met.
- *
- * @param SplatCollectionSet A random access container of @ref Collection of @ref Splat.
- * @param BlobCollection A forward container of @ref Blob.
- */
-template<typename SplatCollectionSet, typename BlobCollection>
-class BlobSet : public SimpleSet<SplatCollectionSet>
-{
-public:
-    typedef typename SimpleSet<SplatCollectionSet>::scan_type scan_type;
-    typedef typename SimpleSet<SplatCollectionSet>::index_type index_type;
-    typedef typename SimpleSet<SplatCollectionSet>::Collection Collection;
-
-    /**
-     * Constructor. This will make a pass over all the splats to compute
-     * the bounding box grid and populate the blob bucket.
-     *
-     * @param splats          The input splats.
-     * @param spacing         The grid spacing for the final reconstruction.
-     * @param blobBucket      The number of grid cells per bucket for blobs.
-     * @param progressStream  If non-NULL, will be used to log progress through the splats.
-     */
-    BlobSet(const SplatCollectionSet &splats, float spacing, Grid::size_type blobBucket,
-             std::ostream *progressStream = NULL);
-
-    template<typename Func>
-    void forEach(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
-
-    template<typename RangeIterator, typename Func>
-    void forEachRange(RangeIterator first, RangeIterator last,
-                      const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
-
-    /**
-     * Retrieve a bounding box created during construction.
-     * The grid spacing will match that passed to the constructor.
-     */
-    const Grid &getBoundingGrid() const { return boundingGrid; }
-
-private:
-    /// Data only needed during construction
-    struct Build
+    SplatStream *makeSplatStream() const
     {
-        typename SplatCollectionSet::size_type nonFinite;
+        return new MySplatStream(*this, 0, size());
+    }
 
-        float bboxMin[3];
-        float bboxMax[3];
+    SplatStreamReset *makeSplatStreamReset() const
+    {
+        return new MySplatStream(*this, 0, 0);
+    }
 
-        boost::array<Grid::difference_type, 3> blobLower, blobUpper;
-        Blob::size_type blobSize;
+private:
+    class MySplatStream : public SplatStreamReset
+    {
+    public:
+        virtual const Splat &operator*() const
+        {
+            return owner.at(cur);
+        }
+
+        virtual SplatStream &operator++()
+        {
+            MLSGPU_ASSERT(!empty(), std::runtime_error);
+            cur++;
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return cur == last;
+        }
+
+        virtual void reset(splat_id first, splat_id last)
+        {
+            MLSGPU_ASSERT(first <= last, std::invalid_argument);
+            MLSGPU_ASSERT(last <= owner.size(), std::length_error);
+            cur = first;
+            this->last = last;
+        }
+
+        virtual splat_id currentId() const
+        {
+            return cur;
+        }
+
+        MySplatStream(const SimpleVectorSet &owner, splat_id first, splat_id last)
+            : owner(owner)
+        {
+            reset(first, last);
+        }
+
+    private:
+        const SimpleVectorSet &owner;
+        splat_id cur;
+        splat_id last;
+    };
+};
+
+/**
+ * Splat-set core interface for a collection of on-disk PLY files.
+ *
+ * The splat IDs use the upper bits to store the file ID and the remaining
+ * bits to store the splat index within the file.
+ */
+class SimpleFileSet
+{
+public:
+    static const unsigned int scanIdShift = 40;
+    static const splat_id splatIdMask = (splat_id(1) << scanIdShift) - 1;
+
+    void addFile(FastPly::Reader *file)
+    {
+        files.push_back(file);
+        nSplats += file->size();
+    }
+
+    SplatStream *makeSplatStream() const
+    {
+        return new MySplatStream(*this, 0, splat_id(files.size()) << scanIdShift);
+    }
+
+    SplatStreamReset *makeSplatStreamReset() const
+    {
+        return new MySplatStream(*this, 0, 0);
+    }
+
+    splat_id maxSplats() const
+    {
+        return nSplats;
+    }
+
+    SimpleFileSet() : nSplats(0) {}
+
+private:
+    class MySplatStream : public SplatStreamReset
+    {
+    public:
+        virtual const Splat &operator*() const
+        {
+            MLSGPU_ASSERT(!empty(), std::runtime_error);
+            return buffer[bufferCur];
+        }
+
+        virtual SplatStream &operator++()
+        {
+            MLSGPU_ASSERT(!empty(), std::runtime_error);
+            bufferCur++;
+            cur++;
+            refill();
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return bufferCur == bufferEnd;
+        }
+
+        virtual splat_id currentId() const
+        {
+            return cur;
+        }
+
+        virtual void reset(splat_id first, splat_id last)
+        {
+            MLSGPU_ASSERT(first <= last, std::invalid_argument);
+            this->first = first;
+            this->last = last;
+            bufferCur = 0;
+            bufferEnd = 0;
+            next = first;
+            refill();
+        }
+
+        MySplatStream(const SimpleFileSet &owner, splat_id first, splat_id last)
+            : owner(owner)
+        {
+            reset(first, last);
+        }
+
+    private:
+        static const std::size_t bufferSize = 16384;
+
+        const SimpleFileSet &owner;
+        /// Total range to iterate over
+        splat_id first, last;
+
+        splat_id next;                  ///< Next ID to load into the buffer once exhausted
+        splat_id cur;                   ///< Splat ID at the front of the buffer
+        std::size_t bufferCur;          ///< First position in @ref buffer with data
+        std::size_t bufferEnd;          ///< Past-the-end position for @ref buffer
+        Splat buffer[bufferSize];       ///< Buffer for splats read from file
+
+        void skipNonFiniteInBuffer()
+        {
+            while (bufferCur < bufferEnd && !buffer[bufferCur].isFinite())
+            {
+                bufferCur++;
+                cur++;
+            }
+        }
+
+        void refill()
+        {
+            skipNonFiniteInBuffer();
+            while (bufferCur == bufferEnd)
+            {
+                std::size_t file = next >> scanIdShift;
+                splat_id offset = next & splatIdMask;
+                while (file < owner.files.size() && offset >= owner.files[file].size())
+                {
+                    file++;
+                    offset = 0;
+                }
+                next = (splat_id(file) << scanIdShift) + offset;
+                if (next >= last)
+                    break;
+
+                bufferCur = 0;
+                bufferEnd = bufferSize;
+                if (last - next < bufferEnd)
+                    bufferEnd = last - next;
+                if (owner.files[file].size() - offset < bufferEnd)
+                    bufferEnd = owner.files[file].size() - offset;
+                assert(bufferEnd > 0);
+                owner.files[file].read(offset, offset + bufferEnd, &buffer[0]);
+                cur = next;
+                next += bufferEnd;
+
+                skipNonFiniteInBuffer();
+            }
+        }
     };
 
-    /// Bounding box computed by the constructor
+    boost::ptr_vector<FastPly::Reader> files;
+    splat_id nSplats;
+};
+
+/**
+ * Implementation of @ref BlobStream that just has one blob for each splat.
+ */
+class SimpleBlobStream : public BlobStream
+{
+public:
+    virtual BlobInfo operator*() const;
+
+    virtual BlobStream &operator++()
+    {
+        ++*splatStream;
+        return *this;
+    }
+
+    virtual bool empty() const
+    {
+        return splatStream->empty();
+    }
+
+    SimpleBlobStream(SplatStream *splatStream, const Grid &grid, Grid::size_type bucketSize)
+        : splatStream(splatStream), grid(grid), bucketSize(bucketSize)
+    {
+    }
+
+private:
+    boost::scoped_ptr<SplatStream> splatStream;
+    const Grid grid;
+    Grid::size_type bucketSize;
+};
+
+class SimpleBlobStreamReset : public BlobStreamReset
+{
+public:
+    virtual BlobInfo operator*() const;
+
+    virtual BlobStream &operator++()
+    {
+        ++*splatStream;
+        return *this;
+    }
+
+    virtual bool empty() const
+    {
+        return splatStream->empty();
+    }
+
+    virtual void reset(blob_id firstId, blob_id lastId)
+    {
+        splatStream->reset(firstId, lastId);
+    }
+
+    SimpleBlobStreamReset(SplatStreamReset *splatStream, const Grid &grid, Grid::size_type bucketSize)
+        : splatStream(splatStream), grid(grid), bucketSize(bucketSize)
+    {
+    }
+
+private:
+    boost::scoped_ptr<SplatStreamReset> splatStream;
+    const Grid grid;
+    Grid::size_type bucketSize;
+};
+
+/**
+ * Takes a model of the basic interface and adds the blob interface, with blob IDs
+ * simply equaling splat IDs and no acceleration.
+ */
+template<typename CoreSet>
+class BlobbedSet : public CoreSet
+{
+public:
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new internal::SimpleBlobStream(CoreSet::makeSplatStream(), grid, bucketSize);
+    }
+
+    BlobStreamReset *makeBlobStreamReset(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new internal::SimpleBlobStreamReset(CoreSet::makeSplatStreamReset(), grid, bucketSize);
+    }
+
+    std::pair<splat_id, splat_id> blobsToSplats(const Grid &grid, Grid::size_type bucketSize, blob_id firstBlob, blob_id lastBlob) const
+    {
+        (void) grid;
+        (void) bucketSize;
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+        return std::make_pair(firstBlob, lastBlob);
+    }
+};
+
+} // namespace internal
+
+typedef internal::BlobbedSet<internal::SimpleFileSet> FileSet;
+typedef internal::BlobbedSet<internal::SimpleVectorSet> VectorSet;
+
+struct BlobData
+{
+    boost::array<Grid::difference_type, 3> lower, upper;
+    splat_id firstSplat, lastSplat;
+};
+
+/**
+ * Takes a model of the blobbed interface and extends it by precomputing
+ * information about splats for a specific bucket size so that iteration
+ * using that bucket size (or any multiple thereof) is potentially faster.
+ */
+template<typename Base, typename BlobVector>
+class FastBlobSet : public Base
+{
+public:
+    /**
+     * Class returned by makeBlobStream only in the fast path.
+     */
+    class MyBlobStream : public SplatSet::BlobStreamReset
+    {
+    public:
+        virtual BlobInfo operator*() const
+        {
+            BlobInfo ans;
+            MLSGPU_ASSERT(curBlob < lastBlob, std::length_error);
+            BlobData data = owner.blobs[curBlob];
+            ans.numSplats = data.lastSplat - data.firstSplat;
+            ans.id = curBlob;
+            for (unsigned int i = 0; i < 3; i++)
+                ans.lower[i] = divDown(data.lower[i] - offset[i], bucketRatio);
+            for (unsigned int i = 0; i < 3; i++)
+                ans.upper[i] = divDown(data.upper[i] - offset[i], bucketRatio);
+            return ans;
+        }
+
+        virtual BlobStream &operator++()
+        {
+            MLSGPU_ASSERT(curBlob < lastBlob, std::length_error);
+            ++curBlob;
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return curBlob == lastBlob;
+        }
+
+        virtual void reset(blob_id firstBlob, blob_id lastBlob)
+        {
+            MLSGPU_ASSERT(firstBlob <= lastBlob, std::invalid_argument);
+            MLSGPU_ASSERT(lastBlob <= owner.blobs.size(), std::length_error);
+            curBlob = firstBlob;
+            this->lastBlob = lastBlob;
+        }
+
+        MyBlobStream(const FastBlobSet<Base, BlobVector> &owner, const Grid &grid,
+                     Grid::size_type bucketSize,
+                     blob_id firstBlob, blob_id lastBlob)
+            : owner(owner)
+        {
+            MLSGPU_ASSERT(bucketSize > 0 && owner.internalBucketSize > 0
+                   && bucketSize % owner.internalBucketSize == 0, std::invalid_argument);
+            for (unsigned int i = 0; i < 3; i++)
+                offset[i] = grid.getExtent(i).first / Grid::difference_type(owner.internalBucketSize);
+            reset(firstBlob, lastBlob);
+            bucketRatio = bucketSize / owner.internalBucketSize;
+        }
+
+    private:
+        const FastBlobSet<Base, BlobVector> &owner;
+        Grid::size_type bucketRatio;
+        Grid::difference_type offset[3];
+        blob_id curBlob;
+        blob_id lastBlob;
+    };
+
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        if (fastPath(grid, bucketSize))
+            return new MyBlobStream(*this, grid, bucketSize, 0, blobs.size());
+        else
+            return Base::makeBlobStream(grid, bucketSize);
+    }
+
+    BlobStreamReset *makeBlobStreamReset(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        if (fastPath(grid, bucketSize))
+            return new MyBlobStream(*this, grid, bucketSize, 0, 0);
+        else
+            return Base::makeBlobStreamReset(grid, bucketSize);
+    }
+
+    std::pair<splat_id, splat_id> blobsToSplats(const Grid &grid, Grid::size_type bucketSize,
+                                                blob_id firstBlob, blob_id lastBlob) const
+    {
+        if (fastPath(grid, bucketSize))
+        {
+            MLSGPU_ASSERT(firstBlob <= lastBlob, std::invalid_argument);
+            MLSGPU_ASSERT(lastBlob <= blobs.size(), std::length_error);
+            if (firstBlob == lastBlob)
+                return std::make_pair(splat_id(0), splat_id(0));
+            else
+            {
+                splat_id firstSplat = blobs[firstBlob].firstSplat;
+                splat_id lastSplat = blobs[lastBlob - 1].lastSplat;
+                return std::make_pair(firstSplat, lastSplat);
+            }
+        }
+        else
+            return Base::blobsToSplats(grid, bucketSize, firstBlob, lastBlob);
+    }
+
+    FastBlobSet() : Base(), internalBucketSize(0), nSplats(0) {}
+
+    void computeBlobs(float spacing, Grid::size_type bucketSize, std::ostream *progressStream)
+    {
+        // TODO: move into separate impl file
+        const float ref[3] = {0.0f, 0.0f, 0.0f};
+
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+        Statistics::Registry &registry = Statistics::Registry::getInstance();
+
+        blobs.clear();
+        internalBucketSize = bucketSize;
+
+        // Reference point will be 0,0,0. Extents are set after reading all the spla
+        boundingGrid.setSpacing(spacing);
+        boundingGrid.setReference(ref);
+
+        boost::scoped_ptr<ProgressDisplay> progress;
+        if (progressStream != NULL)
+        {
+            *progressStream << "Computing bounding box\n";
+            progress.reset(new ProgressDisplay(Base::maxSplats(), *progressStream));
+        }
+
+        boost::array<float, 3> bboxMin, bboxMax;
+        // Set sentinel values
+        std::fill(bboxMin.begin(), bboxMin.end(), std::numeric_limits<float>::infinity());
+        std::fill(bboxMax.begin(), bboxMax.end(), -std::numeric_limits<float>::infinity());
+
+        boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
+        nSplats = 0;
+        while (!splats->empty())
+        {
+            const Splat &splat = **splats;
+            splat_id id = splats->currentId();
+
+            BlobData blob;
+            internal::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
+            if (blobs.empty()
+                || blobs.back().lower != blob.lower
+                || blobs.back().upper != blob.upper
+                || blobs.back().lastSplat != id)
+            {
+                blob.firstSplat = id;
+                blob.lastSplat = id + 1;
+                blobs.push_back(blob);
+            }
+            else
+            {
+                blobs.back().lastSplat++;
+            }
+            ++*splats;
+            ++nSplats;
+            if (progress != NULL)
+                ++*progress;
+
+            for (unsigned int i = 0; i < 3; i++)
+            {
+                bboxMin[i] = std::min(bboxMin[i], splat.position[i] - splat.radius);
+                bboxMax[i] = std::max(bboxMax[i], splat.position[i] + splat.radius);
+            }
+        }
+
+        assert(nSplats <= Base::maxSplats());
+        splat_id nonFinite = Base::maxSplats() - nSplats;
+        if (nonFinite > 0)
+        {
+            *progress += nonFinite;
+            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
+        }
+        registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
+
+        if (bboxMin[0] > bboxMax[0])
+            throw std::length_error("Must be at least one splat");
+
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            float l = bboxMin[i] / spacing;
+            float h = bboxMax[i] / spacing;
+            Grid::difference_type lo = Grid::RoundDown::convert(l);
+            Grid::difference_type hi = Grid::RoundUp::convert(h);
+            /* The lower extent must be a multiple of the bucket size, to
+             * make the blob data align properly.
+             */
+            lo = divDown(lo, bucketSize) * bucketSize;
+            assert(lo % Grid::difference_type(bucketSize) == 0);
+
+            boundingGrid.setExtent(i, lo, hi);
+        }
+        registry.getStatistic<Statistics::Variable>("blobset.blobs").add(blobs.size());
+    }
+
+    const Grid &getBoundingGrid() const { return boundingGrid; }
+
+    splat_id numSplats() const
+    {
+        MLSGPU_ASSERT(internalBucketSize > 0, std::runtime_error);
+        return nSplats;
+    }
+
+private:
+    Grid::size_type internalBucketSize;
     Grid boundingGrid;
+    BlobVector blobs;
+    std::size_t nSplats;  ///< Exact splat count computed during blob generation
 
-    /// The number of grid cells per bucket for decoding the blobs in @ref blobs.
-    Grid::size_type blobBucket;
+    bool fastPath(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        MLSGPU_ASSERT(internalBucketSize > 0, std::runtime_error);
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+        if (bucketSize % internalBucketSize != 0)
+            return false;
+        if (boundingGrid.getSpacing() != grid.getSpacing())
+            return false;
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            if (grid.getReference()[i] != 0.0f
+                || grid.getExtent(i).first % Grid::difference_type(internalBucketSize) != 0)
+            return false;
+        }
+        return true;
+    }
+};
 
-    /**
-     * A list of blobs. The blobs can only be sensibly processed sequentially,
-     * because this is the only way to maintain which splats each blob refers
-     * to. Each blob refers to a range of splats immediately following the
-     * previous blob. The blob collection will cover all scans in @ref splats,
-     * but an individual blob does not span scan boundaries.
-     */
-    BlobCollection blobs;
+class SubsetBase
+{
+public:
+    void addBlob(const BlobInfo &blob)
+    {
+        if (blobRanges.empty() || blobRanges.back().second != blob.id)
+            blobRanges.push_back(std::make_pair(blob.id, blob.id + 1));
+        else
+            blobRanges.back().second++;
+        nSplats += blob.numSplats;
+    }
 
-    /**
-     * Writes the blob defined by @a build to the blob collection.
-     * This is safe to call when @a build.blobSize is 0, in which case it does nothing.
-     * @post @a build.blobSize == 0.
-     */
-    void flushBlob(Build &build);
+    void swap(SubsetBase &other)
+    {
+        blobRanges.swap(other.blobRanges);
+        std::swap(nSplats, other.nSplats);
+    }
 
-    /**
-     * Process a single splat during construction. This updates @a build with both
-     * bounding box information and partial blob information. If @a progress is non-NULL,
-     * it is incremented by one.
-     */
-    void processSplat(const Splat &splat, Build &build, ProgressDisplay *progress);
+    std::size_t numRanges() const { return blobRanges.size(); }
 
-    /**
-     * Whether the fast path can be used with the given parameters. The parameters
-     * are interpreted as if passed to @ref forEach or @ref forEachRange.
-     */
-    bool fastGrid(const Grid &grid, Grid::size_type bucketSize) const;
+    splat_id numSplats() const { return nSplats; }
+    splat_id maxSplats() const { return nSplats; }
 
-    /**
-     * The implementation of @ref forEach when using the fast path. This function does
-     * not check whether the fast path can be used (the caller does not), and does not
-     * increment the statistics indicating whether the fast path was hit.
-     */
-    template<typename Func>
-    void forEachFast(const Grid &grid, Grid::size_type bucketSize, const Func &func) const;
+    SubsetBase() : nSplats(0) {}
+
+protected:
+    std::vector<std::pair<blob_id, blob_id> > blobRanges;
+    splat_id nSplats;
+};
+
+template<typename Super>
+class Subset : public SubsetBase
+{
+public:
+    SplatStream *makeSplatStream() const
+    {
+        return new MySplatStream(*this);
+    }
+
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+        if (fastPath(grid, bucketSize))
+            return new MyBlobStream(*this);
+        else
+            return new internal::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    }
+
+    Subset(const Super &super, const Grid &subGrid, Grid::size_type subBucketSize)
+    : super(super), subGrid(subGrid), subBucketSize(subBucketSize)
+    {
+        MLSGPU_ASSERT(subBucketSize > 0, std::invalid_argument);
+    }
+
+    Subset(const Subset<Super> &peer, const Grid &subGrid, Grid::size_type subBucketSize)
+    : super(peer.super), subGrid(subGrid), subBucketSize(subBucketSize)
+    {
+        MLSGPU_ASSERT(subBucketSize > 0, std::invalid_argument);
+    }
+
+private:
+    class MySplatStream : public SplatStream
+    {
+    public:
+        virtual const Splat &operator *() const
+        {
+            return **child;
+        }
+
+        virtual SplatStream &operator++()
+        {
+            ++*child;
+            refill();
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return child->empty();
+        }
+
+        virtual splat_id currentId() const
+        {
+            return child->currentId();
+        }
+
+        MySplatStream(const Subset<Super> &owner)
+            : owner(owner), blobRange(0), child(owner.super.makeSplatStreamReset())
+        {
+            refill();
+        }
+
+    private:
+        const Subset<Super> &owner;
+        std::size_t blobRange;        ///< Next blob range to load into child
+        boost::scoped_ptr<SplatStreamReset> child;
+
+        void refill()
+        {
+            while (child->empty() && blobRange < owner.blobRanges.size())
+            {
+                const std::pair<blob_id, blob_id> &range = owner.blobRanges[blobRange];
+                const std::pair<splat_id, splat_id> splatRange = owner.super.blobsToSplats(
+                    owner.subGrid, owner.subBucketSize, range.first, range.second);
+                child->reset(splatRange.first, splatRange.second);
+                blobRange++;
+            }
+        }
+    };
+
+    class MyBlobStream : public BlobStream
+    {
+    public:
+        virtual BlobInfo operator*() const
+        {
+            return **child;
+        }
+
+        virtual BlobStream &operator++()
+        {
+            ++*child;
+            refill();
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return child->empty();
+        }
+
+        MyBlobStream(const Subset<Super> &owner)
+            : owner(owner), blobRange(0),
+            child(owner.super.makeBlobStreamReset(owner.subGrid, owner.subBucketSize))
+        {
+        }
+
+    private:
+        const Subset<Super> &owner;
+        std::size_t blobRange;       ///< Next blob range to load into child
+        boost::scoped_ptr<BlobStreamReset> child;
+
+        void refill()
+        {
+            while (child->empty() && blobRange < owner.blobRanges.size())
+            {
+                const std::pair<blob_id, blob_id> &range = owner.blobRanges[blobRange];
+                child->reset(range.first, range.second);
+                blobRange++;
+            }
+        }
+    };
+
+    bool fastPath(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+        if (bucketSize != subBucketSize)
+            return false;
+        if (subGrid.getSpacing() != grid.getSpacing())
+            return false;
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            if (subGrid.getReference()[i] != grid.getReference()[i]
+                || subGrid.getExtent(i).first != grid.getExtent(i).first)
+            return false;
+        }
+        return true;
+    }
+
+    const Super &super;
+    Grid subGrid;
+    Grid::size_type subBucketSize;
+};
+
+template<typename T>
+class Traits
+{
+public:
+    typedef Subset<T> subset_type;
+    typedef boost::false_type is_subset;
+};
+
+template<typename T>
+class Traits<Subset<T> >
+{
+public:
+    typedef Subset<T> subset_type;
+    typedef boost::true_type is_subset;
 };
 
 } // namespace SplatSet
-
-#include "splat_set_impl.h"
 
 #endif /* !SPLAT_SET_H */

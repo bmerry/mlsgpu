@@ -180,24 +180,17 @@ std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
     return nodeCounts[node.getLevel()](node.getCoords());
 }
 
-void CountSplat::operator()(
-    Range::scan_type scan,
-    Range::index_type first, Range::index_type last,
-    const boost::array<Grid::difference_type, 3> &lower,
-    const boost::array<Grid::difference_type, 3> &upper) const
+void CountSplat::operator()(const SplatSet::BlobInfo &blob) const
 {
-    (void) scan;
-
     int level = 0;
     boost::array<Node::size_type, 3> lo, hi;
-    Range::index_type count = last - first;
-    if (!state.clamp(lower, upper, lo, hi))
+    if (!state.clamp(blob.lower, blob.upper, lo, hi))
         return;
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                state.nodeCounts[level][x][y][z] += count;
+                state.nodeCounts[level][x][y][z] += blob.numSplats;
             }
     while (level < state.macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
@@ -213,7 +206,7 @@ void CountSplat::operator()(
                         hits *= 2;
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
-                    state.nodeCounts[level][x][y][z] -= (hits - 1) * count;
+                    state.nodeCounts[level][x][y][z] -= (hits - 1) * blob.numSplats;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {

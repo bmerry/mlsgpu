@@ -290,15 +290,13 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
-static void prepareInputs(boost::ptr_vector<FastPly::Reader> &files, const po::variables_map &vm, float smooth)
+static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float smooth)
 {
     const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
-    files.clear();
-    files.reserve(names.size());
     BOOST_FOREACH(const string &name, names)
     {
         FastPly::Reader *reader = new FastPly::Reader(name, smooth);
-        files.push_back(reader);
+        files.addFile(reader);
     }
 }
 
@@ -314,10 +312,7 @@ class HostBlock
 {
 public:
     void operator()(
-        const Set &splatSet,
-        Bucket::Range::index_type numSplats,
-        Bucket::RangeConstIterator first,
-        Bucket::RangeConstIterator last,
+        const typename SplatSet::Traits<Set>::subset_type &splatSet,
         const Grid &grid,
         const Bucket::Recursion &recursionState) const;
 
@@ -335,9 +330,7 @@ HostBlock<Collection>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid
 
 template<typename Set>
 void HostBlock<Set>::operator()(
-    const Set &splatSet,
-    Bucket::Range::index_type numSplats,
-    Bucket::RangeConstIterator first, Bucket::RangeConstIterator last,
+    const typename SplatSet::Traits<Set>::subset_type &splats,
     const Grid &grid, const Bucket::Recursion &recursionState) const
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
@@ -349,44 +342,21 @@ void HostBlock<Set>::operator()(
 
     {
         Statistics::Timer timer("host.block.load");
-        std::size_t pos = 0;
-        item->splats.resize(numSplats);
+        item->splats.reserve(splats.numSplats());
 
-        // Stats bookkeeping
-        const int pageSize = 4096;
-        std::size_t numPages = 0;
-        std::size_t lastPage = (std::size_t) -1;
-        for (Bucket::RangeConstIterator i = first; i != last; i++)
+        boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
+        while (!splatStream->empty())
         {
-            assert(pos + i->size <= numSplats);
-            Bucket::Range::scan_type scan = i->scan;
-            // Note: &item->splats[pos] is necessary to trigger the fast path in
-            // FastPly::Reader. Using outSplats.begin() + pos would hit the
-            // slow path.
-            splatSet.getSplats()[scan].read(i->start, i->start + i->size, &item->splats[pos]);
+            Splat splat = **splatStream;
             /* Transform the splats into the grid's coordinate system */
-            for (size_t j = pos; j < pos + i->size; j++)
-            {
-                fullGrid.worldToVertex(item->splats[j].position, item->splats[j].position);
-                item->splats[j].radius *= invSpacing;
-            }
-            pos += i->size;
-
-            if (i->size > 0)
-            {
-                std::size_t pageFirst = i->start / pageSize;
-                std::size_t pageLast = (i->start + i->size - 1) / pageSize;
-                numPages += pageLast - pageFirst + 1;
-                if (lastPage == pageFirst)
-                    numPages--;
-                lastPage = pageLast;
-            }
+            fullGrid.worldToVertex(splat.position, splat.position);
+            splat.radius *= invSpacing;
+            item->splats.push_back(splat);
+            ++*splatStream;
         }
-        assert(pos == numSplats);
 
-        registry.getStatistic<Statistics::Variable>("host.block.splats").add(numSplats);
-        registry.getStatistic<Statistics::Variable>("host.block.ranges").add(last - first);
-        registry.getStatistic<Statistics::Variable>("host.block.pagedSplats").add(numPages * pageSize);
+        registry.getStatistic<Statistics::Variable>("host.block.splats").add(splats.numSplats());
+        registry.getStatistic<Statistics::Variable>("host.block.ranges").add(splats.numRanges());
         registry.getStatistic<Statistics::Variable>("host.block.size").add
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
@@ -403,7 +373,7 @@ void HostBlock<Set>::operator()(
 template<typename Set>
 static void run2(const cl::Context &context, const cl::Device &device, const string &out,
                  const po::variables_map &vm,
-                 const Set &splatSet,
+                 const Set &splats,
                  const Grid &grid)
 {
     const int subsampling = vm[Option::subsampling].as<int>();
@@ -459,7 +429,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceWorkerGroup.start();
         fineBucketGroup.start();
 
-        Bucket::bucket(splatSet, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
+        Bucket::bucket(splats, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
 
         /* Shut down threads. Note that it has to be done in forward order to
          * satisfy the requirement that stop() is only called after producers
@@ -489,17 +459,17 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
+    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Set;
+    Set splats;
+
     boost::ptr_vector<FastPly::Reader> files;
-    prepareInputs(files, vm, smooth);
+    prepareInputs(splats, vm, smooth);
     Grid grid;
 
-    typedef stxxl::VECTOR_GENERATOR<SplatSet::Blob>::result BlobVector;
-    typedef SplatSet::BlobSet<boost::ptr_vector<FastPly::Reader>, BlobVector> Set;
-    boost::scoped_ptr<Set> splatSet;
     try
     {
         Statistics::Timer timer("bbox.time");
-        splatSet.reset(new Set(files, spacing, blockCells, &Log::log[Log::info]));
+        splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
     }
     catch (std::length_error &e)
     {
@@ -507,7 +477,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         exit(1);
     }
 
-    run2(context, device, out, vm, *splatSet, splatSet->getBoundingGrid());
+    run2(context, device, out, vm, splats, splats.getBoundingGrid());
     writeStatistics(vm);
 }
 

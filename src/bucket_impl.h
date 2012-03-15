@@ -29,80 +29,6 @@ namespace Bucket
 namespace internal
 {
 
-template<typename OutputIterator>
-RangeCollector<OutputIterator>::RangeCollector(iterator_type out)
-    : current(), out(out)
-{
-}
-
-template<typename OutputIterator>
-RangeCollector<OutputIterator>::~RangeCollector()
-{
-    flush();
-}
-
-template<typename OutputIterator>
-OutputIterator RangeCollector<OutputIterator>::append(Range::scan_type scan, Range::index_type splat)
-{
-    if (!current.append(scan, splat))
-    {
-        *out++ = current;
-        current = Range(scan, splat);
-    }
-    return out;
-}
-
-template<typename OutputIterator>
-OutputIterator RangeCollector<OutputIterator>::append(
-    Range::scan_type scan, Range::index_type first, Range::index_type last)
-{
-    if (first >= last)
-        return out; // some odd corner cases can develop otherwise
-
-    if (current.size > 0)
-    {
-        if (current.scan == scan && current.start + current.size >= first
-            && last >= current.start)
-        {
-            // Ranges overlap or adjoin
-            first = std::min(first, current.start);
-            last = std::max(last, current.start + current.size);
-        }
-        else
-            flush();
-    }
-    current.scan = scan;
-    while (true)
-    {
-        if (last - first <= std::numeric_limits<Range::size_type>::max())
-        {
-            current.start = first;
-            current.size = last - first;
-            break;
-        }
-        else
-        {
-            current.start = first;
-            current.size = std::numeric_limits<Range::size_type>::max();
-            first += current.size;
-            *out++ = current;
-        }
-    }
-    return out;
-}
-
-template<typename OutputIterator>
-OutputIterator RangeCollector<OutputIterator>::flush()
-{
-    if (current.size > 0)
-    {
-        *out++ = current;
-        current = Range();
-    }
-    return out;
-}
-
-
 /**
  * Implementation detail of @ref forEachNode. Do not call this directly.
  *
@@ -149,13 +75,13 @@ void forEachNode(const Node::size_type dims[3], unsigned int levels, const Func 
 /// Contains static information used to process a region.
 struct BucketParameters
 {
-    Range::index_type maxSplats;        ///< Maximum splats permitted for processing
+    std::tr1::uint64_t maxSplats;       ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
     bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
     ProgressDisplay *progress;          ///< Progress display to update for empty cells
 
-    BucketParameters(Range::index_type maxSplats,
+    BucketParameters(std::tr1::uint64_t maxSplats,
                      Grid::size_type maxCells, bool maxCellsHint, std::size_t maxSplit,
                      ProgressDisplay *progress)
         : maxSplats(maxSplats), maxCells(maxCells), maxCellsHint(maxCellsHint),
@@ -170,34 +96,20 @@ struct BucketState
     static const std::size_t BAD_REGION = std::size_t(-1);
 
     /**
-     * A child block. The copy constructor and assignment operator are
-     * provided so that these can be stored in an STL vector. Copying
-     * the ranges to grow the vector would be expensive, but in actual
-     * use the containing vector is sized first before splats are
+     * A child region. It is stored in a vector, so needs a valid copy
+     * constructor.  Copying the ranges to grow the vector would be expensive,
+     * but in actual use the containing vector is sized first before blobs are
      * inserted.
      */
     struct Subregion
     {
         Node node;
-        Range::size_type splatsSeen;   ///< Number of splats added to ranges
-        Range::size_type numSplats;    ///< Expected number of splats
-        std::vector<Range> ranges;
-        RangeCollector<std::back_insert_iterator<std::vector<Range> > > collector;
+        std::tr1::uint64_t numSplats;  ///< Expected number of splats
+        SplatSet::SubsetBase subset;   ///< Just the blob ranges - late put in a full subset object
 
-        Subregion() : collector(std::back_inserter(ranges)) {}
-        Subregion(const Node &node, Range::size_type numSplats)
-            : node(node), splatsSeen(0), numSplats(numSplats), collector(std::back_inserter(ranges)) {}
-        Subregion(const Subregion &c)
-            : node(c.node), splatsSeen(c.splatsSeen), numSplats(c.numSplats),
-            ranges(c.ranges), collector(std::back_inserter(ranges)) {}
-        Subregion &operator=(const Subregion &c)
-        {
-            node = c.node;
-            splatsSeen = c.splatsSeen;
-            numSplats = c.numSplats;
-            ranges = c.ranges;
-            return *this;
-        }
+        Subregion() {}
+        Subregion(const Node &node, std::tr1::uint64_t numSplats)
+            : node(node), numSplats(numSplats) {}
     };
 
     const BucketParameters &params;
@@ -265,8 +177,7 @@ struct BucketState
 };
 
 /**
- * Function object for use with @ref SplatSet::SimpleSet::forEachRange that enters the splat
- * into all corresponding counters in the tree.
+ * Function object that enters a blob into all corresponding counters in the tree.
  */
 class CountSplat
 {
@@ -277,9 +188,7 @@ public:
     typedef void result_type;
     CountSplat(BucketState &state) : state(state) {};
 
-    void operator()(Range::scan_type scan, Range::index_type first, Range::index_type last,
-                    const boost::array<Grid::difference_type, 3> &lower,
-                    const boost::array<Grid::difference_type, 3> &upper) const;
+    void operator()(const SplatSet::BlobInfo &blob) const;
 };
 
 /**
@@ -299,43 +208,34 @@ public:
 };
 
 /**
- * Functor for @ref SplatSet::SimpleSet::forEachRange that places splat information into
- * bucket ranges.
+ * Function object that places splat information into bucket ranges.
  */
-template<typename CollectionSet>
+template<typename Splats>
 class BucketSplat
 {
 private:
     BucketState &state;
-    const CollectionSet &splats;
-    const typename ProcessorType<CollectionSet>::type &process;
+    const Splats &splats;
+    const typename ProcessorType<Splats>::type &process;
     const Recursion &recursionState;
 
 public:
     typedef void result_type;
     BucketSplat(
         BucketState &state,
-        const CollectionSet &splats,
-        const typename ProcessorType<CollectionSet>::type &process,
+        const Splats &splats,
+        const typename ProcessorType<Splats>::type &process,
         const Recursion &recursionState)
         : state(state), splats(splats), process(process), recursionState(recursionState) {}
 
-    void operator()(Range::scan_type scan,
-                    Range::index_type first, Range::index_type last,
-                    const boost::array<Grid::difference_type, 3> &lower,
-                    const boost::array<Grid::difference_type, 3> &upper) const;
+    void operator()(const SplatSet::BlobInfo &blob) const;
 };
 
-template<typename CollectionSet>
-void BucketSplat<CollectionSet>::operator()(
-    Range::scan_type scan,
-    Range::index_type first, Range::index_type last,
-    const boost::array<Grid::difference_type, 3> &lower,
-    const boost::array<Grid::difference_type, 3> &upper) const
+template<typename Splats>
+void BucketSplat<Splats>::operator()(const SplatSet::BlobInfo &blob) const
 {
-    Range::index_type count = last - first;
     boost::array<Node::size_type, 3> lo, hi;
-    if (!state.clamp(lower, upper, lo, hi))
+    if (!state.clamp(blob.lower, blob.upper, lo, hi))
         return;
 
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
@@ -353,12 +253,9 @@ void BucketSplat<CollectionSet>::operator()(
                     && (y == lo[1] || (y & mask) == 0)
                     && (z == lo[2] || (z & mask) == 0))
                 {
-                    region.collector.append(scan, first, last);
-                    region.splatsSeen += count;
-                    if (region.splatsSeen == region.numSplats)
+                    region.subset.addBlob(blob);
+                    if (region.subset.numSplats() == region.numSplats)
                     {
-                        region.collector.flush();
-
                         // Clip the region to the grid
                         Grid::size_type lower[3], upper[3];
                         region.node.toCells(state.microSize, lower, upper, state.grid);
@@ -367,11 +264,11 @@ void BucketSplat<CollectionSet>::operator()(
 
                         Recursion childRecursion = recursionState;
                         childRecursion.depth++;
-                        childRecursion.totalRanges += region.ranges.size();
-                        bucketRecurse(splats,
-                                      region.ranges.begin(),
-                                      region.ranges.end(),
-                                      region.numSplats,
+                        childRecursion.totalRanges += region.subset.numRanges();
+
+                        typename SplatSet::Traits<Splats>::subset_type subset(splats, state.grid, state.microSize);
+                        subset.swap(region.subset);
+                        bucketRecurse(subset,
                                       childGrid,
                                       state.params,
                                       process,
@@ -390,44 +287,60 @@ void BucketSplat<CollectionSet>::operator()(
 Grid::size_type chooseMicroSize(
     const Grid::size_type dims[3], std::size_t maxSplit);
 
+template<typename Splats>
+bool bucketCallback(const Splats &, const Grid &,
+                    const typename ProcessorType<Splats>::type &,
+                    const Recursion &,
+                    boost::false_type)
+{
+    return false;
+}
+
+template<typename Splats>
+bool bucketCallback(const Splats &splats, const Grid &grid,
+                    const typename ProcessorType<Splats>::type &process,
+                    const Recursion &recursionState,
+                    boost::true_type)
+{
+    process(splats, grid, recursionState);
+    return true;
+}
+
 /**
  * Recursive implementation of @ref bucket.
  *
  * @param splats          Backing store of splats to process.
  * @param process         Function to call for each final bucket.
- * @param first,last      Range of ranges to process for this spatial region.
- * @param numSplats       Number of splats encoded into [@a first, @a last).
  * @param grid            Sub-grid on which the recursion is being done.
  * @param params          User parameters.
  * @param recursionState  Statistics about what is already held on the stack.
  */
-template<typename CollectionSet>
+template<typename Splats>
 void bucketRecurse(
-    const CollectionSet &splats,
-    RangeConstIterator first,
-    RangeConstIterator last,
-    typename CollectionSet::index_type numSplats,
+    const Splats &splats,
     const Grid &grid,
     const BucketParameters &params,
-    const typename ProcessorType<CollectionSet>::type &process,
+    const typename ProcessorType<Splats>::type &process,
     const Recursion &recursionState)
 {
     Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak").set(recursionState.depth);
-    Statistics::getStatistic<Statistics::Peak<Range::index_type> >("bucket.totalRanges.peak").set(recursionState.totalRanges);
+    Statistics::getStatistic<Statistics::Peak<std::size_t> >("bucket.totalRanges.peak").set(recursionState.totalRanges);
 
     Grid::size_type cellDims[3];
     for (int i = 0; i < 3; i++)
         cellDims[i] = grid.numCells(i);
     Grid::size_type maxCellDim = std::max(std::max(cellDims[0], cellDims[1]), cellDims[2]);
 
-    if (numSplats <= params.maxSplats &&
-        (maxCellDim <= params.maxCells || params.maxCellsHint))
+    if (splats.maxSplats() <= params.maxSplats
+        && (maxCellDim <= params.maxCells || params.maxCellsHint)
+        && bucketCallback(splats, grid, process, recursionState,
+                          typename SplatSet::Traits<Splats>::is_subset()))
     {
-        boost::unwrap_ref(process)(splats, numSplats, first, last, grid, recursionState);
+        // The bucketCallback in the if statement did the work
     }
     else if (maxCellDim == 1)
     {
-        throw DensityError(numSplats); // can't subdivide a 1x1x1 cell
+        throw DensityError(splats.maxSplats()); // can't subdivide a 1x1x1 cell
     }
     else
     {
@@ -457,81 +370,45 @@ void bucketRecurse(
 
         BucketState state(params, grid, microSize, macroLevels);
         /* Create histogram */
-        splats.forEachRange(first, last, grid, microSize, CountSplat(state));
+        boost::scoped_ptr<SplatSet::BlobStream> blobs(splats.makeBlobStream(grid, microSize));
+        CountSplat countSplat(state); // TODO: cease as a function object
+        while (!blobs->empty())
+        {
+            countSplat(**blobs);
+            ++*blobs;
+        }
+        blobs.reset();
+
         state.upsweepCounts();
         /* Select cells to bucket splats into */
         forEachNode(state.dims, state.macroLevels, PickNodes(state));
-        /* Do the bucketing. */
-        splats.forEachRange(first, last,
-                            grid, microSize,
-                            BucketSplat<CollectionSet>(state, splats, process, recursionState));
 
-        /* Check that all regions were completed */
-        // TODO: move sublaunches back out of BucketSplat
-#ifndef NDEBUG
-        for (std::size_t i = 0; i < state.subregions.size(); i++)
-            assert(state.subregions[i].splatsSeen == state.subregions[i].numSplats);
-#endif
+        /* Do the bucketing. */
+        BucketSplat<Splats> bucketSplat(state, splats, process, recursionState);
+        blobs.reset(splats.makeBlobStream(grid, microSize));
+        while (!blobs->empty())
+        {
+            bucketSplat(**blobs);
+            ++*blobs;
+        }
     }
 }
 
-/**
- * Function object for accumulating a bounding box of splats.
- *
- * The interface is designed to be used with @c stxxl::stream::transform so
- * that it passes through its inputs unchanged, or with @ref
- * Collection::forEach.
- */
-struct MakeGrid
-{
-    typedef Splat value_type;
-
-    bool first;
-    float low[3];
-    float bboxMin[3];
-    float bboxMax[3];
-
-    Range::index_type nonFinite;
-
-    MakeGrid() : first(true), nonFinite(0) {}
-    const Splat &operator()(const Splat &splat);
-    void operator()(unsigned int index, const Splat &splat);
-
-    /// Generate the grid from the accumulated data
-    Grid makeGrid(float spacing) const;
-};
-
 } // namespace internal
 
-template<typename CollectionSet>
-void bucket(const CollectionSet &splats,
+template<typename Splats>
+void bucket(const Splats &splats,
             const Grid &region,
-            typename CollectionSet::index_type maxSplats,
+            std::tr1::uint64_t maxSplats,
             Grid::size_type maxCells,
             bool maxCellsHint,
             std::size_t maxSplit,
-            const typename ProcessorType<CollectionSet>::type &process,
+            const typename ProcessorType<Splats>::type &process,
             ProgressDisplay *progress,
             const Recursion &recursionState)
 {
-    typename CollectionSet::index_type numSplats = 0;
-    std::vector<Range> root;
-    root.reserve(splats.getSplats().size());
-    for (typename CollectionSet::scan_type i = 0; i < splats.getSplats().size(); i++)
-    {
-        const typename CollectionSet::index_type size = splats.getSplats()[i].size();
-        if (size > 0)
-        {
-            root.push_back(Range(i, 0, size));
-            numSplats += size;
-        }
-    }
-
     internal::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
-    Recursion childRecursion = recursionState;
-    childRecursion.depth++;
-    childRecursion.totalRanges += root.size();
-    internal::bucketRecurse(splats, root.begin(), root.end(), numSplats, region, params, process, childRecursion);
+    internal::bucketRecurse(splats, region, params, process, recursionState);
 }
 
 } // namespace Bucket
