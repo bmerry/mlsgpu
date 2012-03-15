@@ -208,11 +208,7 @@ public:
     static const unsigned int scanIdShift = 40;
     static const splat_id splatIdMask = (splat_id(1) << scanIdShift) - 1;
 
-    void addFile(FastPly::Reader *file)
-    {
-        files.push_back(file);
-        nSplats += file->size();
-    }
+    void addFile(FastPly::Reader *file);
 
     SplatStream *makeSplatStream() const
     {
@@ -224,10 +220,7 @@ public:
         return new MySplatStream(*this, 0, 0);
     }
 
-    splat_id maxSplats() const
-    {
-        return nSplats;
-    }
+    splat_id maxSplats() const { return nSplats; }
 
     SimpleFileSet() : nSplats(0) {}
 
@@ -241,14 +234,7 @@ private:
             return buffer[bufferCur];
         }
 
-        virtual SplatStream &operator++()
-        {
-            MLSGPU_ASSERT(!empty(), std::runtime_error);
-            bufferCur++;
-            cur++;
-            refill();
-            return *this;
-        }
+        virtual SplatStream &operator++();
 
         virtual bool empty() const
         {
@@ -260,16 +246,7 @@ private:
             return cur;
         }
 
-        virtual void reset(splat_id first, splat_id last)
-        {
-            MLSGPU_ASSERT(first <= last, std::invalid_argument);
-            this->first = first;
-            this->last = last;
-            bufferCur = 0;
-            bufferEnd = 0;
-            next = first;
-            refill();
-        }
+        virtual void reset(splat_id first, splat_id last);
 
         MySplatStream(const SimpleFileSet &owner, splat_id first, splat_id last)
             : owner(owner)
@@ -290,45 +267,9 @@ private:
         std::size_t bufferEnd;          ///< Past-the-end position for @ref buffer
         Splat buffer[bufferSize];       ///< Buffer for splats read from file
 
-        void skipNonFiniteInBuffer()
-        {
-            while (bufferCur < bufferEnd && !buffer[bufferCur].isFinite())
-            {
-                bufferCur++;
-                cur++;
-            }
-        }
+        void skipNonFiniteInBuffer();
 
-        void refill()
-        {
-            skipNonFiniteInBuffer();
-            while (bufferCur == bufferEnd)
-            {
-                std::size_t file = next >> scanIdShift;
-                splat_id offset = next & splatIdMask;
-                while (file < owner.files.size() && offset >= owner.files[file].size())
-                {
-                    file++;
-                    offset = 0;
-                }
-                next = (splat_id(file) << scanIdShift) + offset;
-                if (next >= last)
-                    break;
-
-                bufferCur = 0;
-                bufferEnd = bufferSize;
-                if (last - next < bufferEnd)
-                    bufferEnd = last - next;
-                if (owner.files[file].size() - offset < bufferEnd)
-                    bufferEnd = owner.files[file].size() - offset;
-                assert(bufferEnd > 0);
-                owner.files[file].read(offset, offset + bufferEnd, &buffer[0]);
-                cur = next;
-                next += bufferEnd;
-
-                skipNonFiniteInBuffer();
-            }
-        }
+        void refill();
     };
 
     boost::ptr_vector<FastPly::Reader> files;
@@ -415,13 +356,9 @@ public:
         return new internal::SimpleBlobStreamReset(CoreSet::makeSplatStreamReset(), grid, bucketSize);
     }
 
-    std::pair<splat_id, splat_id> blobsToSplats(const Grid &grid, Grid::size_type bucketSize, blob_id firstBlob, blob_id lastBlob) const
-    {
-        (void) grid;
-        (void) bucketSize;
-        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-        return std::make_pair(firstBlob, lastBlob);
-    }
+    std::pair<splat_id, splat_id> blobsToSplats(
+        const Grid &grid, Grid::size_type bucketSize,
+        blob_id firstBlob, blob_id lastBlob) const;
 };
 
 } // namespace internal
@@ -450,19 +387,7 @@ public:
     class MyBlobStream : public SplatSet::BlobStreamReset
     {
     public:
-        virtual BlobInfo operator*() const
-        {
-            BlobInfo ans;
-            MLSGPU_ASSERT(curBlob < lastBlob, std::length_error);
-            BlobData data = owner.blobs[curBlob];
-            ans.numSplats = data.lastSplat - data.firstSplat;
-            ans.id = curBlob;
-            for (unsigned int i = 0; i < 3; i++)
-                ans.lower[i] = divDown(data.lower[i] - offset[i], bucketRatio);
-            for (unsigned int i = 0; i < 3; i++)
-                ans.upper[i] = divDown(data.upper[i] - offset[i], bucketRatio);
-            return ans;
-        }
+        virtual BlobInfo operator*() const;
 
         virtual BlobStream &operator++()
         {
@@ -476,26 +401,11 @@ public:
             return curBlob == lastBlob;
         }
 
-        virtual void reset(blob_id firstBlob, blob_id lastBlob)
-        {
-            MLSGPU_ASSERT(firstBlob <= lastBlob, std::invalid_argument);
-            MLSGPU_ASSERT(lastBlob <= owner.blobs.size(), std::length_error);
-            curBlob = firstBlob;
-            this->lastBlob = lastBlob;
-        }
+        virtual void reset(blob_id firstBlob, blob_id lastBlob);
 
         MyBlobStream(const FastBlobSet<Base, BlobVector> &owner, const Grid &grid,
                      Grid::size_type bucketSize,
-                     blob_id firstBlob, blob_id lastBlob)
-            : owner(owner)
-        {
-            MLSGPU_ASSERT(bucketSize > 0 && owner.internalBucketSize > 0
-                   && bucketSize % owner.internalBucketSize == 0, std::invalid_argument);
-            for (unsigned int i = 0; i < 3; i++)
-                offset[i] = grid.getExtent(i).first / Grid::difference_type(owner.internalBucketSize);
-            reset(firstBlob, lastBlob);
-            bucketRatio = bucketSize / owner.internalBucketSize;
-        }
+                     blob_id firstBlob, blob_id lastBlob);
 
     private:
         const FastBlobSet<Base, BlobVector> &owner;
@@ -505,133 +415,16 @@ public:
         blob_id lastBlob;
     };
 
-    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        if (fastPath(grid, bucketSize))
-            return new MyBlobStream(*this, grid, bucketSize, 0, blobs.size());
-        else
-            return Base::makeBlobStream(grid, bucketSize);
-    }
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
-    BlobStreamReset *makeBlobStreamReset(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        if (fastPath(grid, bucketSize))
-            return new MyBlobStream(*this, grid, bucketSize, 0, 0);
-        else
-            return Base::makeBlobStreamReset(grid, bucketSize);
-    }
+    BlobStreamReset *makeBlobStreamReset(const Grid &grid, Grid::size_type bucketSize) const;
 
     std::pair<splat_id, splat_id> blobsToSplats(const Grid &grid, Grid::size_type bucketSize,
-                                                blob_id firstBlob, blob_id lastBlob) const
-    {
-        if (fastPath(grid, bucketSize))
-        {
-            MLSGPU_ASSERT(firstBlob <= lastBlob, std::invalid_argument);
-            MLSGPU_ASSERT(lastBlob <= blobs.size(), std::length_error);
-            if (firstBlob == lastBlob)
-                return std::make_pair(splat_id(0), splat_id(0));
-            else
-            {
-                splat_id firstSplat = blobs[firstBlob].firstSplat;
-                splat_id lastSplat = blobs[lastBlob - 1].lastSplat;
-                return std::make_pair(firstSplat, lastSplat);
-            }
-        }
-        else
-            return Base::blobsToSplats(grid, bucketSize, firstBlob, lastBlob);
-    }
+                                                blob_id firstBlob, blob_id lastBlob) const;
 
     FastBlobSet() : Base(), internalBucketSize(0), nSplats(0) {}
 
-    void computeBlobs(float spacing, Grid::size_type bucketSize, std::ostream *progressStream)
-    {
-        // TODO: move into separate impl file
-        const float ref[3] = {0.0f, 0.0f, 0.0f};
-
-        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-        Statistics::Registry &registry = Statistics::Registry::getInstance();
-
-        blobs.clear();
-        internalBucketSize = bucketSize;
-
-        // Reference point will be 0,0,0. Extents are set after reading all the spla
-        boundingGrid.setSpacing(spacing);
-        boundingGrid.setReference(ref);
-
-        boost::scoped_ptr<ProgressDisplay> progress;
-        if (progressStream != NULL)
-        {
-            *progressStream << "Computing bounding box\n";
-            progress.reset(new ProgressDisplay(Base::maxSplats(), *progressStream));
-        }
-
-        boost::array<float, 3> bboxMin, bboxMax;
-        // Set sentinel values
-        std::fill(bboxMin.begin(), bboxMin.end(), std::numeric_limits<float>::infinity());
-        std::fill(bboxMax.begin(), bboxMax.end(), -std::numeric_limits<float>::infinity());
-
-        boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
-        nSplats = 0;
-        while (!splats->empty())
-        {
-            const Splat &splat = **splats;
-            splat_id id = splats->currentId();
-
-            BlobData blob;
-            internal::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
-            if (blobs.empty()
-                || blobs.back().lower != blob.lower
-                || blobs.back().upper != blob.upper
-                || blobs.back().lastSplat != id)
-            {
-                blob.firstSplat = id;
-                blob.lastSplat = id + 1;
-                blobs.push_back(blob);
-            }
-            else
-            {
-                blobs.back().lastSplat++;
-            }
-            ++*splats;
-            ++nSplats;
-            if (progress != NULL)
-                ++*progress;
-
-            for (unsigned int i = 0; i < 3; i++)
-            {
-                bboxMin[i] = std::min(bboxMin[i], splat.position[i] - splat.radius);
-                bboxMax[i] = std::max(bboxMax[i], splat.position[i] + splat.radius);
-            }
-        }
-
-        assert(nSplats <= Base::maxSplats());
-        splat_id nonFinite = Base::maxSplats() - nSplats;
-        if (nonFinite > 0)
-        {
-            *progress += nonFinite;
-            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
-        }
-        registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
-
-        if (bboxMin[0] > bboxMax[0])
-            throw std::length_error("Must be at least one splat");
-
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            float l = bboxMin[i] / spacing;
-            float h = bboxMax[i] / spacing;
-            Grid::difference_type lo = Grid::RoundDown::convert(l);
-            Grid::difference_type hi = Grid::RoundUp::convert(h);
-            /* The lower extent must be a multiple of the bucket size, to
-             * make the blob data align properly.
-             */
-            lo = divDown(lo, bucketSize) * bucketSize;
-            assert(lo % Grid::difference_type(bucketSize) == 0);
-
-            boundingGrid.setExtent(i, lo, hi);
-        }
-        registry.getStatistic<Statistics::Variable>("blobset.blobs").add(blobs.size());
-    }
+    void computeBlobs(float spacing, Grid::size_type bucketSize, std::ostream *progressStream);
 
     const Grid &getBoundingGrid() const { return boundingGrid; }
 
@@ -647,41 +440,15 @@ private:
     BlobVector blobs;
     std::size_t nSplats;  ///< Exact splat count computed during blob generation
 
-    bool fastPath(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        MLSGPU_ASSERT(internalBucketSize > 0, std::runtime_error);
-        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-        if (bucketSize % internalBucketSize != 0)
-            return false;
-        if (boundingGrid.getSpacing() != grid.getSpacing())
-            return false;
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            if (grid.getReference()[i] != 0.0f
-                || grid.getExtent(i).first % Grid::difference_type(internalBucketSize) != 0)
-            return false;
-        }
-        return true;
-    }
+    bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
 };
 
 class SubsetBase
 {
 public:
-    void addBlob(const BlobInfo &blob)
-    {
-        if (blobRanges.empty() || blobRanges.back().second != blob.id)
-            blobRanges.push_back(std::make_pair(blob.id, blob.id + 1));
-        else
-            blobRanges.back().second++;
-        nSplats += blob.numSplats;
-    }
+    void addBlob(const BlobInfo &blob);
 
-    void swap(SubsetBase &other)
-    {
-        blobRanges.swap(other.blobRanges);
-        std::swap(nSplats, other.nSplats);
-    }
+    void swap(SubsetBase &other);
 
     std::size_t numRanges() const { return blobRanges.size(); }
 
@@ -691,6 +458,40 @@ public:
     SubsetBase() : nSplats(0) {}
 
 protected:
+    class MyBlobStream : public BlobStream
+    {
+    public:
+        virtual BlobInfo operator*() const
+        {
+            return **child;
+        }
+
+        virtual BlobStream &operator++()
+        {
+            ++*child;
+            refill();
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return child->empty();
+        }
+
+        MyBlobStream(const SubsetBase &owner, BlobStreamReset *blobStream)
+            : owner(owner), blobRange(0),
+            child(blobStream)
+        {
+        }
+
+    private:
+        const SubsetBase &owner;
+        std::size_t blobRange;       ///< Next blob range to load into child
+        boost::scoped_ptr<BlobStreamReset> child;
+
+        void refill();
+    };
+
     std::vector<std::pair<blob_id, blob_id> > blobRanges;
     splat_id nSplats;
 };
@@ -704,14 +505,7 @@ public:
         return new MySplatStream(*this);
     }
 
-    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-        if (fastPath(grid, bucketSize))
-            return new MyBlobStream(*this);
-        else
-            return new internal::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
-    }
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
     Subset(const Super &super, const Grid &subGrid, Grid::size_type subBucketSize)
     : super(super), subGrid(subGrid), subBucketSize(subBucketSize)
@@ -762,76 +556,11 @@ private:
         std::size_t blobRange;        ///< Next blob range to load into child
         boost::scoped_ptr<SplatStreamReset> child;
 
-        void refill()
-        {
-            while (child->empty() && blobRange < owner.blobRanges.size())
-            {
-                const std::pair<blob_id, blob_id> &range = owner.blobRanges[blobRange];
-                const std::pair<splat_id, splat_id> splatRange = owner.super.blobsToSplats(
-                    owner.subGrid, owner.subBucketSize, range.first, range.second);
-                child->reset(splatRange.first, splatRange.second);
-                blobRange++;
-            }
-        }
+        void refill();
     };
 
-    class MyBlobStream : public BlobStream
-    {
-    public:
-        virtual BlobInfo operator*() const
-        {
-            return **child;
-        }
-
-        virtual BlobStream &operator++()
-        {
-            ++*child;
-            refill();
-            return *this;
-        }
-
-        virtual bool empty() const
-        {
-            return child->empty();
-        }
-
-        MyBlobStream(const Subset<Super> &owner)
-            : owner(owner), blobRange(0),
-            child(owner.super.makeBlobStreamReset(owner.subGrid, owner.subBucketSize))
-        {
-        }
-
-    private:
-        const Subset<Super> &owner;
-        std::size_t blobRange;       ///< Next blob range to load into child
-        boost::scoped_ptr<BlobStreamReset> child;
-
-        void refill()
-        {
-            while (child->empty() && blobRange < owner.blobRanges.size())
-            {
-                const std::pair<blob_id, blob_id> &range = owner.blobRanges[blobRange];
-                child->reset(range.first, range.second);
-                blobRange++;
-            }
-        }
-    };
-
-    bool fastPath(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-        if (bucketSize != subBucketSize)
-            return false;
-        if (subGrid.getSpacing() != grid.getSpacing())
-            return false;
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            if (subGrid.getReference()[i] != grid.getReference()[i]
-                || subGrid.getExtent(i).first != grid.getExtent(i).first)
-            return false;
-        }
-        return true;
-    }
+    // TODO move this down to the base class along with subGrid and subBucketSize
+    bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
 
     const Super &super;
     Grid subGrid;
@@ -855,5 +584,7 @@ public:
 };
 
 } // namespace SplatSet
+
+#include "splat_set_impl.h"
 
 #endif /* !SPLAT_SET_H */

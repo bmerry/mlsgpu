@@ -64,6 +64,99 @@ BlobInfo SimpleBlobStreamReset::operator*() const
     return ans;
 }
 
+
+void SimpleFileSet::addFile(FastPly::Reader *file)
+{
+    files.push_back(file);
+    nSplats += file->size();
+}
+
+SplatStream &SimpleFileSet::MySplatStream::operator++()
+{
+    MLSGPU_ASSERT(!empty(), std::runtime_error);
+    bufferCur++;
+    cur++;
+    refill();
+    return *this;
+}
+
+void SimpleFileSet::MySplatStream::reset(splat_id first, splat_id last)
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    this->first = first;
+    this->last = last;
+    bufferCur = 0;
+    bufferEnd = 0;
+    next = first;
+    refill();
+}
+
+void SimpleFileSet::MySplatStream::skipNonFiniteInBuffer()
+{
+    while (bufferCur < bufferEnd && !buffer[bufferCur].isFinite())
+    {
+        bufferCur++;
+        cur++;
+    }
+}
+
+void SimpleFileSet::MySplatStream::refill()
+{
+    skipNonFiniteInBuffer();
+    while (bufferCur == bufferEnd)
+    {
+        std::size_t file = next >> scanIdShift;
+        splat_id offset = next & splatIdMask;
+        while (file < owner.files.size() && offset >= owner.files[file].size())
+        {
+            file++;
+            offset = 0;
+        }
+        next = (splat_id(file) << scanIdShift) + offset;
+        if (next >= last)
+            break;
+
+        bufferCur = 0;
+        bufferEnd = bufferSize;
+        if (last - next < bufferEnd)
+            bufferEnd = last - next;
+        if (owner.files[file].size() - offset < bufferEnd)
+            bufferEnd = owner.files[file].size() - offset;
+        assert(bufferEnd > 0);
+        owner.files[file].read(offset, offset + bufferEnd, &buffer[0]);
+        cur = next;
+        next += bufferEnd;
+
+        skipNonFiniteInBuffer();
+    }
+}
+
 } // namespace internal
+
+
+void SubsetBase::addBlob(const BlobInfo &blob)
+{
+    if (blobRanges.empty() || blobRanges.back().second != blob.id)
+        blobRanges.push_back(std::make_pair(blob.id, blob.id + 1));
+    else
+        blobRanges.back().second++;
+    nSplats += blob.numSplats;
+}
+
+void SubsetBase::swap(SubsetBase &other)
+{
+    blobRanges.swap(other.blobRanges);
+    std::swap(nSplats, other.nSplats);
+}
+
+void SubsetBase::MyBlobStream::refill()
+{
+    while (child->empty() && blobRange < owner.blobRanges.size())
+    {
+        const std::pair<blob_id, blob_id> &range = owner.blobRanges[blobRange];
+        child->reset(range.first, range.second);
+        blobRange++;
+    }
+}
 
 } // namespace SplatSet
