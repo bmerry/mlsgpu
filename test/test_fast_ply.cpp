@@ -400,11 +400,6 @@ void TestFastPlyReader::testReadIterator()
     CPPUNIT_ASSERT_THROW(r.read(1, 10001, back_inserter(out)), std::out_of_range);
 }
 
-static void forEachFunc(vector<pair<Reader::size_type, Splat> > &out, Reader::size_type index, const Splat &splat)
-{
-    out.push_back(make_pair(index, splat));
-}
-
 /**
  * Abstract base class for testing the writers in the FastPly namespace.
  */

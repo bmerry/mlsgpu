@@ -19,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <map>
 #include <iterator>
 #include <algorithm>
 #include <utility>
@@ -33,7 +34,6 @@
 #include "../src/bucket_internal.h"
 #include "../src/splat_set.h"
 
-using namespace std;
 using namespace Bucket;
 using namespace Bucket::internal;
 
@@ -68,179 +68,6 @@ public:
     void testFlushEmpty();        ///< Test flushing when nothing to flush
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRangeCollector, TestSet::perBuild());
-
-void TestRangeCollector::testSimple()
-{
-    vector<Range> out;
-
-    {
-        RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-        c.append(3, 5);
-        c.append(3, 6);
-        c.append(3, 6);
-        c.append(4, UINT64_C(0x123456781234));
-        c.append(5, 2);
-        c.append(5, 4);
-        c.append(5, 5);
-    }
-    CPPUNIT_ASSERT_EQUAL(4, int(out.size()));
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[0].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(5), out[0].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), out[1].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[1].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), out[1].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[2].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[2].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(2), out[2].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[3].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[3].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(4), out[3].start);
-}
-
-void TestRangeCollector::testAppendRange()
-{
-    vector<Range> out;
-
-    RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-    c.append(3, 5);
-    c.append(3, 4, 7);   // subsuming a range
-    c.append(4, 4, 6);   // change of scan
-    c.append(4, 5, 8);   // partially overlapping range (back)
-    c.append(4, 3, 5);   // partially overlapping range (front)
-    c.append(4, 5, 6);   // contained range
-    c.append(5, 2);
-    c.append(5, 3, 5);   // touching range
-    c.append(5, 6, 7);   // non-touching range
-    c.append(6, 2, UINT64_C(0x123456789)); // very large range
-    c.append(7, UINT64_C(0x123456789), UINT64_C(0x12345678F)); // small range, large base
-    c.append(8, 0, 0x3FFFFFFF);
-    c.append(8, 0x3FFFFFFF, UINT64_C(0x123456789)); // extend beyond 2^32 in size
-    c.append(9, 3, 3); // empty range
-    c.flush();
-
-    CPPUNIT_ASSERT_EQUAL(9, int(out.size()));
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(3), out[0].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(4), out[0].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), out[1].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(5), out[1].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(3), out[1].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[2].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(3), out[2].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(2), out[2].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(5), out[3].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[3].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(6), out[3].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(6), out[4].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFu), out[4].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(2), out[4].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(6), out[5].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x23456788), out[5].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x100000001)), out[5].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(7), out[6].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(6), out[6].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456789)), out[6].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(8), out[7].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFF), out[7].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0), out[7].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(8), out[8].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x12345678A), out[8].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0xFFFFFFFF), out[8].start);
-}
-
-void TestRangeCollector::testFlush()
-{
-    vector<Range> out;
-    RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-
-    c.append(3, 5);
-    c.append(3, 6);
-    c.flush();
-
-    CPPUNIT_ASSERT_EQUAL(1, int(out.size()));
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[0].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(5), out[0].start);
-
-    c.append(3, 7);
-    c.append(4, 0);
-    c.flush();
-
-    CPPUNIT_ASSERT_EQUAL(3, int(out.size()));
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[0].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(2), out[0].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(5), out[0].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), out[1].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[1].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(7), out[1].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), out[2].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), out[2].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0), out[2].start);
-}
-
-void TestRangeCollector::testFlushEmpty()
-{
-    vector<Range> out;
-    RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-    c.flush();
-    CPPUNIT_ASSERT_EQUAL(0, int(out.size()));
-}
-
-
-/**
- * Slow tests for Bucket::internal::RangeCollector.
- * These tests are designed to catch overflow conditions and hence necessarily
- * involve running O(2^32) operations. They are thus nightly rather than
- * per-build tests.
- */
-class TestRangeBig : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestRangeBig);
-    CPPUNIT_TEST(testBigRange);
-    CPPUNIT_TEST_SUITE_END();
-public:
-    void testBigRange();             ///< Throw more than 2^32 contiguous elements into a range
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRangeBig, TestSet::perNightly());
-
-void TestRangeBig::testBigRange()
-{
-    vector<Range> out;
-    RangeCollector<back_insert_iterator<vector<Range> > > c(back_inserter(out));
-
-    for (std::tr1::uint64_t i = 0; i < UINT64_C(0x123456789); i++)
-    {
-        c.append(0, i);
-    }
-    c.flush();
-
-    CPPUNIT_ASSERT_EQUAL(2, int(out.size()));
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(0), out[0].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFu), out[0].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0), out[0].start);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(0), out[1].scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x2345678Au), out[1].size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0xFFFFFFFFu), out[1].start);
-}
 
 std::ostream &operator<<(std::ostream &o, const Node &node)
 {
@@ -360,7 +187,7 @@ class TestForEachNode : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    vector<Node> nodes;
+    std::vector<Node> nodes;
     bool nodeFunc(const Node &node);
 
 public:
@@ -437,29 +264,24 @@ private:
     struct Block
     {
         Grid grid;
-        Range::index_type numSplats;
-        vector<Range> ranges;
+        SplatSet::splat_id numSplats;
+        std::size_t numRanges;
+        std::vector<SplatSet::splat_id> splatIds;
+        std::vector<Splat> splats;
     };
 
-    typedef StdVectorCollection<Splat> Collection;
-    typedef SplatSet::BlobSet<boost::ptr_vector<Collection>, std::vector<SplatSet::Blob> > Set;
-
-    std::vector<std::vector<Splat> > splatData;
-    boost::ptr_vector<Collection> splats;
-    boost::scoped_ptr<Set> splatSet;
+    typedef SplatSet::FastBlobSet<SplatSet::VectorsSet, std::vector<SplatSet::BlobData> > Splats;
+    Splats splats;
 
     void setupSimple();
 
-    void validate(const Set &splats, const Grid &fullGrid,
-                  const vector<Block> &blocks, std::size_t maxSplats, Grid::size_type maxCells);
+    void validate(const Splats &splats, const Grid &fullGrid,
+                  const std::vector<Block> &blocks, std::size_t maxSplats, Grid::size_type maxCells);
 
     template<typename T>
     static void bucketFunc(
-        vector<Block> &blocks,
-        const T &splats,
-        Range::index_type numSplats,
-        RangeConstIterator first,
-        RangeConstIterator last,
+        std::vector<Block> &blocks,
+        const typename SplatSet::Traits<T>::subset_type &splats,
         const Grid &grid,
         const Recursion &recursionState);
 
@@ -480,7 +302,7 @@ void TestBucket::addRandom(TestSuiteBuilderContextType &context)
 {
     for (unsigned long seed = 0; seed < 30; seed++)
     {
-        ostringstream name;
+        std::ostringstream name;
         name << "testRandom(" << seed << ")";
         context.addTest(new GenericTestCaller<TestBucket>(context.getTestNameFor(name.str()),
                                                           boost::bind(&TestBucket::testRandom, _1, seed),
@@ -490,26 +312,30 @@ void TestBucket::addRandom(TestSuiteBuilderContextType &context)
 
 template<typename T>
 void TestBucket::bucketFunc(
-    vector<Block> &blocks,
-    const T &splats,
-    Range::index_type numSplats,
-    RangeConstIterator first,
-    RangeConstIterator last,
+    std::vector<Block> &blocks,
+    const typename SplatSet::Traits<T>::subset_type &splats,
     const Grid &grid,
     const Recursion &)
 {
     (void) splats;
     blocks.push_back(Block());
     Block &block = blocks.back();
-    block.numSplats = numSplats;
+    block.numSplats = splats.numSplats();
+    block.numRanges = splats.numRanges();
     block.grid = grid;
-    copy(first, last, back_inserter(block.ranges));
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
+    while (!splatStream->empty())
+    {
+        block.splatIds.push_back(splatStream->currentId());
+        block.splats.push_back(**splatStream);
+        ++*splatStream;
+    }
 }
 
 void TestBucket::validate(
-    const Set &splats,
+    const Splats &splats,
     const Grid &fullGrid,
-    const vector<Block> &blocks,
+    const std::vector<Block> &blocks,
     std::size_t maxSplats,
     Grid::size_type maxCells)
 {
@@ -519,11 +345,7 @@ void TestBucket::validate(
      * areas of the intersections with the blocks and check that it adds up to
      * the full bounding box of the splat.
      */
-    vector<vector<std::tr1::uint64_t> > areas(splats.getSplats().size());
-    for (std::size_t i = 0; i < splats.getSplats().size(); i++)
-    {
-        areas[i].resize(splats.getSplats()[i].size());
-    }
+    std::map<SplatSet::splat_id, std::tr1::uint64_t> areas;
 
     /* First validate each individual block */
     BOOST_FOREACH(const Block &block, blocks)
@@ -533,59 +355,54 @@ void TestBucket::validate(
         CPPUNIT_ASSERT(block.grid.numCells(1) <= maxCells);
         CPPUNIT_ASSERT(block.grid.numCells(2) <= maxCells);
         CPPUNIT_ASSERT(block.numSplats > 0);
+        CPPUNIT_ASSERT_EQUAL((int) block.numSplats, (int) block.splatIds.size());
         /* The grid must be a subgrid of the original */
         CPPUNIT_ASSERT_EQUAL(fullGrid.getSpacing(), block.grid.getSpacing());
         for (int i = 0; i < 3; i++)
         {
             CPPUNIT_ASSERT_EQUAL(fullGrid.getReference()[i], block.grid.getReference()[i]);
-            pair<int, int> fullExtent = fullGrid.getExtent(i);
-            pair<int, int> extent = block.grid.getExtent(i);
+            std::pair<int, int> fullExtent = fullGrid.getExtent(i);
+            std::pair<int, int> extent = block.grid.getExtent(i);
             CPPUNIT_ASSERT(fullExtent.first <= extent.first);
             CPPUNIT_ASSERT(fullExtent.second >= extent.second);
         }
 
-        Range::index_type numSplats = 0;
         /* Checks that
          * - The splat count must be correct
-         * - There must be no empty ranges
-         * - The splat IDs should be increasing and ranges should be properly coalesced.
-         * - The splats all intersect the block.
+         * - The splat IDs should be increasing
+         * - The splats all intersect the block
+         * - The number of ranges is no more than the number of contiguous
+         *   ranges of splat IDs (it can be less because there may be
+         *   discontinuities in the superset's splat IDs).
          *
          * At the same time, we accumulate the intersection area.
          */
-        for (std::size_t i = 0; i < block.ranges.size(); i++)
+        std::size_t maxRanges = 1;
+        for (std::size_t i = 0; i < block.splatIds.size(); i++)
         {
-            const Range &range = block.ranges[i];
-            numSplats += range.size;
-            CPPUNIT_ASSERT(range.size > 0);
+            const SplatSet::splat_id cur = block.splatIds[i];
             if (i > 0)
             {
-                const Range &prev = block.ranges[i - 1];
-                // This will fail for input files with >2^32 points, but we aren't testing those
-                // yet.
-                CPPUNIT_ASSERT(range.scan > prev.scan
-                               || (range.scan == prev.scan && range.start > prev.start + prev.size));
+                const SplatSet::splat_id prev = block.splatIds[i - 1];
+                CPPUNIT_ASSERT(prev < cur);
+                if (cur != prev + 1)
+                    maxRanges++;
             }
 
-            vector<Splat> buffer(range.size);
-            splats.getSplats()[range.scan].read(range.start, range.start + range.size, &buffer[0]);
-            for (Range::index_type j = range.start; j < range.start + range.size; j++)
+            const Splat &splat = block.splats[i];
+            std::tr1::uint64_t area = 1.0;
+            boost::array<Grid::difference_type, 3> lower, upper;
+            SplatSet::internal::splatToBuckets(splat, block.grid, 1, lower, upper);
+            for (int k = 0; k < 3; k++)
             {
-                const Splat &splat = buffer[j - range.start];
-                double area = 1.0;
-                boost::array<Grid::difference_type, 3> lower, upper;
-                SplatSet::detail::splatToBuckets(splat, block.grid, 1, lower, upper);
-                for (int k = 0; k < 3; k++)
-                {
-                    lower[k] = max(lower[k], 0);
-                    upper[k] = min(upper[k], Grid::difference_type(block.grid.numCells(k)) - 1);
-                    CPPUNIT_ASSERT(lower[k] <= upper[k]);
-                    area *= (upper[k] - lower[k] + 1);
-                }
-                areas[range.scan][j] += area;
+                lower[k] = std::max(lower[k], 0);
+                upper[k] = std::min(upper[k], Grid::difference_type(block.grid.numCells(k)) - 1);
+                CPPUNIT_ASSERT(lower[k] <= upper[k]);
+                area *= (upper[k] - lower[k] + 1);
             }
+            areas[cur] += area;
         }
-        CPPUNIT_ASSERT_EQUAL(numSplats, block.numSplats);
+        CPPUNIT_ASSERT(block.numRanges <= maxRanges);
     }
 
     /* Check that the blocks do not overlap */
@@ -596,30 +413,28 @@ void TestBucket::validate(
         }
 
     /* Check that each splat is fully covered */
-    for (Range::scan_type scan = 0; scan < splats.getSplats().size(); scan++)
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
+    while (!splatStream->empty())
     {
-        for (Range::index_type id = 0; id < splats.getSplats()[scan].size(); id++)
-        {
-            Splat splat;
-            splats.getSplats()[scan].read(id, id + 1, &splat);
+        Splat splat = **splatStream;
 
-            boost::array<Grid::difference_type, 3> lower, upper;
-            SplatSet::detail::splatToBuckets(splat, fullGrid, 1, lower, upper);
-            std::tr1::uint64_t area = 1;
-            for (unsigned int k = 0; k < 3; k++)
-                if (lower[k] <= upper[k])
-                    area *= upper[k] - lower[k] + 1;
-                else
-                    area = 0;
-            CPPUNIT_ASSERT_EQUAL(area, areas[scan][id]);
-        }
+        boost::array<Grid::difference_type, 3> lower, upper;
+        SplatSet::internal::splatToBuckets(splat, fullGrid, 1, lower, upper);
+        std::tr1::uint64_t area = 1;
+        for (unsigned int k = 0; k < 3; k++)
+            if (lower[k] <= upper[k])
+                area *= upper[k] - lower[k] + 1;
+            else
+                area = 0;
+        CPPUNIT_ASSERT_EQUAL(area, areas[splatStream->currentId()]);
+        ++*splatStream;
     }
 }
 
 void TestBucket::setupSimple()
 {
-    createSplats(splatData, splats);
-    splatSet.reset(new Set(splats, 2.5f, 1));
+    createSplats(splats);
+    splats.computeBlobs(2.5f, 1);
 }
 
 void TestBucket::testSimple()
@@ -629,13 +444,13 @@ void TestBucket::testSimple()
     // The grid is set up so that the origin is at (0, 0, 0)
     const float ref[3] = {-10.0f, 0.0f, 10.0f};
     Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
-    vector<Block> blocks;
+    std::vector<Block> blocks;
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
-           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-    validate(*splatSet, grid, blocks, maxSplats, maxCells);
+    bucket(splats, grid, maxSplats, maxCells, false, maxSplit,
+           boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
+    validate(splats, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
     // blocks by hand
@@ -648,13 +463,13 @@ void TestBucket::testDensityError()
 
     const float ref[3] = {-10.0f, 0.0f, 10.0f};
     Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
-    vector<Block> blocks;
+    std::vector<Block> blocks;
     const int maxSplats = 1;
     const int maxCells = 8;
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
-        bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
-           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6)),
+        bucket(splats, grid, maxSplats, maxCells, false, maxSplit,
+           boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3)),
         DensityError);
 }
 
@@ -664,13 +479,13 @@ void TestBucket::testFlat()
 
     const float ref[3] = {-10.0f, 0.0f, 10.0f};
     Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
-    vector<Block> blocks;
+    std::vector<Block> blocks;
     const int maxSplats = 15;
     const int maxCells = 32;
     const int maxSplit = 1000000;
-    bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
-           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-    validate(*splatSet, grid, blocks, maxSplats, maxCells);
+    bucket(splats, grid, maxSplats, maxCells, false, maxSplit,
+           boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
+    validate(splats, grid, blocks, maxSplats, maxCells);
 
     CPPUNIT_ASSERT_EQUAL(1, int(blocks.size()));
 }
@@ -679,18 +494,18 @@ void TestBucket::testEmpty()
 {
     const float ref[3] = {-10.0f, 0.0f, 10.0f};
     Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
-    vector<Block> blocks;
+    std::vector<Block> blocks;
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
 
-    /* We can't use a BlobSet for this, because it requires at least one splat to create
+    /* We can't use a FastBlobSet for this, because it requires at least one splat to create
      * the bounding box.
      */
-    typedef SplatSet::SimpleSet<boost::ptr_vector<Collection> > Set;
-    Set splatSet(splats);
+    typedef SplatSet::VectorsSet Set;
+    Set splatSet;
     bucket(splatSet, grid, maxSplats, maxCells, false, maxSplit,
-           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
+           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3));
     CPPUNIT_ASSERT(blocks.empty());
 }
 
@@ -700,13 +515,13 @@ void TestBucket::testMultiLevel()
 
     const float ref[3] = {-10.0f, 0.0f, 10.0f};
     Grid grid(ref, 2.5f, 4, 20, 0, 20, -4, 4);
-    vector<Block> blocks;
+    std::vector<Block> blocks;
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 8;
-    bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
-           boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-    validate(*splatSet, grid, blocks, maxSplats, maxCells);
+    bucket(splats, grid, maxSplats, maxCells, false, maxSplit,
+           boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
+    validate(splats, grid, blocks, maxSplats, maxCells);
 
     // 11 was found by inspecting the output and checking the
     // blocks by hand
@@ -761,10 +576,10 @@ void TestBucket::testRandom(unsigned long seed)
     variate_generator<mt19937 &, uniform_real<float> > genZ(engine, uniform_real<float>(minZ, maxZ));
     variate_generator<mt19937 &, uniform_real<float> > genR(engine, uniform_real<float>(0.01f, maxRadius));
 
-    splatData.clear();
+    splats.clear();
     for (unsigned int i = 0; i < numScans; i++)
     {
-        splatData.push_back(vector<Splat>());
+        splats.push_back(std::vector<Splat>());
         unsigned int num = genNum();
         for (unsigned int i = 0; i < num; i++)
         {
@@ -775,33 +590,26 @@ void TestBucket::testRandom(unsigned long seed)
             splat.radius = genR();
             splat.quality = 0.0f;
             splat.normal[0] = splat.normal[1] = splat.normal[2] = 1.0f; // arbitrary
-            splatData.back().push_back(splat);
+            splats.back().push_back(splat);
         }
-    }
-
-    splats.clear();
-    splats.reserve(splatData.size());
-    for (std::size_t i = 0; i < splatData.size(); i++)
-    {
-        splats.push_back(new StdVectorCollection<Splat>(splatData[i]));
     }
 
     try
     {
-        splatSet.reset(new Set(splats, spacing, maxCells));
+        splats.computeBlobs(spacing, maxCells);
     }
     catch (std::length_error &e)
     {
         // Harmless: caused if there are no splats
         return;
     }
-    const Grid grid = splatSet->getBoundingGrid();
-    vector<Block> blocks;
+    const Grid grid = splats.getBoundingGrid();
+    std::vector<Block> blocks;
     try
     {
-        bucket(*splatSet, grid, maxSplats, maxCells, false, maxSplit,
-               boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3, _4, _5, _6));
-        validate(*splatSet, grid, blocks, maxSplats, maxCells);
+        bucket(splats, grid, maxSplats, maxCells, false, maxSplit,
+               boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
+        validate(splats, grid, blocks, maxSplats, maxCells);
     }
     catch (DensityError &e)
     {

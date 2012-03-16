@@ -65,6 +65,13 @@ BlobInfo SimpleBlobStreamReset::operator*() const
 }
 
 
+void SimpleVectorSet::MySplatStream::skipNonFinite()
+{
+    while (cur < last && !owner[cur].isFinite())
+        cur++;
+}
+
+
 void SimpleFileSet::addFile(FastPly::Reader *file)
 {
     files.push_back(file);

@@ -19,7 +19,6 @@
 #include "../src/splat.h"
 #include "../src/grid.h"
 #include "../src/splat_set.h"
-#include "../src/collection.h"
 #include "../src/logging.h"
 #include "../src/statistics.h"
 #include "test_splat_set.h"
@@ -27,128 +26,6 @@
 
 using namespace std;
 using namespace SplatSet;
-
-/**
- * Tests for Range.
- */
-class TestRange : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestRange);
-    CPPUNIT_TEST(testConstructor);
-    CPPUNIT_TEST(testAppendEmpty);
-    CPPUNIT_TEST(testAppendOverflow);
-    CPPUNIT_TEST(testAppendMiddle);
-    CPPUNIT_TEST(testAppendEnd);
-    CPPUNIT_TEST(testAppendGap);
-    CPPUNIT_TEST(testAppendNewScan);
-    CPPUNIT_TEST_SUITE_END();
-
-public:
-    void testConstructor();          ///< Test the constructors
-    void testAppendEmpty();          ///< Appending to an empty range
-    void testAppendOverflow();       ///< An append that would overflow the size
-    void testAppendMiddle();         ///< Append to the middle of an existing range
-    void testAppendEnd();            ///< Extend a range
-    void testAppendGap();            ///< Append outside (and not adjacent) to an existing range
-    void testAppendNewScan();        ///< Append with a different scan
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRange, TestSet::perBuild());
-
-void TestRange::testConstructor()
-{
-    Range empty;
-    Range single(3, 6);
-    Range range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x10);
-
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0), empty.size);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), single.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(6), single.start);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), single.size);
-
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(2), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0xFFFFFFFFFFFFFFF0)), range.start);
-
-    CPPUNIT_ASSERT_THROW(Range(2, UINT64_C(0xFFFFFFFFFFFFFFF0), 0x11), std::out_of_range);
-}
-
-void TestRange::testAppendEmpty()
-{
-    Range range;
-    bool success;
-
-    success = range.append(3, 6);
-    CPPUNIT_ASSERT_EQUAL(true, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(1), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(6), range.start);
-}
-
-void TestRange::testAppendOverflow()
-{
-    Range range;
-    range.scan = 3;
-    range.start = 0x90000000U;
-    range.size = 0xFFFFFFFFU;
-    bool success = range.append(3, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0xFFFFFFFFU), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(3), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(0x90000000U), range.start);
-}
-
-void TestRange::testAppendMiddle()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(4, UINT64_C(0x12345678FFFF));
-    CPPUNIT_ASSERT_EQUAL(true, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendEnd()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(4, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(true, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10001), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendGap()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(4, range.start + range.size + 1);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
-
-void TestRange::testAppendNewScan()
-{
-    Range range;
-    range.scan = 4;
-    range.start = UINT64_C(0x123456781234);
-    range.size = 0x10000;
-    bool success = range.append(5, range.start + range.size);
-    CPPUNIT_ASSERT_EQUAL(false, success);
-    CPPUNIT_ASSERT_EQUAL(Range::size_type(0x10000), range.size);
-    CPPUNIT_ASSERT_EQUAL(Range::scan_type(4), range.scan);
-    CPPUNIT_ASSERT_EQUAL(Range::index_type(UINT64_C(0x123456781234)), range.start);
-}
 
 /**
  * Create a splat with given position and radius. The other fields
@@ -197,18 +74,6 @@ void createSplats(std::vector<std::vector<Splat> > &splats)
     // Leave 4 empty to check empty ranges at the end
 }
 
-void createSplats(std::vector<std::vector<Splat> > &splats,
-                  boost::ptr_vector<StdVectorCollection<Splat> > &collections)
-{
-    createSplats(splats);
-    collections.clear();
-    collections.reserve(splats.size());
-    for (std::size_t i = 0; i < splats.size(); i++)
-    {
-        collections.push_back(new StdVectorCollection<Splat>(splats[i]));
-    }
-}
-
 /// Tests for @ref SplatSet::detail::splatToBuckets
 class TestSplatToBuckets : public CppUnit::TestFixture
 {
@@ -232,7 +97,7 @@ void TestSplatToBuckets::testSimple()
     boost::array<Grid::difference_type, 3> lower, upper;
 
     Splat s1 = makeSplat(115.0f, -31.0f, 1090.0f, 7.0f);
-    detail::splatToBuckets(s1, grid, 3, lower, upper);
+    SplatSet::internal::splatToBuckets(s1, grid, 3, lower, upper);
     CPPUNIT_ASSERT_EQUAL(1, int(lower[0]));
     CPPUNIT_ASSERT_EQUAL(2, int(upper[0]));
     CPPUNIT_ASSERT_EQUAL(-1, int(lower[1]));
@@ -241,7 +106,7 @@ void TestSplatToBuckets::testSimple()
     CPPUNIT_ASSERT_EQUAL(16, int(upper[2]));
 
     Splat s2 = makeSplat(-1000.0f, -1000.0f, -1000.0f, 100.0f);
-    detail::splatToBuckets(s2, grid, 3, lower, upper);
+    SplatSet::internal::splatToBuckets(s2, grid, 3, lower, upper);
     CPPUNIT_ASSERT_EQUAL(-19, int(lower[0]));
     CPPUNIT_ASSERT_EQUAL(-15, int(upper[0]));
     CPPUNIT_ASSERT_EQUAL(-18, int(lower[1]));
@@ -258,7 +123,7 @@ void TestSplatToBuckets::testNan()
     boost::array<Grid::difference_type, 3> lower, upper;
     Splat s = makeSplat(115.0f, std::numeric_limits<float>::quiet_NaN(), 1090.0f, 7.0f);
 
-    CPPUNIT_ASSERT_THROW(detail::splatToBuckets(s, grid, 3, lower, upper), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(SplatSet::internal::splatToBuckets(s, grid, 3, lower, upper), std::invalid_argument);
 }
 
 void TestSplatToBuckets::testZero()
@@ -270,7 +135,7 @@ void TestSplatToBuckets::testZero()
 
     Splat s = makeSplat(115.0f, -31.0f, 1090.0f, 7.0f);
 
-    CPPUNIT_ASSERT_THROW(detail::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(SplatSet::internal::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
 }
 
 /// Base class for testing @ref SplatSet::SimpleSet and equivalent classes.

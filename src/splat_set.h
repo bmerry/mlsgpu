@@ -137,7 +137,7 @@ void splatToBuckets(const Splat &splat,
 class SimpleVectorSet : public std::vector<Splat>
 {
 public:
-    size_type maxSplats() const { return size(); }
+    splat_id maxSplats() const { return size(); }
 
     SplatStream *makeSplatStream() const
     {
@@ -162,6 +162,7 @@ private:
         {
             MLSGPU_ASSERT(!empty(), std::runtime_error);
             cur++;
+            skipNonFinite();
             return *this;
         }
 
@@ -173,9 +174,13 @@ private:
         virtual void reset(splat_id first, splat_id last)
         {
             MLSGPU_ASSERT(first <= last, std::invalid_argument);
-            MLSGPU_ASSERT(last <= owner.size(), std::length_error);
+            if (owner.size() < last)
+                last = owner.size();
+            if (first > last)
+                first = last;
             cur = first;
             this->last = last;
+            skipNonFinite();
         }
 
         virtual splat_id currentId() const
@@ -193,6 +198,8 @@ private:
         const SimpleVectorSet &owner;
         splat_id cur;
         splat_id last;
+
+        void skipNonFinite();
     };
 };
 
@@ -424,7 +431,7 @@ public:
 
     FastBlobSet() : Base(), internalBucketSize(0), nSplats(0) {}
 
-    void computeBlobs(float spacing, Grid::size_type bucketSize, std::ostream *progressStream);
+    void computeBlobs(float spacing, Grid::size_type bucketSize, std::ostream *progressStream = NULL);
 
     const Grid &getBoundingGrid() const { return boundingGrid; }
 
