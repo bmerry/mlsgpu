@@ -15,6 +15,8 @@
 #include <boost/ref.hpp>
 #include <vector>
 #include <utility>
+#include <limits>
+#include <memory>
 #include <tr1/cstdint>
 #include "../src/splat.h"
 #include "../src/grid.h"
@@ -74,7 +76,40 @@ void createSplats(std::vector<std::vector<Splat> > &splats)
     // Leave 4 empty to check empty ranges at the end
 }
 
-/// Tests for @ref SplatSet::internal::splatToBuckets
+/**
+ * Like @ref createSplats, but creates data better suited to testing the splat
+ * sets themselves. It includes
+ * - non-finite splats
+ * - an empty range at the start, in the middle, and at the end
+ * - a range with a large number of splats, to test buffering in @ref SplatSet::FileSet.
+ *
+ * The splat coordinates are set based on the scan and offset, so are not
+ * useful for bucketing tests.
+ */
+static void createSplats2(std::vector<std::vector<Splat> > &splats)
+{
+    splats.clear();
+    splats.resize(10);
+    float NaN = std::numeric_limits<float>::quiet_NaN();
+
+    splats[2].push_back(makeSplat(2, 0, 0, NaN));
+    splats[2].push_back(makeSplat(2, 1, 0, 1));
+    splats[2].push_back(makeSplat(2, 2, 0, 2));
+
+    splats[4].push_back(makeSplat(4, 0, NaN, 1));
+    for (unsigned int i = 0; i < 50000; i++)
+        splats[5].push_back(makeSplat(5, i, 0, 1));
+
+    splats[6].push_back(makeSplat(6, 0, 0, 1));
+    splats[6].push_back(makeSplat(6, NaN, 0, 1));
+    splats[6].push_back(makeSplat(NaN, 2, 0, 1));
+    splats[6].push_back(makeSplat(6, 3, 0, 100));
+
+    splats[7].push_back(makeSplat(7, 0, 0, 1.5f));
+    splats[7].push_back(makeSplat(7, 1, 0, NaN));
+}
+
+/// Tests for @ref SplatSet::internal::splatToBuckets.
 class TestSplatToBuckets : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatToBuckets);
@@ -138,28 +173,30 @@ void TestSplatToBuckets::testZero()
     CPPUNIT_ASSERT_THROW(SplatSet::internal::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
 }
 
-/// Base class for testing @ref SplatSet::SimpleSet and equivalent classes.
+/// Base class for testing models of @ref SplatSet::SetConcept.
 template<typename SetType>
 class TestSplatSet : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatSet);
-    CPPUNIT_TEST(testForEach);
-    CPPUNIT_TEST(testForEachRange);
-    CPPUNIT_TEST(testForEachRangeAll);
-    CPPUNIT_TEST(testNan);
+    CPPUNIT_TEST(testSplatStream);
+    CPPUNIT_TEST(testBlobStream);
+    CPPUNIT_TEST(testSplatStreamEmpty);
+    CPPUNIT_TEST(testBlobStreamEmpty);
+    CPPUNIT_TEST(testOtherGrid);
+    CPPUNIT_TEST(testOtherBucketSize);
+    CPPUNIT_TEST(testMaxSplats);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 
 protected:
     typedef SetType Set;
-    typedef StdVectorCollection<Splat> SplatCollection;
-    typedef boost::ptr_vector<SplatCollection> SplatCollections;
 
-    std::vector<std::vector<Splat> > splatData;
-    SplatCollections splats;
-    boost::scoped_ptr<Set> set;
-
-    virtual Set *setFactory(const SplatCollections &splats,
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize) = 0;
+
+private:
+    std::vector<std::vector<Splat> > splatData;
+    std::vector<Splat> flatSplats; ///< Flattened @ref splatData with NaN's removed
+    Grid grid;                     ///< Grid for hitting the fast path
 
     /// Captures the parameters given to the function object
     struct Entry
@@ -171,70 +208,148 @@ protected:
         boost::array<Grid::difference_type, 3> upper;
     };
 
-    /// Function to collect callback data from @c forEach and its like
-    void callback(std::vector<Entry> &entries,
-                  typename Set::scan_type scan,
-                  typename Set::index_type first,
-                  typename Set::index_type last,
-                  const boost::array<Grid::difference_type, 3> &lower,
-                  const boost::array<Grid::difference_type, 3> &upper);
+    /**
+     * Check that retrieved splats match what is expected.  The @a splatIds can
+     * have any values provided that they're strictly increasing.
+     */
+    void validateSplats(const std::vector<Splat> &expected,
+                        const std::vector<Splat> &actual,
+                        const std::vector<splat_id> &ids);
 
-    /// Check that retrieved entries match what is expected
-    void validate(const std::vector<Entry> &entries,
-                  const std::vector<Range> &ranges,
-                  const Set &set,
-                  const Grid &grid,
-                  Grid::size_type bucketSize);
+    /// Check that retrieved blobs match what is expected
+    void validateBlobs(const std::vector<Splat> &expected,
+                       const std::vector<BlobInfo> &actual,
+                       const Grid &grid, Grid::size_type bucketSize);
+
+    void testBlobStreamHelper(float factorySpacing, Grid::size_type factorySize,
+                              const Grid &grid, Grid::size_type bucketSize);
 
 public:
     virtual void setUp();
     virtual void tearDown();
 
-    virtual void testForEach();      ///< Tests @c forEach
-    void testForEachRange();         ///< Tests @c forEachRange
-    virtual void testForEachRangeAll(); ///< Tests @c forEachRange where the ranges span everything
-    void testNan();                  ///< Tests handling of invalid splats
+    void testSplatStream();
+    void testBlobStream();
+    void testSplatStreamEmpty();
+    void testBlobStreamEmpty();
+    void testOtherGrid();
+    void testOtherBucketSize();
+    void testMaxSplats();
 };
 
-/// Tests for @ref SplatSet::SimpleSet
-class TestSplatSetSimple : public TestSplatSet<SimpleSet<boost::ptr_vector<StdVectorCollection<Splat> > > >
+/// Tests for @ref SplatSet::SubsettableConcept.
+template<typename SetType>
+class TestSplatSubsettable : public TestSplatSet<SetType>
 {
-    CPPUNIT_TEST_SUB_SUITE(TestSplatSetSimple, TestSplatSet<Set>);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual Set *setFactory(const SplatCollections &splats,
-                            float spacing, Grid::size_type bucketSize);
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatSetSimple, TestSet::perBuild());
+    CPPUNIT_TEST_SUB_SUITE(TestSplatSubsettable<SetType>, TestSplatSet<SetType>);
+    CPPUNIT_TEST(testSplatStreamReset);
+    CPPUNIT_TEST(testSplatStreamResetBigRange);
+    CPPUNIT_TEST(testSplatStreamResetEmptyRange);
+    CPPUNIT_TEST(testSplatStreamResetNegativeRange);
+    CPPUNIT_TEST(testBlobStreamReset);
+    CPPUNIT_TEST(testBlobStreamResetBigRange);
+    CPPUNIT_TEST(testBlobStreamResetEmptyRange);
+    CPPUNIT_TEST(testBlobStreamResetNegativeRange);
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+public:
+    void testSplatStreamReset();
+    void testSplatStreamResetBigRange();
+    void testSplatStreamResetEmptyRange();
+    void testSplatStreamResetNegativeRange();
 
-/// Tests for @ref SplatSet::BlobSet
-class TestSplatSetBlob : public TestSplatSet<BlobSet<boost::ptr_vector<StdVectorCollection<Splat> >, std::vector<Blob> > >
+    void testBlobStreamReset();
+    void testBlobStreamResetBigRange();
+    void testBlobStreamResetEmptyRange();
+    void testBlobStreamResetNegativeRange();
+};
+
+/// Tests for @ref SplatSet::FileSet
+class TestFileSet : public TestSplatSubsettable<FileSet>
 {
-    CPPUNIT_TEST_SUB_SUITE(TestSplatSetBlob, TestSplatSet<Set>);
-    CPPUNIT_TEST(testGetBoundingGrid);
+    CPPUNIT_TEST_SUB_SUITE(TestFileSet, TestSplatSubsettable<FileSet>);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual Set *setFactory(const SplatCollections &splats,
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
 public:
-    void testGetBoundingGrid();      ///< Tests construction of the bounding grid
-
-    // Overloads that check that the fast path was hit
-    virtual void testForEach();
-    virtual void testForEachRangeAll();
+    /// Adds all splats in @a splatData to the vector
+    static void populate(FileSet &set, const std::vector<std::vector<Splat> > &splatData);
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatSetBlob, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFileSet, TestSet::perBuild());
 
+/// Tests for @ref SplatSet::VectorSet
+class TestVectorSet : public TestSplatSubsettable<VectorSet>
+{
+    CPPUNIT_TEST_SUB_SUITE(TestVectorSet, TestSplatSubsettable<VectorSet>);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
+                            float spacing, Grid::size_type bucketSize);
+public:
+    /// Adds all splats in @a splatData to the vector
+    static void populate(VectorSet &set, const std::vector<std::vector<Splat> > &splatData);
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestVectorSet, TestSet::perBuild());
+
+/// Tests for @ref SplatSet::FastBlobSet<SplatSet::FileSet>.
+class TestFastFileSet : public TestSplatSubsettable<FastBlobSet<FileSet, std::vector<BlobData> > >
+{
+    typedef TestSplatSubsettable<FastBlobSet<FileSet, std::vector<BlobData> > > BaseFixture;
+    CPPUNIT_TEST_SUB_SUITE(TestFastFileSet, BaseFixture);
+    CPPUNIT_TEST(testBoundingGrid);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
+                            float spacing, Grid::size_type bucketSize);
+public:
+    void testBoundingGrid();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastFileSet, TestSet::perBuild());
+
+/// Tests for @ref SplatSet::FastBlobSet<SplatSet::VectorSet>.
+class TestFastVectorSet : public TestSplatSubsettable<FastBlobSet<VectorSet, std::vector<BlobData> > >
+{
+    typedef TestSplatSubsettable<FastBlobSet<VectorSet, std::vector<BlobData> > > BaseFixture;
+    CPPUNIT_TEST_SUB_SUITE(TestFastVectorSet, BaseFixture);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
+                            float spacing, Grid::size_type bucketSize);
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastVectorSet, TestSet::perBuild());
+
+/// Tests for @ref SplatSet::Subset
+class TestSubset : public TestSplatSet<Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > >
+{
+    typedef TestSplatSet<Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > > BaseFixture;
+    CPPUNIT_TEST_SUB_SUITE(TestSubset, BaseFixture);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
+                            float spacing, Grid::size_type bucketSize);
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSubset, TestSet::perBuild());
 
 template<typename SetType>
 void TestSplatSet<SetType>::setUp()
 {
     CppUnit::TestFixture::setUp();
-    createSplats(splatData, splats);
-    set.reset(setFactory(splats, 2.5f, 2));
-    /* The testNan test normally causes a warning to be printed about
+    createSplats2(splatData);
+
+    flatSplats.clear();
+    for (std::size_t i = 0; i < splatData.size(); i++)
+        for (std::size_t j = 0; j < splatData[i].size(); j++)
+            if (splatData[i][j].isFinite())
+                flatSplats.push_back(splatData[i][j]);
+
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    grid = Grid(ref, 2.5f, 2, 20, -30, 25, 0, 30);
+
+    /* The NaN test normally causes a warning to be printed about
      * invalid splats, but in this case it's intentional, so we
      * suppress the warning.
+     *
+     * TODO: move up to FastBlobSet test.
      */
     Log::log.setLevel(Log::error);
 }
@@ -242,223 +357,216 @@ void TestSplatSet<SetType>::setUp()
 template<typename SetType>
 void TestSplatSet<SetType>::tearDown()
 {
+    splatData.clear();
+    flatSplats.clear();
     // Restore the default log level
     Log::log.setLevel(Log::warn);
     CppUnit::TestFixture::tearDown();
 }
 
 template<typename SetType>
-void TestSplatSet<SetType>::callback(
-    std::vector<Entry> &entries,
-    typename Set::scan_type scan,
-    typename Set::index_type first,
-    typename Set::index_type last,
-    const boost::array<Grid::difference_type, 3> &lower,
-    const boost::array<Grid::difference_type, 3> &upper)
+void TestSplatSet<SetType>::validateSplats(
+    const std::vector<Splat> &expected,
+    const std::vector<Splat> &actual,
+    const std::vector<splat_id> &ids)
 {
-    Entry e;
-    e.scan = scan;
-    e.first = first;
-    e.last = last;
-    e.lower = lower;
-    e.upper = upper;
-    entries.push_back(e);
+    CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
+    CPPUNIT_ASSERT_EQUAL(expected.size(), ids.size());
+    for (std::size_t i = 0; i < expected.size(); i++)
+    {
+        CPPUNIT_ASSERT(actual[i].isFinite()); // avoids false NaN comparisons later
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[0], actual[i].position[0]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[1], actual[i].position[1]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[2], actual[i].position[2]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].radius, actual[i].radius);
+    }
+
+    for (std::size_t i = 1; i < ids.size(); i++)
+    {
+        CPPUNIT_ASSERT(ids[i - 1] < ids[i]);
+    }
 }
 
 template<typename SetType>
-void TestSplatSet<SetType>::validate(const std::vector<Entry> &entries,
-                                     const std::vector<Range> &ranges,
-                                     const Set &set,
-                                     const Grid &grid,
-                                     Grid::size_type bucketSize)
+void TestSplatSet<SetType>::validateBlobs(
+    const std::vector<Splat> &expected,
+    const std::vector<BlobInfo> &actual,
+    const Grid &grid,
+    Grid::size_type bucketSize)
 {
-    typedef typename Set::scan_type scan_type;
-    typedef typename Set::index_type index_type;
-
-    /* First check that we got exactly the splats we expected and in the
-     * same order. We do this the lazy way, by generating lists of expected
-     * and actual values.
-     */
-    std::vector<std::pair<scan_type, index_type> > actualIds, expectedIds;
-
-    for (std::size_t i = 0; i < entries.size(); i++)
+    std::size_t nextSplat = 0;
+    for (std::size_t i = 0; i < actual.size(); i++)
     {
-        for (index_type j = entries[i].first; j < entries[i].last; j++)
-            actualIds.push_back(std::make_pair(entries[i].scan, j));
-    }
-    for (std::size_t i = 0; i < ranges.size(); i++)
-    {
-        for (index_type j = ranges[i].start; j < ranges[i].start + ranges[i].size; j++)
-            expectedIds.push_back(std::make_pair(scan_type(ranges[i].scan), j));
-    }
-
-    CPPUNIT_ASSERT_EQUAL(expectedIds.size(), actualIds.size());
-    for (std::size_t i = 0; i < expectedIds.size(); i++)
-    {
-        CPPUNIT_ASSERT_EQUAL(expectedIds[i].first, actualIds[i].first);
-        CPPUNIT_ASSERT_EQUAL(expectedIds[i].second, actualIds[i].second);
-    }
-
-    /* Now check that in each case the right range of buckets was given */
-    for (size_t i = 0; i < entries.size(); i++)
-    {
-        for (index_type j = entries[i].first; j < entries[i].last; j++)
+        CPPUNIT_ASSERT(i > 0 || actual[i].id > actual[i - 1].id);
+        const BlobInfo &cur = actual[i];
+        CPPUNIT_ASSERT(cur.numSplats > 0);
+        CPPUNIT_ASSERT(nextSplat + cur.numSplats <= expected.size());
+        for (std::size_t j = 0; j < cur.numSplats; j++)
         {
-            Splat splat;
-            set.getSplats()[entries[i].scan].read(j, j + 1, &splat);
-
-            float loWorld[3], hiWorld[3];
-            Grid::difference_type loCell[3], hiCell[3];
-            Grid::difference_type loBucket[3], hiBucket[3];
+            boost::array<Grid::difference_type, 3> lower, upper;
+            SplatSet::internal::splatToBuckets(
+                expected[nextSplat + j], grid, bucketSize, lower, upper);
             for (unsigned int k = 0; k < 3; k++)
             {
-                loWorld[k] = splat.position[k] - splat.radius;
-                hiWorld[k] = splat.position[k] + splat.radius;
-            }
-            grid.worldToCell(loWorld, loCell);
-            grid.worldToCell(hiWorld, hiCell);
-            for (unsigned int k = 0; k < 3; k++)
-            {
-                loBucket[k] = divDown(loCell[k], bucketSize);
-                hiBucket[k] = divDown(hiCell[k], bucketSize);
-            }
-            for (unsigned int k = 0; k < 3; k++)
-            {
-                CPPUNIT_ASSERT_EQUAL(loBucket[k], entries[i].lower[k]);
-                CPPUNIT_ASSERT_EQUAL(hiBucket[k], entries[i].upper[k]);
+                CPPUNIT_ASSERT_EQUAL(lower[k], cur.lower[k]);
+                CPPUNIT_ASSERT_EQUAL(upper[k], cur.upper[k]);
             }
         }
+        nextSplat += cur.numSplats;
     }
+    CPPUNIT_ASSERT_EQUAL(expected.size(), nextSplat);
 }
 
 template<typename SetType>
-void TestSplatSet<SetType>::testForEach()
+void TestSplatSet<SetType>::testSplatStream()
 {
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 2.5f, 0, 20, 0, 20, 0, 20);
-    std::vector<Entry> entries;
-    set->forEach(grid, 4, boost::bind(&TestSplatSet<SetType>::callback, this,
-                                      boost::ref(entries), _1, _2, _3, _4, _5));
-
-    std::vector<Range> ranges;
-    for (size_t i = 0; i < splatData.size(); i++)
-        ranges.push_back(Range(i, 0, splatData[i].size()));
-    validate(entries, ranges, *set, grid, 4);
-}
-
-template<typename SetType>
-void TestSplatSet<SetType>::testForEachRange()
-{
-    std::vector<Range> ranges;
-    ranges.push_back(Range(0, 1, 2));
-    ranges.push_back(Range(0, 3, 1));
-    ranges.push_back(Range(1, 0, 1));
-    ranges.push_back(Range(1, 3, 2));
-    ranges.push_back(Range(3, 0, 1));
-
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 2.5f, 0, 20, 0, 20, 0, 20);
-    std::vector<Entry> entries;
-    set->forEachRange(ranges.begin(), ranges.end(),
-                      grid, 4, boost::bind(&TestSplatSet<SetType>::callback, this,
-                                           boost::ref(entries), _1, _2, _3, _4, _5));
-    validate(entries, ranges, *set, grid, 4);
-}
-
-template<typename SetType>
-void TestSplatSet<SetType>::testForEachRangeAll()
-{
-    std::vector<Range> ranges;
-    for (size_t i = 0; i < splatData.size(); i++)
+    boost::scoped_ptr<Set> set(setFactory(splatData, 2.5f, 5));
+    if (set.get())
     {
-        if (!splatData[i].empty())
-            ranges.push_back(Range(i, 0, splatData[i].size()));
+        boost::scoped_ptr<SplatStream> stream(set->makeSplatStream());
+        std::vector<Splat> actual;
+        std::vector<splat_id> ids;
+        while (!stream->empty())
+        {
+            actual.push_back(**stream);
+            ids.push_back(stream->currentId());
+            ++*stream;
+        }
+        validateSplats(flatSplats, actual, ids);
     }
-
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 2.5f, -20, 20, 4, 20, -20, 20);
-    std::vector<Entry> entries;
-    set->forEachRange(ranges.begin(), ranges.end(),
-                      grid, 4, boost::bind(&TestSplatSet<SetType>::callback, this,
-                                           boost::ref(entries), _1, _2, _3, _4, _5));
-    validate(entries, ranges, *set, grid, 4);
+    else
+        CPPUNIT_ASSERT(flatSplats.empty()); // some classes don't allow empty sets
 }
 
 template<typename SetType>
-void TestSplatSet<SetType>::testNan()
+void TestSplatSet<SetType>::testBlobStreamHelper(
+    float factorySpacing, Grid::size_type factorySize,
+    const Grid &grid, Grid::size_type bucketSize)
 {
-    std::vector<Range> ranges;
-    for (size_t i = 0; i < splatData.size(); i++)
-        ranges.push_back(Range(i, 0, splatData[i].size()));
-
-    // To make things more interesting, make all the coordinates negative to check rounding
-    for (size_t i = 0; i < splatData.size(); i++)
-        for (size_t j = 0; j < splatData[i].size(); j++)
+    boost::scoped_ptr<Set> set(setFactory(splatData, factorySpacing, factorySize));
+    if (set.get())
+    {
+        boost::scoped_ptr<BlobStream> stream(set->makeBlobStream(grid, bucketSize));
+        std::vector<BlobInfo> actual;
+        while (!stream->empty())
         {
-            splatData[i][j].position[0] *= -1.0f;
-            splatData[i][j].position[1] *= -1.0f;
-            splatData[i][j].position[2] *= -1.0f;
+            actual.push_back(**stream);
+            ++*stream;
         }
-    // Add some extra invalid entries, AFTER the ranges have been set up,
-    // so that validate will not expect to see those splats.
-    const float n = std::numeric_limits<float>::quiet_NaN();
-    splatData[0].push_back(makeSplat(n, 0.0f, 0.0f, 1.0f));
-    splatData[0].push_back(makeSplat(1.0f, 0.0f, 0.0f, n));
-
-    // Need to recreate the blobs are that
-    set.reset(setFactory(splats, 2.5f, 2));
-
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 2.5f, 0, 20, 0, 20, 0, 20);
-    std::vector<Entry> entries;
-    set->forEach(grid, 4, boost::bind(&TestSplatSet<SetType>::callback, this,
-                                      boost::ref(entries), _1, _2, _3, _4, _5));
-    validate(entries, ranges, *set, grid, 4);
+        validateBlobs(flatSplats, actual, grid, bucketSize);
+    }
+    else
+        CPPUNIT_ASSERT(flatSplats.empty()); // some classes don't allow empty sets
 }
 
-TestSplatSetSimple::Set *TestSplatSetSimple::setFactory(
-    const SplatCollections &collections, float spacing, Grid::size_type bucketSize)
+template<typename SetType>
+void TestSplatSet<SetType>::testBlobStream()
+{
+    testBlobStreamHelper(grid.getSpacing(), 5, grid, 5);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testSplatStreamEmpty()
+{
+    splatData.clear();
+    flatSplats.clear();
+    testSplatStream();
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testBlobStreamEmpty()
+{
+    splatData.clear();
+    flatSplats.clear();
+    testBlobStreamHelper(grid.getSpacing(), 5, grid, 5);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testOtherGrid()
+{
+    Grid otherGrid = grid;
+    otherGrid.setSpacing(3.0f);
+    testBlobStreamHelper(grid.getSpacing(), 5, otherGrid, 5);
+    otherGrid = grid;
+    otherGrid.setExtent(1, -50, 50);
+    testBlobStreamHelper(grid.getSpacing(), 5, otherGrid, 5);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testOtherBucketSize()
+{
+    testBlobStreamHelper(grid.getSpacing(), 5, grid, 10);
+    testBlobStreamHelper(grid.getSpacing(), 5, grid, 4);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testMaxSplats()
+{
+    const unsigned int bucketSize = 5;
+    boost::scoped_ptr<Set> set(setFactory(splatData, 2.5f, bucketSize));
+    CPPUNIT_ASSERT(flatSplats.size() <= set->maxSplats());
+    // No upper bound in the spec, but if it's bigger than this then it's an
+    // unreasonable overestimate
+    std::size_t total = 0;
+    for (std::size_t i = 0; i < splatData.size(); i++)
+        total += splatData[i].size();
+    CPPUNIT_ASSERT(set->maxSplats() <= total);
+}
+
+
+FileSet *TestFileSet::setFactory(
+    const std::vector<std::vector<Splat> > &splatData,
+    float spacing, Grid::size_type bucketSize)
 {
     (void) spacing;
     (void) bucketSize;
-    return new Set(collections);
+    std::auto_ptr<Set> set(new Set);
+    populate(*set, splatData);
+    return set.release();
 }
 
-TestSplatSetBlob::Set *TestSplatSetBlob::setFactory(
-    const SplatCollections &collections, float spacing, Grid::size_type bucketSize)
+void TestVectorSet::populate(
+    VectorSet &set,
+    const std::vector<std::vector<Splat> > &splatData)
 {
-    return new Set(collections, spacing, bucketSize);
+    for (std::size_t i = 0; i < splatData.size(); i++)
+    {
+        set.insert(set.end(), splatData[i].begin(), splatData[i].end());
+    }
 }
 
-void TestSplatSetBlob::testGetBoundingGrid()
+VectorSet *TestVectorSet::setFactory(
+    const std::vector<std::vector<Splat> > &splatData,
+    float spacing, Grid::size_type bucketSize)
 {
-    Grid grid = set->getBoundingGrid();
-    CPPUNIT_ASSERT_EQUAL(2.5f, grid.getSpacing());
-    CPPUNIT_ASSERT_EQUAL(0.0f, grid.getReference()[0]);
-    CPPUNIT_ASSERT_EQUAL(0.0f, grid.getReference()[1]);
-    CPPUNIT_ASSERT_EQUAL(0.0f, grid.getReference()[2]);
-    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(2), grid.getExtent(0).first);
-    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(16), grid.getExtent(0).second);
-    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(4), grid.getExtent(1).first);
-    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(20), grid.getExtent(1).second);
-    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(2), grid.getExtent(2).first);
-    CPPUNIT_ASSERT_EQUAL(Grid::difference_type(6), grid.getExtent(2).second);
+    (void) spacing;
+    (void) bucketSize;
+
+    std::auto_ptr<Set> set(new Set);
+    populate(*set, splatData);
+    return set.release();
 }
 
-void TestSplatSetBlob::testForEach()
+FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
+    const std::vector<std::vector<Splat> > &splatData,
+    float spacing, Grid::size_type bucketSize)
 {
-    Statistics::Variable &hits = Statistics::getStatistic<Statistics::Variable>("blobset.foreach.fast");
-    double oldTotal = hits.getNumSamples() > 0 ? hits.getMean() * hits.getNumSamples() : 0.0;
-    TestSplatSet<Set>::testForEach();
-    double newTotal = hits.getMean() * hits.getNumSamples();
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(oldTotal + 1.0, newTotal, 1e-2);
+    if (splatData.empty())
+        return NULL; // otherwise computeBlobs will throw
+    std::auto_ptr<Set> set(new Set);
+    TestFileSet::populate(*set, splatData);
+    set->computeBlobs(spacing, bucketSize);
+    return set.release();
 }
 
-void TestSplatSetBlob::testForEachRangeAll()
+FastBlobSet<VectorSet, std::vector<BlobData> > *TestFastVectorSet::setFactory(
+    const std::vector<std::vector<Splat> > &splatData,
+    float spacing, Grid::size_type bucketSize)
 {
-    Statistics::Variable &hits = Statistics::getStatistic<Statistics::Variable>("blobset.foreachrange.fast");
-    double oldTotal = hits.getNumSamples() > 0 ? hits.getMean() * hits.getNumSamples() : 0.0;
-    TestSplatSet<Set>::testForEachRangeAll();
-    double newTotal = hits.getMean() * hits.getNumSamples();
-    CPPUNIT_ASSERT_DOUBLES_EQUAL(oldTotal + 1.0, newTotal, 1e-2);
+    if (splatData.empty())
+        return NULL;
+    std::auto_ptr<Set> set(new Set);
+    TestVectorSet::populate(*set, splatData);
+    set->computeBlobs(spacing, bucketSize);
+    return set.release();
 }
