@@ -14,6 +14,9 @@
 #include <boost/numeric/conversion/cast.hpp>
 #include "ply.h"
 
+/**
+ * A point together with a normal and a radius of influence.
+ */
 struct Splat
 {
     float position[3];
@@ -21,6 +24,9 @@ struct Splat
     float normal[3];
     float quality;
 
+    /**
+     * Checks whether all attributes are finite.
+     */
     inline bool isFinite() const
     {
         return (std::tr1::isfinite)(position[0])

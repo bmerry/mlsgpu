@@ -48,27 +48,6 @@ static bool gridsIntersect(const Grid &a, const Grid &b)
     return true;
 }
 
-
-/**
- * Tests for @ref Bucket::internal::RangeCollector.
- */
-class TestRangeCollector : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestRangeCollector);
-    CPPUNIT_TEST(testSimple);
-    CPPUNIT_TEST(testAppendRange);
-    CPPUNIT_TEST(testFlush);
-    CPPUNIT_TEST(testFlushEmpty);
-    CPPUNIT_TEST_SUITE_END();
-
-public:
-    void testSimple();            ///< Test basic functionality
-    void testAppendRange();       ///< Test appending a new range
-    void testFlush();             ///< Test flushing and continuing
-    void testFlushEmpty();        ///< Test flushing when nothing to flush
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestRangeCollector, TestSet::perBuild());
-
 std::ostream &operator<<(std::ostream &o, const Node &node)
 {
     return o << "Node("

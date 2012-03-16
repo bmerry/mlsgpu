@@ -26,10 +26,11 @@ std::pair<splat_id, splat_id> BlobbedSet<CoreSet>::blobsToSplats(
     (void) grid;
     (void) bucketSize;
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+    // Splat IDs are the same as blob IDs
     return std::make_pair(firstBlob, lastBlob);
 }
 
-} // namespace
+} // namespace internal
 
 template<typename Base, typename BlobVector>
 BlobInfo FastBlobSet<Base, BlobVector>::MyBlobStream::operator*() const
@@ -50,8 +51,9 @@ template<typename Base, typename BlobVector>
 void FastBlobSet<Base, BlobVector>::MyBlobStream::reset(blob_id firstBlob, blob_id lastBlob)
 {
     MLSGPU_ASSERT(firstBlob <= lastBlob, std::invalid_argument);
-    MLSGPU_ASSERT(lastBlob <= owner.blobs.size(), std::length_error);
-    curBlob = firstBlob;
+    if (owner.blobs.size() < lastBlob)
+        lastBlob = owner.blobs.size();
+    curBlob = std::min(firstBlob, lastBlob);
     this->lastBlob = lastBlob;
 }
 

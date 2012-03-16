@@ -74,7 +74,7 @@ void createSplats(std::vector<std::vector<Splat> > &splats)
     // Leave 4 empty to check empty ranges at the end
 }
 
-/// Tests for @ref SplatSet::detail::splatToBuckets
+/// Tests for @ref SplatSet::internal::splatToBuckets
 class TestSplatToBuckets : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatToBuckets);

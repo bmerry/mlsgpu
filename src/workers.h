@@ -168,7 +168,7 @@ protected:
      * @param numWorkers     Number of worker threads to use.
      * @param capacity       Number of work items to have in the pool.
      * @param pushStat       Statistic for time blocked in @ref push.
-     * @param popStat        Statistic for time blocked in @ref pop.
+     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
      * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.

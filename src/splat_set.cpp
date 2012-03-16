@@ -90,11 +90,10 @@ SplatStream &SimpleFileSet::MySplatStream::operator++()
 void SimpleFileSet::MySplatStream::reset(splat_id first, splat_id last)
 {
     MLSGPU_ASSERT(first <= last, std::invalid_argument);
-    this->first = first;
     this->last = last;
     bufferCur = 0;
     bufferEnd = 0;
-    next = first;
+    cur = next = first;
     refill();
 }
 
@@ -143,6 +142,8 @@ void SimpleFileSet::MySplatStream::refill()
 
 void SubsetBase::addBlob(const BlobInfo &blob)
 {
+    MLSGPU_ASSERT(blobRanges.empty() || blobRanges.back().second <= blob.id,
+                  std::invalid_argument);
     if (blobRanges.empty() || blobRanges.back().second != blob.id)
         blobRanges.push_back(std::make_pair(blob.id, blob.id + 1));
     else

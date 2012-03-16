@@ -32,31 +32,59 @@
 #include "logging.h"
 #include "progress.h"
 
+/**
+ * Data structures for iteration over sets of splats.
+ */
 namespace SplatSet
 {
 
 typedef std::tr1::uint64_t blob_id;
 typedef std::tr1::uint64_t splat_id;
 
+/**
+ * Metadata about a sequence of splats.
+ */
 struct BlobInfo
 {
+    /**
+     * Identifier for the blob.
+     * @see @ref SubsettableConcept::blobsToSplats,
+     * @ref SubsetBase::addBlob.
+     */
     blob_id id;
-    splat_id numSplats;
-    boost::array<Grid::difference_type, 3> lower, upper;
+    splat_id numSplats;  ///< Number of splats in the blob
+
+    /**
+     * Lower bound for bucket range hit by the bounding boxes of the splats.
+     * The coordinate system is determined by a grid and a @a bucketSize. A
+     * bucket with coordinate @a x covers the real interval [@a x * @a
+     * bucketSize, (@a x + 1) * @a bucketSize) in the grid space, and
+     * similarly for the other dimensions.
+     */
+    boost::array<Grid::difference_type, 3> lower;
+
+    /**
+     * Upper bound (inclusive) of bucket range.
+     * @see @ref lower.
+     */
+    boost::array<Grid::difference_type, 3> upper;
 };
 
 /**
  * Polymorphic interface for iteration over a sequence of splats. This is based
- * on the STXXL stream interface.
+ * on the STXXL stream interface. The splats returns must all be finite.
  *
- * Each splat has an ID. IDs are monotonic but not necessarily contiguous
- * (although they must be mostly contiguous for efficiency). A splat stream
- * iterates over all the valid IDs in a given range, or over all splats in a
- * splat set.
+ * The general pattern of implementations is to maintain some form of pointer
+ * to the next splat to return. Both during construction and after advancing
+ * the pointer, it will pre-emptively skip over non-finite splats until a
+ * finite one is found or the end is reached.
  *
- * An implementation of this interface is required to filter out splats with
- * non-finite elements. This can itself lead to discontiguous IDs, even if
- * the the container is flat.
+ * In some cases the collection is really a collection-of-collections under
+ * the hood. Again, as soon as the pointer is advanced to the end of a
+ * sub-collection it is preemptively advanced until the pointer becomes valid
+ * again or the end is reached. This is done in a method calls @c refill.
+ *
+ * @see @ref SetConcept
  */
 class SplatStream : public boost::noncopyable
 {
@@ -66,11 +94,15 @@ public:
 
     virtual ~SplatStream() {}
 
-    virtual SplatStream &operator++() = 0; ///< Advance to the next legal splat
+    /**
+     * Advance to the next splat in the stream.
+     * @pre <code>!empty()</code>
+     */
+    virtual SplatStream &operator++() = 0;
 
     /**
      * Return the currently pointed-to splat.
-     * @pre !empty()
+     * @pre <code>!empty()</code>
      */
     virtual const Splat &operator*() const = 0;
 
@@ -82,6 +114,7 @@ public:
     /**
      * Returns an ID for the current splat (the one that would be returned by
      * <code>operator *</code>).
+     * @pre <code>!empty()</code>
      */
     virtual splat_id currentId() const = 0;
 };
@@ -96,6 +129,7 @@ class SplatStreamReset : public SplatStream
 public:
     /**
      * Restart iteration over a new range of IDs.
+     * @pre @a first &lt;= @a last.
      */
     virtual void reset(splat_id first, splat_id last) = 0;
 };
@@ -115,25 +149,157 @@ public:
 
     virtual ~BlobStream() {}
 
+    /**
+     * Advance to the next blob in the stream.
+     * @pre <code>!empty()</code>
+     */
     virtual BlobStream &operator++() = 0;
+
+    /**
+     * Retrieve information about the current blob.
+     * @pre <code>!empty()</code>
+     */
     virtual BlobInfo operator*() const = 0;
+
+    /**
+     * Determine whether there are any more blobs in the stream.
+     */
     virtual bool empty() const = 0;
 };
 
+/**
+ * A blob stream that allows relatively efficient random access.
+ */
 class BlobStreamReset : public BlobStream
 {
 public:
+    /**
+     * Reset the range to iterate over, starting at @a firstblob.
+     * @pre @a firstBlob &lt;= @a lastBlob.
+     */
     virtual void reset(blob_id firstBlob, blob_id lastBlob) = 0;
 };
 
+#ifdef DOXYGEN_FAKE_CODE
+/**
+ * Concept documentation for a splat set.  A <em>splat set</em> is an ordered
+ * collection of splats, each of which has a unique ID. The IDs do not need to
+ * be contiguous, but for some purposes it is best if there are long runs of
+ * contiguous IDs.
+ *
+ * A splat set can be iterated using @ref makeSplatStream, but for bucketing it
+ * may be more efficient to use @ref makeBlobStream to iterate over
+ * <em>blobs</em>. A blob is a contiguous sequence of splats which occupy the
+ * same set of buckets. Note that the size and alignment of buckets is a
+ * run-time choice: thus, a single splat set will iterate a different set of
+ * blobs depending on which grid and bucket size are provided.
+ *
+ * Splats for which @ref Splat::isFinite is false are never enumerated as part
+ * of @ref makeSplatStream, nor are they counted in blobs. It is thus up to
+ * the models of this concept to filter them out.
+ */
+class SetConcept
+{
+public:
+    /**
+     * Return an upper bound on the number of splats that would be enumerated
+     * by @ref makeSplatStream. This must be usable for memory allocation so
+     * it should not be a gross overestimate. In typical use, this will be the
+     * number of splats in a backing store which might include non-finite
+     * splats.
+     *
+     * Some models of this concept provide a <code>numSplats</code> member
+     * which give an exact count. Where this member exists, it is guaranteed
+     * that @a maxSplats will provide the same count.
+     */
+    splat_id maxSplats() const;
+
+    /**
+     * Returns a stream that iterates over all (finite) splats in the set.
+     */
+    SplatStream *makeSplatStream() const;
+
+    /**
+     * Returns a stream that iterates over all blobs in the set.
+     */
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
+};
+
+/**
+ * A set that can be wrapped in @ref Subset. It contains extra methods for
+ * random access that are used by @ref Subset to iterate over its subset.
+ */
+class SubsettableConcept : public SetConcept
+{
+public:
+    /**
+     * Create a splat stream that can be used for random access to the splats.
+     * The returned stream is empty, and @ref SplatStreamReset::reset must be
+     * used to select ranges to iterate over.
+     */
+    SplatStreamReset *makeSplatStreamReset() const;
+
+    /**
+     * Create a blob stream that can be used fo random access to blobs.
+     * The returned stream is empty, and @ref BlobStreamReset::reset must be
+     * used to select ranges to iterate over.
+     */
+    BlobStreamReset *makeBlobStreamReset(const Grid &grid, Grid::size_type bucketSize) const;
+
+    /**
+     * Maps a random of blob IDs to a range of splat IDs. Passing the
+     * resulting splat ID range to @ref SplatStreamReset::reset will
+     * yield the splats corresponding to the given range of blobs.
+     * Note that not all the splats in the splat ID range will actually be
+     * existing splat IDs.
+     *
+     * @param grid, bucketSize       Determines the blob view.
+     * @param firstBlob, lastBlob    Half-open interval of blobs.
+     */
+    std::pair<splat_id, splat_id> blobsToSplats(
+        const Grid &grid, Grid::size_type bucketSize,
+        blob_id firstBlob, blob_id lastBlob) const;
+};
+
+#endif // DOXYGEN_FAKE_CODE
+
+/**
+ * Internal implementation details of @ref SplatSet.
+ */
 namespace internal
 {
 
+/**
+ * Computes the range of buckets that will be occupied by a splat's bounding
+ * box. See @ref BlobInfo for the definition of buckets.
+ *
+ * The coordinates are given in units of buckets, with (0,0,0) being the bucket
+ * overlapping cell (0,0,0).
+ *
+ * @param      splat         Input splat
+ * @param      grid          Grid for spacing and alignment
+ * @param      bucketSize    Size of buckets in cells
+ * @param[out] lower         Lower bound coordinates (inclusive)
+ * @param[out] upper         Upper bound coordinates (inclusive)
+ *
+ * @pre
+ * - <code>splat.isFinite()</code>
+ * - @a bucketSize &gt; 0
+ */
 void splatToBuckets(const Splat &splat,
                     const Grid &grid, Grid::size_type bucketSize,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper);
 
+/**
+ * Partial splat set interface for a simple vector of splats. This is turned
+ * into a model of @ref SetConcept using @ref BlobbedSet. The splat IDs are
+ * simply the positions in the vector. It is legal to store non-finite splats;
+ * they will be skipped over by the stream.
+ *
+ * All the public methods of @c std::vector&lt;Splat&gt; are available, but
+ * modifying the data while a stream exists yields undefined behavior.
+ */
 class SimpleVectorSet : public std::vector<Splat>
 {
 public:
@@ -150,6 +316,7 @@ public:
     }
 
 private:
+    /// Splat stream implementation
     class MySplatStream : public SplatStreamReset
     {
     public:
@@ -199,6 +366,7 @@ private:
         splat_id cur;
         splat_id last;
 
+        ///< Advances until reading a finite splat or the end of the range
         void skipNonFinite();
     };
 };
@@ -212,9 +380,15 @@ private:
 class SimpleFileSet
 {
 public:
+    /// Number of bits used to store the within-file splat ID
     static const unsigned int scanIdShift = 40;
+    /// Mask of the bits used to store the within-file splat ID
     static const splat_id splatIdMask = (splat_id(1) << scanIdShift) - 1;
 
+    /**
+     * Append a new file to the set. The set takes over ownership of the file.
+     * This must not be called while a stream is in progress.
+     */
     void addFile(FastPly::Reader *file);
 
     SplatStream *makeSplatStream() const
@@ -232,6 +406,7 @@ public:
     SimpleFileSet() : nSplats(0) {}
 
 private:
+    /// Splat stream implementation
     class MySplatStream : public SplatStreamReset
     {
     public:
@@ -262,24 +437,35 @@ private:
         }
 
     private:
+        /// Size of internal buffer for holding splats
         static const std::size_t bufferSize = 16384;
 
-        const SimpleFileSet &owner;
-        /// Total range to iterate over
-        splat_id first, last;
-
+        const SimpleFileSet &owner;     ///< Owning set
+        splat_id last;                  ///< End of range to iterate over
         splat_id next;                  ///< Next ID to load into the buffer once exhausted
         splat_id cur;                   ///< Splat ID at the front of the buffer
         std::size_t bufferCur;          ///< First position in @ref buffer with data
         std::size_t bufferEnd;          ///< Past-the-end position for @ref buffer
         Splat buffer[bufferSize];       ///< Buffer for splats read from file
 
+        /**
+         * Advances over non-finite elements in the buffer. It stops when a
+         * finite splat is reached or the buffer is empty. This should only
+         * be called by @ref refill.
+         */
         void skipNonFiniteInBuffer();
 
+        /**
+         * Advance the stream until empty or a finite splat is reached. This
+         * will refill the buffer if necessary.
+         */
         void refill();
     };
 
+    /// Backing store of files
     boost::ptr_vector<FastPly::Reader> files;
+
+    /// Number of splats stored in the files (including non-finites)
     splat_id nSplats;
 };
 
@@ -313,6 +499,7 @@ private:
     Grid::size_type bucketSize;
 };
 
+/// Implementation of @ref BlobStreamReset that just has one blob for each splat
 class SimpleBlobStreamReset : public BlobStreamReset
 {
 public:
@@ -346,11 +533,16 @@ private:
 };
 
 /**
- * Takes a model of the basic interface and adds the blob interface, with blob IDs
- * simply equaling splat IDs and no acceleration.
+ * Adds the blob interface to a base class that does not have it, with blob
+ * IDs simply equaling splat IDs.
+ *
+ * @param CoreSet A model of @ref SubsettableConcept that is missing the blob functions.
  */
 template<typename CoreSet>
 class BlobbedSet : public CoreSet
+#ifdef DOXYGEN_FAKE_CODE
+, public SubsettableConcept
+#endif
 {
 public:
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
@@ -370,22 +562,61 @@ public:
 
 } // namespace internal
 
+/**
+ * An implementation of @ref SubsettableConcept with data stored in multiple
+ * PLY files.
+ */
 typedef internal::BlobbedSet<internal::SimpleFileSet> FileSet;
+
+/**
+ * An implementation of @ref SubsettableConcept with data stored in a single
+ * vector.
+ */
 typedef internal::BlobbedSet<internal::SimpleVectorSet> VectorSet;
 
+/**
+ * Internal data stored in @ref FastBlobSet. This class is not accessed
+ * directly by the user, but is in the namespace so that the user can generate
+ * the type for the second template parameter to @ref FastBlobSet.
+ *
+ * All the splat IDs in the range [@a firstSplat, @a lastSplat) are valid
+ * splat IDs that fall into the blob (blobs thus cannot span discontinuities
+ * in the original splat IDs). It follows that the blob contains
+ * @a lastSplat - @a firstSplat splats.
+ */
 struct BlobData
 {
-    boost::array<Grid::difference_type, 3> lower, upper;
-    splat_id firstSplat, lastSplat;
+    /// Lower bound of buckets covered by the blob (inclusive)
+    boost::array<Grid::difference_type, 3> lower;
+    /// Upper bound of buckets covered by the blob (inclusive)
+    boost::array<Grid::difference_type, 3> upper;
+    splat_id firstSplat;  ///< First splat covered by the blob
+    splat_id lastSplat;   ///< One past the last splat covered by the blob
 };
 
 /**
- * Takes a model of the blobbed interface and extends it by precomputing
- * information about splats for a specific bucket size so that iteration
- * using that bucket size (or any multiple thereof) is potentially faster.
+ * Subsettable splat set with accelerated blob interface. This class takes a
+ * model of the blobbed interface and extends it by precomputing information
+ * about splats for a specific bucket size so that iteration using that bucket
+ * size (or any multiple thereof) is potentially faster.
+ *
+ * To use this class, it is required to call @ref computeBlobs to generate the
+ * blob information before calling any of the other functions. To hit the fast
+ * path, it is necessary to use a grid whose origin is at the world origin and
+ * whose spacing is a multiple of the spacing given to @ref computeBlobs.
+ *
+ * @ref computeBlobs will also generate a bounding box for the set, which can
+ * be retrieved with @ref getBoundingGrid. Since both operations are done in a
+ * single pass, this is usually more efficient than computing the bounding
+ * grid separately.
+ *
+ * @param Base A model of @ref SubsettableConcept.
  */
 template<typename Base, typename BlobVector>
 class FastBlobSet : public Base
+#ifdef DOXYGEN_FAKE_CODE
+, public SubsettableConcept
+#endif
 {
 public:
     /**
@@ -416,10 +647,15 @@ public:
 
     private:
         const FastBlobSet<Base, BlobVector> &owner;
+        /// The stream blob size over the blob size used to construct the blob data
         Grid::size_type bucketRatio;
+        /**
+         * Offset between the stream grid and the grid used to construct the
+         * blob data, in units of @a owner.internalBucketSize.
+         */
         Grid::difference_type offset[3];
-        blob_id curBlob;
-        blob_id lastBlob;
+        blob_id curBlob;     ///< Blob ID for the current blob
+        blob_id lastBlob;    ///< Past-the-end ID
     };
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
@@ -431,32 +667,88 @@ public:
 
     FastBlobSet() : Base(), internalBucketSize(0), nSplats(0) {}
 
+    /**
+     * Generate the internal acceleration structures and compute bounding box.
+     * This must only be called once the base class has been populated with
+     * its splats, and after calling it the underlying data must not be
+     * modified again. This function must be called before any of the other
+     * functions defined in this class.
+     *
+     * @param spacing        Grid spacing for grids to be accelerated.
+     * @param bucketSize     Common factor for bucket sizes to be accelerated.
+     * @param progressStream If non-NULL, will be used to report progress.
+     */
     void computeBlobs(float spacing, Grid::size_type bucketSize, std::ostream *progressStream = NULL);
 
+    /**
+     * Return the bounding grid generated by @ref computeBlobs. The grid will
+     * have an origin at the world origin and the @a spacing passed to @ref
+     * computeBlobs.
+     */
     const Grid &getBoundingGrid() const { return boundingGrid; }
 
+    /**
+     * Return the exact number of splats in the splat stream.
+     */
     splat_id numSplats() const
     {
         MLSGPU_ASSERT(internalBucketSize > 0, std::runtime_error);
         return nSplats;
     }
 
+    splat_id maxSplats() const { return numSplats(); }
+
 private:
+    /**
+     * The bucket size used to generate the blob data. It is initially zero
+     * when the class is constructed, and is populated by @ref computeBlobs.
+     */
     Grid::size_type internalBucketSize;
+    /**
+     * Bounding grid computed by @ref computeBlobs. It is initially undefined.
+     */
     Grid boundingGrid;
+    /**
+     * Blob metadata computed by @ref computeBlobs. It is initially empty.
+     */
     BlobVector blobs;
     std::size_t nSplats;  ///< Exact splat count computed during blob generation
 
+    /**
+     * Determines whether the given @a grid and @a bucketSize can use the
+     * pre-generated blob data.
+     */
     bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
 };
 
+/**
+ * Abstracts the parts of @ref Subset that do not require knowledge of the
+ * superclass type.
+ *
+ * @see @ref Subset.
+ */
 class SubsetBase
 {
 public:
+    /**
+     * Add a blob to the subset. Only the blob ID and splat count are used.
+     * @pre @a blob.id is strictly greater than the ID of any other blob
+     * already in the set.
+     */
     void addBlob(const BlobInfo &blob);
 
+    /**
+     * Swap blob IDs with another subset. Note that this does not check that
+     * the IDs make sense in the other set; use with caution. The intended use
+     * case is to allow an instance of @ref SubsetBase to be used for
+     * accumulating the information in type-agnostic code, then swapping into
+     * an instance of @ref Subset at the end.
+     */
     void swap(SubsetBase &other);
 
+    /**
+     * The number of blob ID ranges.
+     */
     std::size_t numRanges() const { return blobRanges.size(); }
 
     splat_id numSplats() const { return nSplats; }
@@ -465,6 +757,7 @@ public:
     SubsetBase() : nSplats(0) {}
 
 protected:
+    /// Blob stream implementation
     class MyBlobStream : public BlobStream
     {
     public:
@@ -499,12 +792,38 @@ protected:
         void refill();
     };
 
+    /**
+     * Store of blob ID ranges. Each range is a half-open interval of valid
+     * IDs.
+     */
     std::vector<std::pair<blob_id, blob_id> > blobRanges;
+
+    /// Number of splats in the supplied blobs.
     splat_id nSplats;
 };
 
+/**
+ * A subset of the splats from another set. Note that this class does not
+ * implement the @ref SubsettableConcept, but since it matches its superset in
+ * blob and splat IDs, it is possible to create a subset of a subset by
+ * subsetting the superset. @ref Traits can be used to handle this distinction
+ * transparently.
+ *
+ * The members of the subset are specified using blobs of the superset. Thus,
+ * the subset is specialized with a specific grid and bucket size which give
+ * the blob view on the superset. Blob iteration over the subset using the
+ * same grid and bucket size will be efficient since it will just iterate over
+ * blobs from the superset (which may be particularly efficient if the
+ * superset is a @ref FastBlobSet). Blob iteration using a different grid or
+ * bucket size will simply iterate over all the splats.
+ *
+ * @param Super a model of @ref SubsettableConcept
+ */
 template<typename Super>
 class Subset : public SubsetBase
+#ifdef DOXYGEN_FAKE_CODE
+, public SetConcept
+#endif
 {
 public:
     SplatStream *makeSplatStream() const
@@ -514,12 +833,24 @@ public:
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
+    /**
+     * Constructor to wrap superset.
+     * @param super         Superset. This object holds a reference, so it must not be destroyed.
+     *                      It must also not be modified.
+     * @param subGrid, subBucketSize Specify the blob view of the superset
+     *                      used to interpret blob IDs passed to @ref addBlob.
+     */
     Subset(const Super &super, const Grid &subGrid, Grid::size_type subBucketSize)
     : super(super), subGrid(subGrid), subBucketSize(subBucketSize)
     {
         MLSGPU_ASSERT(subBucketSize > 0, std::invalid_argument);
     }
 
+    /**
+     * Constructor to wrap superset of another subset. This allows a subset of
+     * type <code>Subset<Traits<T>::subset_type></code> to be constructed by passing a
+     * @c T, where @c T is either a @c SubsettableConcept or is @c Subset.
+     */
     Subset(const Subset<Super> &peer, const Grid &subGrid, Grid::size_type subBucketSize)
     : super(peer.super), subGrid(subGrid), subBucketSize(subBucketSize)
     {
@@ -527,6 +858,7 @@ public:
     }
 
 private:
+    /// Splat stream implementation
     class MySplatStream : public SplatStream
     {
     public:
@@ -560,25 +892,37 @@ private:
 
     private:
         const Subset<Super> &owner;
-        std::size_t blobRange;        ///< Next blob range to load into child
-        boost::scoped_ptr<SplatStreamReset> child;
+        std::size_t blobRange;        ///< Next blob range to load into @ref child
+        boost::scoped_ptr<SplatStreamReset> child; ///< Stream for iterating over ranges of superset splats
 
-        void refill();
+        void refill();                ///< Advance to the next valid splat
     };
 
     // TODO move this down to the base class along with subGrid and subBucketSize
     bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
 
-    const Super &super;
-    Grid subGrid;
+    const Super &super;             ///< Containing superset
+    Grid subGrid;                   ///< 
     Grid::size_type subBucketSize;
 };
 
+/**
+ * Metaprogramming information about splat set types.
+ *
+ * @param T A model of @ref SetConcept
+ */
 template<typename T>
 class Traits
 {
 public:
+    /**
+     * A type suitable for representing a subset of @a T.
+     */
     typedef Subset<T> subset_type;
+    /**
+     * @c boost::true_type if @a T is @c Subset, otherwise @c
+     * boost::false_type.
+     */
     typedef boost::false_type is_subset;
 };
 

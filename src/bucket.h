@@ -99,7 +99,7 @@ public:
  *                   be used for a finer-grained bucketing with a constrained
  *                   bucket size, in which case this can be used to ensure a
  *                   balanced split. It is also useful for hitting the fast
- *                   path in @ref SplatSet::BlobSet.
+ *                   path in @ref SplatSet::FastBlobSet.
  * @param maxSplit   Maximum recursion fan-out. Larger values will usually
  *                   give higher performance by reducing recursion depth,
  *                   but at the cost of more memory.

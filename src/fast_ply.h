@@ -84,7 +84,6 @@ class Reader
 public:
     /// Size capable of holding maximum supported file size
     typedef boost::iostreams::mapped_file_source::size_type size_type;
-    /// @see @ref Collection
     typedef Splat value_type;
 
     /**
