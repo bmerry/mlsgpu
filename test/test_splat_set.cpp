@@ -13,16 +13,23 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/bind.hpp>
 #include <boost/ref.hpp>
+#include <boost/foreach.hpp>
 #include <vector>
 #include <utility>
 #include <limits>
 #include <memory>
+#include <string>
+#include <sstream>
+#include <algorithm>
+#include <iterator>
 #include <tr1/cstdint>
+#include <tr1/random>
 #include "../src/splat.h"
 #include "../src/grid.h"
 #include "../src/splat_set.h"
 #include "../src/logging.h"
 #include "../src/statistics.h"
+#include "../src/fast_ply.h"
 #include "test_splat_set.h"
 #include "testmain.h"
 
@@ -182,7 +189,9 @@ class TestSplatSet : public CppUnit::TestFixture
     CPPUNIT_TEST(testBlobStream);
     CPPUNIT_TEST(testSplatStreamEmpty);
     CPPUNIT_TEST(testBlobStreamEmpty);
-    CPPUNIT_TEST(testOtherGrid);
+    CPPUNIT_TEST(testOtherGridSpacing);
+    CPPUNIT_TEST(testOtherGridExtent);
+    CPPUNIT_TEST(testOtherBucketSizeMultiple);
     CPPUNIT_TEST(testOtherBucketSize);
     CPPUNIT_TEST(testMaxSplats);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
@@ -190,12 +199,13 @@ class TestSplatSet : public CppUnit::TestFixture
 protected:
     typedef SetType Set;
 
+    std::vector<Splat> flatSplats; ///< Flattened @ref splatData with NaN's removed
+
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize) = 0;
 
 private:
     std::vector<std::vector<Splat> > splatData;
-    std::vector<Splat> flatSplats; ///< Flattened @ref splatData with NaN's removed
     Grid grid;                     ///< Grid for hitting the fast path
 
     /// Captures the parameters given to the function object
@@ -232,7 +242,9 @@ public:
     void testBlobStream();
     void testSplatStreamEmpty();
     void testBlobStreamEmpty();
-    void testOtherGrid();
+    void testOtherGridSpacing();
+    void testOtherGridExtent();
+    void testOtherBucketSizeMultiple();
     void testOtherBucketSize();
     void testMaxSplats();
 };
@@ -268,12 +280,22 @@ class TestFileSet : public TestSplatSubsettable<FileSet>
 {
     CPPUNIT_TEST_SUB_SUITE(TestFileSet, TestSplatSubsettable<FileSet>);
     CPPUNIT_TEST_SUITE_END();
+
+private:
+    std::vector<std::string> store;
+
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
 public:
-    /// Adds all splats in @a splatData to the vector
-    static void populate(FileSet &set, const std::vector<std::vector<Splat> > &splatData);
+    /**
+     * Adds all splats in @a splatData to the set. Each element of @a splatData is
+     * converted to PLY format and appended as a new @ref FastPly::Reader to @a set.
+     * The converted data are stored in @a store, which must remain live and unmodified
+     * for as long as @a set is live.
+     */
+    static void populate(FileSet &set, const std::vector<std::vector<Splat> > &splatData,
+                         vector<string> &store);
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFileSet, TestSet::perBuild());
 
@@ -298,6 +320,10 @@ class TestFastFileSet : public TestSplatSubsettable<FastBlobSet<FileSet, std::ve
     CPPUNIT_TEST_SUB_SUITE(TestFastFileSet, BaseFixture);
     CPPUNIT_TEST(testBoundingGrid);
     CPPUNIT_TEST_SUITE_END();
+
+private:
+    std::vector<std::string> store;
+
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
@@ -321,9 +347,12 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastVectorSet, TestSet::perBuild());
 /// Tests for @ref SplatSet::Subset
 class TestSubset : public TestSplatSet<Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > >
 {
+    typedef FastBlobSet<VectorSet, std::vector<BlobData> > Super;
     typedef TestSplatSet<Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > > BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestSubset, BaseFixture);
     CPPUNIT_TEST_SUITE_END();
+private:
+    Super super;
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
@@ -397,7 +426,7 @@ void TestSplatSet<SetType>::validateBlobs(
     std::size_t nextSplat = 0;
     for (std::size_t i = 0; i < actual.size(); i++)
     {
-        CPPUNIT_ASSERT(i > 0 || actual[i].id > actual[i - 1].id);
+        CPPUNIT_ASSERT(i == 0 || actual[i].id > actual[i - 1].id);
         const BlobInfo &cur = actual[i];
         CPPUNIT_ASSERT(cur.numSplats > 0);
         CPPUNIT_ASSERT(nextSplat + cur.numSplats <= expected.size());
@@ -482,20 +511,30 @@ void TestSplatSet<SetType>::testBlobStreamEmpty()
 }
 
 template<typename SetType>
-void TestSplatSet<SetType>::testOtherGrid()
+void TestSplatSet<SetType>::testOtherGridSpacing()
 {
     Grid otherGrid = grid;
     otherGrid.setSpacing(3.0f);
     testBlobStreamHelper(grid.getSpacing(), 5, otherGrid, 5);
-    otherGrid = grid;
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testOtherGridExtent()
+{
+    Grid otherGrid = grid;
     otherGrid.setExtent(1, -50, 50);
     testBlobStreamHelper(grid.getSpacing(), 5, otherGrid, 5);
 }
 
 template<typename SetType>
-void TestSplatSet<SetType>::testOtherBucketSize()
+void TestSplatSet<SetType>::testOtherBucketSizeMultiple()
 {
     testBlobStreamHelper(grid.getSpacing(), 5, grid, 10);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testOtherBucketSize()
+{
     testBlobStreamHelper(grid.getSpacing(), 5, grid, 4);
 }
 
@@ -514,6 +553,36 @@ void TestSplatSet<SetType>::testMaxSplats()
 }
 
 
+void TestFileSet::populate(FileSet &set, const std::vector<std::vector<Splat> > &splatData, vector<string> &store)
+{
+    store.clear();
+    store.reserve(splatData.size());
+    BOOST_FOREACH(const std::vector<Splat> &splats, splatData)
+    {
+        std::ostringstream data;
+        data <<
+            "ply\n"
+            "format binary_little_endian 1.0\n"
+            "element vertex " << splats.size() << "\n"
+            "property float32 x\n"
+            "property float32 y\n"
+            "property float32 z\n"
+            "property float32 nx\n"
+            "property float32 ny\n"
+            "property float32 nz\n"
+            "property float32 radius\n"
+            "end_header\n";
+        BOOST_FOREACH(const Splat &splat, splats)
+        {
+            data.write((const char *) splat.position, 3 * sizeof(float));
+            data.write((const char *) splat.normal, 3 * sizeof(float));
+            data.write((const char *) &splat.radius, sizeof(float));
+        }
+        store.push_back(data.str());
+        set.addFile(new FastPly::Reader(store.back().data(), store.back().size(), 1.0f));
+    }
+}
+
 FileSet *TestFileSet::setFactory(
     const std::vector<std::vector<Splat> > &splatData,
     float spacing, Grid::size_type bucketSize)
@@ -521,7 +590,7 @@ FileSet *TestFileSet::setFactory(
     (void) spacing;
     (void) bucketSize;
     std::auto_ptr<Set> set(new Set);
-    populate(*set, splatData);
+    populate(*set, splatData, store);
     return set.release();
 }
 
@@ -554,7 +623,7 @@ FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
     if (splatData.empty())
         return NULL; // otherwise computeBlobs will throw
     std::auto_ptr<Set> set(new Set);
-    TestFileSet::populate(*set, splatData);
+    TestFileSet::populate(*set, splatData, store);
     set->computeBlobs(spacing, bucketSize);
     return set.release();
 }
@@ -568,5 +637,41 @@ FastBlobSet<VectorSet, std::vector<BlobData> > *TestFastVectorSet::setFactory(
     std::auto_ptr<Set> set(new Set);
     TestVectorSet::populate(*set, splatData);
     set->computeBlobs(spacing, bucketSize);
+    return set.release();
+}
+
+Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > *
+TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
+                       float spacing, Grid::size_type bucketSize)
+{
+    if (splatData.empty())
+        return NULL;
+
+    std::tr1::mt19937 engine;
+    std::tr1::bernoulli_distribution dist(0.75);
+    std::tr1::variate_generator<std::tr1::mt19937 &, std::tr1::bernoulli_distribution> gen(engine, dist);
+
+    TestVectorSet::populate(super, splatData);
+    super.computeBlobs(spacing, bucketSize);
+    std::auto_ptr<Set> set(new Set(super, super.getBoundingGrid(), bucketSize));
+
+    // Select a random subset of the blobs in the superset
+    vector<Splat> flatSubset;
+    unsigned int offset = 0;
+    boost::scoped_ptr<BlobStream> superBlobs(super.makeBlobStream(super.getBoundingGrid(), bucketSize));
+    while (!superBlobs->empty())
+    {
+        const BlobInfo blob = **superBlobs;
+        if (gen())
+        {
+            std::copy(flatSplats.begin() + offset, flatSplats.begin() + offset + blob.numSplats,
+                      std::back_inserter(flatSubset));
+            set->addBlob(blob);
+        }
+        offset += blob.numSplats;
+        ++*superBlobs;
+    }
+    CPPUNIT_ASSERT_EQUAL((unsigned int) flatSplats.size(), offset);
+    flatSplats.swap(flatSubset);
     return set.release();
 }
