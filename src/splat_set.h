@@ -901,9 +901,9 @@ private:
     // TODO move this down to the base class along with subGrid and subBucketSize
     bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
 
-    const Super &super;             ///< Containing superset
-    Grid subGrid;                   ///< 
-    Grid::size_type subBucketSize;
+    const Super &super;             ///< Containing superset.
+    Grid subGrid;                   ///< Grid used to decode blobs in superset.
+    Grid::size_type subBucketSize;  ///< Bucket size used to decode blobs in superset.
 };
 
 /**
