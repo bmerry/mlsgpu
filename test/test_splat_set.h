@@ -98,7 +98,9 @@ private:
 
         void skipNonFiniteInScan()
         {
-            while (offset < owner.at(scan).size() && !owner.at(scan)[offset].isFinite())
+            while (scan < owner.size()
+                   && offset < owner.at(scan).size()
+                   && !owner.at(scan)[offset].isFinite())
                 offset++;
         }
 
