@@ -180,7 +180,8 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     splat_id nonFinite = Base::maxSplats() - nSplats;
     if (nonFinite > 0)
     {
-        *progress += nonFinite;
+        if (progress != NULL)
+            *progress += nonFinite;
         Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
     }
     registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
