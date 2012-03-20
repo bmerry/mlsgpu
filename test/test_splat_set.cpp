@@ -426,11 +426,12 @@ void TestSplatSet<SetType>::validateBlobs(
     std::size_t nextSplat = 0;
     for (std::size_t i = 0; i < actual.size(); i++)
     {
-        CPPUNIT_ASSERT(i == 0 || actual[i].id > actual[i - 1].id);
+        CPPUNIT_ASSERT(i == 0 || actual[i].firstSplat >= actual[i - 1].lastSplat);
         const BlobInfo &cur = actual[i];
-        CPPUNIT_ASSERT(cur.numSplats > 0);
-        CPPUNIT_ASSERT(nextSplat + cur.numSplats <= expected.size());
-        for (std::size_t j = 0; j < cur.numSplats; j++)
+        CPPUNIT_ASSERT(cur.lastSplat > cur.firstSplat);
+        splat_id numSplats = cur.lastSplat - cur.firstSplat;
+        CPPUNIT_ASSERT(nextSplat + numSplats <= expected.size());
+        for (std::size_t j = 0; j < numSplats; j++)
         {
             boost::array<Grid::difference_type, 3> lower, upper;
             SplatSet::internal::splatToBuckets(
@@ -441,7 +442,7 @@ void TestSplatSet<SetType>::validateBlobs(
                 CPPUNIT_ASSERT_EQUAL(upper[k], cur.upper[k]);
             }
         }
-        nextSplat += cur.numSplats;
+        nextSplat += numSplats;
     }
     CPPUNIT_ASSERT_EQUAL(expected.size(), nextSplat);
 }
@@ -653,7 +654,7 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
 
     TestVectorSet::populate(super, splatData);
     super.computeBlobs(spacing, bucketSize);
-    std::auto_ptr<Set> set(new Set(super, super.getBoundingGrid(), bucketSize));
+    std::auto_ptr<Set> set(new Set(super));
 
     // Select a random subset of the blobs in the superset
     vector<Splat> flatSubset;
@@ -662,13 +663,14 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
     while (!superBlobs->empty())
     {
         const BlobInfo blob = **superBlobs;
+        splat_id numSplats = blob.lastSplat - blob.firstSplat;
         if (gen())
         {
-            std::copy(flatSplats.begin() + offset, flatSplats.begin() + offset + blob.numSplats,
+            std::copy(flatSplats.begin() + offset, flatSplats.begin() + offset + numSplats,
                       std::back_inserter(flatSubset));
             set->addBlob(blob);
         }
-        offset += blob.numSplats;
+        offset += numSplats;
         ++*superBlobs;
     }
     CPPUNIT_ASSERT_EQUAL((unsigned int) flatSplats.size(), offset);

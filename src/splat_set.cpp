@@ -49,21 +49,11 @@ void splatToBuckets(const Splat &splat,
 BlobInfo SimpleBlobStream::operator*() const
 {
     BlobInfo ans;
-    ans.numSplats = 1;
-    ans.id = splatStream->currentId();
+    ans.firstSplat = splatStream->currentId();
+    ans.lastSplat = ans.firstSplat + 1;
     splatToBuckets(**splatStream, grid, bucketSize, ans.lower, ans.upper);
     return ans;
 }
-
-BlobInfo SimpleBlobStreamReset::operator*() const
-{
-    BlobInfo ans;
-    ans.numSplats = 1;
-    ans.id = splatStream->currentId();
-    splatToBuckets(**splatStream, grid, bucketSize, ans.lower, ans.upper);
-    return ans;
-}
-
 
 void SimpleVectorSet::MySplatStream::skipNonFinite()
 {
@@ -142,29 +132,19 @@ void SimpleFileSet::MySplatStream::refill()
 
 void SubsetBase::addBlob(const BlobInfo &blob)
 {
-    MLSGPU_ASSERT(blobRanges.empty() || blobRanges.back().second <= blob.id,
+    MLSGPU_ASSERT(splatRanges.empty() || splatRanges.back().second <= blob.firstSplat,
                   std::invalid_argument);
-    if (blobRanges.empty() || blobRanges.back().second != blob.id)
-        blobRanges.push_back(std::make_pair(blob.id, blob.id + 1));
+    if (splatRanges.empty() || splatRanges.back().second != blob.firstSplat)
+        splatRanges.push_back(std::make_pair(blob.firstSplat, blob.lastSplat));
     else
-        blobRanges.back().second++;
-    nSplats += blob.numSplats;
+        splatRanges.back().second = blob.lastSplat;
+    nSplats += blob.lastSplat - blob.firstSplat;
 }
 
 void SubsetBase::swap(SubsetBase &other)
 {
-    blobRanges.swap(other.blobRanges);
+    splatRanges.swap(other.splatRanges);
     std::swap(nSplats, other.nSplats);
-}
-
-void SubsetBase::MyBlobStream::refill()
-{
-    while (child->empty() && blobRange < owner.blobRanges.size())
-    {
-        const std::pair<blob_id, blob_id> &range = owner.blobRanges[blobRange];
-        child->reset(range.first, range.second);
-        blobRange++;
-    }
 }
 
 } // namespace SplatSet

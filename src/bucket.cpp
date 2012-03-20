@@ -190,7 +190,7 @@ void CountSplat::operator()(const SplatSet::BlobInfo &blob) const
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                state.nodeCounts[level][x][y][z] += blob.numSplats;
+                state.nodeCounts[level][x][y][z] += blob.lastSplat - blob.firstSplat;
             }
     while (level < state.macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
@@ -206,7 +206,8 @@ void CountSplat::operator()(const SplatSet::BlobInfo &blob) const
                         hits *= 2;
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
-                    state.nodeCounts[level][x][y][z] -= (hits - 1) * blob.numSplats;
+                    SplatSet::splat_id numSplats = blob.lastSplat - blob.firstSplat;
+                    state.nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {

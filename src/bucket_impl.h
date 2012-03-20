@@ -266,7 +266,7 @@ void BucketSplat<Splats>::operator()(const SplatSet::BlobInfo &blob) const
                         childRecursion.depth++;
                         childRecursion.totalRanges += region.subset.numRanges();
 
-                        typename SplatSet::Traits<Splats>::subset_type subset(splats, state.grid, state.microSize);
+                        typename SplatSet::Traits<Splats>::subset_type subset(splats);
                         subset.swap(region.subset);
                         bucketRecurse(subset,
                                       childGrid,
