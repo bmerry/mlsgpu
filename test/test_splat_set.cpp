@@ -204,10 +204,10 @@ protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize) = 0;
 
-private:
     std::vector<std::vector<Splat> > splatData;
     Grid grid;                     ///< Grid for hitting the fast path
 
+private:
     /// Captures the parameters given to the function object
     struct Entry
     {
@@ -255,24 +255,20 @@ class TestSplatSubsettable : public TestSplatSet<SetType>
 {
     CPPUNIT_TEST_SUB_SUITE(TestSplatSubsettable<SetType>, TestSplatSet<SetType>);
     CPPUNIT_TEST(testSplatStreamReset);
-    CPPUNIT_TEST(testSplatStreamResetBigRange);
     CPPUNIT_TEST(testSplatStreamResetEmptyRange);
     CPPUNIT_TEST(testSplatStreamResetNegativeRange);
-    CPPUNIT_TEST(testBlobStreamReset);
-    CPPUNIT_TEST(testBlobStreamResetBigRange);
-    CPPUNIT_TEST(testBlobStreamResetEmptyRange);
-    CPPUNIT_TEST(testBlobStreamResetNegativeRange);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
+
+protected:
+    void testSplatStreamResetHelper(splat_id first, splat_id last);
+
 public:
+    typedef SetType Set;
+
     void testSplatStreamReset();
     void testSplatStreamResetBigRange();
     void testSplatStreamResetEmptyRange();
     void testSplatStreamResetNegativeRange();
-
-    void testBlobStreamReset();
-    void testBlobStreamResetBigRange();
-    void testBlobStreamResetEmptyRange();
-    void testBlobStreamResetNegativeRange();
 };
 
 /// Tests for @ref SplatSet::FileSet
@@ -313,12 +309,25 @@ public:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestVectorSet, TestSet::perBuild());
 
-/// Tests for @ref SplatSet::FastBlobSet<SplatSet::FileSet>.
-class TestFastFileSet : public TestSplatSubsettable<FastBlobSet<FileSet, std::vector<BlobData> > >
+/// Tests for @ref SplatSet::FastBlobSet.
+template<typename BaseType>
+class TestFastBlobSet : public TestSplatSubsettable<FastBlobSet<BaseType, std::vector<BlobData> > >
 {
-    typedef TestSplatSubsettable<FastBlobSet<FileSet, std::vector<BlobData> > > BaseFixture;
-    CPPUNIT_TEST_SUB_SUITE(TestFastFileSet, BaseFixture);
+    typedef TestSplatSubsettable<FastBlobSet<BaseType, std::vector<BlobData> > > BaseFixture;
+    CPPUNIT_TEST_SUB_SUITE(TestFastBlobSet<BaseType>, BaseFixture);
     CPPUNIT_TEST(testBoundingGrid);
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+public:
+    typedef typename BaseFixture::Set Set;
+
+    void testBoundingGrid();
+};
+
+/// Tests for @ref SplatSet::FastBlobSet<SplatSet::FileSet>.
+class TestFastFileSet : public TestFastBlobSet<FileSet>
+{
+    typedef TestFastBlobSet<FileSet> BaseFixture;
+    CPPUNIT_TEST_SUB_SUITE(TestFastFileSet, BaseFixture);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -327,15 +336,13 @@ private:
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
-public:
-    void testBoundingGrid();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastFileSet, TestSet::perBuild());
 
 /// Tests for @ref SplatSet::FastBlobSet<SplatSet::VectorSet>.
-class TestFastVectorSet : public TestSplatSubsettable<FastBlobSet<VectorSet, std::vector<BlobData> > >
+class TestFastVectorSet : public TestFastBlobSet<VectorSet>
 {
-    typedef TestSplatSubsettable<FastBlobSet<VectorSet, std::vector<BlobData> > > BaseFixture;
+    typedef TestFastBlobSet<VectorSet> BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestFastVectorSet, BaseFixture);
     CPPUNIT_TEST_SUITE_END();
 protected:
@@ -554,6 +561,80 @@ void TestSplatSet<SetType>::testMaxSplats()
 }
 
 
+template<typename SetType>
+void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, splat_id last)
+{
+    vector<Splat> expected, actual;
+    vector<splat_id> expectedIds, actualIds;
+
+    const unsigned int bucketSize = 5;
+    boost::scoped_ptr<Set> set(setFactory(this->splatData, this->grid.getSpacing(), bucketSize));
+
+    {
+        boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream());
+        while (!splatStream->empty())
+        {
+            splat_id id = splatStream->currentId();
+            if (id >= first && id < last)
+            {
+                expected.push_back(**splatStream);
+                expectedIds.push_back(id);
+            }
+            ++*splatStream;
+        }
+    }
+
+    {
+        boost::scoped_ptr<SplatStreamReset> splatStreamReset(set->makeSplatStreamReset());
+        splatStreamReset->reset(first, last);
+        while (!splatStreamReset->empty())
+        {
+            actual.push_back(**splatStreamReset);
+            actualIds.push_back(splatStreamReset->currentId());
+            ++*splatStreamReset;
+        }
+    }
+
+    CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
+    for (std::size_t i = 0; i < expected.size(); i++)
+    {
+        CPPUNIT_ASSERT_EQUAL(expectedIds[i], actualIds[i]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[0], actual[i].position[0]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[1], actual[i].position[1]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].position[2], actual[i].position[2]);
+        CPPUNIT_ASSERT_EQUAL(expected[i].radius, actual[i].radius);
+    }
+}
+
+template<typename SetType>
+void TestSplatSubsettable<SetType>::testSplatStreamReset()
+{
+    testSplatStreamResetHelper(0, 1000000);
+    testSplatStreamResetHelper(3, splat_id(3) << 40);
+    testSplatStreamResetHelper(2, (splat_id(3) << 40) - 1);
+    testSplatStreamResetHelper((splat_id(1) << 40) + 100, (splat_id(6) << 40) - 1);
+    testSplatStreamResetHelper((splat_id(4) << 40), (splat_id(50) << 40) - 1);
+}
+
+template<typename SetType>
+void TestSplatSubsettable<SetType>::testSplatStreamResetEmptyRange()
+{
+    testSplatStreamResetHelper(0, 0);
+    testSplatStreamResetHelper(3, 3);
+    testSplatStreamResetHelper(1000000000, 1000000000);
+}
+
+template<typename SetType>
+void TestSplatSubsettable<SetType>::testSplatStreamResetNegativeRange()
+{
+    boost::scoped_ptr<Set> set(setFactory(this->splatData, this->grid.getSpacing(), 5));
+    boost::scoped_ptr<SplatStreamReset> splatStream(set->makeSplatStreamReset());
+
+    CPPUNIT_ASSERT_THROW(splatStream->reset(1, 0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(splatStream->reset(splat_id(1) << 33, 1), std::invalid_argument);
+}
+
+
 void TestFileSet::populate(FileSet &set, const std::vector<std::vector<Splat> > &splatData, vector<string> &store)
 {
     store.clear();
@@ -615,6 +696,27 @@ VectorSet *TestVectorSet::setFactory(
     std::auto_ptr<Set> set(new Set);
     populate(*set, splatData);
     return set.release();
+}
+
+template<typename BaseType>
+void TestFastBlobSet<BaseType>::testBoundingGrid()
+{
+    const unsigned int bucketSize = 5;
+    boost::scoped_ptr<Set> set(setFactory(this->splatData, 2.5f, bucketSize));
+    Grid bbox = set->getBoundingGrid();
+    CPPUNIT_ASSERT_EQUAL(2.5f, bbox.getSpacing());
+    CPPUNIT_ASSERT_EQUAL(0.0f, bbox.getReference()[0]);
+    CPPUNIT_ASSERT_EQUAL(0.0f, bbox.getReference()[1]);
+    CPPUNIT_ASSERT_EQUAL(0.0f, bbox.getReference()[2]);
+    // Actual bounding box is (-94, -97, -100) to (106, 50000, 100)
+    // Divided by 2.5:        (-37.6, -38.8, -40) to (42.4, 20000, 40)
+    // Rounded:               (-40, -40, -40) to (43, 20000, 40)
+    CPPUNIT_ASSERT_EQUAL(-40, bbox.getExtent(0).first);
+    CPPUNIT_ASSERT_EQUAL(-40, bbox.getExtent(1).first);
+    CPPUNIT_ASSERT_EQUAL(-40, bbox.getExtent(2).first);
+    CPPUNIT_ASSERT_EQUAL(43, bbox.getExtent(0).second);
+    CPPUNIT_ASSERT_EQUAL(20000, bbox.getExtent(1).second);
+    CPPUNIT_ASSERT_EQUAL(40, bbox.getExtent(2).second);
 }
 
 FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(

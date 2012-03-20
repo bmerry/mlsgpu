@@ -80,6 +80,7 @@ SplatStream &SimpleFileSet::MySplatStream::operator++()
 void SimpleFileSet::MySplatStream::reset(splat_id first, splat_id last)
 {
     MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    last = std::min(last, splat_id(owner.files.size()) << scanIdShift);
     this->last = last;
     bufferCur = 0;
     bufferEnd = 0;
