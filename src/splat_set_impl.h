@@ -19,7 +19,7 @@ template<typename Base, typename BlobVector>
 BlobInfo FastBlobSet<Base, BlobVector>::MyBlobStream::operator*() const
 {
     BlobInfo ans;
-    MLSGPU_ASSERT(curBlob < lastBlob, std::length_error);
+    MLSGPU_ASSERT(curBlob < lastBlob, std::out_of_range);
     BlobData data = owner.blobs[curBlob];
     ans.firstSplat = data.firstSplat;
     ans.lastSplat = data.lastSplat;

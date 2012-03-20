@@ -14,6 +14,8 @@
 #include <boost/bind.hpp>
 #include <boost/ref.hpp>
 #include <boost/foreach.hpp>
+#include <boost/iostreams/device/null.hpp>
+#include <boost/iostreams/stream.hpp>
 #include <vector>
 #include <utility>
 #include <limits>
@@ -189,6 +191,7 @@ class TestSplatSet : public CppUnit::TestFixture
     CPPUNIT_TEST(testBlobStream);
     CPPUNIT_TEST(testSplatStreamEmpty);
     CPPUNIT_TEST(testBlobStreamEmpty);
+    CPPUNIT_TEST(testBlobStreamZeroBucket);
     CPPUNIT_TEST(testOtherGridSpacing);
     CPPUNIT_TEST(testOtherGridExtent);
     CPPUNIT_TEST(testOtherBucketSizeMultiple);
@@ -242,6 +245,7 @@ public:
     void testBlobStream();
     void testSplatStreamEmpty();
     void testBlobStreamEmpty();
+    void testBlobStreamZeroBucket();
     void testOtherGridSpacing();
     void testOtherGridExtent();
     void testOtherBucketSizeMultiple();
@@ -328,6 +332,8 @@ class TestFastFileSet : public TestFastBlobSet<FileSet>
 {
     typedef TestFastBlobSet<FileSet> BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestFastFileSet, BaseFixture);
+    CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST(testProgress);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -336,6 +342,9 @@ private:
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
+public:
+    void testEmpty();
+    void testProgress();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastFileSet, TestSet::perBuild());
 
@@ -470,6 +479,8 @@ void TestSplatSet<SetType>::testSplatStream()
             ++*stream;
         }
         validateSplats(flatSplats, actual, ids);
+        CPPUNIT_ASSERT_THROW(**stream, std::out_of_range);
+        CPPUNIT_ASSERT_THROW(++*stream, std::out_of_range);
     }
     else
         CPPUNIT_ASSERT(flatSplats.empty()); // some classes don't allow empty sets
@@ -516,6 +527,17 @@ void TestSplatSet<SetType>::testBlobStreamEmpty()
     splatData.clear();
     flatSplats.clear();
     testBlobStreamHelper(grid.getSpacing(), 5, grid, 5);
+}
+
+template<typename SetType>
+void TestSplatSet<SetType>::testBlobStreamZeroBucket()
+{
+    boost::scoped_ptr<Set> set(setFactory(splatData, 2.5f, 5));
+    if (set.get())
+    {
+        boost::scoped_ptr<BlobStream> stream;
+        CPPUNIT_ASSERT_THROW(stream.reset(set->makeBlobStream(grid, 0)), std::invalid_argument);
+    }
 }
 
 template<typename SetType>
@@ -613,6 +635,7 @@ void TestSplatSubsettable<SetType>::testSplatStreamReset()
     testSplatStreamResetHelper(3, splat_id(3) << 40);
     testSplatStreamResetHelper(2, (splat_id(3) << 40) - 1);
     testSplatStreamResetHelper((splat_id(1) << 40) + 100, (splat_id(6) << 40) - 1);
+    testSplatStreamResetHelper((splat_id(5) << 40), (splat_id(5) << 40) + 20000);
     testSplatStreamResetHelper((splat_id(4) << 40), (splat_id(50) << 40) - 1);
 }
 
@@ -729,6 +752,22 @@ FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
     TestFileSet::populate(*set, splatData, store);
     set->computeBlobs(spacing, bucketSize);
     return set.release();
+}
+
+void TestFastFileSet::testEmpty()
+{
+    boost::scoped_ptr<Set> set(new Set);
+    CPPUNIT_ASSERT_THROW(set->computeBlobs(2.5f, 5), std::length_error);
+}
+
+void TestFastFileSet::testProgress()
+{
+    boost::scoped_ptr<Set> set(new Set);
+    TestFileSet::populate(*set, splatData, store);
+
+    boost::iostreams::null_sink nullSink;
+    boost::iostreams::stream<boost::iostreams::null_sink> nullStream(nullSink);
+    set->computeBlobs(2.5f, 5, &nullStream);
 }
 
 FastBlobSet<VectorSet, std::vector<BlobData> > *TestFastVectorSet::setFactory(

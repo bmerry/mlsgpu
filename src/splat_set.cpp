@@ -70,7 +70,7 @@ void SimpleFileSet::addFile(FastPly::Reader *file)
 
 SplatStream &SimpleFileSet::MySplatStream::operator++()
 {
-    MLSGPU_ASSERT(!empty(), std::runtime_error);
+    MLSGPU_ASSERT(!empty(), std::out_of_range);
     bufferCur++;
     cur++;
     refill();

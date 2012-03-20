@@ -284,12 +284,13 @@ private:
     public:
         virtual const Splat &operator*() const
         {
+            MLSGPU_ASSERT(!empty(), std::out_of_range);
             return owner.at(cur);
         }
 
         virtual SplatStream &operator++()
         {
-            MLSGPU_ASSERT(!empty(), std::runtime_error);
+            MLSGPU_ASSERT(!empty(), std::out_of_range);
             cur++;
             skipNonFinite();
             return *this;
@@ -374,7 +375,7 @@ private:
     public:
         virtual const Splat &operator*() const
         {
-            MLSGPU_ASSERT(!empty(), std::runtime_error);
+            MLSGPU_ASSERT(!empty(), std::out_of_range);
             return buffer[bufferCur];
         }
 
@@ -453,6 +454,7 @@ public:
     SimpleBlobStream(SplatStream *splatStream, const Grid &grid, Grid::size_type bucketSize)
         : splatStream(splatStream), grid(grid), bucketSize(bucketSize)
     {
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     }
 
 private:
