@@ -342,7 +342,7 @@ void HostBlock<Splats>::operator()(
 
     {
         Statistics::Timer timer("host.block.load");
-        assert(numSplats <= item->splats.capacity());
+        assert(splats.numSplats() <= item->splats.capacity());
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
         while (!splatStream->empty())
@@ -401,7 +401,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     FineBucketGroup fineBucketGroup(
         numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
         grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-    HostBlock<Set> hostBlock(fineBucketGroup, grid);
+    HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
