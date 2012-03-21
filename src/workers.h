@@ -394,6 +394,7 @@ public:
         DeviceWorkerGroup &outGroup,
         const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
+        std::size_t maxCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
         std::size_t maxSplit);

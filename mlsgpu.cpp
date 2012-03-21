@@ -117,7 +117,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
-        (Option::maxHostSplats, po::value<std::size_t>()->default_value(50000000), "Maximum splats per block on the CPU")
+        (Option::maxHostSplats, po::value<std::size_t>()->default_value(8000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads for submitting OpenCL work")
@@ -342,7 +342,7 @@ void HostBlock<Splats>::operator()(
 
     {
         Statistics::Timer timer("host.block.load");
-        item->splats.reserve(splats.numSplats());
+        assert(numSplats <= item->splats.capacity());
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
         while (!splatStream->empty())
@@ -400,8 +400,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
-        grid, context, device, maxDeviceSplats, blockCells, maxSplit);
-    HostBlock<Splats> hostBlock(fineBucketGroup, grid);
+        grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+    HostBlock<Set> hostBlock(fineBucketGroup, grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
