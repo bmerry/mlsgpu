@@ -338,6 +338,7 @@ void HostBlock<Splats>::operator()(
     boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
     item->grid = grid;
     item->recursionState = recursionState;
+    item->splats.clear();
     float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
