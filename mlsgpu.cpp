@@ -350,6 +350,7 @@ void HostBlock<Set>::operator()(
     {
         Statistics::Timer timer("host.block.load");
         std::size_t pos = 0;
+        assert(numSplats <= item->splats.capacity());
         item->splats.resize(numSplats);
 
         // Stats bookkeeping
@@ -430,7 +431,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
-        grid, context, device, maxDeviceSplats, blockCells, maxSplit);
+        grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
     HostBlock<Set> hostBlock(fineBucketGroup, grid);
 
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
