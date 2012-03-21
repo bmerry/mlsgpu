@@ -88,7 +88,7 @@ static void addCommonOptions(po::options_description &opts)
         ("help,h",                "Show help")
         ("quiet,q",               "Do not show informational messages")
         (Option::debug,           "Show debug messages")
-        (Option::responseFile,    "Read options from file");
+        (Option::responseFile,    po::value<string>(), "Read options from file");
 }
 
 static void addFitOptions(po::options_description &opts)
