@@ -218,6 +218,32 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob)
     }
 }
 
+void BucketState::bucketSplats(const SplatSet::BlobInfo &blob)
+{
+    boost::array<Node::size_type, 3> lo, hi;
+    if (!clamp(blob.lower, blob.upper, lo, hi))
+        return;
+
+    for (Node::size_type x = lo[0]; x <= hi[0]; x++)
+        for (Node::size_type y = lo[1]; y <= hi[1]; y++)
+            for (Node::size_type z = lo[2]; z <= hi[2]; z++)
+            {
+                std::size_t regionId = microRegions[x][y][z];
+                assert(regionId < subregions.size());
+                BucketState::Subregion &region = subregions[regionId];
+
+                /* Only add once per node */
+                const Node::size_type nodeSize = region.node.size();
+                const Node::size_type mask = nodeSize - 1;
+                if ((x == lo[0] || ((x & mask) == 0))
+                    && (y == lo[1] || (y & mask) == 0)
+                    && (z == lo[2] || (z & mask) == 0))
+                {
+                    region.subset.addBlob(blob);
+                }
+            }
+}
+
 BucketStateSet::BucketStateSet(
     const boost::array<Grid::difference_type, 3> &chunks,
     Grid::difference_type chunkCells,
@@ -281,7 +307,7 @@ bool PickNodes::operator()(const Node &node) const
             for (Node::size_type y = lo[1]; y < hi[1]; y++)
                 for (Node::size_type z = lo[2]; z < hi[2]; z++)
                     state.microRegions[x][y][z] = id;
-        state.subregions.push_back(BucketState::Subregion(node, count));
+        state.subregions.push_back(BucketState::Subregion(node));
         return false; // no more recursion required
     }
     else
