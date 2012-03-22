@@ -21,6 +21,7 @@
 #include <boost/foreach.hpp>
 #include <boost/ref.hpp>
 #include <boost/numeric/conversion/converter.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
 #include <stxxl.h>
 #include "splat.h"
 #include "bucket.h"
@@ -215,6 +216,35 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob)
             hi[i] >>= 1;
         }
     }
+}
+
+BucketStateSet::BucketStateSet(
+    const boost::array<Grid::difference_type, 3> &chunks,
+    Grid::difference_type chunkCells,
+    const BucketParameters &params,
+    const Grid &grid,
+    Grid::size_type microSize,
+    int macroLevels)
+    : boost::multi_array<boost::shared_ptr<BucketState>, 3>(chunks),
+    chunkRatio(chunkCells / microSize)
+{
+    MLSGPU_ASSERT(chunkCells % microSize == 0, std::invalid_argument);
+    boost::array<Grid::difference_type, 3> chunkCoord;
+    for (chunkCoord[2] = 0; chunkCoord[2] < chunks[2]; chunkCoord[2]++)
+        for (chunkCoord[1] = 0; chunkCoord[1] < chunks[1]; chunkCoord[1]++)
+            for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
+            {
+                Grid sub = grid;
+                for (unsigned int i = 0; i < 3; i++)
+                {
+                    Grid::difference_type low = grid.getExtent(i).first;
+                    Grid::difference_type high = grid.getExtent(i).second;
+                    Grid::difference_type offset = chunkCoord[i] * chunkCells;
+                    sub.setExtent(i, low + offset,
+                                  std::min(low + offset + chunkCells, high));
+                }
+                (*this)(chunkCoord) = boost::make_shared<BucketState>(params, sub, microSize, macroLevels);
+            }
 }
 
 bool PickNodes::operator()(const Node &node) const

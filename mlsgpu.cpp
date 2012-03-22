@@ -430,7 +430,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceWorkerGroup.start();
         fineBucketGroup.start();
 
-        Bucket::bucket(splats, grid, maxHostSplats, blockCells, true, maxSplit, hostBlock, &progress);
+        Bucket::bucket(splats, grid, maxHostSplats, blockCells, 0, true, maxSplit, hostBlock, &progress);
 
         /* Shut down threads. Note that it has to be done in forward order to
          * satisfy the requirement that stop() is only called after producers

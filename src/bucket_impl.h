@@ -12,7 +12,10 @@
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
+#include <boost/mem_fn.hpp>
+#include <boost/bind.hpp>
 #include <ostream>
 #include <limits>
 #include "bucket.h"
@@ -77,14 +80,17 @@ struct BucketParameters
 {
     std::tr1::uint64_t maxSplats;       ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
+    Grid::size_type chunkCells;         ///< Hint for output alignment
     bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
     ProgressDisplay *progress;          ///< Progress display to update for empty cells
 
     BucketParameters(std::tr1::uint64_t maxSplats,
-                     Grid::size_type maxCells, bool maxCellsHint, std::size_t maxSplit,
+                     Grid::size_type maxCells, Grid::size_type chunkCells,
+                     bool maxCellsHint, std::size_t maxSplit,
                      ProgressDisplay *progress)
-        : maxSplats(maxSplats), maxCells(maxCells), maxCellsHint(maxCellsHint),
+        : maxSplats(maxSplats), maxCells(maxCells), chunkCells(chunkCells),
+        maxCellsHint(maxCellsHint),
         maxSplit(maxSplit), progress(progress) {}
 };
 
@@ -195,6 +201,51 @@ private:
                boost::array<Node::size_type, 3> &hi);
 };
 
+class BucketStateSet : public boost::multi_array<boost::shared_ptr<BucketState>, 3>
+{
+public:
+    BucketStateSet(
+        const boost::array<Grid::difference_type, 3> &chunks,
+        Grid::difference_type chunkCells,
+        const BucketParameters &params,
+        const Grid &grid,
+        Grid::size_type microSize,
+        int macroLevels);
+
+    template<typename F>
+    void processBlob(const SplatSet::BlobInfo &blob, const F &func);
+
+private:
+    const Grid::difference_type chunkRatio;
+};
+
+template<typename F>
+void BucketStateSet::processBlob(const SplatSet::BlobInfo &blob, const F &func)
+{
+    boost::array<Grid::difference_type, 3> chunkLower, chunkUpper;
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        Grid::difference_type l = divDown(blob.lower[i], chunkRatio);
+        Grid::difference_type u = divDown(blob.upper[i], chunkRatio);
+        chunkLower[i] = std::max(l, Grid::difference_type(0));
+        chunkUpper[i] = std::min(u, Grid::difference_type(shape()[i] - 1));
+    }
+    boost::array<Grid::difference_type, 3> chunkCoord;
+    for (chunkCoord[2] = chunkLower[2]; chunkCoord[2] <= chunkUpper[2]; chunkCoord[2]++)
+        for (chunkCoord[1] = chunkLower[1]; chunkCoord[1] <= chunkUpper[1]; chunkCoord[1]++)
+            for (chunkCoord[0] = chunkLower[0]; chunkCoord[0] <= chunkUpper[0]; chunkCoord[0]++)
+            {
+                SplatSet::BlobInfo subBlob = blob;
+                for (unsigned int i = 0; i < 3; i++)
+                {
+                    Grid::difference_type bias = chunkCoord[i] * chunkRatio;
+                    subBlob.lower[i] -= bias;
+                    subBlob.upper[i] -= bias;
+                }
+                boost::unwrap_ref(func)((*this)(chunkCoord), subBlob);
+            }
+}
+
 /**
  * Functor for @ref Bucket::internal::forEachNode that chooses which
  * nodes to turn into regions. A node is chosen if it contains few enough
@@ -209,30 +260,6 @@ private:
 public:
     PickNodes(BucketState &state) : state(state) {}
     bool operator()(const Node &node) const;
-};
-
-/**
- * Function object that places splat information into bucket ranges.
- */
-template<typename Splats>
-class BucketSplat
-{
-private:
-    BucketState &state;
-    const Splats &splats;
-    const typename ProcessorType<Splats>::type &process;
-    const Recursion &recursionState;
-
-public:
-    typedef void result_type;
-    BucketSplat(
-        BucketState &state,
-        const Splats &splats,
-        const typename ProcessorType<Splats>::type &process,
-        const Recursion &recursionState)
-        : state(state), splats(splats), process(process), recursionState(recursionState) {}
-
-    void operator()(const SplatSet::BlobInfo &blob) const;
 };
 
 template<typename Splats>
@@ -340,6 +367,7 @@ void bucketRecurse(
 
     if (splats.maxSplats() <= params.maxSplats
         && (maxCellDim <= params.maxCells || params.maxCellsHint)
+        && (params.chunkCells == 0 || params.chunkCells >= maxCellDim)
         && bucketCallback(splats, grid, process, recursionState,
                           typename SplatSet::Traits<Splats>::is_subset()))
     {
@@ -359,6 +387,7 @@ void bucketRecurse(
          * TODO: no need for it to be a power of 2?
          */
         Grid::size_type microSize;
+
         if (maxCellDim > params.maxCells)
         {
             // number of maxCells-sized blocks
@@ -366,34 +395,54 @@ void bucketRecurse(
             for (unsigned int i = 0; i < 3; i++)
                 subDims[i] = divUp(cellDims[i], params.maxCells);
             microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit);
+            Statistics::getStatistic<Statistics::Peak<Grid::size_type> >("bucket.microsize.peak").set(microSize);
         }
         else
             microSize = chooseMicroSize(cellDims, params.maxSplit);
 
+        Grid::difference_type chunkCells;
+        if (params.chunkCells == 0)
+            chunkCells = maxCellDim;
+        else
+            chunkCells = std::min(maxCellDim, params.chunkCells);
+        chunkCells = divUp(chunkCells, microSize) * microSize;
+        boost::array<Grid::difference_type, 3> chunks;
+        for (int i = 0; i < 3; i++)
+            chunks[i] = divUp(cellDims[i], chunkCells);
+
         /* Levels in octree structure */
         int macroLevels = 1;
-        while (microSize << (macroLevels - 1) < maxCellDim)
+        while (microSize << (macroLevels - 1) < Grid::size_type(chunkCells))
             macroLevels++;
 
-        BucketState state(params, grid, microSize, macroLevels);
+        BucketStateSet states(chunks, chunkCells, params, grid, microSize, macroLevels);
+
         /* Create histogram */
         boost::scoped_ptr<SplatSet::BlobStream> blobs(splats.makeBlobStream(grid, microSize));
         while (!blobs->empty())
         {
-            state.countSplats(**blobs);
+            states.processBlob(**blobs, boost::mem_fn(&BucketState::countSplats));
             ++*blobs;
         }
         blobs.reset();
 
-        state.upsweepCounts();
-        /* Select cells to bucket splats into */
-        forEachNode(state.getDims(), state.macroLevels, PickNodes(state));
+        boost::array<Grid::difference_type, 3> chunkCoord;
+        for (chunkCoord[2] = 0; chunkCoord[2] < chunks[2]; chunkCoord[2]++)
+            for (chunkCoord[1] = 0; chunkCoord[1] < chunks[1]; chunkCoord[1]++)
+                for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
+                {
+                    BucketState &state = *states(chunkCoord);
+                    state.upsweepCounts();
+                    /* Select cells to bucket splats into */
+                    forEachNode(state.getDims(), state.macroLevels, PickNodes(state));
+                }
 
         /* Do the bucketing. */
         blobs.reset(splats.makeBlobStream(grid, microSize));
         while (!blobs->empty())
         {
-            state.bucketSplats(**blobs, splats, process, recursionState);
+            states.processBlob(**blobs, boost::bind(&BucketState::bucketSplats<Splats>,
+                                                    _1, _2, boost::cref(splats), boost::cref(process), boost::cref(recursionState)));
             ++*blobs;
         }
     }
@@ -406,13 +455,14 @@ void bucket(const Splats &splats,
             const Grid &region,
             std::tr1::uint64_t maxSplats,
             Grid::size_type maxCells,
+            Grid::size_type chunkCells,
             bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
             ProgressDisplay *progress,
             const Recursion &recursionState)
 {
-    internal::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
+    internal::BucketParameters params(maxSplats, maxCells, chunkCells, maxCellsHint, maxSplit, progress);
     internal::bucketRecurse(splats, region, params, process, recursionState);
 }
 

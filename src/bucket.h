@@ -93,6 +93,10 @@ public:
  * @param region     The region to process.
  * @param maxSplats  The maximum number of splats that may occur in a bucket.
  * @param maxCells   The maximum side length of a bucket, in grid cells.
+ * @param chunkCells The output regions will be aligned on a regular grid of
+ *                   approximately this granularity ("approximately" because it
+ *                   will be rounded up to a multiple of the microblock size).
+ *                   To disable this chunking, pass 0.
  * @param maxCellsHint If true, @a maxCells does not constrain bucket sizes, and
  *                   is instead used as a hint for sizing microblocks. It is
  *                   most useful if the output of coarse bucketing is going to
@@ -161,6 +165,7 @@ void bucket(const Splats &splats,
             const Grid &region,
             std::tr1::uint64_t maxSplats,
             Grid::size_type maxCells,
+            Grid::size_type chunkCells,
             bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,

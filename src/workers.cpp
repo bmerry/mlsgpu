@@ -245,6 +245,6 @@ void FineBucketGroup::Worker::operator()(WorkItem &work)
         Grid::difference_type high = work.grid.getExtent(i).second - base;
         grid.setExtent(i, low, high);
     }
-    Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, false, owner.maxSplit,
+    Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
                    boost::ref(*this), owner.progress, work.recursionState);
 }
