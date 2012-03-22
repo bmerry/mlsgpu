@@ -180,19 +180,19 @@ std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
     return nodeCounts[node.getLevel()](node.getCoords());
 }
 
-void CountSplat::operator()(const SplatSet::BlobInfo &blob) const
+void BucketState::countSplats(const SplatSet::BlobInfo &blob)
 {
     int level = 0;
     boost::array<Node::size_type, 3> lo, hi;
-    if (!state.clamp(blob.lower, blob.upper, lo, hi))
+    if (!clamp(blob.lower, blob.upper, lo, hi))
         return;
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                state.nodeCounts[level][x][y][z] += blob.lastSplat - blob.firstSplat;
+                nodeCounts[level][x][y][z] += blob.lastSplat - blob.firstSplat;
             }
-    while (level < state.macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
+    while (level < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
         level++;
         for (Node::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
@@ -207,7 +207,7 @@ void CountSplat::operator()(const SplatSet::BlobInfo &blob) const
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
                     SplatSet::splat_id numSplats = blob.lastSplat - blob.firstSplat;
-                    state.nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
+                    nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {
@@ -246,7 +246,7 @@ bool PickNodes::operator()(const Node &node) const
     {
         std::size_t id = state.subregions.size();
         Node::size_type lo[3], hi[3];
-        node.toMicro(lo, hi, state.dims);
+        node.toMicro(lo, hi, state.getDims());
         for (Node::size_type x = lo[0]; x < hi[0]; x++)
             for (Node::size_type y = lo[1]; y < hi[1]; y++)
                 for (Node::size_type z = lo[2]; z < hi[2]; z++)

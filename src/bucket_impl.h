@@ -91,8 +91,51 @@ struct BucketParameters
 /**
  * Dynamic state that is updated as part of processing a region.
  */
-struct BucketState
+class BucketState
 {
+public:
+    /// Constant parameters for the bucketing process
+    const BucketParameters &params;
+    /// Grid covering the region being processed
+    const Grid grid;
+    /// Side length of a microblock
+    const Grid::size_type microSize;
+    /// Number of levels in the octree of counters.
+    const int macroLevels;
+
+    /// Constructor
+    BucketState(const BucketParameters &params, const Grid &grid,
+                Grid::size_type microSize, int macroLevels);
+
+    /// Enters a blob into all corresponding counters in the tree.
+    void countSplats(const SplatSet::BlobInfo &blob);
+
+    /**
+     * Convert @ref nodeCounts from a delta encoding to plain counts.
+     * This should be called after all calls to @ref CountSplat are complete,
+     * and before calling @ref getNodeCount.
+     */
+    void upsweepCounts();
+
+    /// Places splat information into bucket ranges.
+    template<typename Splats>
+    void bucketSplats(const SplatSet::BlobInfo &blob,
+                      const Splats &splats,
+                      const typename ProcessorType<Splats>::type &process,
+                      const Recursion &recursionState);
+
+    /**
+     * The number of splats that land in a given node.
+     * @see @ref upsweepCounts.
+     */
+    std::tr1::int64_t getNodeCount(const Node &node) const;
+
+    /// Size in microblocks of the region being processed.
+    const Grid::size_type *getDims() const { return dims; }
+
+private:
+    friend class PickNodes;
+
     static const std::size_t BAD_REGION = std::size_t(-1);
 
     /**
@@ -105,23 +148,16 @@ struct BucketState
     {
         Node node;
         std::tr1::uint64_t numSplats;  ///< Expected number of splats
-        SplatSet::SubsetBase subset;   ///< Just the blob ranges - late put in a full subset object
+        SplatSet::SubsetBase subset;   ///< Just the blob ranges - later put in a full subset object
 
         Subregion() {}
         Subregion(const Node &node, std::tr1::uint64_t numSplats)
             : node(node), numSplats(numSplats) {}
     };
 
-    const BucketParameters &params;
-    /// Grid covering the region being processed
-    const Grid &grid;
     /// Size in microblocks of the region being processed.
     Grid::size_type dims[3];
 
-    /// Side length of a microblock
-    Grid::size_type microSize;
-    /// Number of levels in the octree of counters.
-    int macroLevels;
     /**
      * Octree of splat counts. Each element of the vector is one level of the
      * octree.  Element zero contains the finest level, higher elements the
@@ -144,23 +180,6 @@ struct BucketState
      */
     std::vector<Subregion> subregions;
 
-    /// Constructor
-    BucketState(const BucketParameters &params, const Grid &grid,
-                Grid::size_type microSize, int macroLevels);
-
-    /**
-     * The number of splats that land in a given node.
-     * @see @ref upsweepCounts.
-     */
-    std::tr1::int64_t getNodeCount(const Node &node) const;
-
-    /**
-     * Convert @ref nodeCounts from a delta encoding to plain counts.
-     * This should be called after all calls to @ref CountSplat are complete,
-     * and before calling @ref getNodeCount.
-     */
-    void upsweepCounts();
-
     /**
      * Clamp a range of microblocks to the coverage of nodeCounts, checking for
      * the case of no overlap. If there is no overlap, the output values are
@@ -174,21 +193,6 @@ struct BucketState
                const boost::array<Grid::difference_type, 3> &upper,
                boost::array<Node::size_type, 3> &lo,
                boost::array<Node::size_type, 3> &hi);
-};
-
-/**
- * Function object that enters a blob into all corresponding counters in the tree.
- */
-class CountSplat
-{
-private:
-    BucketState &state;
-
-public:
-    typedef void result_type;
-    CountSplat(BucketState &state) : state(state) {};
-
-    void operator()(const SplatSet::BlobInfo &blob) const;
 };
 
 /**
@@ -232,19 +236,22 @@ public:
 };
 
 template<typename Splats>
-void BucketSplat<Splats>::operator()(const SplatSet::BlobInfo &blob) const
+void BucketState::bucketSplats(const SplatSet::BlobInfo &blob,
+                               const Splats &splats,
+                               const typename ProcessorType<Splats>::type &process,
+                               const Recursion &recursionState)
 {
     boost::array<Node::size_type, 3> lo, hi;
-    if (!state.clamp(blob.lower, blob.upper, lo, hi))
+    if (!clamp(blob.lower, blob.upper, lo, hi))
         return;
 
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                std::size_t regionId = state.microRegions[x][y][z];
-                assert(regionId < state.subregions.size());
-                BucketState::Subregion &region = state.subregions[regionId];
+                std::size_t regionId = microRegions[x][y][z];
+                assert(regionId < subregions.size());
+                BucketState::Subregion &region = subregions[regionId];
 
                 /* Only add once per node */
                 const Node::size_type nodeSize = region.node.size();
@@ -258,8 +265,8 @@ void BucketSplat<Splats>::operator()(const SplatSet::BlobInfo &blob) const
                     {
                         // Clip the region to the grid
                         Grid::size_type lower[3], upper[3];
-                        region.node.toCells(state.microSize, lower, upper, state.grid);
-                        Grid childGrid = state.grid.subGrid(
+                        region.node.toCells(microSize, lower, upper, grid);
+                        Grid childGrid = grid.subGrid(
                             lower[0], upper[0], lower[1], upper[1], lower[2], upper[2]);
 
                         Recursion childRecursion = recursionState;
@@ -270,7 +277,7 @@ void BucketSplat<Splats>::operator()(const SplatSet::BlobInfo &blob) const
                         subset.swap(region.subset);
                         bucketRecurse(subset,
                                       childGrid,
-                                      state.params,
+                                      params,
                                       process,
                                       childRecursion);
                     }
@@ -371,24 +378,22 @@ void bucketRecurse(
         BucketState state(params, grid, microSize, macroLevels);
         /* Create histogram */
         boost::scoped_ptr<SplatSet::BlobStream> blobs(splats.makeBlobStream(grid, microSize));
-        CountSplat countSplat(state); // TODO: cease as a function object
         while (!blobs->empty())
         {
-            countSplat(**blobs);
+            state.countSplats(**blobs);
             ++*blobs;
         }
         blobs.reset();
 
         state.upsweepCounts();
         /* Select cells to bucket splats into */
-        forEachNode(state.dims, state.macroLevels, PickNodes(state));
+        forEachNode(state.getDims(), state.macroLevels, PickNodes(state));
 
         /* Do the bucketing. */
-        BucketSplat<Splats> bucketSplat(state, splats, process, recursionState);
         blobs.reset(splats.makeBlobStream(grid, microSize));
         while (!blobs->empty())
         {
-            bucketSplat(**blobs);
+            state.bucketSplats(**blobs, splats, process, recursionState);
             ++*blobs;
         }
     }
