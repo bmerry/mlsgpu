@@ -14,6 +14,7 @@
 #include <tr1/cstdint>
 #include <stdexcept>
 #include <boost/function.hpp>
+#include <boost/array.hpp>
 #include "splat.h"
 #include "grid.h"
 #include "fast_ply.h"
@@ -50,7 +51,7 @@ public:
  *  -# It is passed between calls to @ref internal::bucketRecurse to track
  *     statistics;
  *  -# It is passed to the processing callback so that it can update a
- *     progress meter is desired;
+ *     progress meter if desired;
  *  -# It may be passed into @ref bucket in which case it is used as the
  *     initial state. The intended use is when the processor function
  *     makes a recursive call back into @ref bucket.
@@ -59,6 +60,7 @@ struct Recursion
 {
     unsigned int depth;              ///< Current depth of recursion.
     std::size_t totalRanges;         ///< Blob ranges held in memory at all levels.
+    boost::array<Grid::size_type, 3> chunk; ///< Output file chunk.
 
     Recursion() : depth(0), totalRanges(0) {}
 };

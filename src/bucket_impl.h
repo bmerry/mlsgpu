@@ -129,7 +129,8 @@ public:
     template<typename Splats>
     void doCallbacks(const Splats &splats,
                      const typename ProcessorType<Splats>::type &process,
-                     const Recursion &recursionState);
+                     const Recursion &recursionState,
+                     const boost::array<Grid::difference_type, 3> &chunkOffset);
 
     /**
      * The number of splats that land in a given node.
@@ -205,7 +206,8 @@ template<typename Splats>
 void BucketState::doCallbacks(
     const Splats &splats,
     const typename ProcessorType<Splats>::type &process,
-    const Recursion &recursionState)
+    const Recursion &recursionState,
+    const boost::array<Grid::difference_type, 3> &chunkOffset)
 {
     BOOST_FOREACH(Subregion &region, subregions)
     {
@@ -218,6 +220,8 @@ void BucketState::doCallbacks(
         Recursion childRecursion = recursionState;
         childRecursion.depth++;
         childRecursion.totalRanges += region.subset.numRanges();
+        for (unsigned int i = 0; i < 3; i++)
+            childRecursion.chunk[i] += chunkOffset[i];
 
         typename SplatSet::Traits<Splats>::subset_type subset(splats);
         subset.swap(region.subset);
@@ -428,7 +432,7 @@ void bucketRecurse(
             for (chunkCoord[1] = 0; chunkCoord[1] < chunks[1]; chunkCoord[1]++)
                 for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
                 {
-                    states(chunkCoord)->doCallbacks(splats, process, recursionState);
+                    states(chunkCoord)->doCallbacks(splats, process, recursionState, chunkCoord);
                 }
     }
 }
