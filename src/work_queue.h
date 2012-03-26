@@ -74,20 +74,22 @@ public:
      */
     explicit WorkQueue(size_type capacity);
 
-private:
-    size_type capacity_;
-    size_type head_;
-    size_type tail_;
-    size_type size_;
-    boost::condition_variable spaceCondition, dataCondition;
+protected:
     boost::mutex mutex;
-    boost::scoped_array<value_type> values;
 
     /// Implementation of @ref push where the caller holds the mutex
     void pushUnlocked(boost::unique_lock<boost::mutex> &lock, const value_type &item);
 
     /// Implementation of @ref pop where the caller holds the mutex
     value_type popUnlocked(boost::unique_lock<boost::mutex> &lock);
+
+private:
+    size_type capacity_;
+    size_type head_;
+    size_type tail_;
+    size_type size_;
+    boost::condition_variable spaceCondition, dataCondition;
+    boost::scoped_array<value_type> values;
 };
 
 /**
@@ -103,6 +105,18 @@ public:
         : WorkQueue<boost::shared_ptr<T> >(capacity) {}
 };
 
+/**
+ * A work queue in which incoming work is batched into @em generations, with consumers
+ * guaranteed to receive workitems ordered by generation. Unlike a standard
+ * @ref WorkQueue, this class needs producers to interact quite closely with
+ * it. The canonical order of operations is:
+ *  -# All producers call @ref producerStart.
+ *  -# The consumer threads are started.
+ *  -# The producers enqueue work using @ref push, calling @ref producerNext whenever
+ *     the producer moves on to its next generation.
+ *  -# The producers call @ref producerStop and shut down.
+ *  -# The consumers are shut down.
+ */
 template<typename ValueType, typename GenType = unsigned int, typename CompareGen = std::less<GenType> >
 class GenerationalWorkQueue : protected WorkQueue<std::pair<ValueType, GenType> >
 {
@@ -111,16 +125,25 @@ public:
     typedef GenType gen_type;
     typedef typename WorkQueue<std::pair<ValueType, GenType> >::size_type size_type;
 
+    using WorkQueue<std::pair<ValueType, GenType> >::capacity;
+    using WorkQueue<std::pair<ValueType, GenType> >::size;
+
     /**
-     * Indicate that a procedurer is working on generation @a gen. This blocks
-     * other producers from enqueuing work on following generations.
+     * Indicate a change in the generation a producer is working on.
+     *
+     * @pre
+     * - The producer was previously working on generation @a oldGen.
+     * - @a oldGen is less than or equal to @a newGen.
+     */
+    void producerNext(const gen_type &oldGen, const gen_type &newGen);
+
+    /**
+     * Indicate that a producer has started and is working on initial
+     * generation @a gen. If the actual generation is not known, a lower bound
+     * should be used.
      *
      * @pre
      * - Must not be inside a nested @ref producerStart.
-     * - All calls to this function (across all threads) must be monotonic in
-     *   the generation. When there are several worker threads pulling from
-     *   one queue and pushing to another, they should use @ref popStart
-     *   to ensure this.
      */
     void producerStart(const gen_type &gen);
 
@@ -137,29 +160,28 @@ public:
      * Enqueue a work item. This may block if there are other producers
      * still working on a previous generation.
      *
-     * @pre This must be called between @ref producerStart and @ref producerStop
-     * with the matching @a gen.
+     * @pre
+     * - This must be called between @ref producerStart and @ref producerStop.
+     * - The producer must have indicated (with @ref producerStart or @ref
+     *   producerNext) that it is working on @a gen.
      */
     void push(const gen_type &gen, const value_type &item);
+
+    /**
+     * Enqueue a work item without a generation. This can be called
+     * independently of whether producers are marked as active. The intended
+     * use case is to enqueue special marker work items that request consumers
+     * to shut down.
+     *
+     * When the corresponding item is popped, it will be returned with a
+     * default-constructed generation.
+     */
+    void pushNoGen(const value_type &item);
 
     /**
      * Extract a work item from the queue.
      */
     value_type pop(gen_type &gen);
-
-    /**
-     * Atomically pop an item from one queue and call @ref producerStart on
-     * another with the same generation. Because this function is atomic,
-     * it will meet the ordering requirement of @ref producerStart provided
-     * the input queue is monotonic.
-     *
-     * @pre
-     * - Consider a graph of all work queues, where a call to this function constitutes a
-     *   directed edge from the pop queue to the start queue. This graph must be acyclic
-     *   (otherwise deadlocks may occur).
-     */
-    template<typename StartValueType>
-    value_type popStart(gen_type &gen, GenerationalWorkQueue<StartValueType, GenType, CompareGen> &startQueue);
 
     /**
      * Constructor.
@@ -264,10 +286,29 @@ template<typename ValueType, typename GenType, typename CompareGen>
 void GenerationalWorkQueue<ValueType, GenType, CompareGen>::producerStart(const gen_type &gen)
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
-    // Check monotone condition
-    MLSGPU_ASSERT(active.empty() || !active.key_comp()(gen, active.back().gen),
-                  std::runtime_error);
     ++active[gen];
+}
+
+template<typename ValueType, typename GenType, typename CompareGen>
+void GenerationalWorkQueue<ValueType, GenType, CompareGen>::producerNext(
+    const gen_type &oldGen, const gen_type &newGen)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    MLSGPU_ASSERT(!active.key_comp()(newGen, oldGen), std::invalid_argument);
+
+    typename active_type::iterator pos = active.find(oldGen);
+    MLSGPU_ASSERT(pos != active.end(), std::logic_error);
+
+    // Must do this increment after we have done the assertion above, and before we
+    // check whether the old generation has become inactive.
+    ++active[newGen];
+    if (--pos->second == 0)
+    {
+        // Old generation is no longer active
+        if (pos == active.begin())
+            nextGenCondition.notify_all();
+        active.erase(pos);
+    }
 }
 
 template<typename ValueType, typename GenType, typename CompareGen>
@@ -291,30 +332,26 @@ void GenerationalWorkQueue<ValueType, GenType, CompareGen>::push(
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
     MLSGPU_ASSERT(active.count(gen), std::logic_error);
-    while (gen != active.front()->first)
+    while (gen != active.begin()->first)
     {
         nextGenCondition.wait(lock);
-        MLSGPU_ASSERT(active.empty(gen), std::logic_error);
+        MLSGPU_ASSERT(active.count(gen), std::logic_error);
     }
     pushUnlocked(lock, std::make_pair(item, gen));
 }
 
 template<typename ValueType, typename GenType, typename CompareGen>
-ValueType GenerationalWorkQueue<ValueType, GenType, CompareGen>::pop(gen_type &gen)
+void GenerationalWorkQueue<ValueType, GenType, CompareGen>::pushNoGen(
+    const value_type &item)
 {
-    std::pair<value_type, gen_type> ans = pop();
-    gen = ans.second;
-    return ans.first;
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    pushUnlocked(lock, std::make_pair(item, gen_type()));
 }
 
 template<typename ValueType, typename GenType, typename CompareGen>
-template<typename StartValueType>
-ValueType GenerationalWorkQueue<ValueType, GenType, CompareGen>::popStart(
-    gen_type &gen, GenerationalWorkQueue<StartValueType, GenType, CompareGen> &startQueue)
+ValueType GenerationalWorkQueue<ValueType, GenType, CompareGen>::pop(gen_type &gen)
 {
-    boost::unique_lock<boost::mutex> lock(this->mutex);
-    std::pair<value_type, gen_type> ans = this->popUnlocked(lock);
-    startQueue.producerStart(ans.second);
+    std::pair<value_type, gen_type> ans = WorkQueue<std::pair<ValueType, GenType> >::pop();
     gen = ans.second;
     return ans.first;
 }
