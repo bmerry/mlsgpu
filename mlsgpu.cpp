@@ -404,7 +404,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const bool keepBoundary = vm.count(Option::fitKeepBoundary);
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const bool split = vm.count(Option::split);
-    const unsigned int splitSize = vm.count(Option::splitSize);
+    const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
