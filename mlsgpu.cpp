@@ -320,25 +320,35 @@ public:
     void operator()(
         const typename SplatSet::Traits<Splats>::subset_type &splatSet,
         const Grid &grid,
-        const Bucket::Recursion &recursionState) const;
+        const Bucket::Recursion &recursionState);
 
     HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid);
 private:
+    ChunkId curChunkId;
     FineBucketGroup &outGroup;
     const Grid &fullGrid;
 };
 
 template<typename Splats>
 HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid)
-: outGroup(outGroup), fullGrid(fullGrid)
+: curChunkId(), outGroup(outGroup), fullGrid(fullGrid)
 {
+    outGroup.producerStart(curChunkId);
 }
 
 template<typename Splats>
 void HostBlock<Splats>::operator()(
     const typename SplatSet::Traits<Splats>::subset_type &splats,
-    const Grid &grid, const Bucket::Recursion &recursionState) const
+    const Grid &grid, const Bucket::Recursion &recursionState)
 {
+    if (recursionState.chunk != curChunkId.coords)
+    {
+        ChunkId old = curChunkId;
+        curChunkId.generation++;
+        curChunkId.coords = recursionState.chunk;
+        outGroup.producerNext(old, curChunkId);
+    }
+
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
@@ -368,7 +378,7 @@ void HostBlock<Splats>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item);
+    outGroup.push(curChunkId, item);
 }
 
 /**
@@ -432,9 +442,9 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         }
     }
 
-    DeviceMesherAsync deviceMesher(1);
+    MesherGroup mesherGroup(1);
     DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numDeviceThreads + numBucketThreads,
+        numDeviceThreads, numDeviceThreads + numBucketThreads, mesherGroup,
         grid, context, device, maxDeviceSplats, blockCells, levels, subsampling,
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
@@ -458,17 +468,17 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
 
         ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-        deviceMesher.setInputFunctor(mesher->functor(pass));
+        mesherGroup.setInputFunctor(mesher->functor(pass));
         deviceWorkerGroup.setProgress(&progress);
-        deviceWorkerGroup.setOutput(deviceMesher.getOutputFunctor());
         fineBucketGroup.setProgress(&progress);
 
         // Start threads
-        deviceMesher.start();
-        deviceWorkerGroup.start();
         fineBucketGroup.start();
+        deviceWorkerGroup.start();
+        mesherGroup.start();
 
-        Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit, hostBlock, &progress);
+        Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
+                       boost::ref(hostBlock), &progress);
 
         /* Shut down threads. Note that it has to be done in forward order to
          * satisfy the requirement that stop() is only called after producers
@@ -476,7 +486,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
          */
         fineBucketGroup.stop();
         deviceWorkerGroup.stop();
-        deviceMesher.stop();
+        mesherGroup.stop();
     }
 
 

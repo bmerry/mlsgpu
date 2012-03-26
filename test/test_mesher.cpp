@@ -264,7 +264,7 @@ void TestMesherBase::add(
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.trianglesEvent);
     queue.flush();
 
-    functor(work);
+    functor(ChunkId(), work);
 }
 
 void TestMesherBase::checkIsomorphic(

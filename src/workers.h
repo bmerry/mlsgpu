@@ -11,6 +11,10 @@
 # include <config.h>
 #endif
 
+#ifndef __CL_ENABLE_EXCEPTIONS
+# define __CL_ENABLE_EXCEPTIONS
+#endif
+
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
@@ -18,11 +22,13 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <cstddef>
 #include <stdexcept>
+#include <CL/cl.hpp>
 #include "splat_tree_cl.h"
 #include "clip.h"
 #include "marching.h"
 #include "mls.h"
 #include "mesh.h"
+#include "mesher.h"
 #include "mesh_filter.h"
 #include "grid.h"
 #include "progress.h"
@@ -61,10 +67,12 @@
  * only be called by a single manager thread. The other functions are
  * thread-safe, allowing for multiple producers.
  */
-template<typename WorkItem, typename Worker>
+template<typename WorkItem, typename GenType, typename Worker>
 class WorkerGroup : public boost::noncopyable
 {
 public:
+    typedef GenType gen_type;
+
     /**
      * Retrieve an unused item from the pool to be populated with work. This
      * may block if all the items are currently in use.
@@ -84,10 +92,37 @@ public:
      *
      * @pre @a item was obtained by @ref get.
      */
-    void push(boost::shared_ptr<WorkItem> item)
+    void push(const gen_type &gen, boost::shared_ptr<WorkItem> item)
     {
         Statistics::Timer timer(pushStat);
-        workQueue.push(item);
+        workQueue.push(gen, item);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStart.
+     *
+     * @pre The worker threads are not running.
+     */
+    void producerStart(const gen_type &gen)
+    {
+        MLSGPU_ASSERT(threads.empty(), std::runtime_error);
+        workQueue.producerStart(gen);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerNext.
+     */
+    void producerNext(const gen_type &oldGen, const gen_type &newGen)
+    {
+        workQueue.producerNext(oldGen, newGen);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStop.
+     */
+    void producerStop(const gen_type &gen)
+    {
+        workQueue.producerStop(gen);
     }
 
     /**
@@ -102,9 +137,9 @@ public:
         MLSGPU_ASSERT(threads.empty(), std::runtime_error);
         threads.reserve(workers.size());
         for (std::size_t i = 0; i < workers.size(); i++)
-        {
+            workers[i].start();
+        for (std::size_t i = 0; i < workers.size(); i++)
             threads.push_back(new boost::thread(Thread(*this, workers[i])));
-        }
     }
 
     /**
@@ -120,7 +155,7 @@ public:
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), std::runtime_error);
         for (std::size_t i = 0; i < threads.size(); i++)
-            workQueue.push(boost::shared_ptr<WorkItem>());
+            workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
         for (std::size_t i = 0; i < threads.size(); i++)
             threads[i].join();
         threads.clear();
@@ -190,11 +225,11 @@ private:
     /// Thread object that processes items from the queue.
     class Thread
     {
-        WorkerGroup<WorkItem, Worker> &owner;
+        WorkerGroup<WorkItem, GenType, Worker> &owner;
         Worker &worker;
 
     public:
-        Thread(WorkerGroup<WorkItem, Worker> &owner, Worker &worker)
+        Thread(WorkerGroup<WorkItem, GenType, Worker> &owner, Worker &worker)
             : owner(owner), worker(worker) {}
 
         void operator()()
@@ -202,17 +237,19 @@ private:
             while (true)
             {
                 Timer timer;
-                boost::shared_ptr<WorkItem> item = owner.workQueue.pop();
+                gen_type gen;
+                boost::shared_ptr<WorkItem> item = owner.workQueue.pop(gen);
                 if (!item.get())
                     break; // we have been asked to shut down
                 owner.popStat.add(timer.getElapsed());
-                worker(*item);
+                worker(gen, *item);
                 owner.itemPool.push(item);
             }
+            worker.stop();
         }
     };
 
-    WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
+    GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
     Pool<WorkItem> itemPool;
 
     /**
@@ -231,6 +268,66 @@ private:
     Statistics::Variable &popStat;
     Statistics::Variable &getStat;
 };
+
+
+class MesherGroup;
+
+class MesherGroupBase
+{
+public:
+    typedef MesherWork WorkItem;
+
+    class Worker
+    {
+    private:
+        MesherGroup &owner;
+
+    public:
+        typedef void result_type;
+
+        Worker(MesherGroup &owner);
+
+        void start() {}
+        void stop() {}
+        void operator()(const ChunkId &chunkId, WorkItem &work);
+    };
+};
+
+/**
+ * Object for handling asynchronous meshing. It always uses one consumer thread, since
+ * the operation is fundamentally not thread-safe. However, there may be multiple
+ * producers.
+ */
+class MesherGroup : protected MesherGroupBase,
+    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker>
+{
+public:
+    typedef MesherGroupBase::WorkItem WorkItem;
+
+    /// Set the functor to use for processing data received from the output functor.
+    void setInputFunctor(const MesherBase::InputFunctor &input) { this->input = input; }
+
+    /**
+     * Retrieve a functor that can be used in any thread to insert work into
+     * the queue.
+     * @warning The returned function will not call @ref producerNext for you. It
+     * only calls @ref push to insert the mesh into the queue.
+     */
+    Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId);
+
+    MesherGroup(std::size_t capacity);
+private:
+    MesherBase::InputFunctor input;
+    friend class MesherGroupBase::Worker;
+
+    void outputFunc(
+        const ChunkId &chunkId,
+        const cl::CommandQueue &queue,
+        const DeviceKeyMesh &mesh,
+        const std::vector<cl::Event> *events,
+        cl::Event *event);
+};
+
 
 class DeviceWorkerGroup;
 
@@ -263,6 +360,8 @@ public:
         ScaleBiasFilter scaleBias;
         MeshFilterChain filterChain;
 
+        ChunkId curChunkId;
+
     public:
         typedef void result_type;
 
@@ -271,12 +370,14 @@ public:
             const cl::Context &context, const cl::Device &device,
             int levels, bool keepBoundary, float boundaryLimit);
 
-        void setOutput(const Marching::OutputFunctor &output)
-        {
-            filterChain.setOutput(output);
-        }
+        /// Called at beginning of pass
+        void start();
 
-        void operator()(WorkItem &work);
+        /// Called at end of pass
+        void stop();
+
+        /// Called per work item
+        void operator()(const ChunkId &chunk, WorkItem &work);
     };
 };
 
@@ -285,11 +386,14 @@ public:
  * it to the @ref MesherBase class. It pulls chunks of work off a queue,
  * which contains pre-bucketed splats.
  */
-class DeviceWorkerGroup : protected DeviceWorkerGroupBase, public WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker>
+class DeviceWorkerGroup :
+    protected DeviceWorkerGroupBase,
+    public WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker>
 {
 private:
-    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker> Base;
+    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker> Base;
     ProgressDisplay *progress;
+    MesherGroup &outGroup;
 
     const Grid fullGrid;
     const std::size_t maxSplats;
@@ -317,6 +421,7 @@ public:
      */
     DeviceWorkerGroup(
         std::size_t numWorkers, std::size_t capacity,
+        MesherGroup &outGroup,
         const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
@@ -334,12 +439,6 @@ public:
      * processed.
      */
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
-
-    /**
-     * Sets the output functor to call with results. This must be called
-     * before starting the threads.
-     */
-    void setOutput(const Marching::OutputFunctor &output);
 };
 
 class FineBucketGroup;
@@ -359,6 +458,7 @@ public:
     private:
         FineBucketGroup &owner;
         const cl::CommandQueue queue; ///< Queue for map and unmap operations
+        ChunkId curChunkId;
 
     public:
         typedef void result_type;
@@ -371,8 +471,14 @@ public:
             const Grid &grid,
             const Bucket::Recursion &recursionState);
 
+        /// Called at beginning of pass
+        void start();
+
+        /// Called at end of pass
+        void stop();
+
         /// Front-end processing of one item
-        void operator()(WorkItem &work);
+        void operator()(const ChunkId &chunkId, WorkItem &work);
     };
 };
 
@@ -382,7 +488,7 @@ public:
  * calls @ref Bucket::bucket to subdivide the splats into buckets suitable for
  * device execution, and passes them on to a @ref DeviceWorkerGroup.
  */
-class FineBucketGroup : protected FineBucketGroupBase, public WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker>
+class FineBucketGroup : protected FineBucketGroupBase, public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker>
 {
 public:
     typedef FineBucketGroupBase::WorkItem WorkItem;

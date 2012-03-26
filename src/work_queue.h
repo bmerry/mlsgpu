@@ -332,7 +332,7 @@ void GenerationalWorkQueue<ValueType, GenType, CompareGen>::push(
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
     MLSGPU_ASSERT(active.count(gen), std::logic_error);
-    while (gen != active.begin()->first)
+    while (active.key_comp()(active.begin()->first, gen))
     {
         nextGenCondition.wait(lock);
         MLSGPU_ASSERT(active.count(gen), std::logic_error);

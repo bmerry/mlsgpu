@@ -46,6 +46,23 @@ enum MesherType
     STXXL_MESHER
 };
 
+struct ChunkId
+{
+    unsigned int generation;
+    boost::array<Grid::size_type, 3> coords;
+
+    ChunkId() : generation(0)
+    {
+        for (unsigned int i = 0; i < 3; i++)
+            coords[i] = 0;
+    }
+
+    bool operator<(const ChunkId &b) const
+    {
+        return generation < b.generation;
+    }
+};
+
 /**
  * Wrapper around @ref MesherType for use with @ref Choice.
  */
@@ -93,7 +110,7 @@ public:
      * After the function returns the mesh is not used again, so it may be
      * modified as past of the implementation.
      */
-    typedef boost::function<void(MesherWork &work)> InputFunctor;
+    typedef boost::function<void(const ChunkId &chunkId, MesherWork &work)> InputFunctor;
 
     /// Constructor
     MesherBase() : pruneThreshold(0.0) {}
@@ -182,7 +199,7 @@ private:
     std::vector<boost::array<cl_uint, 3> > triangles;
 
     /// Implementation of the functor
-    void add(MesherWork &work);
+    void add(const ChunkId &chunkId, MesherWork &work);
 
 public:
     virtual unsigned int numPasses() const { return 1; }
@@ -360,13 +377,13 @@ private:
     key_clump_type keyClump;
 
     /// Implementation of the first-pass functor
-    void count(MesherWork &work);
+    void count(const ChunkId &chunkId, MesherWork &work);
 
     /// Preparation for the second pass after the first pass
     void prepareAdd();
 
     /// Implementation of the second-pass functor
-    void add(MesherWork &work);
+    void add(const ChunkId &chunkId, MesherWork &work);
 
 public:
     virtual unsigned int numPasses() const { return 2; }
@@ -407,7 +424,7 @@ private:
     triangles_type triangles;
 
     /// Implementation of the functor
-    void add(MesherWork &work);
+    void add(const ChunkId &chunkId, MesherWork &work);
 
     /// Function object that accepts incoming vertices and writes them to a writer.
     class VertexBuffer : public boost::noncopyable
@@ -456,61 +473,5 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std
  * that reads the mesh from the device to the host synchronously.
  */
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in);
-
-/**
- * Object for handling asynchronous meshing. For each pass:
- *  -# Call @ref setInputFunctor to provide the per-pass mesher input functor.
- *  -# Call @ref start to start up the thread which will do the actual processing.
- *  -# Call @ref getOutputFunctor to get the functor which inserts work to the queue.
- *  -# In each producer thread, use the output functor to supply data.
- *  -# Shut down the producer threads (join with them).
- *  -# Call @ref stop to shut down the consumer thread.
- */
-class DeviceMesherAsync : public boost::noncopyable
-{
-public:
-    /**
-     * Constructor.
-     * @param capacity     The capacity of the internal work queue.
-     * @pre capacity > 0.
-     */
-    explicit DeviceMesherAsync(std::size_t capacity);
-
-    /// Set the functor to use for processing data received from the output functor.
-    void setInputFunctor(const MesherBase::InputFunctor &input) { this->input = input; }
-
-    /// Retrieve a functor that can be used in any thread to insert work into the queue.
-    Marching::OutputFunctor getOutputFunctor() const { return output; }
-
-    /**
-     * Start the consumer thread.
-     * @pre
-     * - The consumer thread is not already running.
-     * - The input functor has been set.
-     */
-    void start();
-
-    /**
-     * Shut down the consumer thread.
-     * @pre
-     * - The consumer thread is currently running.
-     * - No other thread will call the output functor while stopping is in progress.
-     */
-    void stop();
-
-private:
-    void consumerThread();
-
-    void outputFunc(
-        const cl::CommandQueue &queue,
-        const DeviceKeyMesh &mesh,
-        const std::vector<cl::Event> *events,
-        cl::Event *event);
-
-    WorkQueue<boost::shared_ptr<MesherWork> > workQueue;
-    boost::scoped_ptr<boost::thread> thread;
-    MesherBase::InputFunctor input;
-    Marching::OutputFunctor output;
-};
 
 #endif /* !MESHER_H */

@@ -51,7 +51,7 @@ std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
     return ans;
 }
 
-void WeldMesher::add(MesherWork &work)
+void WeldMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
     const HostKeyMesh &mesh = work.mesh;
     const std::size_t oldInternal = internalVertices.size();
@@ -233,7 +233,7 @@ MesherBase::InputFunctor WeldMesher::functor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return boost::bind(&WeldMesher::add, this, _1);
+    return boost::bind(&WeldMesher::add, this, _1, _2);
 }
 
 
@@ -346,7 +346,7 @@ BigMesher::BigMesher(FastPly::WriterBase &writer, const std::string &filename)
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }
 
-void BigMesher::count(MesherWork &work)
+void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
 {
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
@@ -375,7 +375,7 @@ void BigMesher::count(MesherWork &work)
     }
 }
 
-void BigMesher::add(MesherWork &work)
+void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
@@ -534,10 +534,10 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
     switch (pass)
     {
     case 0:
-        return boost::bind(&BigMesher::count, this, _1);
+        return boost::bind(&BigMesher::count, this, _1, _2);
     case 1:
         prepareAdd();
-        return boost::bind(&BigMesher::add, this, _1);
+        return boost::bind(&BigMesher::add, this, _1, _2);
     default:
         abort();
     }
@@ -588,7 +588,7 @@ void StxxlMesher::TriangleBuffer::operator()(const boost::array<std::tr1::uint32
         flush();
 }
 
-void StxxlMesher::add(MesherWork &work)
+void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
@@ -634,7 +634,7 @@ MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return boost::bind(&StxxlMesher::add, this, _1);
+    return boost::bind(&StxxlMesher::add, this, _1, _2);
 }
 
 void StxxlMesher::TriangleBuffer::flush()
@@ -770,7 +770,7 @@ public:
         work.verticesEvent = wait[0];
         work.vertexKeysEvent = wait[1];
         work.trianglesEvent = wait[2];
-        in(work);
+        in(ChunkId(), work); // TODO: should be able to pass through a ChunkId
     }
 
     DeviceMesher(const MesherBase::InputFunctor &in) : in(in) {}
@@ -781,58 +781,6 @@ public:
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in)
 {
     return DeviceMesher(in);
-}
-
-
-DeviceMesherAsync::DeviceMesherAsync(std::size_t capacity)
-    : workQueue(capacity),
-    output(boost::bind(&DeviceMesherAsync::outputFunc, this, _1, _2, _3, _4))
-{
-}
-
-void DeviceMesherAsync::outputFunc(
-    const cl::CommandQueue &queue,
-    const DeviceKeyMesh &mesh,
-    const std::vector<cl::Event> *events,
-    cl::Event *event)
-{
-    MLSGPU_ASSERT(input, std::runtime_error);
-
-    // TODO: see if this dynamic allocation can be avoided
-    boost::shared_ptr<MesherWork> work = boost::make_shared<MesherWork>();
-    std::vector<cl::Event> wait(3);
-    enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
-    CLH::enqueueMarkerWithWaitList(queue, &wait, event);
-
-    work->verticesEvent = wait[0];
-    work->vertexKeysEvent = wait[1];
-    work->trianglesEvent = wait[2];
-    workQueue.push(work);
-}
-
-void DeviceMesherAsync::start()
-{
-    MLSGPU_ASSERT(!thread.get(), std::runtime_error);
-    thread.reset(new boost::thread(boost::bind(&DeviceMesherAsync::consumerThread, this)));
-}
-
-void DeviceMesherAsync::stop()
-{
-    MLSGPU_ASSERT(thread.get(), std::runtime_error);
-    workQueue.push(boost::shared_ptr<MesherWork>()); // empty item signals stop
-    thread->join();
-    thread.reset();
-}
-
-void DeviceMesherAsync::consumerThread()
-{
-    while (true)
-    {
-        boost::shared_ptr<MesherWork> work = workQueue.pop();
-        if (!work.get())
-            break;
-        input(*work);
-    }
 }
 
 MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename)
