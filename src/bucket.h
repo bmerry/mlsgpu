@@ -62,7 +62,11 @@ struct Recursion
     std::size_t totalRanges;         ///< Blob ranges held in memory at all levels.
     boost::array<Grid::size_type, 3> chunk; ///< Output file chunk.
 
-    Recursion() : depth(0), totalRanges(0) {}
+    Recursion() : depth(0), totalRanges(0)
+    {
+        for (unsigned int i = 0; i < 3; i++)
+            chunk[i] = 0;
+    }
 };
 
 /**
