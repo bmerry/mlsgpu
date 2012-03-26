@@ -649,7 +649,6 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    // TODO: make a parameter
     const cl_uint thresholdVertices = (cl_uint) (vertices.size() * getPruneThreshold());
     FastPly::WriterBase::size_type numVertices = 0, numTriangles = 0;
     clump_id keptComponents = 0, totalComponents = 0;
