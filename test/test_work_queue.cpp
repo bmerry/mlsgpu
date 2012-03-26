@@ -39,28 +39,28 @@ class Push<WorkQueue<ValueType> >
 public:
     typedef void result_type;
 
-    void operator()(WorkQueue<ValueType> &queue, const ValueType &value, std::size_t) const
+    void operator()(WorkQueue<ValueType> &queue, const ValueType &value, unsigned int) const
     {
         queue.push(value);
     }
 };
 
 template<typename ValueType>
-class Push<OrderedWorkQueue<ValueType> >
+class Push<GenerationalWorkQueue<ValueType> >
 {
 public:
     typedef void result_type;
 
-    void operator()(OrderedWorkQueue<ValueType> &queue, const ValueType &value, typename OrderedWorkQueue<ValueType>::id_type id) const
+    void operator()(GenerationalWorkQueue<ValueType> &queue, const ValueType &value, unsigned int gen) const
     {
-        queue.push(value, id);
+        queue.push(value, gen);
     }
 };
 
 } // anonymous namespace
 
 /**
- * Base class used by @ref TestWorkQueue and @ref TestOrderedWorkQueue. 
+ * Base class used by @ref TestWorkQueue and @ref TestGenerationalWorkQueue.
  * @param T        A work queue class with a value type of @c int.
  */
 template<typename T>
@@ -100,16 +100,6 @@ class TestWorkQueue : public TestWorkQueueBase<WorkQueue<int> >
     CPPUNIT_TEST_SUITE_END();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWorkQueue, TestSet::perCommit());
-
-class TestOrderedWorkQueue : public TestWorkQueueBase<OrderedWorkQueue<int> >
-{
-    CPPUNIT_TEST_SUB_SUITE(TestOrderedWorkQueue, TestWorkQueueBase<OrderedWorkQueue<int> >);
-    CPPUNIT_TEST(testOrdering);
-    CPPUNIT_TEST_SUITE_END();
-public:
-    void testOrdering();       ///< Test that multiple producers preserve order
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOrderedWorkQueue, TestSet::perCommit());
 
 template<typename T>
 void TestWorkQueueBase<T>::producerThread(T &queue, int start, int end)
@@ -199,9 +189,4 @@ template<typename T>
 void TestWorkQueueBase<T>::testStress()
 {
     testStressHelper(8, 8, false);
-}
-
-void TestOrderedWorkQueue::testOrdering()
-{
-    testStressHelper(8, 1, true);
 }

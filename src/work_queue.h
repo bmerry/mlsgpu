@@ -72,7 +72,7 @@ public:
      *
      * @pre @a capacity > 0.
      */
-    WorkQueue(size_type capacity);
+    explicit WorkQueue(size_type capacity);
 
 private:
     size_type capacity_;
@@ -88,8 +88,6 @@ private:
 
     /// Implementation of @ref pop where the caller holds the mutex
     value_type popUnlocked(boost::unique_lock<boost::mutex> &lock);
-
-    template<typename ValueType2, typename IdType2> friend class OrderedWorkQueue;
 };
 
 /**
@@ -111,6 +109,7 @@ class GenerationalWorkQueue : protected WorkQueue<std::pair<ValueType, GenType> 
 public:
     typedef ValueType value_type;
     typedef GenType gen_type;
+    typedef typename WorkQueue<std::pair<ValueType, GenType> >::size_type size_type;
 
     /**
      * Indicate that a procedurer is working on generation @a gen. This blocks
@@ -162,6 +161,16 @@ public:
     template<typename StartValueType>
     value_type popStart(gen_type &gen, GenerationalWorkQueue<StartValueType, GenType, CompareGen> &startQueue);
 
+    /**
+     * Constructor.
+     *
+     * @param capacity Maximum capacity of the queue.
+     * @param compare  Less-than operator for comparing generations.
+     *
+     * @pre @a capacity > 0.
+     */
+    GenerationalWorkQueue(size_type capacity, const CompareGen &compare = CompareGen());
+
 private:
     typedef std::map<GenType, unsigned int, CompareGen> active_type;
 
@@ -172,67 +181,6 @@ private:
 
     /// Condition signaled when the generation changes
     boost::condition_variable nextGenCondition;
-};
-
-/**
- * A variation on a work queue in which workitems have sequential IDs and
- * can only be inserted in order. Attempting to push an out-of-order item
- * will block until the prior items have been pushed. This reduces efficiency
- * but makes certain use-cases more deterministic.
- */
-template<typename ValueType, typename IdType = std::tr1::uint64_t>
-class OrderedWorkQueue : private WorkQueue<ValueType>
-{
-private:
-    typedef WorkQueue<ValueType> Base;
-public:
-    typedef typename Base::value_type value_type;
-    typedef typename Base::size_type size_type;
-    typedef IdType id_type;
-    using Base::capacity;
-    using Base::size;
-    using Base::pop;
-
-    /**
-     * Constructor.
-     *
-     * @param capacity Maximum capacity of the queue.
-     *
-     * @pre @a capacity > 0.
-     */
-    OrderedWorkQueue(size_type capacity);
-
-    /**
-     * Add an item to the queue. This will block if the queue is full or
-     * if @a id is not the next ID in sequence (starting from 0).
-     */
-    void push(const value_type &item, id_type id);
-
-    /**
-     * Add an item to the queue and advance a range of IDs. This will block
-     * if the queue is full or if @a firstId is not the next ID in sequence
-     * (starting from 0). Afterwards, @a lastId will be the new next-ID.
-     */
-    void push(const value_type &items, id_type firstId, id_type lastId);
-
-    /**
-     * Indicate that nothing should be pushed on the queue for a specific
-     * ID. This will block until @a id is the next ID in the sequence, but
-     * will then push nothing on the queue.
-     */
-    void skip(id_type id);
-
-    /**
-     * Indicate that nothing should be pushed on the queue for a specific
-     * range of IDs. This will block until @a firstId is the next ID in the
-     * sequence, but will then push nothing on the queue. Afterwards,
-     * @a lastId will become the new next-ID.
-     */
-    void skip(id_type firstId, id_type lastId);
-
-private:
-    size_type next_;        ///< Next expected ID for @ref push or @ref skip
-    boost::condition_variable idCondition;
 };
 
 
@@ -306,6 +254,13 @@ ValueType WorkQueue<ValueType>::popUnlocked(boost::unique_lock<boost::mutex> &lo
 
 
 template<typename ValueType, typename GenType, typename CompareGen>
+GenerationalWorkQueue<ValueType, GenType, CompareGen>::GenerationalWorkQueue(
+    size_type capacity, const CompareGen &compare)
+: WorkQueue<std::pair<ValueType, GenType> >(capacity), active(compare)
+{
+}
+
+template<typename ValueType, typename GenType, typename CompareGen>
 void GenerationalWorkQueue<ValueType, GenType, CompareGen>::producerStart(const gen_type &gen)
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
@@ -362,61 +317,6 @@ ValueType GenerationalWorkQueue<ValueType, GenType, CompareGen>::popStart(
     startQueue.producerStart(ans.second);
     gen = ans.second;
     return ans.first;
-}
-
-
-
-template<typename ValueType, typename IdType>
-OrderedWorkQueue<ValueType, IdType>::OrderedWorkQueue(size_type capacity)
-    : Base(capacity), next_(0)
-{
-}
-
-template<typename ValueType, typename IdType>
-void OrderedWorkQueue<ValueType, IdType>::push(const value_type &value, id_type id)
-{
-    push(value, id, id + 1);
-}
-
-template<typename ValueType, typename IdType>
-void OrderedWorkQueue<ValueType, IdType>::push(const value_type &value, id_type firstId, id_type lastId)
-{
-    boost::unique_lock<boost::mutex> lock(this->mutex);
-    while (next_ != firstId)
-    {
-        idCondition.wait(lock);
-    }
-
-    while (this->size_ == this->capacity_)
-    {
-        this->spaceCondition.wait(lock);
-    }
-    this->values[this->tail_] = value;
-    this->tail_++;
-    if (this->tail_ == this->capacity_)
-        this->tail_ = 0;
-    this->size_++;
-    this->dataCondition.notify_one();
-    next_ = lastId;
-    idCondition.notify_all();
-}
-
-template<typename ValueType, typename IdType>
-void OrderedWorkQueue<ValueType, IdType>::skip(id_type id)
-{
-    skip(id, id + 1);
-}
-
-template<typename ValueType, typename IdType>
-void OrderedWorkQueue<ValueType, IdType>::skip(id_type firstId, id_type lastId)
-{
-    boost::unique_lock<boost::mutex> lock(this->mutex);
-    while (next_ != firstId)
-    {
-        idCondition.wait(lock);
-    }
-    next_ = lastId;
-    idCondition.notify_all();
 }
 
 #endif /* !WORK_QUEUE_H */
