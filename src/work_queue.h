@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <stdexcept>
+#include <map>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/condition_variable.hpp>
@@ -82,6 +83,12 @@ private:
     boost::mutex mutex;
     boost::scoped_array<value_type> values;
 
+    /// Implementation of @ref push where the caller holds the mutex
+    void pushUnlocked(boost::unique_lock<boost::mutex> &lock, const value_type &item);
+
+    /// Implementation of @ref pop where the caller holds the mutex
+    value_type popUnlocked(boost::unique_lock<boost::mutex> &lock);
+
     template<typename ValueType2, typename IdType2> friend class OrderedWorkQueue;
 };
 
@@ -107,9 +114,7 @@ public:
 
     /**
      * Indicate that a procedurer is working on generation @a gen. This blocks
-     * other producers from enqueuing work on following generations. This
-     * function may itself block if there would otherwise be more than
-     * two generations active.
+     * other producers from enqueuing work on following generations.
      *
      * @pre
      * - Must not be inside a nested @ref producerStart.
@@ -118,34 +123,7 @@ public:
      *   one queue and pushing to another, they should use @ref popStart
      *   to ensure this.
      */
-    void producerStart(const gen_type &gen)
-    {
-        boost::unique_lock<boost::mutex> lock(mutex);
-        // TODO: assert for out-of-order generations
-        while (true)
-        {
-            for (unsigned int i = 0; i < 2; i++)
-            {
-                if (gen == gens[i].gen)
-                {
-                    gens[i].producers++;
-                    return;
-                }
-            }
-            if (gens[1].producers == 0)
-            {
-                // Empty slot we can allocate to this generation.
-                // NB: this will give invalid results for > 2 slots
-                // because there may be later slots that are active.
-                gens[1].producers++;
-                gens[1].gen = gen;
-                return;
-            }
-
-            // No room yet. Wait for current generation to complete.
-            nextGenCondition.wait(lock);
-        }
-    }
+    void producerStart(const gen_type &gen);
 
     /**
      * Indicate that a producer has completed work on generation @a gen. This
@@ -154,21 +132,7 @@ public:
      *
      * @pre Must be paired with a previous @ref producerStart.
      */
-    void producerStop(const gen_type &gen)
-    {
-        boost::unique_lock<boost::mutex> lock(mutex);
-        assert(gen == gens[0].gen || gen == gens[1].gen);
-        unsigned int genId = (gen == gens[1].gen);
-        assert(gens[genId].producers > 0);
-        gens[genId].producers--;
-        if (genId == 0 && gens[genId].producers == 0)
-        {
-            gens[0] = gens[1];
-            gens[0].producers = gens[1].producers;
-            gens[1].producers = 0;
-            nextGenCondition.notify_all();
-        }
-    }
+    void producerStop(const gen_type &gen);
 
     /**
      * Enqueue a work item. This may block if there are other producers
@@ -177,26 +141,12 @@ public:
      * @pre This must be called between @ref producerStart and @ref producerStop
      * with the matching @a gen.
      */
-    void push(const gen_type &gen, const value_type &item)
-    {
-        boost::unique_lock<boost::mutex> lock(mutex);
-        while (gen != gens[0].gen)
-        {
-            nextGenCondition.wait(lock);
-        }
-        assert(gens[0].producers > 0);
-        pushUnlocked(std::make_pair(item, gen));
-    }
+    void push(const gen_type &gen, const value_type &item);
 
     /**
      * Extract a work item from the queue.
      */
-    value_type pop(gen_type &gen)
-    {
-        std::pair<value_type, gen_type> ans = pop();
-        gen = ans.second;
-        return ans.first;
-    }
+    value_type pop(gen_type &gen);
 
     /**
      * Atomically pop an item from one queue and call @ref producerStart on
@@ -210,21 +160,15 @@ public:
      *   (otherwise deadlocks may occur).
      */
     template<typename StartValueType>
-    value_type popStart(gen_type &gen, GenerationalWorkQueue<StartValueType, GenType, CompareGen> &startQueue)
-    {
-        boost::unique_lock<boost::mutex> lock(mutex);
-        std::pair<value_type, gen_type> ans = popUnlocked();
-        startQueue.producerStart(ans.second);
-        gen = ans.second;
-        return ans.first;
-    }
+    value_type popStart(gen_type &gen, GenerationalWorkQueue<StartValueType, GenType, CompareGen> &startQueue);
 
 private:
-    struct
-    {
-        gen_type gen;           ///< Generation ID
-        std::size_t producers;  ///< Number of active producers
-    } gens[2];                  ///< Current and next generation information
+    typedef std::map<GenType, unsigned int, CompareGen> active_type;
+
+    /**
+     * Number of active producers in each generation.
+     */
+    active_type active;
 
     /// Condition signaled when the generation changes
     boost::condition_variable nextGenCondition;
@@ -317,6 +261,14 @@ template<typename ValueType>
 void WorkQueue<ValueType>::push(const ValueType &value)
 {
     boost::unique_lock<boost::mutex> lock(mutex);
+    pushUnlocked(lock, value);
+}
+
+template<typename ValueType>
+void WorkQueue<ValueType>::pushUnlocked(
+    boost::unique_lock<boost::mutex> &lock,
+    const ValueType &value)
+{
     while (size_ == capacity_)
     {
         spaceCondition.wait(lock);
@@ -333,6 +285,12 @@ template<typename ValueType>
 ValueType WorkQueue<ValueType>::pop()
 {
     boost::unique_lock<boost::mutex> lock(mutex);
+    return popUnlocked(lock);
+}
+
+template<typename ValueType>
+ValueType WorkQueue<ValueType>::popUnlocked(boost::unique_lock<boost::mutex> &lock)
+{
     while (size_ == 0)
     {
         dataCondition.wait(lock);
@@ -345,6 +303,67 @@ ValueType WorkQueue<ValueType>::pop()
     spaceCondition.notify_one();
     return ans;
 }
+
+
+template<typename ValueType, typename GenType, typename CompareGen>
+void GenerationalWorkQueue<ValueType, GenType, CompareGen>::producerStart(const gen_type &gen)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    // Check monotone condition
+    MLSGPU_ASSERT(active.empty() || !active.key_comp()(gen, active.back().gen),
+                  std::runtime_error);
+    ++active[gen];
+}
+
+template<typename ValueType, typename GenType, typename CompareGen>
+void GenerationalWorkQueue<ValueType, GenType, CompareGen>::producerStop(const gen_type &gen)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    typename active_type::iterator pos = active.find(gen);
+    MLSGPU_ASSERT(pos != active.end(), std::logic_error);
+    if (--pos->second == 0)
+    {
+        // Generation is no longer active
+        if (pos == active.begin())
+            nextGenCondition.notify_all();
+        active.erase(pos);
+    }
+}
+
+template<typename ValueType, typename GenType, typename CompareGen>
+void GenerationalWorkQueue<ValueType, GenType, CompareGen>::push(
+    const gen_type &gen, const value_type &item)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    MLSGPU_ASSERT(active.count(gen), std::logic_error);
+    while (gen != active.front()->first)
+    {
+        nextGenCondition.wait(lock);
+        MLSGPU_ASSERT(active.empty(gen), std::logic_error);
+    }
+    pushUnlocked(lock, std::make_pair(item, gen));
+}
+
+template<typename ValueType, typename GenType, typename CompareGen>
+ValueType GenerationalWorkQueue<ValueType, GenType, CompareGen>::pop(gen_type &gen)
+{
+    std::pair<value_type, gen_type> ans = pop();
+    gen = ans.second;
+    return ans.first;
+}
+
+template<typename ValueType, typename GenType, typename CompareGen>
+template<typename StartValueType>
+ValueType GenerationalWorkQueue<ValueType, GenType, CompareGen>::popStart(
+    gen_type &gen, GenerationalWorkQueue<StartValueType, GenType, CompareGen> &startQueue)
+{
+    boost::unique_lock<boost::mutex> lock(this->mutex);
+    std::pair<value_type, gen_type> ans = this->popUnlocked(lock);
+    startQueue.producerStart(ans.second);
+    gen = ans.second;
+    return ans.first;
+}
+
 
 
 template<typename ValueType, typename IdType>
