@@ -263,9 +263,9 @@ void BucketStateSet::processBlob(const SplatSet::BlobInfo &blob, const F &func)
         chunkUpper[i] = std::min(u, Grid::difference_type(shape()[i] - 1));
     }
     boost::array<Grid::difference_type, 3> chunkCoord;
-    for (chunkCoord[2] = chunkLower[2]; chunkCoord[2] <= chunkUpper[2]; chunkCoord[2]++)
+    for (chunkCoord[0] = chunkLower[0]; chunkCoord[0] <= chunkUpper[0]; chunkCoord[0]++)
         for (chunkCoord[1] = chunkLower[1]; chunkCoord[1] <= chunkUpper[1]; chunkCoord[1]++)
-            for (chunkCoord[0] = chunkLower[0]; chunkCoord[0] <= chunkUpper[0]; chunkCoord[0]++)
+            for (chunkCoord[2] = chunkLower[2]; chunkCoord[2] <= chunkUpper[2]; chunkCoord[2]++)
             {
                 SplatSet::BlobInfo subBlob = blob;
                 for (unsigned int i = 0; i < 3; i++)
@@ -409,9 +409,9 @@ void bucketRecurse(
         blobs.reset();
 
         boost::array<Grid::difference_type, 3> chunkCoord;
-        for (chunkCoord[2] = 0; chunkCoord[2] < chunks[2]; chunkCoord[2]++)
+        for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
             for (chunkCoord[1] = 0; chunkCoord[1] < chunks[1]; chunkCoord[1]++)
-                for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
+                for (chunkCoord[2] = 0; chunkCoord[2] < chunks[2]; chunkCoord[2]++)
                 {
                     BucketState &state = *states(chunkCoord);
                     state.upsweepCounts();
@@ -428,9 +428,9 @@ void bucketRecurse(
         }
 
         /* Make callbacks */
-        for (chunkCoord[2] = 0; chunkCoord[2] < chunks[2]; chunkCoord[2]++)
+        for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
             for (chunkCoord[1] = 0; chunkCoord[1] < chunks[1]; chunkCoord[1]++)
-                for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
+                for (chunkCoord[2] = 0; chunkCoord[2] < chunks[2]; chunkCoord[2]++)
                 {
                     states(chunkCoord)->doCallbacks(splats, process, recursionState, chunkCoord);
                 }
