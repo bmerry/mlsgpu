@@ -798,6 +798,7 @@ void DeviceMesherAsync::outputFunc(
 {
     MLSGPU_ASSERT(input, std::runtime_error);
 
+    // TODO: see if this dynamic allocation can be avoided
     boost::shared_ptr<MesherWork> work = boost::make_shared<MesherWork>();
     std::vector<cl::Event> wait(3);
     enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);

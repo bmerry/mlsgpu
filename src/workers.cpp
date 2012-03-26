@@ -135,8 +135,6 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
         expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
     expandedSize[2] = size[2];
 
-    // TODO: use mapping to transfer the data directly into a buffer
-
     {
         Statistics::Timer timer("device.worker.time");
         cl::Event treeBuildEvent;
