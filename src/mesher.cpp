@@ -671,7 +671,6 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename
     registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
     registry.getStatistic<Statistics::Variable>("externalvertices").add(keyMap.size());
 
-    // TODO: get from clumps
     writer.setNumVertices(numVertices);
     writer.setNumTriangles(numTriangles);
     writer.open(filename);
