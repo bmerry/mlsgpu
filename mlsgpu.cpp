@@ -67,6 +67,8 @@ namespace Option
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
+    const char * const split = "split";
+    const char * const splitSize = "split-size";
 
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
@@ -156,6 +158,8 @@ string makeOptions(const po::variables_map &vm)
                 opts << param.as<double>();
             else if (value.type() == typeid(int))
                 opts << param.as<int>();
+            else if (value.type() == typeid(unsigned int))
+                opts << param.as<unsigned int>();
             else if (value.type() == typeid(std::size_t))
                 opts << param.as<std::size_t>();
             else if (value.type() == typeid(Choice<MesherTypeWrapper>))
@@ -218,7 +222,9 @@ static po::variables_map processOptions(int argc, char **argv)
     addStatisticsOptions(desc);
     addAdvancedOptions(desc);
     desc.add_options()
-        ("output-file,o",   po::value<string>()->required(), "output file");
+        ("output-file,o",   po::value<string>()->required(), "output file")
+        (Option::split,     "split output across multiple files")
+        (Option::splitSize, po::value<unsigned int>()->default_value(100), "approximate size of output chunks (MB)");
 
     po::options_description clopts("OpenCL options");
     CLH::addOptions(clopts);
@@ -387,12 +393,44 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const bool keepBoundary = vm.count(Option::fitKeepBoundary);
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
+    const bool split = vm.count(Option::split);
+    const unsigned int splitSize = vm.count(Option::splitSize);
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
+
+    unsigned int chunkCells = 0;
+    boost::array<Grid::size_type, 3> numChunks = {{1, 1, 1}};
+    if (split)
+    {
+        /* Determine a chunk size from splitSize. We assume that a chunk will be
+         * sliced by an axis-aligned plane. This plane will cut each vertical and
+         * each diagonal edge ones, thus generating 2x^2 vertices. We then
+         * apply a fudge factor of 1.5 to account for the fact that the real
+         * world is not a simple plane, and will have walls, noise, etc, giving
+         * 3x^2 vertices.
+         *
+         * A manifold with genus 0 has two triangles per vertex; vertices take
+         * 12 bytes (3 floats) and triangles take 13 (count plus 3 uints in
+         * PLY), giving 38 bytes per vertex. So there are 114x^2 bytes.
+         */
+        chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 114.0) * splitSize));
+        if (chunkCells == 0) chunkCells = 1;
+
+        std::tr1::uint64_t totalChunks = 1;
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            numChunks[i] = divUp(grid.numCells(i), chunkCells);
+            totalChunks *= numChunks[i];
+        }
+        if (totalChunks > 1000)
+        {
+            Log::log[Log::warn] << totalChunks << " output files will be produced. This may fail." << endl;
+        }
+    }
 
     DeviceMesherAsync deviceMesher(1);
     DeviceWorkerGroup deviceWorkerGroup(
@@ -430,7 +468,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         deviceWorkerGroup.start();
         fineBucketGroup.start();
 
-        Bucket::bucket(splats, grid, maxHostSplats, blockCells, 0, true, maxSplit, hostBlock, &progress);
+        Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit, hostBlock, &progress);
 
         /* Shut down threads. Note that it has to be done in forward order to
          * satisfy the requirement that stop() is only called after producers
