@@ -418,10 +418,10 @@ void TestMarching::testGenerate(
 
     mesher.finalize();
     FastPly::StreamWriter writer;
-    mesher.write(writer, filename);
+    mesher.write(writer, TrivialNamer(filename));
 
     MemoryWriter mwriter;
-    mesher.write(mwriter, filename);
+    mesher.write(mwriter, TrivialNamer(filename));
     const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = mwriter.getTriangles();
     std::string reason = Manifold::isManifold(mwriter.getVertices().size(), triangles.begin(), triangles.end());
     CPPUNIT_ASSERT_EQUAL(string(""), reason);

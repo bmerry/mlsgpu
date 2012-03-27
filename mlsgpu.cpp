@@ -344,7 +344,7 @@ void HostBlock<Splats>::operator()(
     if (recursionState.chunk != curChunkId.coords)
     {
         ChunkId old = curChunkId;
-        curChunkId.generation++;
+        curChunkId.gen++;
         curChunkId.coords = recursionState.chunk;
         outGroup.producerNext(old, curChunkId);
     }
@@ -494,7 +494,12 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         Statistics::Timer timer("finalize.time");
 
         mesher->finalize(&Log::log[Log::info]);
-        mesher->write(*writer, out, &Log::log[Log::info]);
+        MesherBase::Namer namer;
+        if (split)
+            namer = ChunkNamer(out);
+        else
+            namer = TrivialNamer(out);
+        mesher->write(*writer, namer, &Log::log[Log::info]);
     }
 }
 

@@ -30,6 +30,7 @@
 #include <boost/thread/thread.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/foreach.hpp>
 #include <tr1/unordered_map>
 #include "marching.h"
 #include "fast_ply.h"
@@ -48,10 +49,10 @@ enum MesherType
 
 struct ChunkId
 {
-    unsigned int generation;
+    unsigned int gen;
     boost::array<Grid::size_type, 3> coords;
 
-    ChunkId() : generation(0)
+    ChunkId() : gen(0)
     {
         for (unsigned int i = 0; i < 3; i++)
             coords[i] = 0;
@@ -59,7 +60,7 @@ struct ChunkId
 
     bool operator<(const ChunkId &b) const
     {
-        return generation < b.generation;
+        return gen < b.gen;
     }
 };
 
@@ -79,6 +80,40 @@ struct MesherWork
     cl::Event verticesEvent;
     cl::Event vertexKeysEvent;
     cl::Event trianglesEvent;
+};
+
+/**
+ * Model of @ref MesherBase::Namer that always returns a fixed filename.
+ */
+class TrivialNamer
+{
+private:
+    std::string name;
+
+public:
+    typedef std::string result_type;
+    const std::string &operator()(const ChunkId &chunkId) const
+    {
+        (void) chunkId;
+        return name;
+    }
+
+    TrivialNamer(const std::string &name) : name(name) {}
+};
+
+/**
+ * Model of @ref MesherBase::Namer that adds the chunk ID into the name.
+ */
+class ChunkNamer
+{
+private:
+    std::string baseName;
+
+public:
+    typedef std::string result_type;
+    std::string operator()(const ChunkId &chunkId) const;
+
+    ChunkNamer(const std::string &baseName) : baseName(baseName) {}
 };
 
 /**
@@ -111,6 +146,11 @@ public:
      * modified as past of the implementation.
      */
     typedef boost::function<void(const ChunkId &chunkId, MesherWork &work)> InputFunctor;
+
+    /**
+     * Function object that generates a filename from a chunk ID.
+     */
+    typedef boost::function<std::string(const ChunkId &chunkId)> Namer;
 
     /// Constructor
     MesherBase() : pruneThreshold(0.0) {}
@@ -161,13 +201,13 @@ public:
      * (this function will do that). The caller may optionally have set comments on it.
      *
      * @param writer          Writer to write to (unopened).
-     * @param filename        Filename to write to.
+     * @param namer           Filename generator.
      * @param progressStream  If non-NULL, a log stream for a progress meter
      * @throw std::ios_base::failure on I/O failure (including failure to open the file).
      *
      * @pre @ref finalize() has been called.
      */
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
                        std::ostream *progressStream = NULL) const = 0;
 
 private:
@@ -206,7 +246,7 @@ public:
     virtual InputFunctor functor(unsigned int pass);
     virtual void finalize(std::ostream *progressStream = NULL);
 
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
                        std::ostream *progressStream = NULL) const;
 };
 
@@ -241,16 +281,50 @@ protected:
     class Clump : public UnionFind::Node<clump_id>
     {
     public:
-        explicit Clump(cl_uint vertices) : vertices(vertices), triangles(0) {}
+        struct Counts
+        {
+            std::tr1::uint64_t vertices;
+            std::tr1::uint64_t triangles;
 
-        cl_uint vertices;               ///< Vertices in the component (valid for root clumps)
-        std::tr1::uint64_t triangles;   ///< Triangles in the component (valid for root clumps)
+            Counts &operator+=(const Counts &b)
+            {
+                vertices += b.vertices;
+                triangles += b.triangles;
+                return *this;
+            }
 
-        void merge(const Clump &b)
+            Counts() : vertices(0), triangles(0) {}
+        };
+
+        /**
+         * @name
+         * @{
+         * Book-keeping counts of vertices and triangles. These counts are only valid
+         * on root nodes.
+         */
+        Counts counts;                                              ///< Global counts
+        std::tr1::unordered_map<unsigned int, Counts> chunkCounts;  ///< Per-chunk counts
+        /** @} */
+
+        void merge(Clump &b)
         {
             UnionFind::Node<cl_int>::merge(b);
-            vertices += b.vertices;
-            triangles += b.triangles;
+            counts += b.counts;
+
+            // Merge chunkCounts with b.chunkCounts, destroying b.chunkCounts in
+            // the process.
+            typedef std::pair<unsigned int, Counts> item_type;
+            BOOST_FOREACH(const item_type &item, b.chunkCounts)
+            {
+                chunkCounts[item.first] += item.second;
+            }
+            b.chunkCounts.clear();
+        }
+
+        Clump(unsigned int chunkGen, std::tr1::uint64_t numVertices)
+        {
+            counts.vertices = numVertices;
+            chunkCounts[chunkGen].vertices = numVertices;
         }
     };
 
@@ -291,6 +365,7 @@ protected:
      * Identifies clumps in the local set of triangles. Each new clump is
      * appended to @ref clumps.
      *
+     * @param chunkGen       Chunk generation to which the local triangles belong.
      * @param numVertices    The number of vertices indexed by the triangles.
      * @param triangles      The triangles used to determine connectivity.
      * @param[out] clumpId   The index into @ref clumps for each vertex
@@ -302,6 +377,7 @@ protected:
      * @ref clumps.
      */
     void computeLocalComponents(
+        unsigned int chunkGen,
         std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles,
         std::vector<clump_id> &clumpId);
 
@@ -311,6 +387,7 @@ protected:
      * almost final values (prior to component removal). It also does merging
      * of clumps into components.
      *
+     * @param chunkGen        Chunk generation to which the local vertices belong.
      * @param vertexOffset    The final index for the first external vertex in the block.
      * @param hKeys           Keys of the external vertices.
      * @param clumpId         The clump IDs of all vertices, as computed by @ref computeLocalComponents.
@@ -319,6 +396,7 @@ protected:
      * @note Only the last <code>hKeys.size()</code> elements of @a clumpId are relevant.
      */
     std::size_t updateKeyMaps(
+        unsigned int chunkGen,
         cl_uint vertexOffset,
         const std::vector<cl_ulong> &hKeys,
         const std::vector<clump_id> &clumpId,
@@ -406,7 +484,7 @@ public:
     /**
      * Completes writing. The parameters must have the same values given to the constructor.
      */
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
                        std::ostream *progressStream = NULL) const;
 };
 
@@ -422,11 +500,19 @@ class StxxlMesher : public detail::KeyMapMesher
 {
 private:
     typedef FastPly::WriterBase::size_type size_type;
-
     typedef stxxl::VECTOR_GENERATOR<std::pair<boost::array<float, 3>, clump_id> >::result vertices_type;
     typedef stxxl::VECTOR_GENERATOR<boost::array<cl_uint, 3> >::result triangles_type;
+
+    struct Chunk
+    {
+        ChunkId chunkId;
+        vertices_type::size_type firstVertex;
+        triangles_type::size_type firstTriangle;
+    };
+
     vertices_type vertices;
     triangles_type triangles;
+    std::vector<Chunk> chunks;
 
     /// Implementation of the functor
     void add(const ChunkId &chunkId, MesherWork &work);
@@ -464,7 +550,7 @@ private:
 public:
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
-    virtual void write(FastPly::WriterBase &writer, const std::string &filename,
+    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
                        std::ostream *progressStream = NULL) const;
 };
 

@@ -398,7 +398,7 @@ void TestMesherBase::testSimple()
         }
     }
     mesher->finalize();
-    mesher->write(writer, "");
+    mesher->write(writer, TrivialNamer(""));
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(5, int(boost::size(internalVertices0)));
@@ -451,7 +451,7 @@ void TestMesherBase::testNoInternal()
             NULL, externalVertices2, externalKeys2, indices2);
     }
     mesher->finalize();
-    mesher->write(writer, "");
+    mesher->write(writer, TrivialNamer(""));
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
@@ -503,7 +503,7 @@ void TestMesherBase::testNoExternal()
             internalVertices2, NULL, NULL, indices2);
     }
     mesher->finalize();
-    mesher->write(writer, "");
+    mesher->write(writer, TrivialNamer(""));
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);
@@ -520,7 +520,7 @@ void TestMesherBase::testEmpty()
         add(functor, 0, 0, 0, NULL, NULL, NULL, NULL);
     }
     mesher->finalize();
-    mesher->write(writer, "");
+    mesher->write(writer, TrivialNamer(""));
 
     CPPUNIT_ASSERT(writer.getVertices().empty());
     CPPUNIT_ASSERT(writer.getTriangles().empty());
@@ -589,7 +589,7 @@ void TestMesherBase::testWeld()
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
     mesher->finalize();
-    mesher->write(writer, "");
+    mesher->write(writer, TrivialNamer(""));
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(9, int(boost::size(indices3)));
@@ -769,7 +769,7 @@ void TestMesherBase::testPrune()
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
     mesher->finalize();
-    mesher->write(writer, "");
+    mesher->write(writer, TrivialNamer(""));
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer);

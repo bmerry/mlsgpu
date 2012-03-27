@@ -33,6 +33,7 @@
 #include <map>
 #include <string>
 #include <ostream>
+#include <iomanip>
 #include "mesher.h"
 #include "fast_ply.h"
 #include "logging.h"
@@ -49,6 +50,16 @@ std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
     ans["big"] = BIG_MESHER;
     ans["stxxl"] = STXXL_MESHER;
     return ans;
+}
+
+std::string ChunkNamer::operator()(const ChunkId &chunkId) const
+{
+    std::ostringstream nameStream;
+    nameStream << baseName;
+    for (unsigned int i = 0; i < 3; i++)
+        nameStream << '_' << std::setw(4) << std::setfill('0') << chunkId.coords[i];
+    nameStream << ".ply";
+    return nameStream.str();
 }
 
 void WeldMesher::add(const ChunkId &chunkId, MesherWork &work)
@@ -213,7 +224,7 @@ void WeldMesher::finalize(std::ostream *progressStream)
     triangles.resize(newTriangles);
 }
 
-void WeldMesher::write(FastPly::WriterBase &writer, const std::string &filename,
+void WeldMesher::write(FastPly::WriterBase &writer, const Namer &namer,
                      std::ostream *progressStream) const
 {
     // Probably not worth trying to use this given the amount of data that can be
@@ -222,7 +233,7 @@ void WeldMesher::write(FastPly::WriterBase &writer, const std::string &filename,
 
     writer.setNumVertices(internalVertices.size());
     writer.setNumTriangles(triangles.size());
-    writer.open(filename);
+    writer.open(namer(ChunkId()));
     writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
     writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
 }
@@ -241,6 +252,7 @@ namespace detail
 {
 
 void KeyMapMesher::computeLocalComponents(
+    unsigned int chunkGen,
     std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles,
     std::vector<clump_id> &clumpId)
 {
@@ -266,7 +278,7 @@ void KeyMapMesher::computeLocalComponents(
                 throw std::overflow_error("Too many clumps");
             }
             clumpId[i] = clumps.size();
-            clumps.push_back(Clump(tmpNodes[i].size()));
+            clumps.push_back(Clump(chunkGen, tmpNodes[i].size()));
         }
     }
 
@@ -278,14 +290,18 @@ void KeyMapMesher::computeLocalComponents(
     }
 
     // Compute triangle counts for the clumps
+    // TODO: could be more efficient to first collect triangle count for
+    // each clump, then add into clump data structure
     BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         Clump &clump = clumps[clumpId[triangle[0]]];
-        clump.triangles++;
+        clump.counts.triangles++;
+        clump.chunkCounts[chunkGen].triangles++;
     }
 }
 
 std::size_t KeyMapMesher::updateKeyMaps(
+    unsigned int chunkGen,
     cl_uint vertexOffset,
     const std::vector<cl_ulong> &hKeys,
     const std::vector<clump_id> &clumpId,
@@ -299,17 +315,9 @@ std::size_t KeyMapMesher::updateKeyMaps(
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         cl_ulong key = hKeys[i];
+        clump_id cid = clumpId[i + numInternalVertices];
 
         {
-            std::pair<std::tr1::unordered_map<cl_ulong, cl_uint>::iterator, bool> added;
-            added = vertexIdMap.insert(std::make_pair(key, vertexOffset + newKeys));
-            if (added.second)
-                newKeys++; // key has not been set yet in this chunk
-            indexTable[i] = added.first->second;
-        }
-
-        {
-            clump_id cid = clumpId[i + numInternalVertices];
             std::pair<std::tr1::unordered_map<cl_ulong, clump_id>::iterator, bool> added;
             added = clumpIdMap.insert(std::make_pair(key, cid));
             if (!added.second)
@@ -320,8 +328,25 @@ std::size_t KeyMapMesher::updateKeyMaps(
                 // They will both have counted the common vertex, so we need to
                 // subtract it.
                 cid = UnionFind::findRoot(clumps, cid);
-                clumps[cid].vertices--;
+                clumps[cid].counts.vertices--;
             }
+        }
+
+        {
+            std::pair<std::tr1::unordered_map<cl_ulong, cl_uint>::iterator, bool> added;
+            added = vertexIdMap.insert(std::make_pair(key, vertexOffset + newKeys));
+            if (added.second)
+                newKeys++; // key has not been set yet in this chunk
+            else
+            {
+                // When we merged the clumps above, we adjusted the global vertex count,
+                // but we also need to adjust the per-chunk vertex count because the
+                // vertex has already appeared in this chunk.
+                assert(clumps[cid].isRoot());
+                assert(clumps[cid].chunkCounts.count(chunkGen));
+                clumps[cid].chunkCounts[chunkGen].vertices--;
+            }
+            indexTable[i] = added.first->second;
         }
     }
     return newKeys;
@@ -361,7 +386,7 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
     const std::size_t numInternalVertices = mesh.vertices.size() - numExternalVertices;
 
     work.trianglesEvent.wait();
-    computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpClumpId);
+    computeLocalComponents(chunkId.gen, mesh.vertices.size(), mesh.triangles, tmpClumpId);
 
     /* Build keyClump */
     work.vertexKeysEvent.wait();
@@ -378,7 +403,8 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
             // They will both have counted the common vertex, so we need to
             // subtract it.
             cid = UnionFind::findRoot(clumps, cid);
-            clumps[cid].vertices--;
+            clumps[cid].counts.vertices--;
+            // TODO: adjust the per-chunk counts
         }
     }
 }
@@ -391,7 +417,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
 
     work.trianglesEvent.wait();
     clumps.clear();
-    computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpClumpId);
+    computeLocalComponents(chunkId.gen, mesh.vertices.size(), mesh.triangles, tmpClumpId);
 
     /* Determine which components are valid. We no longer need the triangles
      * member of Clump, so we overwrite it with a validity boolean. A clump
@@ -401,13 +427,13 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
      */
     for (std::size_t i = 0; i < clumps.size(); i++)
     {
-        clumps[i].triangles = (clumps[i].vertices >= pruneThresholdVertices);
+        clumps[i].counts.triangles = (clumps[i].counts.vertices >= pruneThresholdVertices);
     }
     work.vertexKeysEvent.wait();
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         if (keyClump[mesh.vertexKeys[i]])
-            clumps[tmpClumpId[i + numInternalVertices]].triangles = true;
+            clumps[tmpClumpId[i + numInternalVertices]].counts.triangles = true;
     }
 
     work.verticesEvent.wait();
@@ -418,7 +444,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     tmpIndexTable.resize(mesh.vertices.size());
     for (std::size_t i = 0; i < numInternalVertices; i++)
     {
-        if (clumps[tmpClumpId[i]].triangles)
+        if (clumps[tmpClumpId[i]].counts.triangles)
         {
             tmpIndexTable[i] = vptr;
             mesh.vertices[vptr++] = mesh.vertices[i];
@@ -428,7 +454,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     }
     for (std::size_t i = numInternalVertices; i < mesh.vertices.size(); i++)
     {
-        if (clumps[tmpClumpId[i]].triangles)
+        if (clumps[tmpClumpId[i]].counts.triangles)
         {
             tmpIndexTable[i] = vptr;
             mesh.vertices[vptr++] = mesh.vertices[i];
@@ -455,6 +481,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     mesh.triangles.resize(tptr);
 
     std::size_t newKeys = updateKeyMaps(
+        chunkId.gen,
         nextVertex + newInternalVertices,
         mesh.vertexKeys, tmpClumpId, tmpIndexTable);
 
@@ -490,7 +517,7 @@ void BigMesher::prepareAdd()
     {
         if (clump.isRoot())
         {
-            totalVertices += clump.vertices;
+            totalVertices += clump.counts.vertices;
         }
     }
 
@@ -504,10 +531,10 @@ void BigMesher::prepareAdd()
         if (clump.isRoot())
         {
             totalComponents++;
-            if (clump.vertices >= pruneThresholdVertices)
+            if (clump.counts.vertices >= pruneThresholdVertices)
             {
-                numVertices += clump.vertices;
-                numTriangles += clump.triangles;
+                numVertices += clump.counts.vertices;
+                numTriangles += clump.counts.triangles;
                 keptComponents++;
             }
         }
@@ -525,7 +552,7 @@ void BigMesher::prepareAdd()
     {
         clump_id cid = i->second;
         cid = UnionFind::findRoot(clumps, cid);
-        i->second = clumps[cid].vertices >= pruneThresholdVertices;
+        i->second = clumps[cid].counts.vertices >= pruneThresholdVertices;
     }
 
     nextVertex = 0;
@@ -552,14 +579,13 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
     }
 }
 
-void BigMesher::write(FastPly::WriterBase &writer, const std::string &filename,
+void BigMesher::write(FastPly::WriterBase &writer, const Namer &namer,
                       std::ostream *progressStream) const
 {
     (void) writer;
-    (void) filename;
+    (void) namer;
     (void) progressStream;
     assert(&writer == &this->writer);
-    assert(filename == this->filename);
 }
 
 
@@ -599,21 +625,34 @@ void StxxlMesher::TriangleBuffer::operator()(const boost::array<std::tr1::uint32
 
 void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
+    // TODO: move this into KeyMapMesher
+    if (chunks.empty() || chunkId.gen != chunks.back().chunkId.gen)
+    {
+        assert(chunks.empty() || chunks.back().chunkId.gen < chunkId.gen);
+        Chunk chunk;
+        chunk.chunkId = chunkId;
+        chunk.firstVertex = vertices.size();
+        chunk.firstTriangle = triangles.size();
+        chunks.push_back(chunk);
+
+        vertexIdMap.clear(); // don't merge vertex IDs with other chunks
+    }
+
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
     const std::size_t numInternalVertices = mesh.vertices.size() - numExternalVertices;
-    const size_type priorVertices = this->vertices.size();
+    const size_type priorVertices = vertices.size() - chunks.back().firstVertex;
 
     work.trianglesEvent.wait();
-    computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpClumpId);
+    computeLocalComponents(chunkId.gen, mesh.vertices.size(), mesh.triangles, tmpClumpId);
 
     work.vertexKeysEvent.wait();
-    std::size_t newKeys = updateKeyMaps(
+    updateKeyMaps(
+        chunkId.gen,
         priorVertices + numInternalVertices,
         mesh.vertexKeys, tmpClumpId, tmpIndexTable);
 
     /* Copy the vertices into storage */
-    vertices.reserve(priorVertices + mesh.vertices.size() + newKeys);
     work.verticesEvent.wait();
     for (std::size_t i = 0; i < numInternalVertices; i++)
     {
@@ -622,7 +661,7 @@ void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
         const cl_uint pos = tmpIndexTable[i];
-        if (pos == vertices.size())
+        if (pos >= priorVertices)
         {
             vertices.push_back(std::make_pair(
                     mesh.vertices[numInternalVertices + i],
@@ -633,7 +672,6 @@ void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
     rewriteTriangles(priorVertices, tmpIndexTable, mesh);
 
     // Store the output triangles
-    this->triangles.reserve(this->triangles.size() + mesh.triangles.size());
     std::copy(mesh.triangles.begin(), mesh.triangles.end(), std::back_inserter(triangles));
 }
 
@@ -653,8 +691,8 @@ void StxxlMesher::TriangleBuffer::flush()
     buffer.clear();
 }
 
-void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename,
-                      std::ostream *progressStream) const
+void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
+                        std::ostream *progressStream) const
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -666,10 +704,10 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename
         if (clump.isRoot())
         {
             totalComponents++;
-            if (clump.vertices >= thresholdVertices)
+            if (clump.counts.vertices >= thresholdVertices)
             {
-                numVertices += clump.vertices;
-                numTriangles += clump.triangles;
+                numVertices += clump.counts.vertices;
+                numTriangles += clump.counts.triangles;
                 keptComponents++;
             }
         }
@@ -680,77 +718,116 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename
     registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
     registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
 
-    writer.setNumVertices(numVertices);
-    writer.setNumTriangles(numTriangles);
-    writer.open(filename);
+    stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result vertexRemap;
+    const stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result & vertexRemapConst = vertexRemap;
+    const cl_uint badIndex = std::numeric_limits<cl_uint>::max();
 
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
     {
+        // TODO: count is wrong because of duplication at chunk boundaries
         *progressStream << "\nWriting file\n";
         progress.reset(new ProgressDisplay(vertices.size() + triangles.size(), *progressStream));
     }
 
-    stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result vertexRemap;
-    const stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result & vertexRemapConst = vertexRemap;
-    vertexRemap.reserve(vertices.size());
-    cl_uint nextVertex = 0;
-    const cl_uint badIndex = std::numeric_limits<cl_uint>::max();
-
+    for (std::size_t i = 0; i < chunks.size(); i++)
     {
-        stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
-            vertex_stream = stxxl::stream::streamify(vertices.begin(), vertices.end());
-        VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
-        while (!vertex_stream.empty())
-        {
-            vertices_type::value_type vertex = *vertex_stream;
-            ++vertex_stream;
-            clump_id clumpId = UnionFind::findRoot(clumps, vertex.second);
-            if (clumps[clumpId].vertices >= thresholdVertices)
-            {
-                vb(vertex.first);
-                vertexRemap.push_back(nextVertex++);
-            }
-            else
-            {
-                vertexRemap.push_back(badIndex);
-            }
-            if (progress)
-                ++*progress;
-        }
-        vb.flush();
-    }
-    assert(nextVertex == numVertices);
+        vertexRemap.clear();
 
-    {
-        stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
-            triangle_stream = stxxl::stream::streamify(triangles.begin(), triangles.end());
-        TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
-        while (!triangle_stream.empty())
+        const Chunk &chunk = chunks[i];
+        std::tr1::uint64_t lastVertex, lastTriangle;
+        if (i + 1 == chunks.size())
         {
-            triangles_type::value_type triangle = *triangle_stream;
-            ++triangle_stream;
-
-            boost::array<cl_uint, 3> rewritten;
-            for (unsigned int i = 0; i < 3; i++)
-            {
-                rewritten[i] = vertexRemapConst[triangle[i]];
-            }
-            if (rewritten[0] != badIndex)
-            {
-                assert(rewritten[1] != badIndex);
-                assert(rewritten[2] != badIndex);
-                tb(rewritten);
-            }
-            else
-            {
-                assert(rewritten[1] == badIndex);
-                assert(rewritten[2] == badIndex);
-            }
-            if (progress)
-                ++*progress;
+            lastVertex = vertices.size();
+            lastTriangle = triangles.size();
         }
-        tb.flush();
+        else
+        {
+            lastVertex = chunks[i + 1].firstVertex;
+            lastTriangle = chunks[i + 1].firstTriangle;
+        }
+        unsigned int gen = chunk.chunkId.gen;
+        std::tr1::uint64_t chunkVertices = 0;
+        std::tr1::uint64_t chunkTriangles = 0;
+        BOOST_FOREACH(const Clump &clump, clumps)
+        {
+            // TODO: save a list of these clumps
+            if (clump.isRoot() && clump.counts.vertices >= thresholdVertices)
+            {
+                std::tr1::unordered_map<unsigned int, Clump::Counts>::const_iterator pos;
+                pos = clump.chunkCounts.find(gen);
+                if (pos != clump.chunkCounts.end())
+                {
+                    chunkVertices += pos->second.vertices;
+                    chunkTriangles += pos->second.triangles;
+                }
+            }
+        }
+        // TODO: bail out if chunkVertices too large
+
+        writer.setNumVertices(chunkVertices);
+        writer.setNumTriangles(chunkTriangles);
+        writer.open(namer(chunk.chunkId));
+
+        cl_uint nextVertex = 0;
+        {
+            stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
+                vertex_stream = stxxl::stream::streamify(vertices.begin() + chunk.firstVertex,
+                                                         vertices.begin() + lastVertex);
+            VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
+            while (!vertex_stream.empty())
+            {
+                vertices_type::value_type vertex = *vertex_stream;
+                ++vertex_stream;
+                clump_id clumpId = UnionFind::findRoot(clumps, vertex.second);
+                if (clumps[clumpId].counts.vertices >= thresholdVertices)
+                {
+                    vb(vertex.first);
+                    vertexRemap.push_back(nextVertex++);
+                }
+                else
+                {
+                    vertexRemap.push_back(badIndex);
+                }
+                if (progress)
+                    ++*progress;
+            }
+            vb.flush();
+        }
+        assert(nextVertex == chunkVertices);
+
+        {
+            stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
+                triangle_stream = stxxl::stream::streamify(triangles.begin() + chunk.firstTriangle,
+                                                           triangles.begin() + lastTriangle);
+            TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
+            while (!triangle_stream.empty())
+            {
+                triangles_type::value_type triangle = *triangle_stream;
+                ++triangle_stream;
+
+                boost::array<cl_uint, 3> rewritten;
+                for (unsigned int i = 0; i < 3; i++)
+                {
+                    rewritten[i] = vertexRemapConst[triangle[i]];
+                }
+                if (rewritten[0] != badIndex)
+                {
+                    assert(rewritten[1] != badIndex);
+                    assert(rewritten[2] != badIndex);
+                    tb(rewritten);
+                }
+                else
+                {
+                    assert(rewritten[1] == badIndex);
+                    assert(rewritten[2] == badIndex);
+                }
+                if (progress)
+                    ++*progress;
+            }
+            tb.flush();
+        }
+        writer.close();
     }
 }
 
