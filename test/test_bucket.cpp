@@ -236,7 +236,7 @@ class TestBucket : public CppUnit::TestFixture
     CPPUNIT_TEST(testMultiLevel);
     CPPUNIT_TEST(testFlat);
     CPPUNIT_TEST(testEmpty);
-    CPPUNIT_TEST(testChunkSize);
+    CPPUNIT_TEST(testChunkCells);
     CPPUNIT_TEST_SUITE_ADD_CUSTOM_TESTS(addRandom);
     CPPUNIT_TEST_SUITE_END();
 
@@ -257,7 +257,7 @@ private:
 
     void validate(const Splats &splats, const Grid &fullGrid,
                   const std::vector<Block> &blocks,
-                  std::size_t maxSplats, Grid::size_type maxCells, Grid::size_type chunkSize);
+                  std::size_t maxSplats, Grid::size_type maxCells, Grid::size_type chunkCells);
 
     template<typename T>
     static void bucketFunc(
@@ -275,7 +275,7 @@ public:
     void testMultiLevel();        ///< Test recursion of @c bucketRecurse
     void testFlat();              ///< Top level already meets the requirements
     void testEmpty();             ///< Edge case with zero splats inside the grid
-    void testChunkSize();         ///< Test non-zero @a chunkSize
+    void testChunkCells();        ///< Test non-zero @a chunkCells
     void testRandom(unsigned long seed); ///< Randomly-generated test case
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBucket, TestSet::perBuild());
@@ -320,7 +320,7 @@ void TestBucket::validate(
     const std::vector<Block> &blocks,
     std::size_t maxSplats,
     Grid::size_type maxCells,
-    Grid::size_type chunkSize)
+    Grid::size_type chunkCells)
 {
     // TODO: also need to check that the blocks are no smaller than necessary
 
@@ -349,10 +349,10 @@ void TestBucket::validate(
             CPPUNIT_ASSERT(fullExtent.first <= extent.first);
             CPPUNIT_ASSERT(fullExtent.second >= extent.second);
             // Check that chunking is respected
-            if (chunkSize != 0)
+            if (chunkCells != 0)
             {
-                CPPUNIT_ASSERT(divDown(extent.first - fullExtent.first, chunkSize)
-                               == divDown(extent.second - fullExtent.first - 1, chunkSize));
+                CPPUNIT_ASSERT(divDown(extent.first - fullExtent.first, chunkCells)
+                               == divDown(extent.second - fullExtent.first - 1, chunkCells));
             }
         }
 
@@ -517,7 +517,7 @@ void TestBucket::testMultiLevel()
     CPPUNIT_ASSERT_EQUAL(11, int(blocks.size()));
 }
 
-void TestBucket::testChunkSize()
+void TestBucket::testChunkCells()
 {
     setupSimple();
 
@@ -528,10 +528,11 @@ void TestBucket::testChunkSize()
     const int maxSplats = 20;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    const int chunkSize = 16;
-    bucket(splats, grid, maxSplats, maxCells, chunkSize, true, maxSplit,
+    const int chunkCells = 14;
+    const int chunkCellsRounded = 16;
+    bucket(splats, grid, maxSplats, maxCells, chunkCells, true, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
-    validate(splats, grid, blocks, maxSplats, INT_MAX, chunkSize);
+    validate(splats, grid, blocks, maxSplats, INT_MAX, chunkCellsRounded);
 }
 
 static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)

@@ -79,16 +79,15 @@ struct BucketParameters
 {
     std::tr1::uint64_t maxSplats;       ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
-    Grid::size_type chunkCells;         ///< Hint for output alignment
     bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
     ProgressDisplay *progress;          ///< Progress display to update for empty cells
 
     BucketParameters(std::tr1::uint64_t maxSplats,
-                     Grid::size_type maxCells, Grid::size_type chunkCells,
+                     Grid::size_type maxCells,
                      bool maxCellsHint, std::size_t maxSplit,
                      ProgressDisplay *progress)
-        : maxSplats(maxSplats), maxCells(maxCells), chunkCells(chunkCells),
+        : maxSplats(maxSplats), maxCells(maxCells),
         maxCellsHint(maxCellsHint),
         maxSplit(maxSplit), progress(progress) {}
 };
@@ -228,6 +227,7 @@ void BucketState::doCallbacks(
         bucketRecurse(subset,
                       childGrid,
                       params,
+                      0,
                       process,
                       childRecursion);
     }
@@ -336,6 +336,7 @@ void bucketRecurse(
     const Splats &splats,
     const Grid &grid,
     const BucketParameters &params,
+    Grid::size_type chunkCells,
     const typename ProcessorType<Splats>::type &process,
     const Recursion &recursionState)
 {
@@ -349,7 +350,7 @@ void bucketRecurse(
 
     if (splats.maxSplats() <= params.maxSplats
         && (maxCellDim <= params.maxCells || params.maxCellsHint)
-        && (params.chunkCells == 0 || params.chunkCells >= maxCellDim)
+        && (chunkCells == 0 || chunkCells >= maxCellDim)
         && bucketCallback(splats, grid, process, recursionState,
                           typename SplatSet::Traits<Splats>::is_subset()))
     {
@@ -382,11 +383,10 @@ void bucketRecurse(
         else
             microSize = chooseMicroSize(cellDims, params.maxSplit);
 
-        Grid::difference_type chunkCells;
-        if (params.chunkCells == 0)
+        if (chunkCells == 0)
             chunkCells = maxCellDim;
         else
-            chunkCells = std::min(maxCellDim, params.chunkCells);
+            chunkCells = std::min(maxCellDim, chunkCells);
         chunkCells = divUp(chunkCells, microSize) * microSize;
         boost::array<Grid::difference_type, 3> chunks;
         for (int i = 0; i < 3; i++)
@@ -451,8 +451,8 @@ void bucket(const Splats &splats,
             ProgressDisplay *progress,
             const Recursion &recursionState)
 {
-    internal::BucketParameters params(maxSplats, maxCells, chunkCells, maxCellsHint, maxSplit, progress);
-    internal::bucketRecurse(splats, region, params, process, recursionState);
+    internal::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
+    internal::bucketRecurse(splats, region, params, chunkCells, process, recursionState);
 }
 
 } // namespace Bucket
