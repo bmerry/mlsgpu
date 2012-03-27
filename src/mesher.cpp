@@ -285,7 +285,7 @@ void KeyMapMesher::computeLocalComponents(
     }
 }
 
-std::size_t KeyMapMesher::updateKeyMap(
+std::size_t KeyMapMesher::updateKeyMaps(
     cl_uint vertexOffset,
     const std::vector<cl_ulong> &hKeys,
     const std::vector<clump_id> &clumpId,
@@ -298,23 +298,31 @@ std::size_t KeyMapMesher::updateKeyMap(
     indexTable.resize(numExternalVertices);
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        clump_id cid = clumpId[i + numInternalVertices];
-        ExternalVertexData ed(vertexOffset + newKeys, cid);
-        std::pair<map_type::iterator, bool> added;
-        added = keyMap.insert(std::make_pair(hKeys[i], ed));
-        if (added.second)
-            newKeys++;
-        else
+        cl_ulong key = hKeys[i];
+
         {
-            // Unified two external vertices. Also need to unify their clumps.
-            clump_id cid2 = added.first->second.clumpId;
-            UnionFind::merge(clumps, cid, cid2);
-            // They will both have counted the common vertex, so we need to
-            // subtract it.
-            cid = UnionFind::findRoot(clumps, cid);
-            clumps[cid].vertices--;
+            std::pair<std::tr1::unordered_map<cl_ulong, cl_uint>::iterator, bool> added;
+            added = vertexIdMap.insert(std::make_pair(key, vertexOffset + newKeys));
+            if (added.second)
+                newKeys++; // key has not been set yet in this chunk
+            indexTable[i] = added.first->second;
         }
-        indexTable[i] = added.first->second.vertexId;
+
+        {
+            clump_id cid = clumpId[i + numInternalVertices];
+            std::pair<std::tr1::unordered_map<cl_ulong, clump_id>::iterator, bool> added;
+            added = clumpIdMap.insert(std::make_pair(key, cid));
+            if (!added.second)
+            {
+                // Unified two external vertices. Also need to unify their clumps.
+                clump_id cid2 = added.first->second;
+                UnionFind::merge(clumps, cid, cid2);
+                // They will both have counted the common vertex, so we need to
+                // subtract it.
+                cid = UnionFind::findRoot(clumps, cid);
+                clumps[cid].vertices--;
+            }
+        }
     }
     return newKeys;
 }
@@ -446,7 +454,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     }
     mesh.triangles.resize(tptr);
 
-    std::size_t newKeys = updateKeyMap(
+    std::size_t newKeys = updateKeyMaps(
         nextVertex + newInternalVertices,
         mesh.vertexKeys, tmpClumpId, tmpIndexTable);
 
@@ -522,7 +530,8 @@ void BigMesher::prepareAdd()
 
     nextVertex = 0;
     nextTriangle = 0;
-    keyMap.clear();
+    vertexIdMap.clear();
+    clumpIdMap.clear(); // TODO: is this the right thing to do?
     clumps.clear();
     writer.setNumVertices(numVertices);
     writer.setNumTriangles(numTriangles);
@@ -599,7 +608,7 @@ void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
     computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpClumpId);
 
     work.vertexKeysEvent.wait();
-    std::size_t newKeys = updateKeyMap(
+    std::size_t newKeys = updateKeyMaps(
         priorVertices + numInternalVertices,
         mesh.vertexKeys, tmpClumpId, tmpIndexTable);
 
@@ -669,7 +678,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const std::string &filename
     registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
     registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
     registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
-    registry.getStatistic<Statistics::Variable>("externalvertices").add(keyMap.size());
+    registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
 
     writer.setNumVertices(numVertices);
     writer.setNumTriangles(numTriangles);

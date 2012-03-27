@@ -266,8 +266,11 @@ protected:
 
     typedef std::tr1::unordered_map<cl_ulong, ExternalVertexData> map_type;
 
-    /// Maps external vertex keys to external indices
-    map_type keyMap;
+    /// Maps external vertex keys to external indices for the current chunk
+    std::tr1::unordered_map<cl_ulong, cl_uint> vertexIdMap;
+
+    /// Maps external vertex keys to clumps
+    std::tr1::unordered_map<cl_ulong, clump_id> clumpIdMap;
 
     /// All clumps, in a structure usable with @ref UnionFind.
     std::vector<Clump> clumps;
@@ -303,9 +306,10 @@ protected:
         std::vector<clump_id> &clumpId);
 
     /**
-     * Add external vertex keys to the key map and computes an index rewrite table.
+     * Add external vertex keys to the key maps and computes an index rewrite table.
      * The index rewrite table maps local external indices for a block to their
-     * final values. It also does merging of clumps into components.
+     * almost final values (prior to component removal). It also does merging
+     * of clumps into components.
      *
      * @param vertexOffset    The final index for the first external vertex in the block.
      * @param hKeys           Keys of the external vertices.
@@ -314,14 +318,15 @@ protected:
      *
      * @note Only the last <code>hKeys.size()</code> elements of @a clumpId are relevant.
      */
-    std::size_t updateKeyMap(
+    std::size_t updateKeyMaps(
         cl_uint vertexOffset,
         const std::vector<cl_ulong> &hKeys,
         const std::vector<clump_id> &clumpId,
         std::vector<cl_uint> &indexTable);
 
     /**
-     * Writes indices in place from being block-relative to the final form.
+     * Writes indices in place from being block-relative to the intermediate form (prior to
+     * component removal).
      * @param priorVertices        First vertex in the block (internal or external).
      * @param indexTable           External index rewrite table computed by @ref updateKeyMap.
      * @param[in,out] mesh         Triangles to rewrite (also uses the number of vertices).
