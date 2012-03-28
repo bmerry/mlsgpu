@@ -46,7 +46,6 @@
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
     std::map<std::string, MesherType> ans;
-    ans["weld"] = WELD_MESHER;
     ans["big"] = BIG_MESHER;
     ans["stxxl"] = STXXL_MESHER;
     return ans;
@@ -60,191 +59,6 @@ std::string ChunkNamer::operator()(const ChunkId &chunkId) const
         nameStream << '_' << std::setw(4) << std::setfill('0') << chunkId.coords[i];
     nameStream << ".ply";
     return nameStream.str();
-}
-
-void WeldMesher::add(const ChunkId &chunkId, MesherWork &work)
-{
-    const HostKeyMesh &mesh = work.mesh;
-    const std::size_t oldInternal = internalVertices.size();
-    const std::size_t oldExternal = externalVertices.size();
-    const std::size_t oldTriangles = triangles.size();
-    const std::size_t numExternal = mesh.vertexKeys.size();
-    const std::size_t numInternal = mesh.vertices.size() - numExternal;
-
-    internalVertices.reserve(oldInternal + numInternal);
-    externalVertices.reserve(oldExternal + numExternal);
-    externalKeys.reserve(externalVertices.size());
-    triangles.reserve(oldTriangles + mesh.triangles.size());
-
-    work.verticesEvent.wait();
-    std::copy(mesh.vertices.begin(), mesh.vertices.begin() + numInternal,
-              std::back_inserter(internalVertices));
-    std::copy(mesh.vertices.begin() + numInternal, mesh.vertices.end(),
-              std::back_inserter(externalVertices));
-
-    work.vertexKeysEvent.wait();
-    std::copy(mesh.vertexKeys.begin(), mesh.vertexKeys.end(),
-              std::back_inserter(externalKeys));
-
-    /* Rewrite indices to refer to the two separate arrays, at the same time
-     * applying ~ to the external indices to disambiguate them. Note that
-     * these offsets may wrap around, but that is well-defined for unsigned
-     * values.
-     */
-    work.trianglesEvent.wait();
-    cl_uint offsetInternal = oldInternal;
-    cl_uint offsetExternal = oldExternal - numInternal;
-    for (std::size_t i = 0; i < mesh.triangles.size(); i++)
-    {
-        boost::array<cl_uint, 3> triangle = mesh.triangles[i];
-        for (unsigned int j = 0; j < 3; j++)
-        {
-            cl_uint &index = triangle[j];
-            if (index < numInternal)
-                index = (index + offsetInternal);
-            else
-                index = ~(index + offsetExternal);
-        }
-        triangles.push_back(triangle);
-    }
-}
-
-void WeldMesher::finalize(std::ostream *progressStream)
-{
-    std::size_t welded = 0;
-    std::tr1::unordered_map<cl_ulong, cl_uint> place; // maps keys to new positions
-
-    /* Maps original external indices to new ones. It includes a bias of
-     * |internalVertices| so that we can index the concatenation of
-     * internal and external vertices.
-     */
-    std::vector<cl_uint> remap(externalVertices.size());
-
-    /* Weld the external vertices in place */
-    boost::scoped_ptr<ProgressDisplay> progress;
-    if (progressStream != NULL)
-    {
-        *progressStream << "\nWelding vertices\n";
-        progress.reset(new ProgressDisplay(externalVertices.size(), *progressStream));
-    }
-    for (size_t i = 0; i < externalVertices.size(); i++)
-    {
-        cl_ulong key = externalKeys[i];
-        std::tr1::unordered_map<cl_ulong, cl_uint>::const_iterator pos = place.find(key);
-        if (pos == place.end())
-        {
-            // New key, not seen before
-            place[key] = welded;
-            remap[i] = welded + internalVertices.size();
-            // Shuffle down the vertex data in-place
-            externalVertices[welded] = externalVertices[i];
-            welded++;
-        }
-        else
-        {
-            // Verify that vertex generation is invariant
-            if (externalVertices[i] != externalVertices[pos->second])
-            {
-                boost::array<cl_float, 3> v1 = externalVertices[i];
-                boost::array<cl_float, 3> v2 = externalVertices[pos->second];
-                Log::log[Log::warn] << "Vertex mismatch at vertex " << i << ":\n"
-                    << "(" << v1[0] << ", " << v1[1] << ", " << v1[2] << ") vs ("
-                    << v2[0] << ", " << v2[1] << ", " << v2[2] << ")\n";
-            }
-            remap[i] = pos->second + internalVertices.size();
-        }
-        if (progress)
-            ++*progress;
-    }
-
-    /* Rewrite the indices that refer to external vertices.
-     */
-    if (progressStream != NULL)
-    {
-        *progressStream << "\nAdjusting indices\n";
-        progress->restart(triangles.size());
-    }
-    for (std::size_t i = 0; i < triangles.size(); i++)
-    {
-        for (unsigned int j = 0; j < 3; j++)
-        {
-            cl_uint &index = triangles[i][j];
-            if (index >= internalVertices.size())
-            {
-                assert(~index < externalVertices.size());
-                index = remap[~index];
-            }
-        }
-        if (progress)
-            ++*progress;
-    }
-
-    /* Throw away unneeded data and concatenate vertices */
-    std::vector<cl_ulong>().swap(externalKeys);
-    externalVertices.resize(welded);
-    internalVertices.insert(internalVertices.end(), externalVertices.begin(), externalVertices.end());
-    std::vector<boost::array<cl_float, 3> >().swap(externalVertices);
-
-    /* Now detect components and throw away undersized ones */
-    std::vector<UnionFind::Node<cl_int> > nodes(internalVertices.size());
-    typedef boost::array<cl_uint, 3> triangle_type;
-    BOOST_FOREACH(const triangle_type &triangle, triangles)
-    {
-        for (int j = 0; j < 2; j++)
-            UnionFind::merge(nodes, triangle[j], triangle[j + 1]);
-    }
-
-    remap.resize(internalVertices.size());
-    cl_uint newVertices = 0;
-    const cl_uint pruneThresholdVertices = (cl_uint) (internalVertices.size() * getPruneThreshold());
-    for (cl_uint i = 0; i < internalVertices.size(); i++)
-    {
-        cl_int root = UnionFind::findRoot(nodes, i);
-        if ((cl_uint) nodes[root].size() >= pruneThresholdVertices)
-        {
-            internalVertices[newVertices] = internalVertices[i];
-            remap[i] = newVertices;
-            newVertices++;
-        }
-        else
-            remap[i] = 0xFFFFFFFFu;
-    }
-    internalVertices.resize(newVertices);
-
-    std::size_t newTriangles = 0;
-    for (std::size_t i = 0; i < triangles.size(); i++)
-    {
-        if (remap[triangles[i][0]] != 0xFFFFFFFFu)
-        {
-            for (int j = 0; j < 3; j++)
-                triangles[newTriangles][j] = remap[triangles[i][j]];
-            newTriangles++;
-        }
-    }
-    triangles.resize(newTriangles);
-}
-
-void WeldMesher::write(FastPly::WriterBase &writer, const Namer &namer,
-                     std::ostream *progressStream) const
-{
-    // Probably not worth trying to use this given the amount of data that can be
-    // handled by WeldMesher
-    (void) progressStream;
-
-    writer.setNumVertices(internalVertices.size());
-    writer.setNumTriangles(triangles.size());
-    writer.open(namer(ChunkId()));
-    writer.writeVertices(0, internalVertices.size(), &internalVertices[0][0]);
-    writer.writeTriangles(0, triangles.size(), &triangles[0][0]);
-}
-
-MesherBase::InputFunctor WeldMesher::functor(unsigned int pass)
-{
-    /* only one pass, so ignore it */
-    (void) pass;
-    assert(pass == 0);
-
-    return boost::bind(&WeldMesher::add, this, _1, _2);
 }
 
 
@@ -648,7 +462,7 @@ void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
     const std::size_t numInternalVertices = mesh.vertices.size() - numExternalVertices;
-    const size_type priorVertices = vertices.size() - chunks.back().firstVertex;
+    const std::tr1::uint64_t priorVertices = vertices.size() - chunks.back().firstVertex;
 
     work.trianglesEvent.wait();
     computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpNodes);
@@ -884,7 +698,6 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const Mes
 {
     switch (type)
     {
-    case WELD_MESHER:   return new WeldMesher();
     case BIG_MESHER:    return new BigMesher(writer, namer);
     case STXXL_MESHER:  return new StxxlMesher();
     }

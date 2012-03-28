@@ -775,23 +775,9 @@ void TestMesherBase::testPrune()
                     expectedVertices, expectedIndices, writer);
 }
 
-class TestWeldMesher : public TestMesherBase
+class TestBigMesher : public TestMesherBase
 {
-    CPPUNIT_TEST_SUB_SUITE(TestWeldMesher, TestMesherBase);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWeldMesher, TestSet::perBuild());
-
-MesherBase *TestWeldMesher::mesherFactory(FastPly::WriterBase &)
-{
-    return new WeldMesher();
-}
-
-class TestBigMesher : public TestWeldMesher
-{
-    CPPUNIT_TEST_SUB_SUITE(TestBigMesher, TestWeldMesher);
+    CPPUNIT_TEST_SUB_SUITE(TestBigMesher, TestMesherBase);
     CPPUNIT_TEST_SUITE_END();
 protected:
     virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);
@@ -803,9 +789,9 @@ MesherBase *TestBigMesher::mesherFactory(FastPly::WriterBase &writer)
     return new BigMesher(writer, TrivialNamer(""));
 }
 
-class TestStxxlMesher : public TestWeldMesher
+class TestStxxlMesher : public TestMesherBase
 {
-    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesher, TestWeldMesher);
+    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesher, TestMesherBase);
     CPPUNIT_TEST_SUITE_END();
 protected:
     virtual MesherBase *mesherFactory(FastPly::WriterBase &writer);

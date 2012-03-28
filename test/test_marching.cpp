@@ -412,7 +412,7 @@ void TestMarching::testGenerate(
     Grid::size_type size[3] = { width, height, depth };
 
     Marching marching(context, device, maxWidth, maxHeight);
-    WeldMesher mesher;
+    StxxlMesher mesher;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
     marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
 

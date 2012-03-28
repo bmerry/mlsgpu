@@ -44,7 +44,6 @@
  */
 enum MesherType
 {
-    WELD_MESHER,
     BIG_MESHER,
     STXXL_MESHER
 };
@@ -215,41 +214,6 @@ public:
 private:
     /// Threshold set by @ref setPruneThreshold
     double pruneThreshold;
-};
-
-/**
- * Mesher that operates in one pass, and implements welding of external
- * vertices.
- *
- * Internal and external vertices are partitioned into separate arrays,
- * and external vertex keys are kept to allow final welding. In
- * intermediate stages, indices are encoded as either an index into
- * the internal vector, or as the bit-inverse (~) of an index into
- * the external vector. The external indices are rewritten during
- * @ref finalize().
- */
-class WeldMesher : public MesherBase
-{
-private:
-    /// Storage for internal vertices
-    std::vector<boost::array<cl_float, 3> > internalVertices;
-    /// Storage for external vertices
-    std::vector<boost::array<cl_float, 3> > externalVertices;
-    /// Storage for external vertex keys
-    std::vector<cl_ulong> externalKeys;
-    /// Storage for indices
-    std::vector<boost::array<cl_uint, 3> > triangles;
-
-    /// Implementation of the functor
-    void add(const ChunkId &chunkId, MesherWork &work);
-
-public:
-    virtual unsigned int numPasses() const { return 1; }
-    virtual InputFunctor functor(unsigned int pass);
-    virtual void finalize(std::ostream *progressStream = NULL);
-
-    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
-                       std::ostream *progressStream = NULL) const;
 };
 
 namespace detail
@@ -429,14 +393,15 @@ protected:
  * writer, and requires the writer to be provided up front.
  *
  * The two passes are:
- * 1. Counting, and assigning the key mapping to detect duplicate external
- *    vertices.
+ * 1. Counting, and assigning key mappings to detect duplicate external
+ *    vertices (both at the global level for component detection and at the
+ *    chunk level for welding).
  * 2. Write the data.
  *
- * Unlike @ref WeldMesher, the external vertices are written out as they come in
- * (immediately after the internal vertices for the corresponding chunk), which
- * avoids the need to buffer them up until the end. The only unbounded memory is
- * for the key map.
+ * The external vertices are written out as they come in (immediately after the
+ * internal vertices for the corresponding chunk), which avoids the need to
+ * buffer them up until the end. The only unbounded memory is for the various
+ * key maps.
  */
 class BigMesher : public detail::KeyMapMesher
 {
@@ -507,7 +472,6 @@ public:
 class StxxlMesher : public detail::KeyMapMesher
 {
 private:
-    typedef FastPly::WriterBase::size_type size_type;
     typedef stxxl::VECTOR_GENERATOR<std::pair<boost::array<float, 3>, clump_id> >::result vertices_type;
     typedef stxxl::VECTOR_GENERATOR<boost::array<cl_uint, 3> >::result triangles_type;
 
@@ -528,6 +492,8 @@ private:
     /// Function object that accepts incoming vertices and writes them to a writer.
     class VertexBuffer : public boost::noncopyable
     {
+    public:
+        typedef FastPly::WriterBase::size_type size_type;
     private:
         FastPly::WriterBase &writer;
         size_type nextVertex;
@@ -543,6 +509,8 @@ private:
     /// Function object that accepts incoming triangles and writes them to a writer.
     class TriangleBuffer : public boost::noncopyable
     {
+    public:
+        typedef FastPly::WriterBase::size_type size_type;
     private:
         FastPly::WriterBase &writer;
         size_type nextTriangle;
