@@ -561,12 +561,16 @@ void TestBucket::testRandom(unsigned long seed)
     using std::tr1::uniform_int;
     using std::tr1::uniform_real;
     using std::tr1::variate_generator;
+    using std::tr1::bernoulli_distribution;
 
     mt19937 engine(seed);
     unsigned int numScans = simpleRandomInt(engine, 0, 20);
     unsigned int maxScan = simpleRandomInt(engine, 1, 2000); // maximum splats in one scan
     unsigned int maxSplit = simpleRandomInt(engine, 64, 1000);
     unsigned int maxCells = simpleRandomInt(engine, 40, 100);
+    unsigned int chunkCells = simpleRandomInt(engine, 80, 513);
+    if (bernoulli_distribution(0.5)(engine))
+        chunkCells = 0;
     unsigned int maxSplats = simpleRandomInt(engine, 20, 10000);
     float minX = simpleRandomFloat(engine, -100.0f, 10.0f);
     float maxX = simpleRandomFloat(engine, 20.0f, 100.0f);
@@ -614,7 +618,7 @@ void TestBucket::testRandom(unsigned long seed)
     std::vector<Block> blocks;
     try
     {
-        bucket(splats, grid, maxSplats, maxCells, 0, false, maxSplit,
+        bucket(splats, grid, maxSplats, maxCells, chunkCells, false, maxSplit,
                boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
         validate(splats, grid, blocks, maxSplats, maxCells, 0);
     }
