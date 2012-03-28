@@ -410,6 +410,7 @@ public:
      *
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
      * @param capacity           Number of workitems to use.
+     * @param outGroup           Downstream mesher group which receives output blocks.
      * @param fullGrid           The overall bounding box grid.
      * @param context, device    OpenCL context and device to run on.
      * @param maxSplats          Space to allocate for holding splats.

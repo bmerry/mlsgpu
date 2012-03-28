@@ -116,7 +116,7 @@ public:
 
     /**
      * Convert @ref nodeCounts from a delta encoding to plain counts.
-     * This should be called after all calls to @ref CountSplat are complete,
+     * This should be called after all calls to @ref countSplats are complete,
      * and before calling @ref getNodeCount.
      */
     void upsweepCounts();
@@ -329,6 +329,9 @@ bool bucketCallback(const Splats &splats, const Grid &grid,
  * @param process         Function to call for each final bucket.
  * @param grid            Sub-grid on which the recursion is being done.
  * @param params          User parameters.
+ * @param chunkCells      Approximate size for output chunks (the
+ *                        implementation may round it for alignment). If 0, alignment
+ *                        is disabled (this is always done below the top level).
  * @param recursionState  Statistics about what is already held on the stack.
  */
 template<typename Splats>

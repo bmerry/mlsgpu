@@ -120,7 +120,7 @@ public:
 /**
  * Abstract base class for output collectors for @ref Marching. This class
  * only captures the host side of the process. It needs to be wrapped in
- * using @ref deviceMesher or @ref DeviceMesherAsync to satisfy
+ * using @ref deviceMesher or @ref MesherGroup to satisfy
  * the requirements for @ref Marching.
  *
  * The basic procedure for using one of these classes is:
@@ -376,7 +376,7 @@ protected:
      * Writes indices in place from being block-relative to the intermediate form (prior to
      * component removal).
      * @param priorVertices        First vertex in the block (internal or external).
-     * @param indexTable           External index rewrite table computed by @ref updateKeyMap.
+     * @param indexTable           External index rewrite table computed by @ref updateKeyMaps.
      * @param[in,out] mesh         Triangles to rewrite (also uses the number of vertices).
      */
     void rewriteTriangles(
