@@ -173,14 +173,6 @@ string makeOptions(const po::variables_map &vm)
     return opts.str();
 }
 
-static void makeInputComments(FastPly::WriterBase *writer, const po::variables_map &vm)
-{
-    BOOST_FOREACH(const string &j, vm[Option::inputFile].as<vector<string> >())
-    {
-        writer->addComment("mlsgpu input: " + j);
-    }
-}
-
 void writeStatistics(const boost::program_options::variables_map &vm, bool force = false)
 {
     if (force || vm.count(Option::statistics) || vm.count(Option::statisticsFile))
@@ -419,15 +411,15 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         /* Determine a chunk size from splitSize. We assume that a chunk will be
          * sliced by an axis-aligned plane. This plane will cut each vertical and
          * each diagonal edge ones, thus generating 2x^2 vertices. We then
-         * apply a fudge factor of 1.5 to account for the fact that the real
+         * apply a fudge factor of 10 to account for the fact that the real
          * world is not a simple plane, and will have walls, noise, etc, giving
-         * 3x^2 vertices.
+         * 20x^2 vertices.
          *
          * A manifold with genus 0 has two triangles per vertex; vertices take
          * 12 bytes (3 floats) and triangles take 13 (count plus 3 uints in
-         * PLY), giving 38 bytes per vertex. So there are 114x^2 bytes.
+         * PLY), giving 38 bytes per vertex. So there are 760x^2 bytes.
          */
-        chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 114.0) * splitSize));
+        chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
         if (chunkCells == 0) chunkCells = 1;
 
         std::tr1::uint64_t totalChunks = 1;
@@ -456,7 +448,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     writer->addComment("mlsgpu version: " + provenanceVersion());
     writer->addComment("mlsgpu variant: " + provenanceVariant());
     writer->addComment("mlsgpu options:" + makeOptions(vm));
-    makeInputComments(writer.get(), vm);
     boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, out));
     mesher->setPruneThreshold(pruneThreshold);
     for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)

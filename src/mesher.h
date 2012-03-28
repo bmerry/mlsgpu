@@ -32,6 +32,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/foreach.hpp>
 #include <tr1/unordered_map>
+#include <tr1/unordered_set>
 #include "marching.h"
 #include "fast_ply.h"
 #include "union_find.h"
@@ -328,23 +329,14 @@ protected:
         }
     };
 
-    /// Data kept regarding each external vertex.
-    struct ExternalVertexData
-    {
-        cl_uint vertexId;
-        clump_id clumpId;
-
-        ExternalVertexData(cl_uint vertexId, clump_id clumpId)
-            : vertexId(vertexId), clumpId(clumpId) {}
-    };
-
-    typedef std::tr1::unordered_map<cl_ulong, ExternalVertexData> map_type;
+    typedef std::tr1::unordered_map<cl_ulong, cl_uint> vertex_id_map_type;
+    typedef std::tr1::unordered_map<cl_ulong, clump_id> clump_id_map_type;
 
     /// Maps external vertex keys to external indices for the current chunk
-    std::tr1::unordered_map<cl_ulong, cl_uint> vertexIdMap;
+    vertex_id_map_type vertexIdMap;
 
     /// Maps external vertex keys to clumps
-    std::tr1::unordered_map<cl_ulong, clump_id> clumpIdMap;
+    clump_id_map_type clumpIdMap;
 
     /// All clumps, in a structure usable with @ref UnionFind.
     std::vector<Clump> clumps;
@@ -362,23 +354,36 @@ protected:
     /** @} */
 
     /**
-     * Identifies clumps in the local set of triangles. Each new clump is
-     * appended to @ref clumps.
+     * Identifies components with a local set of triangles, and
+     * returns a union-find tree for them.
+     *
+     * @param numVertices    Number of vertices indexed by @a triangles.
+     *                       Also the size of the returned union-find tree.
+     * @param triangles      The vertex indices of the triangles.
+     * @param[out] nodes     A union-find tree over the vertices.
+     */
+    static void computeLocalComponents(
+        std::size_t numVertices,
+        const std::vector<boost::array<cl_uint, 3> > &triangles,
+        std::vector<UnionFind::Node<cl_int> > &nodes);
+
+    /**
+     * Creates clumps from local components.
      *
      * @param chunkGen       Chunk generation to which the local triangles belong.
-     * @param numVertices    The number of vertices indexed by the triangles.
+     * @param nodes          A union-find tree over the vertices (see @ref computeLocalComponents).
      * @param triangles      The triangles used to determine connectivity.
-     * @param[out] clumpId   The index into @ref clumps for each vertex
+     * @param[out] clumpId   The index into @ref clumps for each vertex.
      *
-     * @post <code>clumpId.size() == numVertices</code>
+     * @post <code>clumpId.size() == nodes.size()</code>
      *
-     * @warning This function is not reentrant, because it uses the @c
-     * tmpNodes vector for internal storage, and because it appends to
+     * @warning This function is not reentrant, because it appends to
      * @ref clumps.
      */
-    void computeLocalComponents(
+    void updateClumps(
         unsigned int chunkGen,
-        std::size_t numVertices, const std::vector<boost::array<cl_uint, 3> > &triangles,
+        const std::vector<UnionFind::Node<cl_int> > &nodes,
+        const std::vector<boost::array<cl_uint, 3> > &triangles,
         std::vector<clump_id> &clumpId);
 
     /**
@@ -447,17 +452,13 @@ private:
      * Minimum number of vertices to keep a component. This is only valid
      * after @ref prepareAdd.
      */
-    size_type pruneThresholdVertices;
+    std::tr1::uint64_t pruneThresholdVertices;
 
-    typedef std::tr1::unordered_map<cl_ulong, clump_id> key_clump_type;
-    /**
-     * Clump information for external vertices. During the counting, it contains
-     * a clump ID for each external vertex key (note that external vertices belong
-     * to multiple clumps, but all in the same component). At the end of the
-     * counting pass it is converted to boolean values, indicating whether each
-     * external vertex belongs to a component that should be kept.
-     */
-    key_clump_type keyClump;
+    /// Keys of external vertices in retained chunks, computed by prepareAdd
+    std::tr1::unordered_set<cl_ulong> retainedExternal;
+
+    /// Temporary storage for local clump validity
+    std::vector<bool> tmpClumpValid;
 
     /// Implementation of the first-pass functor
     void count(const ChunkId &chunkId, MesherWork &work);
