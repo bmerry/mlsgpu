@@ -37,6 +37,62 @@
 
 using namespace std;
 
+/// Unit test for @ref TrivialNamer
+class TestTrivialNamer : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestTrivialNamer);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testSimple();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestTrivialNamer, TestSet::perBuild());
+
+void TestTrivialNamer::testSimple()
+{
+    ChunkId chunkId;
+    chunkId.gen = 123;
+    chunkId.coords[0] = 1;
+    chunkId.coords[1] = 2;
+    chunkId.coords[2] = 3;
+    TrivialNamer namer("foo.ply");
+    CPPUNIT_ASSERT_EQUAL(string("foo.ply"), namer(chunkId));
+}
+
+class TestChunkNamer : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestChunkNamer);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testBig);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testSimple();   ///< Test normal usage
+    void testBig();      ///< Test with values that overflow field width
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestChunkNamer, TestSet::perBuild());
+
+void TestChunkNamer::testSimple()
+{
+    ChunkId chunkId;
+    chunkId.gen = 123;
+    chunkId.coords[0] = 0;
+    chunkId.coords[1] = 5;
+    chunkId.coords[2] = 3000;
+    ChunkNamer namer("foo");
+    CPPUNIT_ASSERT_EQUAL(string("foo_0000_0005_3000.ply"), namer(chunkId));
+}
+
+void TestChunkNamer::testBig()
+{
+    ChunkId chunkId;
+    chunkId.gen = 123;
+    chunkId.coords[0] = 100;
+    chunkId.coords[1] = 123456;
+    chunkId.coords[2] = 2345678;
+    ChunkNamer namer("foo");
+    CPPUNIT_ASSERT_EQUAL(string("foo_0100_123456_2345678.ply"), namer(chunkId));
+}
+
 /**
  * Tests that are shared across all the @ref MesherBase subclasses.
  */
