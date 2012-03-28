@@ -391,6 +391,13 @@ BigMesher::BigMesher(FastPly::WriterBase &writer, const Namer &namer)
 
 void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
 {
+    if (!curChunkGen || chunkId.gen != *curChunkGen)
+    {
+        assert(!curChunkGen || *curChunkGen < chunkId.gen);
+        curChunkGen = chunkId.gen;
+        vertexIdMap.clear(); // don't merge vertex IDs with other chunks
+    }
+
     HostKeyMesh &mesh = work.mesh;
 
     work.trianglesEvent.wait();
@@ -406,9 +413,9 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
 
 void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
-    if (!writer.isOpen() || chunkId.gen != curChunkGen)
+    if (!curChunkGen || chunkId.gen != *curChunkGen)
     {
-        assert(!writer.isOpen() || curChunkGen < chunkId.gen);
+        assert(!curChunkGen || *curChunkGen < chunkId.gen);
 
         // Completely skip empty chunks
         const Clump::Counts &counts = chunkCounts[chunkId.gen];
@@ -422,6 +429,8 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
         writer.setNumTriangles(counts.triangles);
         writer.open(namer(chunkId));
 
+        nextVertex = 0;
+        nextTriangle = 0;
         vertexIdMap.clear(); // don't merge vertex IDs with other chunks
     }
 
@@ -560,6 +569,7 @@ void BigMesher::prepareAdd()
     vertexIdMap.clear();
     clumpIdMap.clear();
     clumps.clear();
+    curChunkGen = boost::none;
 }
 
 MesherBase::InputFunctor BigMesher::functor(unsigned int pass)

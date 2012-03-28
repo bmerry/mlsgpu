@@ -30,6 +30,7 @@
 #include <boost/thread/thread.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/optional.hpp>
 #include <boost/foreach.hpp>
 #include <tr1/unordered_map>
 #include <tr1/unordered_set>
@@ -467,7 +468,7 @@ private:
     void count(const ChunkId &chunkId, MesherWork &work);
 
     /// Chunk generation which is currently being written (undefined if writer is not open)
-    unsigned int curChunkGen;
+    boost::optional<unsigned int> curChunkGen;
 
     /// Preparation for the second pass after the first pass
     void prepareAdd();
