@@ -315,6 +315,12 @@ public:
         const Bucket::Recursion &recursionState);
 
     HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid);
+
+    /// Prepares for a pass
+    void start();
+
+    /// Ends a pass
+    void stop();
 private:
     ChunkId curChunkId;
     FineBucketGroup &outGroup;
@@ -323,9 +329,8 @@ private:
 
 template<typename Splats>
 HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid)
-: curChunkId(), outGroup(outGroup), fullGrid(fullGrid)
+: outGroup(outGroup), fullGrid(fullGrid)
 {
-    outGroup.producerStart(curChunkId);
 }
 
 template<typename Splats>
@@ -371,6 +376,19 @@ void HostBlock<Splats>::operator()(
     }
 
     outGroup.push(curChunkId, item);
+}
+
+template<typename Splats>
+void HostBlock<Splats>::start()
+{
+    curChunkId = ChunkId();
+    outGroup.producerStart(curChunkId);
+}
+
+template<typename Splats>
+void HostBlock<Splats>::stop()
+{
+    outGroup.producerStop(curChunkId);
 }
 
 /**
@@ -470,6 +488,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         fineBucketGroup.setProgress(&progress);
 
         // Start threads
+        hostBlock.start();
         fineBucketGroup.start();
         deviceWorkerGroup.start();
         mesherGroup.start();
@@ -481,6 +500,7 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
          * satisfy the requirement that stop() is only called after producers
          * are terminated.
          */
+        hostBlock.stop();
         fineBucketGroup.stop();
         deviceWorkerGroup.stop();
         mesherGroup.stop();
