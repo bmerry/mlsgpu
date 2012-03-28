@@ -382,8 +382,8 @@ void KeyMapMesher::rewriteTriangles(
 
 } // namespace detail
 
-BigMesher::BigMesher(FastPly::WriterBase &writer, const std::string &filename)
-    : writer(writer), filename(filename),
+BigMesher::BigMesher(FastPly::WriterBase &writer, const Namer &namer)
+    : writer(writer), namer(namer),
     nextVertex(0), nextTriangle(0), pruneThresholdVertices(0)
 {
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
@@ -406,6 +406,25 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
 
 void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
+    if (!writer.isOpen() || chunkId.gen != curChunkGen)
+    {
+        assert(!writer.isOpen() || curChunkGen < chunkId.gen);
+
+        // Completely skip empty chunks
+        const Clump::Counts &counts = chunkCounts[chunkId.gen];
+        if (counts.triangles == 0)
+            return;
+
+        if (writer.isOpen())
+            writer.close();
+        curChunkGen = chunkId.gen;
+        writer.setNumVertices(counts.vertices);
+        writer.setNumTriangles(counts.triangles);
+        writer.open(namer(chunkId));
+
+        vertexIdMap.clear(); // don't merge vertex IDs with other chunks
+    }
+
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
     const std::size_t numInternalVertices = mesh.vertices.size() - numExternalVertices;
@@ -499,7 +518,6 @@ void BigMesher::prepareAdd()
         }
     }
 
-    size_type numVertices = 0, numTriangles = 0;
     pruneThresholdVertices = (cl_uint) (totalVertices * getPruneThreshold());
     clump_id keptComponents = 0, totalComponents = 0;
 
@@ -511,8 +529,11 @@ void BigMesher::prepareAdd()
             totalComponents++;
             if (clump.counts.vertices >= pruneThresholdVertices)
             {
-                numVertices += clump.counts.vertices;
-                numTriangles += clump.counts.triangles;
+                typedef std::pair<unsigned int, Clump::Counts> item_type;
+                BOOST_FOREACH(const item_type &item, clump.chunkCounts)
+                {
+                    chunkCounts[item.first] += item.second;
+                }
                 keptComponents++;
             }
         }
@@ -539,11 +560,6 @@ void BigMesher::prepareAdd()
     vertexIdMap.clear();
     clumpIdMap.clear();
     clumps.clear();
-
-    // TODO: defer this for chunking
-    writer.setNumVertices(numVertices);
-    writer.setNumTriangles(numTriangles);
-    writer.open(filename);
 }
 
 MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
@@ -563,10 +579,11 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
 void BigMesher::write(FastPly::WriterBase &writer, const Namer &namer,
                       std::ostream *progressStream) const
 {
-    (void) writer;
     (void) namer;
     (void) progressStream;
     assert(&writer == &this->writer);
+    if (writer.isOpen())
+        writer.close();
 }
 
 
@@ -853,12 +870,12 @@ Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in)
     return DeviceMesher(in);
 }
 
-MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename)
+MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer)
 {
     switch (type)
     {
     case WELD_MESHER:   return new WeldMesher();
-    case BIG_MESHER:    return new BigMesher(writer, filename);
+    case BIG_MESHER:    return new BigMesher(writer, namer);
     case STXXL_MESHER:  return new StxxlMesher();
     }
     return NULL; // should never be reached

@@ -800,7 +800,7 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesher, TestSet::perBuild());
 
 MesherBase *TestBigMesher::mesherFactory(FastPly::WriterBase &writer)
 {
-    return new BigMesher(writer, "");
+    return new BigMesher(writer, TrivialNamer(""));
 }
 
 class TestStxxlMesher : public TestWeldMesher

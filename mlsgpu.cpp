@@ -444,11 +444,17 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
     HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 
+    MesherBase::Namer namer;
+    if (split)
+        namer = ChunkNamer(out);
+    else
+        namer = TrivialNamer(out);
+
     boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
     writer->addComment("mlsgpu variant: " + provenanceVariant());
     writer->addComment("mlsgpu options:" + makeOptions(vm));
-    boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, out));
+    boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
     mesher->setPruneThreshold(pruneThreshold);
     for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
     {
@@ -485,11 +491,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         Statistics::Timer timer("finalize.time");
 
         mesher->finalize(&Log::log[Log::info]);
-        MesherBase::Namer namer;
-        if (split)
-            namer = ChunkNamer(out);
-        else
-            namer = TrivialNamer(out);
         mesher->write(*writer, namer, &Log::log[Log::info]);
     }
 }

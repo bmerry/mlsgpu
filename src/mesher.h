@@ -443,7 +443,7 @@ private:
     typedef FastPly::WriterBase::size_type size_type;
 
     FastPly::WriterBase &writer;
-    const std::string filename;
+    const Namer namer;
 
     size_type nextVertex;   ///< Number of vertices written so far
     size_type nextTriangle; ///< Number of triangles written so far
@@ -457,11 +457,17 @@ private:
     /// Keys of external vertices in retained chunks, computed by prepareAdd
     std::tr1::unordered_set<cl_ulong> retainedExternal;
 
+    /// Number of vertices and triangles that will be produced for each chunk
+    std::tr1::unordered_map<unsigned int, Clump::Counts> chunkCounts;
+
     /// Temporary storage for local clump validity
     std::vector<bool> tmpClumpValid;
 
     /// Implementation of the first-pass functor
     void count(const ChunkId &chunkId, MesherWork &work);
+
+    /// Chunk generation which is currently being written (undefined if writer is not open)
+    unsigned int curChunkGen;
 
     /// Preparation for the second pass after the first pass
     void prepareAdd();
@@ -476,9 +482,9 @@ public:
      * Constructor. Unlike the in-core mesher types, the file information must
      * be passed to the constructor so that results can be streamed into it.
      *
-     * The file will be created on the second pass.
+     * The files will be created on the second pass.
      */
-    BigMesher(FastPly::WriterBase &writer, const std::string &filename);
+    BigMesher(FastPly::WriterBase &writer, const Namer &namer);
 
     virtual InputFunctor functor(unsigned int pass);
 
@@ -558,7 +564,7 @@ public:
 /**
  * Factory function to create a mesher of the specified type.
  */
-MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const std::string &filename);
+MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer);
 
 /**
  * Creates an adapter between @ref MesherBase::InputFunctor and @ref Marching::OutputFunctor
