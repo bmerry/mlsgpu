@@ -2,6 +2,8 @@
  * @file
  *
  * Data structures for storing the output of @ref Marching.
+ *
+ * @todo Audit for overflows when >2^32 vertices emitted in total but chunked.
  */
 
 #if HAVE_CONFIG_H
@@ -518,8 +520,10 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    const cl_uint thresholdVertices = (cl_uint) (vertices.size() * getPruneThreshold());
-    FastPly::WriterBase::size_type numVertices = 0, numTriangles = 0;
+    const std::tr1::uint64_t thresholdVertices = std::tr1::uint64_t(vertices.size() * getPruneThreshold());
+    // Number of vertices and triangles that will be emitted (possibly counting
+    // twice at chunk boundaries).
+    Clump::Counts keptCounts;
     clump_id keptComponents = 0, totalComponents = 0;
     BOOST_FOREACH(const Clump &clump, clumps)
     {
@@ -528,12 +532,16 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             totalComponents++;
             if (clump.counts.vertices >= thresholdVertices)
             {
-                numVertices += clump.counts.vertices;
-                numTriangles += clump.counts.triangles;
                 keptComponents++;
+                typedef std::pair<unsigned int, Clump::Counts> item_type;
+                BOOST_FOREACH(const item_type &item, clump.chunkCounts)
+                {
+                    keptCounts += item.second;
+                }
             }
         }
     }
+
     registry.getStatistic<Statistics::Variable>("components.vertices.total").add(vertices.size());
     registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
     registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
@@ -547,9 +555,8 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
     {
-        // TODO: count is wrong because of duplication at chunk boundaries
-        *progressStream << "\nWriting file\n";
-        progress.reset(new ProgressDisplay(vertices.size() + triangles.size(), *progressStream));
+        *progressStream << "\nWriting file(s)\n";
+        progress.reset(new ProgressDisplay(keptCounts.vertices + keptCounts.triangles, *progressStream));
     }
 
     for (std::size_t i = 0; i < chunks.size(); i++)
