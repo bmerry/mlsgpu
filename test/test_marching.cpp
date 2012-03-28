@@ -422,8 +422,9 @@ void TestMarching::testGenerate(
 
     MemoryWriter mwriter;
     mesher.write(mwriter, TrivialNamer(filename));
-    const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = mwriter.getTriangles();
-    std::string reason = Manifold::isManifold(mwriter.getVertices().size(), triangles.begin(), triangles.end());
+    const MemoryWriter::Output output = mwriter.getOutput(filename);
+    const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = output.triangles;
+    std::string reason = Manifold::isManifold(output.vertices.size(), triangles.begin(), triangles.end());
     CPPUNIT_ASSERT_EQUAL(string(""), reason);
 }
 

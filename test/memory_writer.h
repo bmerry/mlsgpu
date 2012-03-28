@@ -15,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <tr1/cstdint>
+#include <tr1/unordered_map>
 #include <boost/array.hpp>
 #include "../src/fast_ply.h"
 
@@ -22,10 +23,19 @@
  * An implementation of the @ref FastPly::WriterBase
  * interface that does not actually write to file, but merely saves
  * a copy of the data in memory. It is aimed specifically at testing.
+ *
+ * Since a writer can be opened and closed multiple times, the results
+ * are stored in a map indexed by the provided filename.
  */
 class MemoryWriter : public FastPly::WriterBase
 {
 public:
+    struct Output
+    {
+        std::vector<boost::array<float, 3> > vertices;
+        std::vector<boost::array<std::tr1::uint32_t, 3> > triangles;
+    };
+
     /// Constructor
     MemoryWriter();
 
@@ -36,12 +46,25 @@ public:
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
     virtual bool supportsOutOfOrder() const;
 
-    const std::vector<boost::array<float, 3> > &getVertices() const { return vertices; }
-    const std::vector<boost::array<std::tr1::uint32_t, 3> > &getTriangles() const { return triangles; }
+    /**
+     * Returns a previously written output. It is legal to retrieve an output that is in
+     * progress.
+     *
+     * @param filename               The filename provided when the writer was opened.
+     * @throw std::invalid_argument  if no such output exists.
+     */
+    const Output &getOutput(const std::string &filename) const;
 
 private:
-    std::vector<boost::array<float, 3> > vertices;
-    std::vector<boost::array<std::tr1::uint32_t, 3> > triangles;
+    /**
+     * Output file currently being written. It is @c NULL when the writer is closed.
+     */
+    Output *curOutput;
+
+    /**
+     * Outputs organised by filename.
+     */
+    std::tr1::unordered_map<std::string, Output> outputs;
 };
 
 #endif /* !MEMORY_WRITER_H */
