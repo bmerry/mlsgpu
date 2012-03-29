@@ -14,6 +14,7 @@
 # define __CL_ENABLE_EXCEPTIONS
 #endif
 
+#include <tr1/cstdint>
 #include <CL/cl.h>
 #include <vector>
 #include <boost/array.hpp>
@@ -70,7 +71,7 @@ namespace detail
 void KeyMapMesher::computeLocalComponents(
     std::size_t numVertices,
     const std::vector<boost::array<cl_uint, 3> > &triangles,
-    std::vector<UnionFind::Node<cl_int> > &nodes)
+    std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
 {
     nodes.clear();
     nodes.resize(numVertices);
@@ -86,7 +87,7 @@ void KeyMapMesher::computeLocalComponents(
 
 void KeyMapMesher::updateClumps(
     unsigned int chunkGen,
-    const std::vector<UnionFind::Node<cl_int> > &nodes,
+    const std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
     const std::vector<boost::array<cl_uint, 3> > &triangles,
     std::vector<clump_id> &clumpId)
 {
@@ -98,7 +99,7 @@ void KeyMapMesher::updateClumps(
     {
         if (nodes[i].isRoot())
         {
-            if (clumps.size() > boost::make_unsigned<clump_id>::type(std::numeric_limits<clump_id>::max()))
+            if (clumps.size() >= boost::make_unsigned<clump_id>::type(std::numeric_limits<clump_id>::max()))
             {
                 throw std::overflow_error("Too many clumps");
             }
@@ -110,7 +111,7 @@ void KeyMapMesher::updateClumps(
     // Compute clump IDs for the non-root vertices
     for (std::size_t i = 0; i < numVertices; i++)
     {
-        cl_int r = UnionFind::findRoot(nodes, i);
+        std::tr1::int32_t r = UnionFind::findRoot(nodes, i);
         clumpId[i] = clumpId[r];
     }
 
@@ -126,21 +127,21 @@ void KeyMapMesher::updateClumps(
     }
 }
 
-std::size_t KeyMapMesher::updateKeyMaps(
-    unsigned int chunkGen,
-    cl_uint vertexOffset,
-    const std::vector<cl_ulong> &hKeys,
+void KeyMapMesher::updateKeyMaps(
+    ChunkId::gen_type chunkGen,
+    std::tr1::uint32_t vertexOffset,
+    const std::vector<cl_ulong> &keys,
     const std::vector<clump_id> &clumpId,
-    std::vector<cl_uint> &indexTable)
+    std::vector<std::tr1::uint32_t> &indexTable)
 {
-    const std::size_t numExternalVertices = hKeys.size();
+    const std::size_t numExternalVertices = keys.size();
     const std::size_t numInternalVertices = clumpId.size() - numExternalVertices;
-    std::size_t newKeys = 0;
+    std::size_t newKeys = 0; // Number of external keys we haven't seen yet in this chunk
 
     indexTable.resize(numExternalVertices);
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        cl_ulong key = hKeys[i];
+        cl_ulong key = keys[i];
         clump_id cid = clumpId[i + numInternalVertices];
 
         {
@@ -159,7 +160,7 @@ std::size_t KeyMapMesher::updateKeyMaps(
         }
 
         {
-            std::pair<std::tr1::unordered_map<cl_ulong, cl_uint>::iterator, bool> added;
+            std::pair<std::tr1::unordered_map<cl_ulong, std::tr1::uint32_t>::iterator, bool> added;
             added = vertexIdMap.insert(std::make_pair(key, vertexOffset + newKeys));
             if (added.second)
                 newKeys++; // key has not been set yet in this chunk
@@ -175,12 +176,11 @@ std::size_t KeyMapMesher::updateKeyMaps(
             indexTable[i] = added.first->second;
         }
     }
-    return newKeys;
 }
 
 void KeyMapMesher::rewriteTriangles(
-    cl_uint priorVertices,
-    const std::vector<cl_uint> &indexTable,
+    std::tr1::uint32_t priorVertices,
+    const std::vector<std::tr1::uint32_t> &indexTable,
     HostKeyMesh &mesh) const
 {
     const std::size_t numInternalVertices = mesh.vertices.size() - mesh.vertexKeys.size();
@@ -209,6 +209,7 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
 {
     if (!curChunkGen || chunkId.gen != *curChunkGen)
     {
+        // This is a new chunk
         assert(!curChunkGen || *curChunkGen < chunkId.gen);
         curChunkGen = chunkId.gen;
         vertexIdMap.clear(); // don't merge vertex IDs with other chunks
@@ -220,8 +221,10 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
     computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpNodes);
     updateClumps(chunkId.gen, tmpNodes, mesh.triangles, tmpClumpId);
 
-    /* Update clumps. We don't actually care about vertex indices at this point,
-     * so we pass 0 as the offset.
+    /* Merge clumps. We don't actually care about vertex indices at this point,
+     * so we just pass 0 as the offset. We can't entirely eliminate vertexIdMap
+     * through, because the keys tell us which external vertex keys have already
+     * occurred in this chunk.
      */
     work.vertexKeysEvent.wait();
     updateKeyMaps(chunkId.gen, 0, mesh.vertexKeys, tmpClumpId, tmpIndexTable);
@@ -262,7 +265,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
      * the requisite number of vertices on its own, or if it contains an
      * external vertex that has been marked as valid.
      */
-    tmpClumpValid.clear();
+    tmpClumpValid.clear(); // ensures that the resize with zero-fill
     tmpClumpValid.resize(tmpNodes.size());
     for (std::size_t i = 0; i < tmpNodes.size(); i++)
         if (tmpNodes[i].isRoot() && std::tr1::uint64_t(tmpNodes[i].size()) >= pruneThresholdVertices)
@@ -271,7 +274,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     work.vertexKeysEvent.wait();
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        cl_int r = UnionFind::findRoot(tmpNodes, i + numInternalVertices);
+        std::tr1::int32_t r = UnionFind::findRoot(tmpNodes, i + numInternalVertices);
         if (!tmpClumpValid[r] && retainedExternal.count(mesh.vertexKeys[i]))
             tmpClumpValid[r] = true;
     }
@@ -280,7 +283,8 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     /* Apply clump validity to remove unwanted vertices, and build an
      * index remap table at the same time.
      */
-    std::size_t vptr = 0;  // next output vertex in compaction
+    const std::tr1::uint32_t badIndex = UINT32_MAX;
+    std::tr1::uint32_t vptr = 0;  // next output vertex in compaction
     tmpIndexTable.resize(mesh.vertices.size());
     for (std::size_t i = 0; i < numInternalVertices; i++)
     {
@@ -291,11 +295,11 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
             mesh.vertices[vptr++] = mesh.vertices[i];
         }
         else
-            tmpIndexTable[i] = 0xFFFFFFFFu;
+            tmpIndexTable[i] = badIndex;
     }
     for (std::size_t i = numInternalVertices; i < mesh.vertices.size(); i++)
     {
-        cl_int r = UnionFind::findRoot(tmpNodes, i);
+        std::tr1::int32_t r = UnionFind::findRoot(tmpNodes, i);
         if (tmpClumpValid[r])
         {
             cl_ulong key = mesh.vertexKeys[i - numInternalVertices];
@@ -306,7 +310,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
             tmpIndexTable[i] = added.first->second;
         }
         else
-            tmpIndexTable[i] = 0xFFFFFFFFu;
+            tmpIndexTable[i] = badIndex;
     }
     mesh.vertices.resize(vptr);
 
@@ -314,7 +318,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     std::size_t tptr = 0;
     for (std::size_t i = 0; i < mesh.triangles.size(); i++)
     {
-        if (tmpIndexTable[mesh.triangles[i][0]] != 0xFFFFFFFFu)
+        if (tmpIndexTable[mesh.triangles[i][0]] != badIndex)
         {
             for (unsigned int j = 0; j < 3; j++)
                 mesh.triangles[tptr][j] = tmpIndexTable[mesh.triangles[i][j]];
@@ -333,7 +337,7 @@ void BigMesher::prepareAdd()
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    size_type totalVertices = 0;
+    std::tr1::uint64_t totalVertices = 0;
     /* Count the vertices */
     BOOST_FOREACH(const Clump &clump, clumps)
     {
@@ -343,7 +347,7 @@ void BigMesher::prepareAdd()
         }
     }
 
-    pruneThresholdVertices = (cl_uint) (totalVertices * getPruneThreshold());
+    pruneThresholdVertices = std::tr1::uint64_t(totalVertices * getPruneThreshold());
     clump_id keptComponents = 0, totalComponents = 0;
 
     /* Determine the total number of vertices and triangles to retain */
@@ -354,7 +358,7 @@ void BigMesher::prepareAdd()
             totalComponents++;
             if (clump.counts.vertices >= pruneThresholdVertices)
             {
-                typedef std::pair<unsigned int, Clump::Counts> item_type;
+                typedef std::pair<ChunkId::gen_type, Clump::Counts> item_type;
                 BOOST_FOREACH(const item_type &item, clump.chunkCounts)
                 {
                     chunkCounts[item.first] += item.second;
@@ -464,7 +468,7 @@ void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
     HostKeyMesh &mesh = work.mesh;
     const std::size_t numExternalVertices = mesh.vertexKeys.size();
     const std::size_t numInternalVertices = mesh.vertices.size() - numExternalVertices;
-    const std::tr1::uint64_t priorVertices = vertices.size() - chunks.back().firstVertex;
+    const std::tr1::uint32_t priorVertices = vertices.size() - chunks.back().firstVertex;
 
     work.trianglesEvent.wait();
     computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpNodes);
@@ -484,7 +488,7 @@ void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
     }
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
-        const cl_uint pos = tmpIndexTable[i];
+        const std::tr1::uint32_t pos = tmpIndexTable[i];
         if (pos >= priorVertices)
         {
             vertices.push_back(std::make_pair(
@@ -533,7 +537,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             if (clump.counts.vertices >= thresholdVertices)
             {
                 keptComponents++;
-                typedef std::pair<unsigned int, Clump::Counts> item_type;
+                typedef std::pair<ChunkId::gen_type, Clump::Counts> item_type;
                 BOOST_FOREACH(const item_type &item, clump.chunkCounts)
                 {
                     keptCounts += item.second;
@@ -550,7 +554,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
 
     stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result vertexRemap;
     const stxxl::VECTOR_GENERATOR<cl_uint, 4, 16>::result & vertexRemapConst = vertexRemap;
-    const cl_uint badIndex = std::numeric_limits<cl_uint>::max();
+    const std::tr1::uint32_t badIndex = UINT32_MAX;
 
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
@@ -575,12 +579,13 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             lastVertex = chunks[i + 1].firstVertex;
             lastTriangle = chunks[i + 1].firstTriangle;
         }
-        unsigned int gen = chunk.chunkId.gen;
+        const ChunkId::gen_type gen = chunk.chunkId.gen;
         std::tr1::uint64_t chunkVertices = 0;
         std::tr1::uint64_t chunkTriangles = 0;
+        // Determine the number of vertices and triangles for this chunk
         BOOST_FOREACH(const Clump &clump, clumps)
         {
-            // TODO: save a list of these clumps
+            // TODO: save a list of valid clumps?
             if (clump.isRoot() && clump.counts.vertices >= thresholdVertices)
             {
                 std::tr1::unordered_map<unsigned int, Clump::Counts>::const_iterator pos;
@@ -600,6 +605,8 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             writer.setNumTriangles(chunkTriangles);
             writer.open(namer(chunk.chunkId));
 
+            // Write out the valid vertices, simultaneously building a chunk-wide remap table
+            // to track the compaction.
             cl_uint nextVertex = 0;
             {
                 stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
@@ -627,6 +634,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             }
             assert(nextVertex == chunkVertices);
 
+            // Write out the triangles
             {
                 stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
                     triangle_stream = stxxl::stream::streamify(triangles.begin() + chunk.firstTriangle,
@@ -666,6 +674,9 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
 namespace
 {
 
+/**
+ * Class implementing @ref deviceMesher.
+ */
 class DeviceMesher
 {
 private:

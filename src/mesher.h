@@ -6,7 +6,6 @@
  * The classes in this file are @ref MesherBase, an abstract base class, and
  * several concrete instantiations of it. They differ in terms of
  *  - the number of passes needed
- *  - whether they support welding of external vertices
  *  - the amount of temporary memory required.
  */
 
@@ -48,17 +47,35 @@ enum MesherType
     STXXL_MESHER
 };
 
+/**
+ * Unique ID for an output file chunk. It consists of a @em generation number,
+ * which is increased monotonically, and a set of @em coordinates which are used
+ * to name the file.
+ *
+ * Comparison of generation numbers does not necessarily correspond to
+ * lexicographical ordering of coordinates, but there is a one-to-one
+ * relationship that is preserved across passes.
+ */
 struct ChunkId
 {
-    unsigned int gen;
+    typedef std::tr1::uint32_t gen_type;
+
+    /// Monotonically increasing generation number
+    gen_type gen;
+    /**
+     * Chunk coordinates. The chunks form a regular grid and the coordinates
+     * give the position within the grid, starting from (0,0,0).
+     */
     boost::array<Grid::size_type, 3> coords;
 
+    /// Default constructor (does zero initialization)
     ChunkId() : gen(0)
     {
         for (unsigned int i = 0; i < 3; i++)
             coords[i] = 0;
     }
 
+    /// Comparison by generation number
     bool operator<(const ChunkId &b) const
     {
         return gen < b.gen;
@@ -75,12 +92,17 @@ public:
     static std::map<std::string, MesherType> getNameMap();
 };
 
+/**
+ * Data about a mesh passed in to a @ref Mesher::OutputFunctor. It contains
+ * host mesh data that may still be being read asynchronously from a device,
+ * together with the events that will signal data readiness.
+ */
 struct MesherWork
 {
-    HostKeyMesh mesh;
-    cl::Event verticesEvent;
-    cl::Event vertexKeysEvent;
-    cl::Event trianglesEvent;
+    HostKeyMesh mesh;              ///< Mesh data (may be empty)
+    cl::Event verticesEvent;       ///< Signaled when vertices may be read
+    cl::Event vertexKeysEvent;     ///< Signaled when vertex keys may be read
+    cl::Event trianglesEvent;      ///< Signaled when triangles may be read
 };
 
 /**
@@ -104,6 +126,11 @@ public:
 
 /**
  * Model of @ref MesherBase::Namer that adds the chunk ID into the name.
+ *
+ * The generated name is
+ * <i>base</i><code>_</code><i>XXXX</i><code>_</code><i>YYYY</i><code>_</code><i>ZZZZ</i><code>.ply</code>,
+ * where @a base is the base name given to the constructor and @a XXXX, @a YYYY
+ * and @a ZZZZ are the coordinates.
  */
 class ChunkNamer
 {
@@ -126,17 +153,18 @@ public:
  * The basic procedure for using one of these classes is:
  * -# Instantiate it.
  * -# Call @ref setPruneThreshold.
- * -# Uses @ref numPasses to determine how many passes are required.
+ * -# Call @ref numPasses to determine how many passes are required.
  * -# For each pass, call @ref functor to obtain a functor, then
  *    make as many calls to @ref Marching::generate as desired using this
  *    functor. Each call should set @a keyOffset so that vertex keys line up.
- *    Each pass must generate exactly the same geometry, but the chunks may
- *    be generated in different order.
+ *    Each pass must generate exactly the same geometry, but the blocks may
+ *    be generated in different order within each chunk (chunks must be in
+ *    order).
  * -# Call @ref finalize.
  * -# If file output is desired, call @ref write.
  *
  * @warning The functor is @em not required to be thread-safe. The caller must
- * serialize calls if necessary.
+ * serialize calls if necessary (@ref MesherGroup only uses one thread).
  */
 class MesherBase
 {
@@ -201,11 +229,14 @@ public:
      * Writes the data to file. The writer passed in must not yet have been opened
      * (this function will do that). The caller may optionally have set comments on it.
      *
-     * @param writer          Writer to write to (unopened).
+     * @param writer          Writer to use for writing.
      * @param namer           Filename generator.
-     * @param progressStream  If non-NULL, a log stream for a progress meter
+     * @param progressStream  If non-NULL, a log stream for a progress meter.
      * @throw std::ios_base::failure on I/O failure (including failure to open the file).
+     * @throw std::overflow_error if too many connected components were found.
+     * @throw std::overflow_error if too many vertices were found in one output chunk.
      *
+     * @pre @a writer is closed.
      * @pre @ref finalize() has been called.
      */
     virtual void write(FastPly::WriterBase &writer, const Namer &namer,
@@ -224,12 +255,12 @@ namespace detail
  * algorithms common to both.
  *
  * External vertices are entered into a hash table that maps their keys to
- * their final indices in the output. When a new chunk of data comes in,
+ * their final indices in an output chunk. When a new block of data comes in,
  * new external vertices are entered into the key map and known ones are
  * discarded. The indices are then rewritten using the key map.
  *
  * Component identification is implemented with a two-level approach. Within each
- * call to add(), a union-find is performed to identify local components. These
+ * block, a union-find is performed to identify local components. These
  * components are referred to as @em clumps. Each vertex is given a <em>clump
  * id</em>. During welding, external vertices are used to identify clumps that
  * form part of the same component, and this is recorded in a union-find
@@ -247,6 +278,9 @@ protected:
     class Clump : public UnionFind::Node<clump_id>
     {
     public:
+        /**
+         * A tuple of vertices and triangles.
+         */
         struct Counts
         {
             std::tr1::uint64_t vertices;
@@ -268,8 +302,8 @@ protected:
          * Book-keeping counts of vertices and triangles. These counts are only valid
          * on root nodes.
          */
-        Counts counts;                                              ///< Global counts
-        std::tr1::unordered_map<unsigned int, Counts> chunkCounts;  ///< Per-chunk counts
+        Counts counts;                                                   ///< Global counts
+        std::tr1::unordered_map<ChunkId::gen_type, Counts> chunkCounts;  ///< Per-chunk counts
         /** @} */
 
         void merge(Clump &b)
@@ -277,24 +311,36 @@ protected:
             UnionFind::Node<cl_int>::merge(b);
             counts += b.counts;
 
-            // Merge chunkCounts with b.chunkCounts, destroying b.chunkCounts in
-            // the process.
+            // Merge chunkCounts with b.chunkCounts
             typedef std::pair<unsigned int, Counts> item_type;
             BOOST_FOREACH(const item_type &item, b.chunkCounts)
             {
                 chunkCounts[item.first] += item.second;
             }
+            // No longer need this, since b is no longer a root node
             b.chunkCounts.clear();
         }
 
-        Clump(unsigned int chunkGen, std::tr1::uint64_t numVertices)
+        /**
+         * Constructor for a new clump in a chunk.
+         * @param chunkGen           The chunk containing the clump.
+         * @param numVertices        The number of vertices in the clump.
+         *
+         * @post
+         * - <code>counts.vertices == numVertices</code>
+         * - <code>counts.triangles == 0</code>
+         * - <code>counts.chunkCounts[chunkGen] == numVertices</code>
+         * - <code>counts.chunkCounts[chunkGen] == 0</code>
+         * - <code>counts.chunkCounts.size() == 1</code>
+         */
+        Clump(ChunkId::gen_type chunkGen, std::tr1::uint64_t numVertices)
         {
             counts.vertices = numVertices;
             chunkCounts[chunkGen].vertices = numVertices;
         }
     };
 
-    typedef std::tr1::unordered_map<cl_ulong, cl_uint> vertex_id_map_type;
+    typedef std::tr1::unordered_map<cl_ulong, std::tr1::uint32_t> vertex_id_map_type;
     typedef std::tr1::unordered_map<cl_ulong, clump_id> clump_id_map_type;
 
     /// Maps external vertex keys to external indices for the current chunk
@@ -313,8 +359,8 @@ protected:
      * These are stored in the object so that memory can be recycled if
      * possible, rather than thrashing the allocator.
      */
-    std::vector<cl_uint> tmpIndexTable;
-    std::vector<UnionFind::Node<cl_int> > tmpNodes;
+    std::vector<std::tr1::uint32_t> tmpIndexTable;
+    std::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
     std::vector<clump_id> tmpClumpId;
     /** @} */
 
@@ -330,7 +376,7 @@ protected:
     static void computeLocalComponents(
         std::size_t numVertices,
         const std::vector<boost::array<cl_uint, 3> > &triangles,
-        std::vector<UnionFind::Node<cl_int> > &nodes);
+        std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
 
     /**
      * Creates clumps from local components.
@@ -341,13 +387,10 @@ protected:
      * @param[out] clumpId   The index into @ref clumps for each vertex.
      *
      * @post <code>clumpId.size() == nodes.size()</code>
-     *
-     * @warning This function is not reentrant, because it appends to
-     * @ref clumps.
      */
     void updateClumps(
         unsigned int chunkGen,
-        const std::vector<UnionFind::Node<cl_int> > &nodes,
+        const std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
         const std::vector<boost::array<cl_uint, 3> > &triangles,
         std::vector<clump_id> &clumpId);
 
@@ -359,18 +402,18 @@ protected:
      *
      * @param chunkGen        Chunk generation to which the local vertices belong.
      * @param vertexOffset    The final index for the first external vertex in the block.
-     * @param hKeys           Keys of the external vertices.
+     * @param keys            Keys of the external vertices.
      * @param clumpId         The clump IDs of all vertices, as computed by @ref computeLocalComponents.
      * @param[out] indexTable The index remapping table.
      *
-     * @note Only the last <code>hKeys.size()</code> elements of @a clumpId are relevant.
+     * @note Only the last <code>keys.size()</code> elements of @a clumpId are relevant.
      */
-    std::size_t updateKeyMaps(
-        unsigned int chunkGen,
-        cl_uint vertexOffset,
-        const std::vector<cl_ulong> &hKeys,
+    void updateKeyMaps(
+        ChunkId::gen_type chunkGen,
+        std::tr1::uint32_t vertexOffset,
+        const std::vector<cl_ulong> &keys,
         const std::vector<clump_id> &clumpId,
-        std::vector<cl_uint> &indexTable);
+        std::vector<std::tr1::uint32_t> &indexTable);
 
     /**
      * Writes indices in place from being block-relative to the intermediate form (prior to
@@ -378,10 +421,11 @@ protected:
      * @param priorVertices        First vertex in the block (internal or external).
      * @param indexTable           External index rewrite table computed by @ref updateKeyMaps.
      * @param[in,out] mesh         Triangles to rewrite (also uses the number of vertices).
+     * @todo Only used in @ref StxxlMesher?
      */
     void rewriteTriangles(
-        cl_uint priorVertices,
-        const std::vector<cl_uint> &indexTable,
+        std::tr1::uint32_t priorVertices,
+        const std::vector<std::tr1::uint32_t> &indexTable,
         HostKeyMesh &mesh) const;
 };
 
@@ -406,25 +450,31 @@ protected:
 class BigMesher : public detail::KeyMapMesher
 {
 private:
-    typedef FastPly::WriterBase::size_type size_type;
-
     FastPly::WriterBase &writer;
     const Namer namer;
 
-    size_type nextVertex;   ///< Number of vertices written so far
-    size_type nextTriangle; ///< Number of triangles written so far
-
     /**
-     * Minimum number of vertices to keep a component. This is only valid
-     * after @ref prepareAdd.
+     * @name
+     * @{
+     * Data used only during the second pass. These fields are initialized
+     * by @ref prepareAdd and are undefined prior to that.
      */
+
+    std::tr1::uint32_t nextVertex;   ///< Number of vertices written so far
+    std::tr1::uint64_t nextTriangle; ///< Number of triangles written so far
+
+    /// Minimum number of vertices to keep a component
     std::tr1::uint64_t pruneThresholdVertices;
 
-    /// Keys of external vertices in retained chunks, computed by prepareAdd
+    /// Keys of external vertices in retained chunks
     std::tr1::unordered_set<cl_ulong> retainedExternal;
 
     /// Number of vertices and triangles that will be produced for each chunk
-    std::tr1::unordered_map<unsigned int, Clump::Counts> chunkCounts;
+    std::tr1::unordered_map<ChunkId::gen_type, Clump::Counts> chunkCounts;
+
+    /**
+     * @}
+     */
 
     /// Temporary storage for local clump validity
     std::vector<bool> tmpClumpValid;
@@ -432,8 +482,8 @@ private:
     /// Implementation of the first-pass functor
     void count(const ChunkId &chunkId, MesherWork &work);
 
-    /// Chunk generation which is currently being written (undefined if writer is not open)
-    boost::optional<unsigned int> curChunkGen;
+    /// Chunk generation which is currently being written (empty if writer is not open)
+    boost::optional<ChunkId::gen_type> curChunkGen;
 
     /// Preparation for the second pass after the first pass
     void prepareAdd();
@@ -473,8 +523,14 @@ class StxxlMesher : public detail::KeyMapMesher
 {
 private:
     typedef stxxl::VECTOR_GENERATOR<std::pair<boost::array<float, 3>, clump_id> >::result vertices_type;
-    typedef stxxl::VECTOR_GENERATOR<boost::array<cl_uint, 3> >::result triangles_type;
+    typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3> >::result triangles_type;
 
+    /**
+     * Encodes the start position of one chunk within the @ref vertices and
+     * @ref triangles arrays. The end position is not explicitly encoded; rather it
+     * can be found as the start of the next chunk, or as the end of the array for
+     * the final chunk.
+     */
     struct Chunk
     {
         ChunkId chunkId;
@@ -482,9 +538,9 @@ private:
         triangles_type::size_type firstTriangle;
     };
 
-    vertices_type vertices;
-    triangles_type triangles;
-    std::vector<Chunk> chunks;
+    vertices_type vertices;     ///< Buffer of all vertices seen so far
+    triangles_type triangles;   ///< Buffer of all triangles seen so far
+    std::vector<Chunk> chunks;  ///< All chunks seen so far
 
     /// Implementation of the functor
     void add(const ChunkId &chunkId, MesherWork &work);

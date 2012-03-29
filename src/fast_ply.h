@@ -158,7 +158,7 @@ class WriterBase
 {
 public:
     /// Size capable of holding maximum supported file size
-    typedef std::tr1::uintmax_t size_type;
+    typedef std::tr1::uint64_t size_type;
 
     virtual ~WriterBase();
 
