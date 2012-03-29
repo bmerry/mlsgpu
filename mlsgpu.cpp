@@ -683,6 +683,11 @@ int main(int argc, char **argv)
         cerr << e.what() << '\n';
         return 1;
     }
+    catch (std::overflow_error &e)
+    {
+        cerr << e.what() << '\n';
+        return 1;
+    }
     catch (PLY::FormatError &e)
     {
         cerr << e.what() << '\n';

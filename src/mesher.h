@@ -454,6 +454,12 @@ private:
     const Namer namer;
 
     /**
+     * Maps chunk generations to full chunk IDs. This is needed to generate
+     * error messages during @ref prepareAdd.
+     */
+    std::tr1::unordered_map<ChunkId::gen_type, ChunkId> chunkIds;
+
+    /**
      * @name
      * @{
      * Data used only during the second pass. These fields are initialized

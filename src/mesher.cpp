@@ -212,6 +212,7 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
         // This is a new chunk
         assert(!curChunkGen || *curChunkGen < chunkId.gen);
         curChunkGen = chunkId.gen;
+        chunkIds[chunkId.gen] = chunkId;
         vertexIdMap.clear(); // don't merge vertex IDs with other chunks
     }
 
@@ -235,14 +236,14 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
     if (!curChunkGen || chunkId.gen != *curChunkGen)
     {
         assert(!curChunkGen || *curChunkGen < chunkId.gen);
+        if (writer.isOpen())
+            writer.close();
 
         // Completely skip empty chunks
         const Clump::Counts &counts = chunkCounts[chunkId.gen];
         if (counts.triangles == 0)
             return;
 
-        if (writer.isOpen())
-            writer.close();
         curChunkGen = chunkId.gen;
         writer.setNumVertices(counts.vertices);
         writer.setNumTriangles(counts.triangles);
@@ -364,6 +365,19 @@ void BigMesher::prepareAdd()
                     chunkCounts[item.first] += item.second;
                 }
                 keptComponents++;
+            }
+        }
+    }
+
+    // Overflow checks
+    {
+        typedef std::pair<ChunkId::gen_type, ChunkId> item_type;
+        BOOST_FOREACH(const item_type &item, chunkIds)
+        {
+            if (chunkCounts[item.first].vertices >= UINT32_MAX)
+            {
+                std::string name = namer(item.second);
+                throw std::overflow_error("Too many vertices for " + name);
             }
         }
     }
@@ -607,7 +621,11 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
                 }
             }
         }
-        // TODO: bail out if chunkVertices too large
+        if (chunkVertices >= UINT32_MAX)
+        {
+            std::string name = namer(chunk.chunkId);
+            throw std::overflow_error("Too many vertices for " + name);
+        }
 
         if (chunkTriangles > 0)
         {
