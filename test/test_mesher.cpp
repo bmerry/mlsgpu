@@ -20,6 +20,9 @@
 #include <stdexcept>
 #include <cstring>
 #include <tr1/cstdint>
+#include <tr1/random>
+#include <tr1/unordered_map>
+#include <tr1/unordered_set>
 #include <map>
 #include <algorithm>
 #include <iterator>
@@ -106,6 +109,7 @@ class TestMesherBase : public CLH::Test::TestFixture
     CPPUNIT_TEST(testWeld);
     CPPUNIT_TEST(testPrune);
     CPPUNIT_TEST(testChunk);
+    CPPUNIT_TEST(testRandom);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 private:
     /**
@@ -176,6 +180,39 @@ protected:
     static const cl_ulong externalKeys3[];
     static const cl_uint indices3[];
 
+    struct Component
+    {
+        int width;
+        int height;
+        std::vector<cl_ulong> vertices;  // actually keys
+        std::vector<boost::array<cl_ulong, 3> > triangles;
+        // Number of blocks that contain the vertex (to determine whether it
+        // is external).
+        std::vector<int> vertexOwners;
+    };
+
+    struct Block
+    {
+        std::tr1::unordered_set<cl_ulong> vertices;
+        std::vector<boost::array<cl_ulong, 3> > triangles;
+        MesherWork work;
+    };
+
+    struct Chunk
+    {
+        ChunkId id;
+        std::vector<Block> blocks;
+        std::vector<boost::array<float, 3> > expectedVertices;
+        std::vector<boost::array<cl_uint, 3> > expectedTriangles;
+        std::tr1::unordered_map<cl_ulong, std::size_t> indices;
+    };
+
+    struct Vertex
+    {
+        boost::array<float, 3> coords;
+        unsigned int owners;
+    };
+
 public:
     void testSimple();          ///< Normal uses cases
     void testNoInternal();      ///< An entire mesh with no internal vertices
@@ -184,6 +221,7 @@ public:
     void testWeld();            ///< Tests vertex welding
     void testPrune();           ///< Tests component pruning
     void testChunk();           ///< Test chunking into multiple files
+    void testRandom();          ///< Test with pseudo-random data
 };
 
 const boost::array<cl_float, 3> TestMesherBase::internalVertices0[] =
@@ -908,6 +946,205 @@ void TestMesherBase::testChunk()
     checkIsomorphic(boost::size(expectedVertices3),
                     boost::size(indices3),
                     expectedVertices3, indices3, writer.getOutput("chunk_0003_0009_0001.ply"));
+}
+
+static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)
+{
+    using std::tr1::mt19937;
+    using std::tr1::uniform_int;
+    using std::tr1::variate_generator;
+
+    variate_generator<mt19937 &, uniform_int<int> > gen(engine, uniform_int<int>(min, max));
+    return gen();
+}
+
+void TestMesherBase::testRandom()
+{
+    /* For this random test we wish to test pruning, chunking, and welding. We
+     * start with a number of components, each of which is a rectangular grid
+     * subdivided into triangles. The triangles are then randomly assigned to
+     * chunks and those in each chunk randomly subdivided into blocks.
+     * Vertices are considered to be external if they belong to more than one
+     * block.
+     *
+     * The pruning threshold is set to the average component size, so that
+     * hopefully about half the components will be pruned.
+     *
+     * To simplify the setup, all vertices are given unique keys, and these
+     * keys are used as triangle indices in intermediate stages so that they
+     * never need to be rewritten as the triangles move around. Only at the
+     * end are vertex keys looked up to form vertex indices.
+     */
+
+    std::tr1::mt19937 engine;
+
+    const unsigned int numChunks = 5;
+    const unsigned int numBlocksPerChunk = 8;
+    const unsigned int numBlocks = numChunks * numBlocksPerChunk;
+    const unsigned int numComponents = 70;
+
+    std::vector<Component> components(numComponents);
+    std::vector<Chunk> chunks(numChunks);
+    std::tr1::unordered_map<cl_ulong, Vertex> allVertices;
+    for (unsigned int i = 0; i < numChunks; i++)
+    {
+        chunks[i].id.gen = i;
+        chunks[i].id.coords[0] = i;
+        chunks[i].blocks.resize(numBlocksPerChunk);
+    }
+    for (unsigned int cid = 0; cid < numComponents; cid++)
+    {
+        Component &c = components[cid];
+        c.width = simpleRandomInt(engine, 2, 200);
+        c.height = simpleRandomInt(engine, 2, 150);
+        for (int i = 0; i < c.height; i++)
+            for (int j = 0; j < c.width; j++)
+            {
+                Vertex v;
+                v.coords[0] = cid;
+                v.coords[1] = i;
+                v.coords[2] = j;
+                v.owners = 0;
+
+                cl_ulong key = (cl_ulong(cid) << 32) | (i << 16) | j;
+                allVertices[key] = v;
+                c.vertices.push_back(key);
+            }
+        for (int i = 0; i + 1 < c.height; i++)
+            for (int j = 0; j + 1 < c.width; j++)
+            {
+                unsigned int base = i * c.width + j;
+                boost::array<cl_ulong, 3> triangle;
+                triangle[0] = c.vertices[base];
+                triangle[1] = c.vertices[base + 1];
+                triangle[2] = c.vertices[base + c.width];
+                c.triangles.push_back(triangle);
+                triangle[0] = triangle[2];
+                triangle[2] = c.vertices[base + c.width + 1];
+                c.triangles.push_back(triangle);
+            }
+    }
+
+    const double pruneThreshold = 1.0 / numComponents;
+    const std::size_t pruneThresholdVertices = std::size_t(allVertices.size() * pruneThreshold);
+    // Assign triangles to blocks and compute expected outputs
+    for (unsigned int cid = 0; cid < numComponents; cid++)
+    {
+        Component &c = components[cid];
+        bool retain = c.vertices.size() >= pruneThresholdVertices;
+
+        for (std::size_t i = 0; i < c.triangles.size(); i++)
+        {
+            int blockNum = simpleRandomInt(engine, 0, numBlocks - 1);
+            int chunkNum = blockNum / numBlocksPerChunk;
+            int chunkBlockNum = blockNum % numBlocksPerChunk;
+            Block &block = chunks[chunkNum].blocks[chunkBlockNum];
+            for (unsigned int j = 0; j < 3; j++)
+            {
+                cl_ulong key = c.triangles[i][j];
+                if (block.vertices.insert(key).second) // insert successful
+                    allVertices[key].owners++;
+            }
+            block.triangles.push_back(c.triangles[i]);
+            if (retain)
+            {
+                Chunk &chunk = chunks[chunkNum];
+                boost::array<cl_uint, 3> triangle;
+                for (unsigned int j = 0; j < 3; j++)
+                {
+                    cl_ulong key = c.triangles[i][j];
+                    std::pair<std::tr1::unordered_map<cl_ulong, std::size_t>::iterator, bool> added;
+                    added = chunk.indices.insert(std::make_pair(key, chunk.expectedVertices.size()));
+                    if (added.second)
+                    {
+                        // New vertex for the chunk
+                        chunk.expectedVertices.push_back(allVertices[key].coords);
+                    }
+                    triangle[j] = added.first->second;
+                }
+                chunk.expectedTriangles.push_back(triangle);
+            }
+        }
+    }
+
+    // Complete the blocks
+    for (unsigned int i = 0; i < numChunks; i++)
+        for (unsigned int j = 0; j < numBlocksPerChunk; j++)
+        {
+            Block &block = chunks[i].blocks[j];
+            block.work.mesh.vertices.resize(block.vertices.size());
+            unsigned int internal = 0;
+            unsigned int external = block.vertices.size();
+            std::tr1::unordered_map<cl_ulong, std::size_t> indices;
+            BOOST_FOREACH(cl_ulong key, block.vertices)
+            {
+                const Vertex &v = allVertices[key];
+                if (v.owners > 1)
+                {
+                    --external;
+                    block.work.mesh.vertices[external] = v.coords;
+                    block.work.mesh.vertexKeys.push_back(key);
+                    indices[key] = external;
+                }
+                else
+                {
+                    block.work.mesh.vertices[internal] = v.coords;
+                    indices[key] = internal;
+                    internal++;
+                }
+            }
+            // The external vertices are written in reverse order, so the keys
+            // need to be in reverse order too.
+            std::reverse(block.work.mesh.vertexKeys.begin(), block.work.mesh.vertexKeys.end());
+
+            block.work.mesh.triangles.resize(block.triangles.size());
+            for (std::size_t i = 0; i < block.triangles.size(); i++)
+                for (unsigned int j = 0; j < 3; j++)
+                    block.work.mesh.triangles[i][j] = indices[block.triangles[i][j]];
+        }
+
+    /* Now the actual testing */
+    ChunkNamer namer("chunk");
+    MemoryWriter writer;
+    boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer, namer));
+    mesher->setPruneThreshold(pruneThreshold);
+    unsigned int passes = mesher->numPasses();
+
+    for (unsigned int pass = 0; pass < passes; pass++)
+    {
+        const MesherBase::InputFunctor functor = mesher->functor(pass);
+        BOOST_FOREACH(Chunk &chunk, chunks)
+        {
+            for (std::size_t i = 0; i < chunk.blocks.size(); i++)
+            {
+                Block &block = chunk.blocks[i];
+                CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.verticesEvent);
+                CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.vertexKeysEvent);
+                CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.trianglesEvent);
+                queue.flush();
+                functor(chunk.id, block.work);
+            }
+        }
+    }
+    mesher->finalize();
+    mesher->write(writer, namer);
+
+    BOOST_FOREACH(Chunk &chunk, chunks)
+    {
+        const std::string name = namer(chunk.id);
+        if (chunk.expectedTriangles.empty())
+        {
+            CPPUNIT_ASSERT_THROW(writer.getOutput(name), std::invalid_argument);
+        }
+        else
+        {
+            checkIsomorphic(chunk.expectedVertices.size(),
+                            chunk.expectedTriangles.size() * 3,
+                            &chunk.expectedVertices[0],
+                            &chunk.expectedTriangles[0][0],
+                            writer.getOutput(name));
+        }
+    }
 }
 
 class TestBigMesher : public TestMesherBase
