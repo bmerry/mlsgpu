@@ -524,7 +524,17 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    const std::tr1::uint64_t thresholdVertices = std::tr1::uint64_t(vertices.size() * getPruneThreshold());
+    // Number of vertices in the mesh, not double-counting chunk boundaries
+    std::tr1::uint64_t totalVertices = 0;
+    BOOST_FOREACH(const Clump &clump, clumps)
+    {
+        if (clump.isRoot())
+        {
+            totalVertices += clump.counts.vertices;
+        }
+    }
+    const std::tr1::uint64_t thresholdVertices = std::tr1::uint64_t(totalVertices * getPruneThreshold());
+
     // Number of vertices and triangles that will be emitted (possibly counting
     // twice at chunk boundaries).
     Clump::Counts keptCounts;

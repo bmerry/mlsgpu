@@ -109,7 +109,7 @@ class TestMesherBase : public CLH::Test::TestFixture
     CPPUNIT_TEST(testWeld);
     CPPUNIT_TEST(testPrune);
     CPPUNIT_TEST(testChunk);
-    CPPUNIT_TEST(testRandom);
+    // CPPUNIT_TEST(testRandom); // Moved to TestMesherBaseSlow
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 private:
     /**
@@ -1115,9 +1115,8 @@ void TestMesherBase::testRandom()
         const MesherBase::InputFunctor functor = mesher->functor(pass);
         BOOST_FOREACH(Chunk &chunk, chunks)
         {
-            for (std::size_t i = 0; i < chunk.blocks.size(); i++)
+            BOOST_FOREACH(Block &block, chunk.blocks)
             {
-                Block &block = chunk.blocks[i];
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.verticesEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.vertexKeysEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.trianglesEvent);
@@ -1147,6 +1146,14 @@ void TestMesherBase::testRandom()
     }
 }
 
+/// Tests from @ref TestMesherBase that are split out before they're slower
+class TestMesherBaseSlow : public TestMesherBase
+{
+    CPPUNIT_TEST_SUITE(TestMesherBaseSlow);
+    CPPUNIT_TEST(testRandom);
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+};
+
 class TestBigMesher : public TestMesherBase
 {
     CPPUNIT_TEST_SUB_SUITE(TestBigMesher, TestMesherBase);
@@ -1155,6 +1162,13 @@ protected:
     virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesher, TestSet::perBuild());
+
+class TestBigMesherSlow : public TestBigMesher
+{
+    CPPUNIT_TEST_SUB_SUITE(TestBigMesherSlow, TestMesherBaseSlow);
+    CPPUNIT_TEST_SUITE_END();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesherSlow, TestSet::perCommit());
 
 MesherBase *TestBigMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
 {
@@ -1169,6 +1183,13 @@ protected:
     virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesher, TestSet::perBuild());
+
+class TestStxxlMesherSlow : public TestStxxlMesher
+{
+    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesherSlow, TestMesherBaseSlow);
+    CPPUNIT_TEST_SUITE_END();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesherSlow, TestSet::perCommit());
 
 MesherBase *TestStxxlMesher::mesherFactory(FastPly::WriterBase &, const MesherBase::Namer &)
 {
