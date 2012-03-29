@@ -93,7 +93,7 @@ public:
 };
 
 /**
- * Data about a mesh passed in to a @ref Mesher::OutputFunctor. It contains
+ * Data about a mesh passed in to a @ref MesherBase::InputFunctor. It contains
  * host mesh data that may still be being read asynchronously from a device,
  * together with the events that will signal data readiness.
  */
