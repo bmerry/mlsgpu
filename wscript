@@ -116,7 +116,8 @@ def configure(conf):
 
     conf.define('PROVENANCE_VARIANT', conf.options.variant)
 
-    conf.check_cxx(header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT')
+    if conf.env['unit_tests']:
+        conf.check_cxx(header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT')
     if conf.options.cl_headers:
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     else:
