@@ -105,7 +105,7 @@ public:
      */
     void producerStart(const gen_type &gen)
     {
-        MLSGPU_ASSERT(threads.empty(), std::runtime_error);
+        MLSGPU_ASSERT(threads.empty(), state_error);
         workQueue.producerStart(gen);
     }
 
@@ -134,7 +134,7 @@ public:
      */
     void start()
     {
-        MLSGPU_ASSERT(threads.empty(), std::runtime_error);
+        MLSGPU_ASSERT(threads.empty(), state_error);
         threads.reserve(workers.size());
         for (std::size_t i = 0; i < workers.size(); i++)
             workers[i].start();
@@ -153,7 +153,7 @@ public:
      */
     void stop()
     {
-        MLSGPU_ASSERT(threads.size() == workers.size(), std::logic_error);
+        MLSGPU_ASSERT(threads.size() == workers.size(), state_error);
         for (std::size_t i = 0; i < threads.size(); i++)
             workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
         for (std::size_t i = 0; i < threads.size(); i++)

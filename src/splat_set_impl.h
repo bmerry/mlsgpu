@@ -150,7 +150,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 template<typename Base, typename BlobVector>
 bool FastBlobSet<Base, BlobVector>::fastPath(const Grid &grid, Grid::size_type bucketSize) const
 {
-    MLSGPU_ASSERT(internalBucketSize > 0, std::runtime_error);
+    MLSGPU_ASSERT(internalBucketSize > 0, state_error);
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     if (bucketSize % internalBucketSize != 0)
         return false;

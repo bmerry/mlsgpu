@@ -57,7 +57,7 @@ SplatTree::code_type SplatTree::makeCode(code_type x, code_type y, code_type z)
         y >>= 1;
         z >>= 1;
     }
-    MLSGPU_ASSERT(shift < std::numeric_limits<code_type>::digits, std::range_error);
+    MLSGPU_ASSERT(shift < std::numeric_limits<code_type>::digits, std::out_of_range);
     return ans;
 }
 

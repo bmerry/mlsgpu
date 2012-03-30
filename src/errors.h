@@ -4,19 +4,25 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
-#include <exception>
+#include <cstddef>
+#include <stdexcept>
+#include <boost/type_traits/is_base_of.hpp>
+#include <boost/utility/enable_if.hpp>
 
 #define MLSGPU_STRINGIZE(x) #x
 #define MLSGPU_ASSERT_PASTE(file, line, msg) (file ":" MLSGPU_STRINGIZE(line) ": " msg)
 
 #define MLSGPU_ASSERT_IMPL(cond, exception_type) \
-    ((cond) ? ((void) 0) : (minimlsThrow<exception_type>(__FILE__, __LINE__, MLSGPU_ASSERT_PASTE(__FILE__, __LINE__, #cond))))
+    ((cond) ? ((void) 0) : (mlsgpuThrow<exception_type>(__FILE__, __LINE__, MLSGPU_ASSERT_PASTE(__FILE__, __LINE__, #cond))))
 
 #define MLSGPU_UNUSED(x) (false ? (void) (x) : (void) 0)
 
 template<typename ExceptionType>
-static void minimlsThrow(const char *filename, int line, const char *msg) throw(ExceptionType)
+static void mlsgpuThrow(const char *filename, int line, const char *msg,
+                        typename boost::enable_if<boost::is_base_of<std::logic_error, ExceptionType> >::type *dummy = NULL)
+    throw(ExceptionType)
 {
+    MLSGPU_UNUSED(dummy);
 #if MLSGPU_ASSERT_ABORT
     std::cerr << filename << ':' << line << ": " << msg << endl;
     abort();
@@ -26,6 +32,15 @@ static void minimlsThrow(const char *filename, int line, const char *msg) throw(
     throw ExceptionType(msg);
 #endif
 }
+
+/**
+ * A method was called on an object when it was not in a valid state to do so.
+ */
+class state_error : public std::logic_error
+{
+public:
+    state_error(const std::string &msg) : std::logic_error(msg) {}
+};
 
 #endif /* !MLSGPU_ERRORS_H */
 

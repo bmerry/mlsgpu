@@ -47,7 +47,7 @@ static inline S divUp(S a, T b)
     // a >= 0 is written funny to stop GCC warning when S is unsigned
     MLSGPU_ASSERT(a > 0 || a == 0, std::invalid_argument);
     MLSGPU_ASSERT(b > 0, std::invalid_argument);
-    MLSGPU_ASSERT(a <= std::numeric_limits<S>::max() - S(b - 1), std::overflow_error);
+    MLSGPU_ASSERT(a <= std::numeric_limits<S>::max() - S(b - 1), std::out_of_range);
     return (a + b - 1) / b;
 }
 
@@ -81,7 +81,7 @@ template<typename S, typename T>
 static inline S divDown_(S a, T b, boost::false_type)
 {
     MLSGPU_ASSERT(b > 0, std::invalid_argument);
-    MLSGPU_ASSERT(a >= -std::numeric_limits<S>::max(), std::overflow_error);
+    MLSGPU_ASSERT(a >= -std::numeric_limits<S>::max(), std::out_of_range);
     if (a < 0)
         return -divUp(-a, b);
     else

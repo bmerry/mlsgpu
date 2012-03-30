@@ -61,7 +61,7 @@ private:
 
         virtual SplatStream &operator++()
         {
-            MLSGPU_ASSERT(!empty(), std::runtime_error);
+            MLSGPU_ASSERT(!empty(), std::length_error);
             offset++;
             refill();
             return *this;

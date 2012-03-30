@@ -512,15 +512,15 @@ void TestFastPlyWriterBase<Writer>::testState()
     w.setNumVertices(2);
     w.setNumTriangles(2);
 
-    CPPUNIT_ASSERT_THROW(w.writeVertices(0, 1, NULL), std::runtime_error);
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, NULL), std::runtime_error);
+    CPPUNIT_ASSERT_THROW(w.writeVertices(0, 1, NULL), state_error);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, NULL), state_error);
 
     pair<char *, typename Writer::size_type> range = w.open();
     boost::scoped_array<char> data(range.first);
 
-    CPPUNIT_ASSERT_THROW(w.open(), std::runtime_error);
-    CPPUNIT_ASSERT_THROW(w.setNumVertices(3), std::runtime_error);
-    CPPUNIT_ASSERT_THROW(w.setNumTriangles(3), std::runtime_error);
+    CPPUNIT_ASSERT_THROW(w.open(), state_error);
+    CPPUNIT_ASSERT_THROW(w.setNumVertices(3), state_error);
+    CPPUNIT_ASSERT_THROW(w.setNumTriangles(3), state_error);
 }
 
 template<typename Writer>

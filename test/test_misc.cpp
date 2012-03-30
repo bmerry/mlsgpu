@@ -99,7 +99,7 @@ void TestDivUp::testExceptions()
 {
     CPPUNIT_ASSERT_THROW(divUp(4, 0), std::invalid_argument);
     CPPUNIT_ASSERT_THROW(divUp(-1, 4), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(divUp(INT_MAX - 3, 5), std::overflow_error);
+    CPPUNIT_ASSERT_THROW(divUp(INT_MAX - 3, 5), std::out_of_range);
 }
 
 void TestDivUp::testTypes()
@@ -153,8 +153,8 @@ void TestDivDown::testOverflow()
     // This test is only valid on two's complement machines
     if (INT32_MIN < -INT32_MAX)
     {
-        CPPUNIT_ASSERT_THROW(divDown(INT32_MIN, 1), std::overflow_error);
-        CPPUNIT_ASSERT_THROW(divDown(INT32_MIN, 1000000), std::overflow_error);
+        CPPUNIT_ASSERT_THROW(divDown(INT32_MIN, 1), std::out_of_range);
+        CPPUNIT_ASSERT_THROW(divDown(INT32_MIN, 1000000), std::out_of_range);
     }
 }
 

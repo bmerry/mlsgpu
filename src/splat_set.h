@@ -590,10 +590,11 @@ public:
 
     /**
      * Return the exact number of splats in the splat stream.
+     * @pre @ref computeBlobs has been called.
      */
     splat_id numSplats() const
     {
-        MLSGPU_ASSERT(internalBucketSize > 0, std::runtime_error);
+        MLSGPU_ASSERT(internalBucketSize > 0, state_error);
         return nSplats;
     }
 

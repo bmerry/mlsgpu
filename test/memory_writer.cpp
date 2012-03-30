@@ -23,7 +23,7 @@ MemoryWriter::MemoryWriter() : curOutput(NULL)
 
 void MemoryWriter::open(const std::string &filename)
 {
-    MLSGPU_ASSERT(!isOpen(), std::runtime_error);
+    MLSGPU_ASSERT(!isOpen(), state_error);
 
     // NaN is tempting, but violates the Strict Weak Ordering requirements used to
     // check for isometry.
@@ -53,7 +53,7 @@ void MemoryWriter::close()
 
 void MemoryWriter::writeVertices(size_type first, size_type count, const float *data)
 {
-    MLSGPU_ASSERT(isOpen(), std::runtime_error);
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
 
     std::memcpy(&curOutput->vertices[first][0], data, count * 3 * sizeof(float));
@@ -61,7 +61,7 @@ void MemoryWriter::writeVertices(size_type first, size_type count, const float *
 
 void MemoryWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
 {
-    MLSGPU_ASSERT(isOpen(), std::runtime_error);
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
 
     std::memcpy(&curOutput->triangles[first][0], data, count * 3 * sizeof(std::tr1::uint32_t));
