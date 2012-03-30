@@ -128,7 +128,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
 
     if (bboxMin[0] > bboxMax[0])
-        throw std::length_error("Must be at least one splat");
+        throw std::runtime_error("Must be at least one splat");
 
     for (unsigned int i = 0; i < 3; i++)
     {

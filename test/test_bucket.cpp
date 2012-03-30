@@ -609,7 +609,7 @@ void TestBucket::testRandom(unsigned long seed)
     {
         splats.computeBlobs(spacing, maxCells);
     }
-    catch (std::length_error &e)
+    catch (std::runtime_error &e)
     {
         // Harmless: caused if there are no splats
         return;

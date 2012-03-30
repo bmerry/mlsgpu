@@ -787,7 +787,7 @@ FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
 void TestFastFileSet::testEmpty()
 {
     boost::scoped_ptr<Set> set(new Set);
-    CPPUNIT_ASSERT_THROW(set->computeBlobs(2.5f, 5), std::length_error);
+    CPPUNIT_ASSERT_THROW(set->computeBlobs(2.5f, 5), std::runtime_error);
 }
 
 void TestFastFileSet::testProgress()

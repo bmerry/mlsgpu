@@ -153,7 +153,7 @@ public:
      */
     void stop()
     {
-        MLSGPU_ASSERT(threads.size() == workers.size(), std::runtime_error);
+        MLSGPU_ASSERT(threads.size() == workers.size(), std::logic_error);
         for (std::size_t i = 0; i < threads.size(); i++)
             workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
         for (std::size_t i = 0; i < threads.size(); i++)

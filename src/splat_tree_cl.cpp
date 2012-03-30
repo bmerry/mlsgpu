@@ -235,13 +235,10 @@ void SplatTreeCL::enqueueBuild(
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    if (numSplats > maxSplats)
-    {
-        throw std::length_error("Too many splats");
-    }
+    MLSGPU_ASSERT(numSplats <= maxSplats, std::length_error);
     Grid::size_type maxSize = Grid::size_type(1U) << (maxLevels + subsamplingShift - 1);
-    if (size[0] > maxSize || size[1] > maxSize || size[2] > maxSize)
-        throw std::length_error("Grid is too large");
+    MLSGPU_ASSERT(size[0] <= maxSize && size[1] <= maxSize && size[2] <= maxSize,
+                  std::length_error);
     unsigned int maxShift = maxLevels + subsamplingShift - 1;
     unsigned int minShift = std::min(subsamplingShift, maxShift);
     // TODO: this will always construct a full-size octree, even if size[] only
