@@ -101,7 +101,12 @@ void KeyMapMesher::updateClumps(
         {
             if (clumps.size() >= boost::make_unsigned<clump_id>::type(std::numeric_limits<clump_id>::max()))
             {
-                throw std::overflow_error("Too many clumps");
+                /* Ideally this would throw, but it's called from a worker
+                 * thread and there is no easy way to immediately notify the
+                 * master thread that it should shut everything down.
+                 */
+                std::cerr << "There were too many connected components.\n";
+                std::exit(1);
             }
             clumpId[i] = clumps.size();
             clumps.push_back(Clump(chunkGen, nodes[i].size()));
