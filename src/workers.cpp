@@ -164,7 +164,7 @@ void DeviceWorkerGroupBase::Worker::stop()
 
 void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
 {
-    cl_uint3 keyOffset; 
+    cl_uint3 keyOffset;
     for (int i = 0; i < 3; i++)
         keyOffset.s[i] = work.grid.getExtent(i).first;
     // same thing, just as a different type for a different API
