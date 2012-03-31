@@ -446,10 +446,6 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
             numChunks[i] = divUp(grid.numCells(i), chunkCells);
             totalChunks *= numChunks[i];
         }
-        if (totalChunks > 1000)
-        {
-            Log::log[Log::warn] << totalChunks << " output files will be produced. This may fail." << endl;
-        }
     }
 
     MesherGroup mesherGroup(1);
