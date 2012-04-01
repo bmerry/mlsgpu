@@ -312,7 +312,7 @@ void measureBoundaries(
         if (hits >= HITS_CUTOFF)
         {
             // (sqrt(6) * 512) / (693 * pi) (based on weight function)
-            const float factor = 0.5760530;
+            const float factor = 0.5760530f;
             const float factor2 = factor * factor;
 
             float3 meanPos = sumWp;       // mean position scaled by W
