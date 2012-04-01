@@ -148,16 +148,9 @@ inline float solveQuadratic(float a, float b, float c)
 inline float projectDistOrigin(const float params[5])
 {
     const float3 g = (float3) (params[0], params[1], params[2]);
-    float3 dir = normalize(g);
-    if (dot3(dir, dir) < 0.5f)
-    {
-        // g was exactly 0, i.e. the centre of the sphere. Pick any
-        // direction.
-        dir = (float3) (1.0f, 0.0f, 0.0f);
-    }
 
     // b will always be positive, so we will get the root we want
-    return -solveQuadratic(params[3], dot3(dir, g), params[4]);
+    return -solveQuadratic(params[3], length(g), params[4]);
 }
 
 float processCorner(command_type start, int3 coord,
