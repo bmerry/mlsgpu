@@ -349,4 +349,9 @@ __kernel void testFitSphere(__global float *out, __global const Splat *in, uint 
         out[i] = params[i];
 }
 
+__kernel void testMakeCode(__global uint *out, int3 xyz)
+{
+    *out = makeCode(xyz);
+}
+
 #endif /* UNIT_TESTS */

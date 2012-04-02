@@ -19,6 +19,8 @@
 #include <cppunit/TestResult.h>
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <boost/program_options.hpp>
+#include <boost/lexical_cast.hpp>
+#include <tr1/cmath>
 #include <string>
 #include <stdexcept>
 #include <typeinfo>
@@ -33,6 +35,30 @@ string perBuild()   { return "build"; }
 string perCommit()  { return "commit"; }
 string perNightly() { return "nightly"; }
 };
+
+void mlsgpuAssertDoublesEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine)
+{
+    string expectedStr = boost::lexical_cast<string>(expected);
+    string actualStr = boost::lexical_cast<string>(actual);
+    if ((tr1::isnan)(expected) && (tr1::isnan)(actual))
+        return;
+    if ((tr1::isnan)(expected))
+        CppUnit::Asserter::failNotEqual(expectedStr, actualStr, sourceLine, "expected is NaN");
+    if ((tr1::isnan)(actual))
+        CppUnit::Asserter::failNotEqual(expectedStr, actualStr, sourceLine, "actual is NaN");
+    if (expected == actual)
+        return;
+    if ((tr1::isfinite)(expected) && (tr1::isfinite)(actual))
+    {
+        double err = abs(expected - actual);
+        if (err > eps * abs(expected) && err > eps)
+            CppUnit::Asserter::failNotEqual(expectedStr, actualStr, sourceLine,
+                                            "Delta   : " + boost::lexical_cast<string>(err));
+    }
+    else
+        CppUnit::Asserter::failNotEqual(expectedStr, actualStr, sourceLine, "");
+}
+
 
 static po::variables_map g_vm;
 

@@ -51,4 +51,28 @@ private:
     TestFunction function;
 };
 
+/**
+ * Macro wrapper around @ref mlsgpuAssertDoublesEqual.
+ */
+#define MLSGPU_ASSERT_DOUBLES_EQUAL(actual, expected, eps) \
+    mlsgpuAssertDoublesEqual(actual, expected, eps, CPPUNIT_SOURCELINE())
+
+/**
+ * Variant of @c CppUnit::assertDoublesEqual that accepts relative or absolute error.
+ *
+ * - If @a expected or @a actual are both NaN, passes.
+ * - If one of @a expected or @a actual is NaN, fails.
+ * - If @a expected or @a actual is an infinity, fails unless they're equal.
+ * - Otherwise, passes if |@a expected - @a actual| <= @a eps or
+ *   if |@a expected - @a actual| <= @a eps * @a expected.
+ *
+ * @param expected     Expected value
+ * @param actual       Actual value
+ * @param eps          Error tolerance
+ * @param sourceLine   Pass @c CPPUNIT_SOURCELINE
+ *
+ * @see @ref MLSGPU_ASSERT_DOUBLES_EQUAL
+ */
+void mlsgpuAssertDoublesEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine);
+
 #endif /* !TESTMAIN_H */
