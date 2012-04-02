@@ -19,12 +19,14 @@
 #include <limits>
 #include <tr1/random>
 #include <boost/math/constants/constants.hpp>
+#include <boost/foreach.hpp>
 #include <CL/cl.hpp>
 #include "testmain.h"
 #include "test_clh.h"
 #include "../src/clh.h"
 #include "../src/splat.h"
 #include "../src/mls.h"
+#include "../src/splat_tree_cl.h"
 
 using namespace std;
 
@@ -36,6 +38,7 @@ class TestMls : public CLH::Test::TestFixture
     CPPUNIT_TEST(testSolveQuadratic);
     CPPUNIT_TEST(testFitSphere);
     CPPUNIT_TEST(testProjectDistOrigin);
+    CPPUNIT_TEST(testProcessCorners);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -57,6 +60,17 @@ private:
      * @return A 5-element vector of algebraic sphere parameters.
      */
     std::vector<float> makePlane(float px, float py, float pz, float dx, float dy, float dz);
+
+    /**
+     * Generate splats over the surface of a sphere, with random positions and
+     * weights.  The radii of the splats are randomly selected between @a
+     * radius and 2 * @a radius.
+     *
+     * @param N          Number of splats to generate.
+     * @param center     Center of the sphere.
+     * @param radius     Radius of the sphere.
+     */
+    std::vector<Splat> sphereSplats(std::size_t N, const float center[3], float radius);
 
     int callMakeCode(cl_int x, cl_int y, cl_int z);
     float callSolveQuadratic(float a, float b, float c);
@@ -81,8 +95,9 @@ public:
     void testProjectDistOrigin();  ///< Test @ref projectDistOrigin in @ref mls.cl.
     void testFitSphere();          ///< Test @ref fitSphere in @ref mls.cl.
 
+    void testProcessCorners();     ///< Test the @ref processCorners kernel.
+
     // TODO: test boundary handling
-    // TODO: test the whole thing all together
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMls, TestSet::perCommit());
 
@@ -263,7 +278,7 @@ void TestMls::testProjectDistOrigin()
     MLSGPU_ASSERT_DOUBLES_EQUAL(5.0f / 1.5f, callProjectDistOrigin(makePlane(-1.0f, -2.0f, -3.0f, 1.0f, 0.5f, 1.0f)), eps);
 }
 
-void TestMls::testFitSphere()
+std::vector<Splat> TestMls::sphereSplats(std::size_t N, const float center[3], float radius)
 {
     using std::tr1::variate_generator;
     using std::tr1::uniform_real;
@@ -273,11 +288,7 @@ void TestMls::testFitSphere()
     variate_generator<mt19937 &, uniform_real<double> > zGen(engine, uniform_real<double>(-1.0, 1.0));
     variate_generator<mt19937 &, uniform_real<double> > tGen(engine, uniform_real<double>(-pi, pi));
     variate_generator<mt19937 &, uniform_real<double> > wGen(engine, uniform_real<double>(0.0, 1.0));
-
-    const std::size_t N = 20;
-    const float center[3] = {1.0f, 2.0f, 3.5f};
-    const float radius = 6.5f;
-    const float eps = std::numeric_limits<float>::epsilon() * 10;
+    variate_generator<mt19937 &, uniform_real<double> > rGen(engine, uniform_real<double>(radius, 2.0 * radius));
 
     std::vector<Splat> splats(N);
     for (std::size_t i = 0; i < N; i++)
@@ -291,18 +302,31 @@ void TestMls::testFitSphere()
         splats[i].normal[0] = x;
         splats[i].normal[1] = y;
         splats[i].normal[2] = z;
+        splats[i].radius = rGen();
         splats[i].position[0] = center[0] + x * radius;
         splats[i].position[1] = center[1] + y * radius;
         splats[i].position[2] = center[2] + z * radius;
         splats[i].quality = wGen();
     }
+    return splats;
+}
+
+void TestMls::testFitSphere()
+{
+    const std::size_t N = 20;
+    const float center[3] = {1.0f, 2.0f, 3.5f};
+    const float radius = 6.5f;
+    const float eps = std::numeric_limits<float>::epsilon() * 16;
+
+    std::vector<Splat> splats = sphereSplats(N, center, radius);
     std::vector<float> params = callFitSphere(splats);
+    // Check that all the input splats are on the fitted sphere and with the right gradient
     for (std::size_t i = 0; i < N; i++)
     {
-        float x = splats[i].position[0];
-        float y = splats[i].position[1];
-        float z = splats[i].position[2];
-        float v = params[0] * x + params[1] * y + params[2] * z + params[3] * (x * x + y * y + z * z) + params[4];
+        double x = splats[i].position[0];
+        double y = splats[i].position[1];
+        double z = splats[i].position[2];
+        double v = params[0] * x + params[1] * y + params[2] * z + params[3] * (x * x + y * y + z * z) + params[4];
         MLSGPU_ASSERT_DOUBLES_EQUAL(0.0f, v, eps);
 
         const float g[3] = {
@@ -314,4 +338,83 @@ void TestMls::testFitSphere()
         MLSGPU_ASSERT_DOUBLES_EQUAL(splats[i].normal[1], g[1], eps);
         MLSGPU_ASSERT_DOUBLES_EQUAL(splats[i].normal[2], g[2], eps);
     }
+}
+
+static inline double sqr(double x)
+{
+    return x * x;
+}
+
+void TestMls::testProcessCorners()
+{
+    const std::size_t N = 50;
+    const float center[3] = {1.0f, 2.0f, 3.5f};
+    const float radius = 6.5f;
+    std::vector<Splat> hSplats = sphereSplats(N, center, radius);
+    // splats will contain raw radii, but the kernel requires inverse-squared radii
+    BOOST_FOREACH(Splat &splat, hSplats)
+    {
+        splat.radius = 1.0f / (splat.radius * splat.radius);
+    }
+
+    /* Build a simple octree. The intersection information isn't truly accurate, but it
+     * allows us to cover 3 cases:
+     * - sufficient hits
+     * - insufficient but non-zero hits
+     * - zero hits
+     */
+    std::vector<SplatTreeCL::command_type> hStart(8, 0);
+    hStart[6] = -1;    // no hits
+    hStart[7] = N - 2; // 2 hits
+    std::vector<SplatTreeCL::command_type> hCommands(N + 1);
+    for (unsigned int i = 0; i < N; i++)
+        hCommands[i] = i;
+    hCommands[N] = -1; // terminator
+
+    cl::Buffer dSplats(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                       N * sizeof(Splat), &hSplats[0]);
+    cl::Buffer dStart(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                      hStart.size() * sizeof(SplatTreeCL::command_type), &hStart[0]);
+    cl::Buffer dCommands(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                         hCommands.size() * sizeof(SplatTreeCL::command_type), &hCommands[0]);
+    cl::Image2D dCorners(context, CL_MEM_WRITE_ONLY, cl::ImageFormat(CL_R, CL_FLOAT), 4, 4);
+
+    const cl_int3 offset = {{ 2, 1, 3 }};
+    const cl_int zBase = 2;
+    cl::Kernel kernel(mlsProgram, "processCorners");
+    kernel.setArg(0, dCorners);
+    kernel.setArg(1, dSplats);
+    kernel.setArg(2, dCommands);
+    kernel.setArg(3, dStart);
+    kernel.setArg(4, cl_uint(3)); // 1 levels of subsampling, multiplied by 3
+    kernel.setArg(5, offset);
+    kernel.setArg(6, cl_int(zBase));
+
+    queue.enqueueNDRangeKernel(kernel,
+                               cl::NullRange,
+                               cl::NDRange(4, 4),
+                               cl::NDRange(1, 1)); // values we forced in for WGS_X and WGS_Y
+    queue.finish();
+
+    // Read back results
+    cl_float hCorners[4][4];
+    cl::size_t<3> origin, region;
+    origin[0] = 0; origin[1] = 0; origin[2] = 0;
+    region[0] = 4; region[1] = 4; region[2] = 1;
+    queue.enqueueReadImage(dCorners, CL_TRUE, origin, region, 0, 0, &hCorners[0][0]);
+
+    // Verify results
+    for (unsigned int y = 0; y < 4; y++)
+        for (unsigned int x = 0; x < 4; x++)
+        {
+            float cx = x + offset.s[0];
+            float cy = y + offset.s[1];
+            float cz = zBase + offset.s[2];
+            float expected = sqrt(sqr(cx - center[0]) + sqr(cy - center[1]) + sqr(cz - center[2]))
+                - radius;
+            if (y >= 2)
+                expected = std::numeric_limits<float>::quiet_NaN(); // the special cases in hStart
+            float actual = hCorners[y][x];
+            MLSGPU_ASSERT_DOUBLES_EQUAL(expected, actual, 1e-5);
+        }
 }
