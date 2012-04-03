@@ -449,7 +449,7 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
         }
     }
 
-    MesherGroup mesherGroup(0); // TODO: would having some spare help?
+    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
     DeviceWorkerGroup deviceWorkerGroup(
         numDeviceThreads, numBucketThreads, mesherGroup,
         grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
