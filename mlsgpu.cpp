@@ -597,7 +597,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
     if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
     {
-        cerr << "Sum of --subsampling and --levels it too small.\n";
+        cerr << "Sum of --subsampling and --levels is too small.\n";
         exit(1);
     }
 
