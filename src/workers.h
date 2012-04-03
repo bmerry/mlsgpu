@@ -19,7 +19,9 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/noncopyable.hpp>
+#include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/ptr_container/ptr_map.hpp>
 #include <cstddef>
 #include <stdexcept>
 #include <CL/cl.hpp>
@@ -337,6 +339,140 @@ private:
 
     /// Work queue
     GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
+};
+
+
+/**
+ * Variation on @ref WorkerGroup in which the workers and items are partitioned into
+ * sets, where each work item can only be used together with the corresponding set of
+ * workers. There is a single item pool but a separate queue for each set. Items are
+ * dispatched to their matching queue.
+ *
+ * This is aimed to supporting non-uniform or non-shared memory systems where each
+ * worker is tied to a device and each item has memory allocated in that
+ * device's memory space.
+ *
+ * The sets are each identified by a key, which must be suitable for use with
+ * an associative container.
+ */
+template<typename WorkItem, typename GenType, typename Worker, typename Derived, typename Key, typename Compare = std::less<Key> >
+class WorkerGroupMulti : public WorkerGroupPool<WorkItem, GenType, Worker, Derived>
+{
+    typedef WorkerGroupPool<WorkItem, GenType, Worker, Derived> BaseType;
+    friend class WorkerGroupPool<WorkItem, GenType, Worker, Derived>;
+
+public:
+    typedef GenType gen_type;
+    typedef Key key_type;
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStart.
+     *
+     * @pre The worker threads are not running.
+     */
+    void producerStart(const gen_type &gen)
+    {
+        MLSGPU_ASSERT(!this->running(), state_error);
+        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
+        {
+            i.second.producerStart(gen);
+        }
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerNext.
+     */
+    void producerNext(const gen_type &oldGen, const gen_type &newGen)
+    {
+        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
+        {
+            i.second.producerNext(oldGen, newGen);
+        }
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStop.
+     */
+    void producerStop(const gen_type &gen)
+    {
+        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
+        {
+            i.second.producerStop(gen);
+        }
+    }
+
+    /**
+     * Constructor. The derived class must chain to this, and then
+     * make exactly @a numWorkers * @a numSets calls to @ref addWorker
+     * and (@a numWorkers + @a spare) * @a numSets calls to @ref addPoolItem to
+     * provide the constructed workers and work items (with the appropriate number
+     * per set).
+     *
+     * @param numSets        Number of sets.
+     * @param numWorkers     Number of worker threads to use <em>per set</em>.
+     * @param spare          Number of work items to have available in the pool when all workers are busy, <em>per set</em>.
+     * @param pushStat       Statistic for time blocked in @ref push.
+     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param getStat        Statistic for time blocked in @ref get.
+     *
+     * @pre @a numSets &gt; 0.
+     * @pre @a numWorkers &gt; 0.
+     */
+    WorkerGroupMulti(
+        std::size_t numSets, std::size_t numWorkers, std::size_t spare,
+        Statistics::Variable &pushStat,
+        Statistics::Variable &popStat,
+        Statistics::Variable &getStat)
+        : BaseType(numWorkers * numSets, spare * numSets, pushStat, popStat, getStat),
+        workQueueCapacity(numWorkers + spare)
+    {
+        MLSGPU_ASSERT(numSets > 0, std::invalid_argument);
+    }
+
+    void addWorker(Worker *worker)
+    {
+        BaseType::addWorker(worker);
+        Key key = worker->getKey();
+        if (!workQueues.count(key))
+            workQueues.insert(key, new GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>(workQueueCapacity));
+    }
+
+private:
+    /**
+     * Enqueue an item of work.
+     *
+     * @pre @a item was obtained by @ref get.
+     */
+    void pushImpl(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    {
+        workQueues.at(item->getKey()).push(gen, item);
+    }
+
+    /**
+     * Dequeue an item of work.
+     */
+    boost::shared_ptr<WorkItem> popImpl(const Worker &worker, gen_type &gen)
+    {
+        return workQueues.at(worker.getKey()).pop(gen);
+    }
+
+    /**
+     * Shut down the worker threads.
+     */
+    void stopImpl()
+    {
+        const std::size_t workersPerSet = this->numWorkers() / workQueues.size();
+        BOOST_FOREACH(typename work_queues_type::reference q, workQueues)
+            for (std::size_t i = 0; i < workersPerSet; i++)
+                q.second.pushNoGen(boost::shared_ptr<WorkItem>());
+    }
+
+    typedef boost::ptr_map<Key, GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>, Compare> work_queues_type;
+    /// Work queues
+    work_queues_type workQueues;
+
+    /// Capacity that will be used per work queue
+    std::size_t workQueueCapacity;
 };
 
 
