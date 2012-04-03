@@ -448,13 +448,13 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         }
     }
 
-    MesherGroup mesherGroup(1);
+    MesherGroup mesherGroup(0); // TODO: would having some spare help?
     DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numDeviceThreads + numBucketThreads, mesherGroup,
+        numDeviceThreads, numBucketThreads, mesherGroup,
         grid, context, device, maxDeviceSplats, blockCells, levels, subsampling,
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
-        numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
+        numBucketThreads, 1, deviceWorkerGroup,
         grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
     HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 

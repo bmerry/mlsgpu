@@ -38,14 +38,14 @@ void MesherGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
     owner.input(chunkId, work);
 }
 
-MesherGroup::MesherGroup(std::size_t capacity)
+MesherGroup::MesherGroup(std::size_t spare)
     : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker>(
-        1, capacity,
+        1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
         Statistics::getStatistic<Statistics::Variable>("mesher.pop"),
         Statistics::getStatistic<Statistics::Variable>("mesher.get"))
 {
-    for (std::size_t i = 0; i < capacity; i++)
+    for (std::size_t i = 0; i < 1 + spare; i++)
         addPoolItem(boost::make_shared<WorkItem>());
     addWorker(new Worker(*this));
 }
@@ -77,7 +77,7 @@ void MesherGroup::outputFunc(
 
 
 DeviceWorkerGroup::DeviceWorkerGroup(
-    std::size_t numWorkers, std::size_t capacity,
+    std::size_t numWorkers, std::size_t spare,
     MesherGroup &outGroup,
     const Grid &fullGrid,
     const cl::Context &context, const cl::Device &device,
@@ -85,14 +85,14 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     int levels, int subsampling, bool keepBoundary, float boundaryLimit)
 :
     Base(
-        numWorkers, capacity,
+        numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
     progress(NULL), outGroup(outGroup), fullGrid(fullGrid),
     maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
 {
-    for (std::size_t i = 0; i < capacity; i++)
+    for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
         item->splats = cl::Buffer(context, CL_MEM_READ_ONLY, maxSplats * sizeof(Splat));
@@ -106,7 +106,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
-    std::size_t numWorkers, std::size_t capacity,
+    std::size_t numWorkers, std::size_t spare,
     const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, bool keepBoundary)
@@ -122,7 +122,7 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
 
     CLH::ResourceUsage itemUsage;
     itemUsage.addBuffer(maxSplats * sizeof(Splat));
-    return workerUsage * numWorkers + itemUsage * capacity;
+    return workerUsage * numWorkers + itemUsage * (numWorkers + spare);
 }
 
 DeviceWorkerGroupBase::Worker::Worker(
@@ -208,7 +208,7 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
 
 
 FineBucketGroup::FineBucketGroup(
-    std::size_t numWorkers, std::size_t capacity,
+    std::size_t numWorkers, std::size_t spare,
     DeviceWorkerGroup &outGroup,
     const Grid &fullGrid,
     const cl::Context &context, const cl::Device &device,
@@ -218,7 +218,7 @@ FineBucketGroup::FineBucketGroup(
     std::size_t maxSplit)
 :
     WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker>(
-        numWorkers, capacity,
+        numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.get")),
@@ -233,7 +233,7 @@ FineBucketGroup::FineBucketGroup(
     {
         addWorker(new Worker(*this, context, device));
     }
-    for (std::size_t i = 0; i < capacity; i++)
+    for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
         item->splats.reserve(maxCoarseSplats);

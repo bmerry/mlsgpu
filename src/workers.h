@@ -61,7 +61,8 @@
  * live. If capacity equals the number of workers, then it will only be
  * possible to populate a new work item while one of the workers is idle. If
  * capacity exceeds the number of threads, then it will be possible to
- * populate spare work items while all worker threads are busy.
+ * populate spare work items while all worker threads are busy. The capacity
+ * is specified as a delta to the number of workers.
  *
  * The @ref start and @ref stop functions are not thread-safe: they should
  * only be called by a single manager thread. The other functions are
@@ -196,28 +197,26 @@ protected:
 
     /**
      * Constructor. The derived class must change to this, and then
-     * make exactly @a numWorkers calls to @ref addWorker and @a capacity
+     * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
      *
      * @param numWorkers     Number of worker threads to use.
-     * @param capacity       Number of work items to have in the pool.
+     * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
      * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
      * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
-     * @pre @a capacity &gt;= @a numWorkers.
      */
-    WorkerGroup(std::size_t numWorkers, std::size_t capacity,
+    WorkerGroup(std::size_t numWorkers, std::size_t spare,
                 Statistics::Variable &pushStat,
                 Statistics::Variable &popStat,
                 Statistics::Variable &getStat)
-        : workQueue(capacity), itemPool(capacity),
+        : workQueue(numWorkers + spare), itemPool(numWorkers + spare),
         pushStat(pushStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
-        MLSGPU_ASSERT(capacity >= numWorkers, std::invalid_argument);
         workers.reserve(numWorkers);
     }
 
@@ -315,7 +314,7 @@ public:
      */
     Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId);
 
-    MesherGroup(std::size_t capacity);
+    MesherGroup(std::size_t spare);
 private:
     MesherBase::InputFunctor input;
     friend class MesherGroupBase::Worker;
@@ -409,7 +408,7 @@ public:
      * Constructor.
      *
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
-     * @param capacity           Number of workitems to use.
+     * @param spare              Number of work items to have available in the pool when all workers are busy.
      * @param outGroup           Downstream mesher group which receives output blocks.
      * @param fullGrid           The overall bounding box grid.
      * @param context, device    OpenCL context and device to run on.
@@ -421,7 +420,7 @@ public:
      * @param boundaryLimit      Tuning factor for boundary clipping.
      */
     DeviceWorkerGroup(
-        std::size_t numWorkers, std::size_t capacity,
+        std::size_t numWorkers, std::size_t spare,
         MesherGroup &outGroup,
         const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
@@ -430,7 +429,7 @@ public:
 
     /// Returns total resources that would be used by all workers and workitems
     static CLH::ResourceUsage resourceUsage(
-        std::size_t numWorkers, std::size_t capacity,
+        std::size_t numWorkers, std::size_t spare,
         const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, bool keepBoundary);
@@ -497,7 +496,7 @@ public:
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
 
     FineBucketGroup(
-        std::size_t numWorkers, std::size_t capacity,
+        std::size_t numWorkers, std::size_t spare,
         DeviceWorkerGroup &outGroup,
         const Grid &fullGrid,
         const cl::Context &context, const cl::Device &device,
