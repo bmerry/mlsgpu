@@ -39,7 +39,7 @@ void MesherGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
 }
 
 MesherGroup::MesherGroup(std::size_t spare)
-    : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker>(
+    : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>(
         1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
         Statistics::getStatistic<Statistics::Variable>("mesher.pop"),
@@ -217,7 +217,7 @@ FineBucketGroup::FineBucketGroup(
     Grid::size_type maxCells,
     std::size_t maxSplit)
 :
-    WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker>(
+    WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker, FineBucketGroup>(
         numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),

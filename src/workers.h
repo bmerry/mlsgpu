@@ -41,46 +41,27 @@
 #include "statistics.h"
 
 /**
- * A collection of threads operating on work-items, fed by a queue.
- *
- * @param WorkItem     A POD type describing an item of work.
- * @param Worker       Function object class that is called to process elements.
- *
- * The @a Worker class must have an @c operator() that accepts a reference to a
- * @a WorkItem. The operator does not need to be @c const.  The worker class
- * does not need to be copyable or default-constructable and may contain
- * significant state.
- *
- * The workitems may also be large objects, and the design is based on
- * recycling a fixed pool rather than having the caller construct them. Users
- * of the class will call @ref get to retrieve an item from the pool, populate
- * it, then call @ref push to enqueue the item for processing.
- *
- * At construction, the worker group is given both a number of threads and a
- * capacity. The capacity determines the number of workitems that will be
- * live. If capacity equals the number of workers, then it will only be
- * possible to populate a new work item while one of the workers is idle. If
- * capacity exceeds the number of threads, then it will be possible to
- * populate spare work items while all worker threads are busy. The capacity
- * is specified as a delta to the number of workers.
- *
- * The @ref start and @ref stop functions are not thread-safe: they should
- * only be called by a single manager thread. The other functions are
- * thread-safe, allowing for multiple producers.
+ * Base class for @ref WorkerGroup that handles only the threads, workers and pool,
+ * but not a work queue. See @ref WorkerGroup for details.
  */
-template<typename WorkItem, typename GenType, typename Worker>
-class WorkerGroup : public boost::noncopyable
+template<typename WorkItem, typename GenType, typename Worker, typename Derived>
+class WorkerGroupPool : public boost::noncopyable
 {
 public:
     typedef GenType gen_type;
+
+    bool running() const
+    {
+        return !threads.empty();
+    }
 
     /**
      * Retrieve an unused item from the pool to be populated with work. This
      * may block if all the items are currently in use.
      *
-     * @warning The returned item @em must be enqueued with @ref push, even
-     * if it turns out there is nothing to do. Failure to do so will lead
-     * to the item being lost to the pool, and possibly deadlock.
+     * @warning The returned item @em must be enqueued with @ref push, even if
+     * it turns out there is nothing to do. Failure to do so will lead to the
+     * item being lost to the pool, and possibly deadlock.
      */
     boost::shared_ptr<WorkItem> get()
     {
@@ -96,34 +77,7 @@ public:
     void push(const gen_type &gen, boost::shared_ptr<WorkItem> item)
     {
         Statistics::Timer timer(pushStat);
-        workQueue.push(gen, item);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStart.
-     *
-     * @pre The worker threads are not running.
-     */
-    void producerStart(const gen_type &gen)
-    {
-        MLSGPU_ASSERT(threads.empty(), state_error);
-        workQueue.producerStart(gen);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerNext.
-     */
-    void producerNext(const gen_type &oldGen, const gen_type &newGen)
-    {
-        workQueue.producerNext(oldGen, newGen);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStop.
-     */
-    void producerStop(const gen_type &gen)
-    {
-        workQueue.producerStop(gen);
+        static_cast<Derived *>(this)->pushImpl(gen, item);
     }
 
     /**
@@ -135,12 +89,12 @@ public:
      */
     void start()
     {
-        MLSGPU_ASSERT(threads.empty(), state_error);
+        MLSGPU_ASSERT(!running(), state_error);
         threads.reserve(workers.size());
         for (std::size_t i = 0; i < workers.size(); i++)
             workers[i].start();
         for (std::size_t i = 0; i < workers.size(); i++)
-            threads.push_back(new boost::thread(Thread(*this, workers[i])));
+            threads.push_back(new boost::thread(Thread(*static_cast<Derived *>(this), getWorker(i))));
     }
 
     /**
@@ -155,8 +109,7 @@ public:
     void stop()
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), state_error);
-        for (std::size_t i = 0; i < threads.size(); i++)
-            workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
+        static_cast<Derived *>(this)->stopImpl();
         for (std::size_t i = 0; i < threads.size(); i++)
             threads[i].join();
         threads.clear();
@@ -196,7 +149,7 @@ protected:
     }
 
     /**
-     * Constructor. The derived class must change to this, and then
+     * Constructor. The derived class must chain to this, and then
      * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
@@ -209,12 +162,11 @@ protected:
      *
      * @pre @a numWorkers &gt; 0.
      */
-    WorkerGroup(std::size_t numWorkers, std::size_t spare,
-                Statistics::Variable &pushStat,
-                Statistics::Variable &popStat,
-                Statistics::Variable &getStat)
-        : workQueue(numWorkers + spare), itemPool(numWorkers + spare),
-        pushStat(pushStat), popStat(popStat), getStat(getStat)
+    WorkerGroupPool(std::size_t numWorkers, std::size_t spare,
+                    Statistics::Variable &pushStat,
+                    Statistics::Variable &popStat,
+                    Statistics::Variable &getStat)
+        : itemPool(numWorkers + spare), pushStat(pushStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         workers.reserve(numWorkers);
@@ -224,11 +176,11 @@ private:
     /// Thread object that processes items from the queue.
     class Thread
     {
-        WorkerGroup<WorkItem, GenType, Worker> &owner;
+        Derived &owner;
         Worker &worker;
 
     public:
-        Thread(WorkerGroup<WorkItem, GenType, Worker> &owner, Worker &worker)
+        Thread(Derived &owner, Worker &worker)
             : owner(owner), worker(worker) {}
 
         void operator()()
@@ -237,7 +189,7 @@ private:
             {
                 Timer timer;
                 gen_type gen;
-                boost::shared_ptr<WorkItem> item = owner.workQueue.pop(gen);
+                boost::shared_ptr<WorkItem> item = owner.popImpl(worker, gen);
                 if (!item.get())
                     break; // we have been asked to shut down
                 owner.popStat.add(timer.getElapsed());
@@ -248,7 +200,6 @@ private:
         }
     };
 
-    GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
     Pool<WorkItem> itemPool;
 
     /**
@@ -266,6 +217,126 @@ private:
     Statistics::Variable &pushStat;
     Statistics::Variable &popStat;
     Statistics::Variable &getStat;
+};
+
+/**
+ * A collection of threads operating on work-items, fed by a queue.
+ *
+ * @param WorkItem     A POD type describing an item of work.
+ * @param Worker       Function object class that is called to process elements.
+ *
+ * The @a Worker class must have an @c operator() that accepts a reference to a
+ * @a WorkItem. The operator does not need to be @c const.  The worker class
+ * does not need to be copyable or default-constructable and may contain
+ * significant state.
+ *
+ * The workitems may also be large objects, and the design is based on
+ * recycling a fixed pool rather than having the caller construct them. Users
+ * of the class will call @ref get to retrieve an item from the pool, populate
+ * it, then call @ref push to enqueue the item for processing.
+ *
+ * At construction, the worker group is given both a number of threads and a
+ * capacity. The capacity determines the number of workitems that will be
+ * live. If capacity equals the number of workers, then it will only be
+ * possible to populate a new work item while one of the workers is idle. If
+ * capacity exceeds the number of threads, then it will be possible to
+ * populate spare work items while all worker threads are busy. The capacity
+ * is specified as a delta to the number of workers.
+ *
+ * The @ref start and @ref stop functions are not thread-safe: they should
+ * only be called by a single manager thread. The other functions are
+ * thread-safe, allowing for multiple producers.
+ */
+template<typename WorkItem, typename GenType, typename Worker, typename Derived>
+class WorkerGroup : public WorkerGroupPool<WorkItem, GenType, Worker, Derived>
+{
+    typedef WorkerGroupPool<WorkItem, GenType, Worker, Derived> BaseType;
+    friend class WorkerGroupPool<WorkItem, GenType, Worker, Derived>;
+
+public:
+    typedef GenType gen_type;
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStart.
+     *
+     * @pre The worker threads are not running.
+     */
+    void producerStart(const gen_type &gen)
+    {
+        MLSGPU_ASSERT(!this->running(), state_error);
+        workQueue.producerStart(gen);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerNext.
+     */
+    void producerNext(const gen_type &oldGen, const gen_type &newGen)
+    {
+        workQueue.producerNext(oldGen, newGen);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStop.
+     */
+    void producerStop(const gen_type &gen)
+    {
+        workQueue.producerStop(gen);
+    }
+
+    /**
+     * Constructor. The derived class must chain to this, and then
+     * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
+     * calls to @ref addPoolItem to provide the constructed workers and
+     * work items.
+     *
+     * @param numWorkers     Number of worker threads to use.
+     * @param spare          Number of work items to have available in the pool when all workers are busy.
+     * @param pushStat       Statistic for time blocked in @ref push.
+     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param getStat        Statistic for time blocked in @ref get.
+     *
+     * @pre @a numWorkers &gt; 0.
+     */
+    WorkerGroup(std::size_t numWorkers, std::size_t spare,
+                Statistics::Variable &pushStat,
+                Statistics::Variable &popStat,
+                Statistics::Variable &getStat)
+        : BaseType(numWorkers, spare, pushStat, popStat, getStat),
+          workQueue(numWorkers + spare)
+    {
+    }
+
+private:
+    /**
+     * Enqueue an item of work.
+     *
+     * @pre @a item was obtained by @ref get.
+     */
+    void pushImpl(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    {
+        workQueue.push(gen, item);
+    }
+
+    /**
+     * Dequeue an item of work.
+     */
+    boost::shared_ptr<WorkItem> popImpl(const Worker &worker, gen_type &gen)
+    {
+        (void) &worker;
+        return workQueue.pop(gen);
+    }
+
+    /**
+     * Shut down the worker threads.
+     */
+    void stopImpl()
+    {
+        for (std::size_t i = 0; i < this->numWorkers(); i++)
+            workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
+    }
+
+    /// Work queue
+    GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
 };
 
 
@@ -298,7 +369,7 @@ public:
  * producers.
  */
 class MesherGroup : protected MesherGroupBase,
-    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker>
+    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>
 {
 public:
     typedef MesherGroupBase::WorkItem WorkItem;
@@ -387,10 +458,10 @@ public:
  */
 class DeviceWorkerGroup :
     protected DeviceWorkerGroupBase,
-    public WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker>
+    public WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup>
 {
 private:
-    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker> Base;
+    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup> Base;
     ProgressDisplay *progress;
     MesherGroup &outGroup;
 
@@ -488,7 +559,9 @@ public:
  * calls @ref Bucket::bucket to subdivide the splats into buckets suitable for
  * device execution, and passes them on to a @ref DeviceWorkerGroup.
  */
-class FineBucketGroup : protected FineBucketGroupBase, public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker>
+class FineBucketGroup :
+    protected FineBucketGroupBase,
+    public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker, FineBucketGroup>
 {
 public:
     typedef FineBucketGroupBase::WorkItem WorkItem;
