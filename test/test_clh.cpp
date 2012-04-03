@@ -34,14 +34,14 @@ namespace Test
 void Mixin::setUpCL()
 {
     const po::variables_map &vm = testGetOptions();
-    device = CLH::findDevice(vm);
-    if (device() == NULL)
+    std::vector<cl::Device> devices = CLH::findDevices(vm);
+    if (devices.empty())
     {
         cerr << "No suitable OpenCL device found!" << endl;
         exit(1);
     }
-    context = CLH::makeContext(device);
-    queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
+    context = CLH::makeContext(devices[0]);
+    queue = cl::CommandQueue(context, devices[0], CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 }
 
 void Mixin::tearDownCL()

@@ -658,12 +658,13 @@ int main(int argc, char **argv)
     else if (vm.count(Option::debug))
         Log::log.setLevel(Log::debug);
 
-    cl::Device device = CLH::findDevice(vm);
-    if (!device())
+    std::vector<cl::Device> devices = CLH::findDevices(vm);
+    if (devices.empty())
     {
         cerr << "No suitable OpenCL device found\n";
         exit(1);
     }
+    cl::Device device = devices[0];
     Log::log[Log::info] << "Using device " << device.getInfo<CL_DEVICE_NAME>() << "\n";
 
     validateOptions(device, vm);
