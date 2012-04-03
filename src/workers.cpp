@@ -85,7 +85,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     int levels, int subsampling, bool keepBoundary, float boundaryLimit)
 :
     Base(
-        numWorkers, spare,
+        1, numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
@@ -95,6 +95,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
+        item->key = device();
         item->splats = cl::Buffer(context, CL_MEM_READ_ONLY, maxSplats * sizeof(Splat));
         item->numSplats = 0;
         addPoolItem(item);
@@ -131,6 +132,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     int levels, bool keepBoundary, float boundaryLimit)
 :
     owner(owner),
+    key(device()),
     queue(context, device),
     tree(context, levels, owner.maxSplats),
     input(context),

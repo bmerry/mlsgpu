@@ -375,7 +375,7 @@ public:
         MLSGPU_ASSERT(!this->running(), state_error);
         BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
         {
-            i.second.producerStart(gen);
+            i.second->producerStart(gen);
         }
     }
 
@@ -386,7 +386,7 @@ public:
     {
         BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
         {
-            i.second.producerNext(oldGen, newGen);
+            i.second->producerNext(oldGen, newGen);
         }
     }
 
@@ -397,7 +397,7 @@ public:
     {
         BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
         {
-            i.second.producerStop(gen);
+            i.second->producerStop(gen);
         }
     }
 
@@ -464,7 +464,7 @@ private:
         const std::size_t workersPerSet = this->numWorkers() / workQueues.size();
         BOOST_FOREACH(typename work_queues_type::reference q, workQueues)
             for (std::size_t i = 0; i < workersPerSet; i++)
-                q.second.pushNoGen(boost::shared_ptr<WorkItem>());
+                q.second->pushNoGen(boost::shared_ptr<WorkItem>());
     }
 
     typedef boost::ptr_map<Key, GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>, Compare> work_queues_type;
@@ -547,10 +547,13 @@ public:
      */
     struct WorkItem
     {
+        cl_device_id key;
         cl::Buffer splats;
         std::size_t numSplats;
         Grid grid;
         Bucket::Recursion recursionState;
+
+        cl_device_id getKey() const { return key; }
     };
 
     class Worker : public boost::noncopyable
@@ -558,6 +561,7 @@ public:
     private:
         DeviceWorkerGroup &owner;
 
+        cl_device_id key;
         const cl::CommandQueue queue;
         SplatTreeCL tree;
         MlsFunctor input;
@@ -570,6 +574,8 @@ public:
 
     public:
         typedef void result_type;
+
+        cl_device_id getKey() const { return key; }
 
         Worker(
             DeviceWorkerGroup &owner,
@@ -594,10 +600,10 @@ public:
  */
 class DeviceWorkerGroup :
     protected DeviceWorkerGroupBase,
-    public WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup>
+    public WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id>
 {
 private:
-    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup> Base;
+    typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
     ProgressDisplay *progress;
     MesherGroup &outGroup;
 
