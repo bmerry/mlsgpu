@@ -398,7 +398,8 @@ void HostBlock<Splats>::stop()
  * @todo --sort is gone for now.
  */
 template<typename Splats>
-static void run2(const cl::Context &context, const cl::Device &device, const string &out,
+static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+                 const string &out,
                  const po::variables_map &vm,
                  const Splats &splats,
                  const Grid &grid)
@@ -451,11 +452,11 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     MesherGroup mesherGroup(0); // TODO: would having some spare help?
     DeviceWorkerGroup deviceWorkerGroup(
         numDeviceThreads, numBucketThreads, mesherGroup,
-        grid, context, device, maxDeviceSplats, blockCells, levels, subsampling,
+        grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, 1, deviceWorkerGroup,
-        grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+        grid, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
     HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 
     MesherBase::Namer namer;
@@ -511,7 +512,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     }
 }
 
-static void run(const cl::Context &context, const cl::Device &device, const string &out,
+static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+                const string &out,
                 const po::variables_map &vm)
 {
     const float spacing = vm[Option::fitGrid].as<double>();
@@ -539,7 +541,7 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         exit(1);
     }
 
-    run2(context, device, out, vm, splats, splats.getBoundingGrid());
+    run2(devices, out, vm, splats, splats.getBoundingGrid());
     writeStatistics(vm);
 }
 
@@ -692,11 +694,16 @@ int main(int argc, char **argv)
         Log::log[Log::info] << "Using device " << device.getInfo<CL_DEVICE_NAME>() << "\n";
     }
 
-    cl::Context context = CLH::makeContext(devices[0]);
+    std::vector<std::pair<cl::Context, cl::Device> > cd;
+    cd.reserve(devices.size());
+    for (std::size_t i = 0; i < devices.size(); i++)
+    {
+        cd.push_back(std::make_pair(CLH::makeContext(devices[i]), devices[i]));
+    }
 
     try
     {
-        run(context, devices[0], vm[Option::outputFile].as<string>(), vm);
+        run(cd, vm[Option::outputFile].as<string>(), vm);
     }
     catch (ios::failure &e)
     {

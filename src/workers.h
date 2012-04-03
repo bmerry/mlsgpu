@@ -24,6 +24,8 @@
 #include <boost/ptr_container/ptr_map.hpp>
 #include <cstddef>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 #include <CL/cl.hpp>
 #include "splat_tree_cl.h"
 #include "clip.h"
@@ -548,6 +550,8 @@ public:
     struct WorkItem
     {
         cl_device_id key;
+        cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
+
         cl::Buffer splats;
         std::size_t numSplats;
         Grid grid;
@@ -624,7 +628,7 @@ public:
      * @param spare              Number of work items to have available in the pool when all workers are busy.
      * @param outGroup           Downstream mesher group which receives output blocks.
      * @param fullGrid           The overall bounding box grid.
-     * @param context, device    OpenCL context and device to run on.
+     * @param devices            OpenCL context and device to run on, with associated contexts.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
      * @param levels             Space to allocate for the octree.
@@ -636,7 +640,7 @@ public:
         std::size_t numWorkers, std::size_t spare,
         MesherGroup &outGroup,
         const Grid &fullGrid,
-        const cl::Context &context, const cl::Device &device,
+        const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling, bool keepBoundary, float boundaryLimit);
 
@@ -670,13 +674,12 @@ public:
     {
     private:
         FineBucketGroup &owner;
-        const cl::CommandQueue queue; ///< Queue for map and unmap operations
         ChunkId curChunkId;
 
     public:
         typedef void result_type;
 
-        Worker(FineBucketGroup &owner, const cl::Context &context, const cl::Device &device);
+        Worker(FineBucketGroup &owner);
 
         /// Bucketing callback for blocks sized for device execution.
         void operator()(
@@ -714,7 +717,6 @@ public:
         std::size_t numWorkers, std::size_t spare,
         DeviceWorkerGroup &outGroup,
         const Grid &fullGrid,
-        const cl::Context &context, const cl::Device &device,
         std::size_t maxCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
