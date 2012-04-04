@@ -33,6 +33,7 @@
 #include <boost/foreach.hpp>
 #include <tr1/unordered_map>
 #include <boost/tr1/unordered_set.hpp>
+#include <stxxl.h>
 #include "marching.h"
 #include "fast_ply.h"
 #include "union_find.h"
@@ -516,8 +517,6 @@ public:
     virtual void write(FastPly::WriterBase &writer, const Namer &namer,
                        std::ostream *progressStream = NULL) const;
 };
-
-#include <stxxl.h>
 
 /**
  * Mesher class that uses the same algorithm as @ref BigMesher, but stores
