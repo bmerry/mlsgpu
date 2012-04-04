@@ -20,9 +20,9 @@
 #include <stdexcept>
 #include <cstring>
 #include <tr1/cstdint>
-#include <tr1/random>
+#include <boost/tr1/random.hpp>
 #include <tr1/unordered_map>
-#include <tr1/unordered_set>
+#include <boost/tr1/unordered_set.hpp>
 #include <map>
 #include <algorithm>
 #include <iterator>

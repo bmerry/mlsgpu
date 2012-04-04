@@ -10,7 +10,8 @@
 #endif
 #include <string>
 #include <limits>
-#include <tr1/cmath>
+#include <cmath>
+#include <boost/tr1/cmath.hpp>
 #include <boost/numeric/conversion/cast.hpp>
 #include "ply.h"
 

@@ -14,7 +14,7 @@
 #include <set>
 #include <numeric>
 #include <algorithm>
-#include <tr1/random>
+#include <boost/tr1/random.hpp>
 #include "testmain.h"
 #include "../src/splat.h"
 #include "../src/grid.h"

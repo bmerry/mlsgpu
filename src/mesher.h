@@ -32,7 +32,7 @@
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
 #include <tr1/unordered_map>
-#include <tr1/unordered_set>
+#include <boost/tr1/unordered_set.hpp>
 #include "marching.h"
 #include "fast_ply.h"
 #include "union_find.h"

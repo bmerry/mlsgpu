@@ -17,7 +17,7 @@
 #include <vector>
 #include <cstddef>
 #include <limits>
-#include <tr1/random>
+#include <boost/tr1/random.hpp>
 #include <boost/math/constants/constants.hpp>
 #include <boost/foreach.hpp>
 #include <CL/cl.hpp>

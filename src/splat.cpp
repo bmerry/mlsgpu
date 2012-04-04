@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <limits>
 #include <cmath>
-#include <tr1/cmath>
+#include <boost/tr1/cmath.hpp>
 #include "ply.h"
 #include "splat.h"
 #include "misc.h"
@@ -81,8 +81,8 @@ bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
     const int bits = std::numeric_limits<float>::digits;
     for (int i = 0; i < 3; i++)
     {
-        ap[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(a.position[i]), bits - ai.maxExp);
-        bp[i] = (std::tr1::uint32_t) std::tr1::ldexp(std::abs(b.position[i]), bits - bi.maxExp);
+        ap[i] = (std::tr1::uint32_t) std::ldexp(std::abs(a.position[i]), bits - ai.maxExp);
+        bp[i] = (std::tr1::uint32_t) std::ldexp(std::abs(b.position[i]), bits - bi.maxExp);
         bd[i] = ap[i] ^ bp[i];
     }
 

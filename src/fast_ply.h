@@ -29,9 +29,9 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/type_traits/is_pointer.hpp>
 #include <boost/ref.hpp>
+#include "splat.h"
 #include "errors.h"
 
-class Splat;
 class TestFastPlyReader;
 
 namespace FastPly

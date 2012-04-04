@@ -27,7 +27,7 @@
 #include <sstream>
 #include <cstring>
 #include <tr1/cstdint>
-#include <tr1/random>
+#include <boost/tr1/random.hpp>
 #include "testmain.h"
 #include "test_splat_set.h"
 #include "../src/bucket.h"
@@ -48,6 +48,10 @@ static bool gridsIntersect(const Grid &a, const Grid &b)
     return true;
 }
 
+// clang doesn't find the overload except through argument dependent lookup,
+// so it needs to be in the namespace of Node
+namespace Bucket { namespace internal {
+
 std::ostream &operator<<(std::ostream &o, const Node &node)
 {
     return o << "Node("
@@ -55,6 +59,8 @@ std::ostream &operator<<(std::ostream &o, const Node &node)
         << node.getCoords()[1] << ", "
         << node.getCoords()[2] << ", " << node.getLevel() << ")";
 }
+
+}}
 
 /// Tests for @ref Bucket::internal::Node
 class TestNode : public CppUnit::TestFixture

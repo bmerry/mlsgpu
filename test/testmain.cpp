@@ -20,7 +20,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <boost/program_options.hpp>
 #include <boost/lexical_cast.hpp>
-#include <tr1/cmath>
+#include <boost/tr1/cmath.hpp>
 #include <string>
 #include <stdexcept>
 #include <typeinfo>

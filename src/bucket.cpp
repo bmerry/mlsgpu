@@ -15,7 +15,7 @@
 #include <utility>
 #include <cassert>
 #include <functional>
-#include <tr1/cmath>
+#include <boost/tr1/cmath.hpp>
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/foreach.hpp>

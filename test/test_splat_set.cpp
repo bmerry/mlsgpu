@@ -25,7 +25,7 @@
 #include <algorithm>
 #include <iterator>
 #include <tr1/cstdint>
-#include <tr1/random>
+#include <boost/tr1/random.hpp>
 #include "../src/splat.h"
 #include "../src/grid.h"
 #include "../src/splat_set.h"
@@ -618,7 +618,7 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
     vector<splat_id> expectedIds, actualIds;
 
     const unsigned int bucketSize = 5;
-    boost::scoped_ptr<Set> set(setFactory(this->splatData, this->grid.getSpacing(), bucketSize));
+    boost::scoped_ptr<Set> set(this->setFactory(this->splatData, this->grid.getSpacing(), bucketSize));
 
     {
         boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream());
@@ -680,7 +680,7 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetEmptyRange()
 template<typename SetType>
 void TestSplatSubsettable<SetType>::testSplatStreamResetNegativeRange()
 {
-    boost::scoped_ptr<Set> set(setFactory(this->splatData, this->grid.getSpacing(), 5));
+    boost::scoped_ptr<Set> set(this->setFactory(this->splatData, this->grid.getSpacing(), 5));
     boost::scoped_ptr<SplatStreamReset> splatStream(set->makeSplatStreamReset());
 
     CPPUNIT_ASSERT_THROW(splatStream->reset(1, 0), std::invalid_argument);
@@ -755,7 +755,7 @@ template<typename BaseType>
 void TestFastBlobSet<BaseType>::testBoundingGrid()
 {
     const unsigned int bucketSize = 5;
-    boost::scoped_ptr<Set> set(setFactory(this->splatData, 2.5f, bucketSize));
+    boost::scoped_ptr<Set> set(this->setFactory(this->splatData, 2.5f, bucketSize));
     Grid bbox = set->getBoundingGrid();
     CPPUNIT_ASSERT_EQUAL(2.5f, bbox.getSpacing());
     CPPUNIT_ASSERT_EQUAL(0.0f, bbox.getReference()[0]);

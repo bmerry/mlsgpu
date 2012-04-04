@@ -167,14 +167,22 @@ def build(bld):
             target = 'mls',
             use = 'OPENCL CLOGS STXXL',
             name = 'libmls')
+    libs = [
+        'boost_program_options-mt',
+        'boost_iostreams-mt',
+        'boost_thread-mt',
+        'boost_math_c99-mt', 'boost_math_c99f-mt',
+        'rt'
+    ]
     bld.program(
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
             use = ['libmls', 'provenance', 'OPENCL'],
-            lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'boost_thread-mt', 'rt'])
+            lib = libs)
     bld.program(
             source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
-            target = 'plymanifold')
+            target = 'plymanifold',
+            lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'])
     if bld.env['unit_tests']:
         test_features = 'cxx cxxprogram'
         if not bld.options.notests:
@@ -184,7 +192,7 @@ def build(bld):
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],
-                lib = ['boost_program_options-mt', 'boost_iostreams-mt', 'boost_thread-mt', 'rt'])
+                lib = libs)
         def print_env(bld):
             print bld.env
         bld.add_post_fun(print_unit_tests)

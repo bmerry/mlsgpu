@@ -502,7 +502,8 @@ void TestPlyReader::testSkipTo()
     r.readHeader();
     Reader::iterator x = r.begin();
     ElementRangeReader<EmptyBuilder> &vertex = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
+    // Check that it has the right type (otherwise an exception is thrown)
+    (void) & dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
     ElementRangeReader<EmptyBuilder> &face = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
     CPPUNIT_ASSERT(&vertex == &r.skipTo<EmptyBuilder>("vertex"));
     CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&vertex));

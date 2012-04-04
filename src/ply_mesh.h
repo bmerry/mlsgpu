@@ -15,7 +15,7 @@
 #include <boost/array.hpp>
 #include "ply.h"
 
-class Splat;
+struct Splat;
 
 namespace PLY
 {

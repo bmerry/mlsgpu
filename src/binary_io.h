@@ -18,6 +18,13 @@
 #include <boost/static_assert.hpp>
 #include <limits>
 
+// Forward declarations to keep clang happy
+template<typename T, bool b>
+static void readBinary(std::istream &in, T &out, const boost::integral_constant<bool, b> &endian);
+
+template<typename T, bool b>
+static void writeBinary(std::ostream &out, T &in, const boost::integral_constant<bool, b> &endian);
+
 namespace internal
 {
 
@@ -47,7 +54,9 @@ static void writeBinaryImpl(std::ostream &out, T in, const boost::true_type &, c
     for (unsigned int i = 0; i < sizeof(T); i++)
     {
         bytes[i] = in & 0xFF;
-        in >>= 8;
+        // The complex shift expression is to avoid undefined behavior when
+        // shifting an 8-bit value by 8 bits
+        in >>= (sizeof(in) == 1 ? 0 : 8);
     }
     out.write(reinterpret_cast<char *>(bytes), sizeof(T));
 }
@@ -78,7 +87,9 @@ static void writeBinaryImpl(std::ostream &out, T in, const boost::false_type &, 
     for (int i = sizeof(T) - 1; i >= 0; i--)
     {
         bytes[i] = in & 0xFF;
-        in >>= 8;
+        // Complex shift expression is to avoid undefined behavior warnings
+        // due to shifting an 8-bit value by 8 bits.
+        in >>= (sizeof(T) == 1 ? 0 : 8);
     }
     out.write(reinterpret_cast<char *>(bytes), sizeof(T));
 }

@@ -10,7 +10,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <tr1/cstdint>
-#include <tr1/cmath>
+#include <boost/tr1/cmath.hpp>
 #include "errors.h"
 #include "grid.h"
 

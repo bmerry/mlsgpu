@@ -19,7 +19,6 @@
 #include <boost/thread/condition_variable.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/noncopyable.hpp>
-#include <tr1/cstdint>
 #include "errors.h"
 
 /**
@@ -337,7 +336,7 @@ void GenerationalWorkQueue<ValueType, GenType, CompareGen>::push(
         nextGenCondition.wait(lock);
         MLSGPU_ASSERT(active.count(gen), std::logic_error);
     }
-    pushUnlocked(lock, std::make_pair(item, gen));
+    this->pushUnlocked(lock, std::make_pair(item, gen));
 }
 
 template<typename ValueType, typename GenType, typename CompareGen>
@@ -345,7 +344,7 @@ void GenerationalWorkQueue<ValueType, GenType, CompareGen>::pushNoGen(
     const value_type &item)
 {
     boost::unique_lock<boost::mutex> lock(this->mutex);
-    pushUnlocked(lock, std::make_pair(item, gen_type()));
+    this->pushUnlocked(lock, std::make_pair(item, gen_type()));
 }
 
 template<typename ValueType, typename GenType, typename CompareGen>
