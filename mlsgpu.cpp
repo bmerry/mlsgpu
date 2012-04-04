@@ -704,6 +704,13 @@ int main(int argc, char **argv)
     try
     {
         run(cd, vm[Option::outputFile].as<string>(), vm);
+        unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();
+        if (filesWritten == 0)
+            Log::log[Log::warn] << "Warning: no output files written!\n";
+        else if (filesWritten == 1)
+            Log::log[Log::info] << "1 output file written.\n";
+        else
+            Log::log[Log::info] << filesWritten << " output files written.\n";
     }
     catch (ios::failure &e)
     {

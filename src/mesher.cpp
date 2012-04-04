@@ -253,6 +253,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
         writer.setNumVertices(counts.vertices);
         writer.setNumTriangles(counts.triangles);
         writer.open(namer(chunkId));
+        Statistics::getStatistic<Statistics::Counter>("output.files").add();
 
         nextVertex = 0;
         nextTriangle = 0;
@@ -637,6 +638,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             writer.setNumVertices(chunkVertices);
             writer.setNumTriangles(chunkTriangles);
             writer.open(namer(chunk.chunkId));
+            Statistics::getStatistic<Statistics::Counter>("output.files").add();
 
             // Write out the valid vertices, simultaneously building a chunk-wide remap table
             // to track the compaction.
