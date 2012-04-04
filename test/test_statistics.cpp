@@ -12,74 +12,138 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <stdexcept>
 #include <sstream>
+#include <string>
 #include <boost/foreach.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include "../src/statistics.h"
 #include "testmain.h"
 
 /**
- * Test for the @ref Statistics::Statistic class.
+ * Test for the @ref Statistics::Statistic base class.
  */
 class TestStatistic : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestStatistic);
+    CPPUNIT_TEST(testGetName);
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+
+private:
+    void testGetName();        ///< Test @ref Statistics::Statistic::getName
+
+protected:
+    /// Create a statistic with the given name
+    virtual Statistics::Statistic *createStatistic(const std::string &name) const = 0;
+};
+
+void TestStatistic::testGetName()
+{
+    boost::scoped_ptr<Statistics::Statistic> stat(createStatistic("myname"));
+    CPPUNIT_ASSERT_EQUAL(std::string("myname"), stat->getName());
+}
+
+
+/// Tests for @ref Statistics::Variable
+class TestVariable : public TestStatistic
+{
+    CPPUNIT_TEST_SUB_SUITE(TestVariable, TestStatistic);
     CPPUNIT_TEST(testAdd);
     CPPUNIT_TEST(testGetMean);
     CPPUNIT_TEST(testGetStddev);
     CPPUNIT_TEST(testGetVariance);
     CPPUNIT_TEST(testGetNumSamples);
-    CPPUNIT_TEST(testGetTotal);
-    CPPUNIT_TEST(testGetName);
-    CPPUNIT_TEST(testStream);
     CPPUNIT_TEST_SUITE_END();
 
-    Statistics::Variable *stat0;          ///< Statistic with no samples
-    Statistics::Variable *stat1;          ///< Statistic with one sample
-    Statistics::Variable *stat2;          ///< Statistic with two samples
-    Statistics::Variable *stat2s;         ///< Statistic with two identical samples
-    Statistics::Counter *counter;         ///< Counter statistic
+private:
+    boost::scoped_ptr<Statistics::Variable> stat0;   ///< Statistic with no samples
+    boost::scoped_ptr<Statistics::Variable> stat1;   ///< Statistic with one sample
+    boost::scoped_ptr<Statistics::Variable> stat2;   ///< Statistic with two samples
+    boost::scoped_ptr<Statistics::Variable> stat2s;  ///< Statistic with two identical samples
 
     void testAdd();            ///< Test @ref Statistics::Variable::add
     void testGetMean();        ///< Test @ref Statistics::Variable::getMean
     void testGetStddev();      ///< Test @ref Statistics::Variable::getStddev
     void testGetVariance();    ///< Test @ref Statistics::Variable::getVariance
     void testGetNumSamples();  ///< Test @ref Statistics::Variable::getNumSamples
-    void testGetTotal();       ///< Test @ref Statistics::Counter::getTotal
-    void testGetName();        ///< Test @ref Statistics::Statistic::getName
-    void testStream();         ///< Test stream output of @ref Statistics::Statistic
+    void testStream();         ///< Test stream output of @ref Statistics::Variable
+
+protected:
+    virtual Statistics::Statistic *createStatistic(const std::string &name) const;
 
 public:
-    void setUp();
-    void tearDown();
+    virtual void setUp();
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStatistic, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestVariable, TestSet::perBuild());
 
-void TestStatistic::setUp()
+/// Tests for @ref Statistics::Counter
+class TestCounter : public TestStatistic
 {
-    stat0 = NULL; stat1 = NULL; stat2 = NULL; stat2s = NULL;
-    stat0 = new Statistics::Variable("stat0");
-    stat1 = new Statistics::Variable("stat1");
-    stat2 = new Statistics::Variable("stat2");
-    stat2s = new Statistics::Variable("stat2s");
-    counter = new Statistics::Counter("counter");
+    CPPUNIT_TEST_SUB_SUITE(TestCounter, TestStatistic);
+    CPPUNIT_TEST(testAdd);
+    CPPUNIT_TEST(testGetTotal);
+    CPPUNIT_TEST(testStream);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    boost::scoped_ptr<Statistics::Counter> counter;   ///< Counter statistic
+
+    void testAdd();            ///< Test @ref Statistics::Counter::add
+    void testGetTotal();       ///< Test @ref Statistics::Counter::getTotal
+    void testStream();         ///< Test stream output of @ref Statistics::Counter
+
+protected:
+    virtual Statistics::Statistic *createStatistic(const std::string &name) const;
+
+public:
+    virtual void setUp();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCounter, TestSet::perBuild());
+
+/// Tests for the @ref Statistics::Peak
+class TestPeak : public TestStatistic
+{
+    CPPUNIT_TEST_SUB_SUITE(TestPeak, TestStatistic);
+    CPPUNIT_TEST(testAdd);
+    CPPUNIT_TEST(testSet);
+    CPPUNIT_TEST(testGet);
+    CPPUNIT_TEST(testGetMax);
+    CPPUNIT_TEST(testStream);
+    CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    /// Peak statistic fixture
+    boost::scoped_ptr<Statistics::Peak<long long> > peak;
+
+    void testAdd();      ///< Test @ref Statistics::Peak::add
+    void testSet();      ///< Test @ref Statistics::Peak::set
+    void testGet();      ///< Test @ref Statistics::Peak::get
+    void testGetMax();   ///< Test @ref Statistics::Peak::getMax
+    void testStream();   ///< Test streaming a @ref Statistics::Peak to an @c ostream
+    void testEmpty();    ///< Test that methods throw when no value is set
+
+protected:
+    virtual Statistics::Statistic *createStatistic(const std::string &name) const;
+
+public:
+    virtual void setUp();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestPeak, TestSet::perBuild());
+
+void TestVariable::setUp()
+{
+    stat0.reset(new Statistics::Variable("stat0"));
+    stat1.reset(new Statistics::Variable("stat1"));
+    stat2.reset(new Statistics::Variable("stat2"));
+    stat2s.reset(new Statistics::Variable("stat2s"));
 
     stat1->add(1.0);
     stat2->add(2.0);
     stat2->add(3.0);
     stat2s->add(4.5);
     stat2s->add(4.5);
-    counter->add(100);
 }
 
-void TestStatistic::tearDown()
-{
-    delete stat0;
-    delete stat1;
-    delete stat2;
-    delete stat2s;
-    delete counter;
-}
-
-void TestStatistic::testAdd()
+void TestVariable::testAdd()
 {
     // We test the add function by looking at the internal state of the fixtures
     CPPUNIT_ASSERT_EQUAL(1.0, stat1->sum);
@@ -93,11 +157,9 @@ void TestStatistic::testAdd()
     CPPUNIT_ASSERT_EQUAL(9.0, stat2s->sum);
     CPPUNIT_ASSERT_EQUAL(40.5, stat2s->sum2);
     CPPUNIT_ASSERT_EQUAL(2ULL, stat2s->n);
-
-    CPPUNIT_ASSERT_EQUAL(100ULL, counter->total);
 }
 
-void TestStatistic::testGetMean()
+void TestVariable::testGetMean()
 {
     CPPUNIT_ASSERT_THROW(stat0->getMean(), std::length_error);
     CPPUNIT_ASSERT_EQUAL(1.0, stat1->getMean());
@@ -105,7 +167,7 @@ void TestStatistic::testGetMean()
     CPPUNIT_ASSERT_EQUAL(4.5, stat2s->getMean());
 }
 
-void TestStatistic::testGetVariance()
+void TestVariable::testGetVariance()
 {
     CPPUNIT_ASSERT_THROW(stat0->getVariance(), std::length_error);
     CPPUNIT_ASSERT_THROW(stat1->getVariance(), std::length_error);
@@ -113,7 +175,7 @@ void TestStatistic::testGetVariance()
     CPPUNIT_ASSERT_EQUAL(0.0, stat2s->getVariance());
 }
 
-void TestStatistic::testGetStddev()
+void TestVariable::testGetStddev()
 {
     CPPUNIT_ASSERT_THROW(stat0->getStddev(), std::length_error);
     CPPUNIT_ASSERT_THROW(stat1->getStddev(), std::length_error);
@@ -121,7 +183,7 @@ void TestStatistic::testGetStddev()
     CPPUNIT_ASSERT_EQUAL(0.0, stat2s->getStddev());
 }
 
-void TestStatistic::testGetNumSamples()
+void TestVariable::testGetNumSamples()
 {
     CPPUNIT_ASSERT_EQUAL(0ULL, stat0->getNumSamples());
     CPPUNIT_ASSERT_EQUAL(1ULL, stat1->getNumSamples());
@@ -129,21 +191,7 @@ void TestStatistic::testGetNumSamples()
     CPPUNIT_ASSERT_EQUAL(2ULL, stat2s->getNumSamples());
 }
 
-void TestStatistic::testGetTotal()
-{
-    CPPUNIT_ASSERT_EQUAL(100ULL, counter->getTotal());
-}
-
-void TestStatistic::testGetName()
-{
-    CPPUNIT_ASSERT_EQUAL(std::string("stat0"), stat0->getName());
-    CPPUNIT_ASSERT_EQUAL(std::string("stat1"), stat1->getName());
-    CPPUNIT_ASSERT_EQUAL(std::string("stat2"), stat2->getName());
-    CPPUNIT_ASSERT_EQUAL(std::string("stat2s"), stat2s->getName());
-    CPPUNIT_ASSERT_EQUAL(std::string("counter"), counter->getName());
-}
-
-void TestStatistic::testStream()
+void TestVariable::testStream()
 {
     {
         std::ostringstream s;
@@ -167,13 +215,124 @@ void TestStatistic::testStream()
         s << *stat2s;
         CPPUNIT_ASSERT_EQUAL(std::string("stat2s: 4.5 +/- 0 [2]"), s.str());
     }
-    {
-        std::ostringstream s;
-        s << *counter;
-        CPPUNIT_ASSERT_EQUAL(std::string("counter: 100"), s.str());
-    }
 }
 
+Statistics::Statistic *TestVariable::createStatistic(const std::string &name) const
+{
+    return new Statistics::Variable(name);
+}
+
+void TestCounter::setUp()
+{
+    counter.reset(new Statistics::Counter("counter"));
+    counter->add(100);
+}
+
+void TestCounter::testAdd()
+{
+    CPPUNIT_ASSERT_EQUAL(100ULL, counter->total);
+    counter->add(50);
+    CPPUNIT_ASSERT_EQUAL(150ULL, counter->total);
+}
+
+void TestCounter::testGetTotal()
+{
+    CPPUNIT_ASSERT_EQUAL(100ULL, counter->getTotal());
+}
+
+void TestCounter::testStream()
+{
+    std::ostringstream s;
+    s << *counter;
+    CPPUNIT_ASSERT_EQUAL(std::string("counter: 100"), s.str());
+}
+
+Statistics::Statistic *TestCounter::createStatistic(const std::string &name) const
+{
+    return new Statistics::Counter(name);
+}
+
+void TestPeak::setUp()
+{
+    peak.reset(new Statistics::Peak<long long>("peak"));
+    peak->set(-100LL);
+}
+
+void TestPeak::testSet()
+{
+    // Test initial state
+    CPPUNIT_ASSERT_EQUAL(-100LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(-100LL, peak->max);
+    CPPUNIT_ASSERT(peak->hasValue);
+
+    // Test setting a maximal value
+    peak->set(1234567890LL);
+    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
+    CPPUNIT_ASSERT(peak->hasValue);
+
+    // Test setting a non-maximal value
+    peak->set(123456LL);
+    CPPUNIT_ASSERT_EQUAL(123456LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
+    CPPUNIT_ASSERT(peak->hasValue);
+}
+
+void TestPeak::testAdd()
+{
+    // Go up
+    peak->add(250LL);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    CPPUNIT_ASSERT(peak->hasValue);
+
+    // Go down
+    peak->add(-200LL);
+    CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    CPPUNIT_ASSERT(peak->hasValue);
+}
+
+void TestPeak::testGet()
+{
+    CPPUNIT_ASSERT_EQUAL(-100LL, peak->get());
+    peak->set(-200LL);
+    CPPUNIT_ASSERT_EQUAL(-200LL, peak->get());
+}
+
+void TestPeak::testGetMax()
+{
+    CPPUNIT_ASSERT_EQUAL(-100LL, peak->getMax());
+    peak->set(-200LL);
+    CPPUNIT_ASSERT_EQUAL(-100LL, peak->getMax());
+    peak->set(200LL);
+    CPPUNIT_ASSERT_EQUAL(200LL, peak->getMax());
+}
+
+void TestPeak::testStream()
+{
+    std::ostringstream o;
+    o << *peak;
+    CPPUNIT_ASSERT_EQUAL(std::string("peak: -100"), o.str());
+
+    Statistics::Peak<int> empty("empty");
+    o.str("");
+    o << empty;
+    CPPUNIT_ASSERT_EQUAL(std::string("empty: [no samples]"), o.str());
+}
+
+void TestPeak::testEmpty()
+{
+    Statistics::Peak<int> empty("empty");
+    CPPUNIT_ASSERT_THROW(empty.add(1), std::length_error);
+    CPPUNIT_ASSERT_THROW(empty.get(), std::length_error);
+    CPPUNIT_ASSERT_THROW(empty.getMax(), std::length_error);
+}
+
+Statistics::Statistic *TestPeak::createStatistic(const std::string &name) const
+{
+    return new Statistics::Peak<int>(name);
+}
 
 class TestStatisticRegistry : public CppUnit::TestFixture
 {

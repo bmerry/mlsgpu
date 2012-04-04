@@ -26,7 +26,9 @@
 #include <boost/type_traits/remove_pointer.hpp>
 #include "timer.h"
 
-class TestStatistic;
+class TestCounter;
+class TestVariable;
+class TestPeak;
 
 namespace Statistics
 {
@@ -70,7 +72,7 @@ std::ostream &operator <<(std::ostream &o, const Statistic &stat);
  */
 class Counter : public Statistic
 {
-    friend class ::TestStatistic;
+    friend class ::TestCounter;
 private:
     unsigned long long total;
 
@@ -92,7 +94,7 @@ public:
  */
 class Variable : public Statistic
 {
-    friend class ::TestStatistic;
+    friend class ::TestVariable;
 private:
     double sum;             ///< sum of samples
     double sum2;            ///< sum of squares of samples
@@ -129,10 +131,14 @@ public:
 
 /**
  * Statistic class that measures the maximum value a variable takes.
+ *
+ * In the initial state it has no value, and one must be set with @ref set before
+ * using @ref add.
  */
 template<typename T>
 class Peak : public Statistic
 {
+    friend class ::TestPeak;
 private:
     T current;
     T max;
@@ -150,6 +156,10 @@ protected:
 public:
     Peak(const std::string &name) : Statistic(name), current(), max(), hasValue(false) {}
 
+    /**
+     * Increment the current value by @a x.
+     * @throw std::length_error if no value has been set using @ref set.
+     */
     void add(T x)
     {
         if (!hasValue)
@@ -157,6 +167,9 @@ public:
         set(current + x);
     }
 
+    /**
+     * Replaces the current value (if any).
+     */
     void set(T x)
     {
         current = x;
@@ -167,6 +180,10 @@ public:
         }
     }
 
+    /**
+     * Retrieves the current value.
+     * @throw std::length_error if no value has been set using @ref set.
+     */
     T get() const
     {
         if (!hasValue)
@@ -174,6 +191,10 @@ public:
         return current;
     }
 
+    /**
+     * Retrieves the highest value that has been set.
+     * @throw std::length_error if no value has been set using @ref set.
+     */
     T getMax() const
     {
         if (!hasValue)
