@@ -40,8 +40,9 @@ void Mixin::setUpCL()
         cerr << "No suitable OpenCL device found!" << endl;
         exit(1);
     }
-    context = CLH::makeContext(devices[0]);
-    queue = cl::CommandQueue(context, devices[0], CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
+    device = devices[0];
+    context = CLH::makeContext(device);
+    queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
 }
 
 void Mixin::tearDownCL()
