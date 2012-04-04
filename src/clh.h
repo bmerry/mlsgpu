@@ -130,7 +130,7 @@ const char * const cpu = "cl-cpu";
 /**
  * Append program options for selecting an OpenCL device.
  *
- * The resulting variables map can be passed to @ref findDevice.
+ * The resulting variables map can be passed to @ref findDevices.
  */
 void addOptions(boost::program_options::options_description &desc);
 
