@@ -23,7 +23,7 @@ template<typename T, bool b>
 static void readBinary(std::istream &in, T &out, const boost::integral_constant<bool, b> &endian);
 
 template<typename T, bool b>
-static void writeBinary(std::ostream &out, T &in, const boost::integral_constant<bool, b> &endian);
+static void writeBinary(std::ostream &out, const T &in, const boost::integral_constant<bool, b> &endian);
 
 namespace internal
 {
@@ -204,7 +204,7 @@ static void readBinary(std::istream &in, T &out, const boost::integral_constant<
  * functions to check for I/O failure.
  */
 template<typename T, bool b>
-static void writeBinary(std::ostream &out, T &in, const boost::integral_constant<bool, b> &endian)
+static void writeBinary(std::ostream &out, const T &in, const boost::integral_constant<bool, b> &endian)
 {
     internal::writeBinaryImpl(out, in, endian, boost::is_signed<T>(), boost::is_integral<T>());
 }
