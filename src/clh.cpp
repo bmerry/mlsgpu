@@ -8,6 +8,8 @@
 
 #include <boost/program_options.hpp>
 #include <boost/foreach.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/next_prior.hpp>
 #include <CL/cl.hpp>
 #include <vector>
 #include <string>
@@ -16,6 +18,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <map>
+#include <set>
 #include <cstdlib>
 #include "clh.h"
 #include "logging.h"
@@ -118,19 +121,61 @@ const std::map<std::string, std::string> &getSourceMap();
 void addOptions(boost::program_options::options_description &desc)
 {
     desc.add_options()
-        (Option::device, boost::program_options::value<std::string>(), "OpenCL device name")
-        (Option::cpu,                                                  "Use a CPU device")
-        (Option::gpu,                                                  "Use a GPU device");
+        (Option::device, boost::program_options::value<std::vector<std::string> >()->composing(),
+                         "OpenCL device name")
+        (Option::cpu,    "Use all CPU devices")
+        (Option::gpu,    "Use all GPU devices");
 }
 
-cl::Device findDevice(const boost::program_options::variables_map &vm)
+/**
+ * Contains information about each prefix specified on the command line.
+ */
+struct DeviceSet
 {
-    /* Scores are used to decide between multiple matching devices */
-    const int scoreGPU = 1;
-    const int scoreExactDevice = 2;
+    bool allChosen;                   ///< True if the user chose the entire set
+    std::set<unsigned int> chosen;    ///< Explicitly selected indices
+    unsigned int seen;                ///< Number of devices with this prefix so far
 
-    cl::Device ans;
-    int score = -1;
+    DeviceSet() : allChosen(false), seen(0) {}
+};
+
+std::vector<cl::Device> findDevices(const boost::program_options::variables_map &vm)
+{
+    std::vector<cl::Device> ans;
+
+    // Parse device names
+    std::vector<std::string> deviceNames;
+    if (vm.count(Option::device))
+        deviceNames = vm[Option::device].as<std::vector<std::string> >();
+    std::map<std::string, DeviceSet> deviceSets;
+    BOOST_FOREACH(const std::string &s, deviceNames)
+    {
+        std::string::size_type colon = s.rfind(':');
+        std::string name = s;
+        unsigned int num = 0;
+        bool haveNum = false;
+        if (colon != std::string::npos)
+        {
+            // User may have specified a device number
+            try
+            {
+                num = boost::lexical_cast<unsigned int>(s.substr(colon + 1));
+                haveNum = true;
+                name = s.substr(0, colon - 1);
+            }
+            catch (boost::bad_lexical_cast &e)
+            {
+                // Ignore
+            }
+        }
+        DeviceSet &ds = deviceSets[name];
+        if (haveNum)
+            ds.chosen.insert(num);
+        else
+            ds.allChosen = true;
+    }
+    const bool allCpu = vm.count(Option::cpu);
+    const bool allGpu = vm.count(Option::gpu) || (!allCpu && deviceSets.empty());
 
     std::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
@@ -142,43 +187,52 @@ cl::Device findDevice(const boost::program_options::variables_map &vm)
         platform.getDevices(type, &devices);
         BOOST_FOREACH(const cl::Device &device, devices)
         {
-            bool good = true;
-            int s = 0;
-            /* Match name if given */
-            if (vm.count(Option::device))
+            bool match = false;
+
+            const std::string name = device.getInfo<CL_DEVICE_NAME>();
+            cl_device_type type = device.getInfo<CL_DEVICE_TYPE>();
+            /* Match against device sets */
+            for (std::map<std::string, DeviceSet>::iterator i = deviceSets.begin(); i != deviceSets.end(); ++i)
             {
-                const std::string expected = vm[Option::device].as<std::string>();
-                const std::string actual = device.getInfo<CL_DEVICE_NAME>();
-                if (actual.substr(0, expected.size()) != expected)
-                    good = false;
-                else if (actual.size() == expected.size())
-                    s += scoreExactDevice;
+                const std::string &prefix = i->first;
+                DeviceSet &ds = i->second;
+                if (name.substr(0, prefix.size()) == prefix)
+                {
+                    if (ds.allChosen || ds.chosen.count(ds.seen))
+                        match = true;
+                    ds.seen++;
+                }
             }
-            /* Match type if given */
-            if (vm.count("cl-gpu"))
-            {
-                if (!(device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_GPU))
-                    good = false;
-            }
-            if (vm.count("cl-cpu"))
-            {
-                if (!(device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_CPU))
-                    good = false;
-            }
-            /* Give more weight to GPUs */
-            if (device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_GPU)
-                s += scoreGPU;
+            if (allCpu && (type & CL_DEVICE_TYPE_CPU))
+                match = true;
+            if (allGpu && (type & CL_DEVICE_TYPE_GPU))
+                match = true;
+
             /* Require OpenCL 1.1 */
             if (device.getInfo<CL_DEVICE_VERSION>() < std::string("OpenCL 1.1"))
-                good = false;
+                match = false;
+            // TODO: skip other non-useful devices e.g. image support
 
-            if (good && s > score)
-            {
-                ans = device;
-                score = s;
-            }
+            if (match)
+                ans.push_back(device);
         }
     }
+
+    // Warn the user if they mistyped something
+    for (std::map<std::string, DeviceSet>::const_iterator i = deviceSets.begin(); i != deviceSets.end(); ++i)
+    {
+        const std::string &name = i->first;
+        const DeviceSet &ds = i->second;
+        if (ds.seen == 0)
+        {
+            Log::log[Log::warn] << "Warning: no usable device names start with `" << name << "'.\n";
+        }
+        else if (!ds.allChosen && !ds.chosen.empty() && *boost::prior(ds.chosen.end()) >= ds.seen)
+        {
+            Log::log[Log::warn] << "Warning: only " << ds.seen << " devices started with `" << name << "'.\n";
+        }
+    }
+
     return ans;
 }
 

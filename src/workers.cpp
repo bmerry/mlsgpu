@@ -38,14 +38,14 @@ void MesherGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
     owner.input(chunkId, work);
 }
 
-MesherGroup::MesherGroup(std::size_t capacity)
-    : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker>(
-        1, capacity,
+MesherGroup::MesherGroup(std::size_t spare)
+    : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>(
+        1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
         Statistics::getStatistic<Statistics::Variable>("mesher.pop"),
         Statistics::getStatistic<Statistics::Variable>("mesher.get"))
 {
-    for (std::size_t i = 0; i < capacity; i++)
+    for (std::size_t i = 0; i < 1 + spare; i++)
         addPoolItem(boost::make_shared<WorkItem>());
     addWorker(new Worker(*this));
 }
@@ -77,36 +77,42 @@ void MesherGroup::outputFunc(
 
 
 DeviceWorkerGroup::DeviceWorkerGroup(
-    std::size_t numWorkers, std::size_t capacity,
+    std::size_t numWorkers, std::size_t spare,
     MesherGroup &outGroup,
     const Grid &fullGrid,
-    const cl::Context &context, const cl::Device &device,
+    const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, int subsampling, bool keepBoundary, float boundaryLimit)
 :
     Base(
-        numWorkers, capacity,
+        devices.size(), numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
     progress(NULL), outGroup(outGroup), fullGrid(fullGrid),
     maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
 {
-    for (std::size_t i = 0; i < capacity; i++)
+    for (std::size_t i = 0; i < (numWorkers + spare) * devices.size(); i++)
     {
+        const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
+        const cl::Context &context = cd.first;
+        const cl::Device &device = cd.second;
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
+        item->key = device();
+        item->mapQueue = cl::CommandQueue(context, device);
         item->splats = cl::Buffer(context, CL_MEM_READ_ONLY, maxSplats * sizeof(Splat));
         item->numSplats = 0;
         addPoolItem(item);
     }
-    for (std::size_t i = 0; i < numWorkers; i++)
+    for (std::size_t i = 0; i < numWorkers * devices.size(); i++)
     {
-        addWorker(new Worker(*this, context, device, levels, keepBoundary, boundaryLimit));
+        const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
+        addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit));
     }
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
-    std::size_t numWorkers, std::size_t capacity,
+    std::size_t numWorkers, std::size_t spare,
     const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, bool keepBoundary)
@@ -122,7 +128,7 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
 
     CLH::ResourceUsage itemUsage;
     itemUsage.addBuffer(maxSplats * sizeof(Splat));
-    return workerUsage * numWorkers + itemUsage * capacity;
+    return workerUsage * numWorkers + itemUsage * (numWorkers + spare);
 }
 
 DeviceWorkerGroupBase::Worker::Worker(
@@ -131,6 +137,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     int levels, bool keepBoundary, float boundaryLimit)
 :
     owner(owner),
+    key(device()),
     queue(context, device),
     tree(context, levels, owner.maxSplats),
     input(context),
@@ -208,17 +215,16 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
 
 
 FineBucketGroup::FineBucketGroup(
-    std::size_t numWorkers, std::size_t capacity,
+    std::size_t numWorkers, std::size_t spare,
     DeviceWorkerGroup &outGroup,
     const Grid &fullGrid,
-    const cl::Context &context, const cl::Device &device,
     std::size_t maxCoarseSplats,
     std::size_t maxSplats,
     Grid::size_type maxCells,
     std::size_t maxSplit)
 :
-    WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker>(
-        numWorkers, capacity,
+    WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker, FineBucketGroup>(
+        numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.get")),
@@ -231,9 +237,9 @@ FineBucketGroup::FineBucketGroup(
 {
     for (std::size_t i = 0; i < numWorkers; i++)
     {
-        addWorker(new Worker(*this, context, device));
+        addWorker(new Worker(*this));
     }
-    for (std::size_t i = 0; i < capacity; i++)
+    for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
         item->splats.reserve(maxCoarseSplats);
@@ -241,8 +247,8 @@ FineBucketGroup::FineBucketGroup(
     }
 }
 
-FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner, const cl::Context &context, const cl::Device &device)
-    : owner(owner), queue(context, device)
+FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner)
+    : owner(owner)
 {
 };
 
@@ -258,8 +264,8 @@ void FineBucketGroupBase::Worker::operator()(
     outItem->grid = grid;
     outItem->recursionState = recursionState;
     Splat *splats = static_cast<Splat *>(
-        queue.enqueueMapBuffer(outItem->splats, CL_TRUE, CL_MAP_WRITE,
-                               0, splatSet.numSplats() * sizeof(Splat)));
+        outItem->mapQueue.enqueueMapBuffer(outItem->splats, CL_TRUE, CL_MAP_WRITE,
+                                           0, splatSet.numSplats() * sizeof(Splat)));
 
 
     std::size_t pos = 0;
@@ -276,8 +282,8 @@ void FineBucketGroupBase::Worker::operator()(
     registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
     registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
 
-    queue.enqueueUnmapMemObject(outItem->splats, splats);
-    queue.finish(); // TODO: see if this can be made asynchronous
+    outItem->mapQueue.enqueueUnmapMemObject(outItem->splats, splats);
+    outItem->mapQueue.finish(); // TODO: see if this can be made asynchronous
 
     owner.outGroup.push(curChunkId, outItem);
 }

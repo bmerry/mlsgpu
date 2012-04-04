@@ -135,14 +135,19 @@ const char * const cpu = "cl-cpu";
 void addOptions(boost::program_options::options_description &desc);
 
 /**
- * Pick an OpenCL device based on command-line options.
+ * Pick OpenCL devices based on command-line options. Each device is matched
+ * against a number of criteria and used if any of them match.
+ * - <tt>--cl-device=name:n</tt> matches for the nth device with a prefix of @a
+ *   name.
+ * - <tt>--cl-device=name</tt> matches for all devices with a prefix of @a name.
+ * - <tt>--cl-gpu</tt> causes all GPU devices to match.
+ * - <tt>--cl-cpu</tt> causes all CPU devices to match.
  *
- * If more than one device matches the criteria, GPU devices are preferred.
- * If there is no exact match for the device name, a prefix will be accepted.
+ * If none of --cl-device, --cl-cpu and --cl-gpu is given then --cl-gpu is implied.
  *
- * @return A device matching the command-line options, or @c NULL if none matches.
+ * @return A (possibly empty) list of devices matching the command-line options.
  */
-cl::Device findDevice(const boost::program_options::variables_map &vm);
+std::vector<cl::Device> findDevices(const boost::program_options::variables_map &vm);
 
 /**
  * Create an OpenCL context suitable for use with a device.

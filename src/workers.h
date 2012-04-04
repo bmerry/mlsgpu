@@ -19,9 +19,13 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/noncopyable.hpp>
+#include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/ptr_container/ptr_map.hpp>
 #include <cstddef>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 #include <CL/cl.hpp>
 #include "splat_tree_cl.h"
 #include "clip.h"
@@ -41,45 +45,27 @@
 #include "statistics.h"
 
 /**
- * A collection of threads operating on work-items, fed by a queue.
- *
- * @param WorkItem     A POD type describing an item of work.
- * @param Worker       Function object class that is called to process elements.
- *
- * The @a Worker class must have an @c operator() that accepts a reference to a
- * @a WorkItem. The operator does not need to be @c const.  The worker class
- * does not need to be copyable or default-constructable and may contain
- * significant state.
- *
- * The workitems may also be large objects, and the design is based on
- * recycling a fixed pool rather than having the caller construct them. Users
- * of the class will call @ref get to retrieve an item from the pool, populate
- * it, then call @ref push to enqueue the item for processing.
- *
- * At construction, the worker group is given both a number of threads and a
- * capacity. The capacity determines the number of workitems that will be
- * live. If capacity equals the number of workers, then it will only be
- * possible to populate a new work item while one of the workers is idle. If
- * capacity exceeds the number of threads, then it will be possible to
- * populate spare work items while all worker threads are busy.
- *
- * The @ref start and @ref stop functions are not thread-safe: they should
- * only be called by a single manager thread. The other functions are
- * thread-safe, allowing for multiple producers.
+ * Base class for @ref WorkerGroup that handles only the threads, workers and pool,
+ * but not a work queue. See @ref WorkerGroup for details.
  */
-template<typename WorkItem, typename GenType, typename Worker>
-class WorkerGroup : public boost::noncopyable
+template<typename WorkItem, typename GenType, typename Worker, typename Derived>
+class WorkerGroupPool : public boost::noncopyable
 {
 public:
     typedef GenType gen_type;
+
+    bool running() const
+    {
+        return !threads.empty();
+    }
 
     /**
      * Retrieve an unused item from the pool to be populated with work. This
      * may block if all the items are currently in use.
      *
-     * @warning The returned item @em must be enqueued with @ref push, even
-     * if it turns out there is nothing to do. Failure to do so will lead
-     * to the item being lost to the pool, and possibly deadlock.
+     * @warning The returned item @em must be enqueued with @ref push, even if
+     * it turns out there is nothing to do. Failure to do so will lead to the
+     * item being lost to the pool, and possibly deadlock.
      */
     boost::shared_ptr<WorkItem> get()
     {
@@ -95,34 +81,7 @@ public:
     void push(const gen_type &gen, boost::shared_ptr<WorkItem> item)
     {
         Statistics::Timer timer(pushStat);
-        workQueue.push(gen, item);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStart.
-     *
-     * @pre The worker threads are not running.
-     */
-    void producerStart(const gen_type &gen)
-    {
-        MLSGPU_ASSERT(threads.empty(), state_error);
-        workQueue.producerStart(gen);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerNext.
-     */
-    void producerNext(const gen_type &oldGen, const gen_type &newGen)
-    {
-        workQueue.producerNext(oldGen, newGen);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStop.
-     */
-    void producerStop(const gen_type &gen)
-    {
-        workQueue.producerStop(gen);
+        static_cast<Derived *>(this)->pushImpl(gen, item);
     }
 
     /**
@@ -134,12 +93,12 @@ public:
      */
     void start()
     {
-        MLSGPU_ASSERT(threads.empty(), state_error);
+        MLSGPU_ASSERT(!running(), state_error);
         threads.reserve(workers.size());
         for (std::size_t i = 0; i < workers.size(); i++)
             workers[i].start();
         for (std::size_t i = 0; i < workers.size(); i++)
-            threads.push_back(new boost::thread(Thread(*this, workers[i])));
+            threads.push_back(new boost::thread(Thread(*static_cast<Derived *>(this), getWorker(i))));
     }
 
     /**
@@ -154,8 +113,7 @@ public:
     void stop()
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), state_error);
-        for (std::size_t i = 0; i < threads.size(); i++)
-            workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
+        static_cast<Derived *>(this)->stopImpl();
         for (std::size_t i = 0; i < threads.size(); i++)
             threads[i].join();
         threads.clear();
@@ -195,29 +153,26 @@ protected:
     }
 
     /**
-     * Constructor. The derived class must change to this, and then
-     * make exactly @a numWorkers calls to @ref addWorker and @a capacity
+     * Constructor. The derived class must chain to this, and then
+     * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
      *
      * @param numWorkers     Number of worker threads to use.
-     * @param capacity       Number of work items to have in the pool.
+     * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
      * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
      * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
-     * @pre @a capacity &gt;= @a numWorkers.
      */
-    WorkerGroup(std::size_t numWorkers, std::size_t capacity,
-                Statistics::Variable &pushStat,
-                Statistics::Variable &popStat,
-                Statistics::Variable &getStat)
-        : workQueue(capacity), itemPool(capacity),
-        pushStat(pushStat), popStat(popStat), getStat(getStat)
+    WorkerGroupPool(std::size_t numWorkers, std::size_t spare,
+                    Statistics::Variable &pushStat,
+                    Statistics::Variable &popStat,
+                    Statistics::Variable &getStat)
+        : itemPool(numWorkers + spare), pushStat(pushStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
-        MLSGPU_ASSERT(capacity >= numWorkers, std::invalid_argument);
         workers.reserve(numWorkers);
     }
 
@@ -225,11 +180,11 @@ private:
     /// Thread object that processes items from the queue.
     class Thread
     {
-        WorkerGroup<WorkItem, GenType, Worker> &owner;
+        Derived &owner;
         Worker &worker;
 
     public:
-        Thread(WorkerGroup<WorkItem, GenType, Worker> &owner, Worker &worker)
+        Thread(Derived &owner, Worker &worker)
             : owner(owner), worker(worker) {}
 
         void operator()()
@@ -238,7 +193,7 @@ private:
             {
                 Timer timer;
                 gen_type gen;
-                boost::shared_ptr<WorkItem> item = owner.workQueue.pop(gen);
+                boost::shared_ptr<WorkItem> item = owner.popImpl(worker, gen);
                 if (!item.get())
                     break; // we have been asked to shut down
                 owner.popStat.add(timer.getElapsed());
@@ -249,7 +204,6 @@ private:
         }
     };
 
-    GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
     Pool<WorkItem> itemPool;
 
     /**
@@ -267,6 +221,260 @@ private:
     Statistics::Variable &pushStat;
     Statistics::Variable &popStat;
     Statistics::Variable &getStat;
+};
+
+/**
+ * A collection of threads operating on work-items, fed by a queue.
+ *
+ * @param WorkItem     A POD type describing an item of work.
+ * @param Worker       Function object class that is called to process elements.
+ *
+ * The @a Worker class must have an @c operator() that accepts a reference to a
+ * @a WorkItem. The operator does not need to be @c const.  The worker class
+ * does not need to be copyable or default-constructable and may contain
+ * significant state.
+ *
+ * The workitems may also be large objects, and the design is based on
+ * recycling a fixed pool rather than having the caller construct them. Users
+ * of the class will call @ref get to retrieve an item from the pool, populate
+ * it, then call @ref push to enqueue the item for processing.
+ *
+ * At construction, the worker group is given both a number of threads and a
+ * capacity. The capacity determines the number of workitems that will be
+ * live. If capacity equals the number of workers, then it will only be
+ * possible to populate a new work item while one of the workers is idle. If
+ * capacity exceeds the number of threads, then it will be possible to
+ * populate spare work items while all worker threads are busy. The capacity
+ * is specified as a delta to the number of workers.
+ *
+ * The @ref start and @ref stop functions are not thread-safe: they should
+ * only be called by a single manager thread. The other functions are
+ * thread-safe, allowing for multiple producers.
+ */
+template<typename WorkItem, typename GenType, typename Worker, typename Derived>
+class WorkerGroup : public WorkerGroupPool<WorkItem, GenType, Worker, Derived>
+{
+    typedef WorkerGroupPool<WorkItem, GenType, Worker, Derived> BaseType;
+    friend class WorkerGroupPool<WorkItem, GenType, Worker, Derived>;
+
+public:
+    typedef GenType gen_type;
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStart.
+     *
+     * @pre The worker threads are not running.
+     */
+    void producerStart(const gen_type &gen)
+    {
+        MLSGPU_ASSERT(!this->running(), state_error);
+        workQueue.producerStart(gen);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerNext.
+     */
+    void producerNext(const gen_type &oldGen, const gen_type &newGen)
+    {
+        workQueue.producerNext(oldGen, newGen);
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStop.
+     */
+    void producerStop(const gen_type &gen)
+    {
+        workQueue.producerStop(gen);
+    }
+
+    /**
+     * Constructor. The derived class must chain to this, and then
+     * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
+     * calls to @ref addPoolItem to provide the constructed workers and
+     * work items.
+     *
+     * @param numWorkers     Number of worker threads to use.
+     * @param spare          Number of work items to have available in the pool when all workers are busy.
+     * @param pushStat       Statistic for time blocked in @ref push.
+     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param getStat        Statistic for time blocked in @ref get.
+     *
+     * @pre @a numWorkers &gt; 0.
+     */
+    WorkerGroup(std::size_t numWorkers, std::size_t spare,
+                Statistics::Variable &pushStat,
+                Statistics::Variable &popStat,
+                Statistics::Variable &getStat)
+        : BaseType(numWorkers, spare, pushStat, popStat, getStat),
+          workQueue(numWorkers + spare)
+    {
+    }
+
+private:
+    /**
+     * Enqueue an item of work.
+     *
+     * @pre @a item was obtained by @ref get.
+     */
+    void pushImpl(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    {
+        workQueue.push(gen, item);
+    }
+
+    /**
+     * Dequeue an item of work.
+     */
+    boost::shared_ptr<WorkItem> popImpl(const Worker &worker, gen_type &gen)
+    {
+        (void) &worker;
+        return workQueue.pop(gen);
+    }
+
+    /**
+     * Shut down the worker threads.
+     */
+    void stopImpl()
+    {
+        for (std::size_t i = 0; i < this->numWorkers(); i++)
+            workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
+    }
+
+    /// Work queue
+    GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
+};
+
+
+/**
+ * Variation on @ref WorkerGroup in which the workers and items are partitioned into
+ * sets, where each work item can only be used together with the corresponding set of
+ * workers. There is a single item pool but a separate queue for each set. Items are
+ * dispatched to their matching queue.
+ *
+ * This is aimed to supporting non-uniform or non-shared memory systems where each
+ * worker is tied to a device and each item has memory allocated in that
+ * device's memory space.
+ *
+ * The sets are each identified by a key, which must be suitable for use with
+ * an associative container.
+ */
+template<typename WorkItem, typename GenType, typename Worker, typename Derived, typename Key, typename Compare = std::less<Key> >
+class WorkerGroupMulti : public WorkerGroupPool<WorkItem, GenType, Worker, Derived>
+{
+    typedef WorkerGroupPool<WorkItem, GenType, Worker, Derived> BaseType;
+    friend class WorkerGroupPool<WorkItem, GenType, Worker, Derived>;
+
+public:
+    typedef GenType gen_type;
+    typedef Key key_type;
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStart.
+     *
+     * @pre The worker threads are not running.
+     */
+    void producerStart(const gen_type &gen)
+    {
+        MLSGPU_ASSERT(!this->running(), state_error);
+        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
+        {
+            i.second->producerStart(gen);
+        }
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerNext.
+     */
+    void producerNext(const gen_type &oldGen, const gen_type &newGen)
+    {
+        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
+        {
+            i.second->producerNext(oldGen, newGen);
+        }
+    }
+
+    /**
+     * Wraps @ref GenerationalWorkQueue::producerStop.
+     */
+    void producerStop(const gen_type &gen)
+    {
+        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
+        {
+            i.second->producerStop(gen);
+        }
+    }
+
+    /**
+     * Constructor. The derived class must chain to this, and then
+     * make exactly @a numWorkers * @a numSets calls to @ref addWorker
+     * and (@a numWorkers + @a spare) * @a numSets calls to @ref addPoolItem to
+     * provide the constructed workers and work items (with the appropriate number
+     * per set).
+     *
+     * @param numSets        Number of sets.
+     * @param numWorkers     Number of worker threads to use <em>per set</em>.
+     * @param spare          Number of work items to have available in the pool when all workers are busy, <em>per set</em>.
+     * @param pushStat       Statistic for time blocked in @ref push.
+     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param getStat        Statistic for time blocked in @ref get.
+     *
+     * @pre @a numSets &gt; 0.
+     * @pre @a numWorkers &gt; 0.
+     */
+    WorkerGroupMulti(
+        std::size_t numSets, std::size_t numWorkers, std::size_t spare,
+        Statistics::Variable &pushStat,
+        Statistics::Variable &popStat,
+        Statistics::Variable &getStat)
+        : BaseType(numWorkers * numSets, spare * numSets, pushStat, popStat, getStat),
+        workQueueCapacity(numWorkers + spare)
+    {
+        MLSGPU_ASSERT(numSets > 0, std::invalid_argument);
+    }
+
+    void addWorker(Worker *worker)
+    {
+        BaseType::addWorker(worker);
+        Key key = worker->getKey();
+        if (!workQueues.count(key))
+            workQueues.insert(key, new GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>(workQueueCapacity));
+    }
+
+private:
+    /**
+     * Enqueue an item of work.
+     *
+     * @pre @a item was obtained by @ref get.
+     */
+    void pushImpl(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    {
+        workQueues.at(item->getKey()).push(gen, item);
+    }
+
+    /**
+     * Dequeue an item of work.
+     */
+    boost::shared_ptr<WorkItem> popImpl(const Worker &worker, gen_type &gen)
+    {
+        return workQueues.at(worker.getKey()).pop(gen);
+    }
+
+    /**
+     * Shut down the worker threads.
+     */
+    void stopImpl()
+    {
+        const std::size_t workersPerSet = this->numWorkers() / workQueues.size();
+        BOOST_FOREACH(typename work_queues_type::reference q, workQueues)
+            for (std::size_t i = 0; i < workersPerSet; i++)
+                q.second->pushNoGen(boost::shared_ptr<WorkItem>());
+    }
+
+    typedef boost::ptr_map<Key, GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>, Compare> work_queues_type;
+    /// Work queues
+    work_queues_type workQueues;
+
+    /// Capacity that will be used per work queue
+    std::size_t workQueueCapacity;
 };
 
 
@@ -299,7 +507,7 @@ public:
  * producers.
  */
 class MesherGroup : protected MesherGroupBase,
-    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker>
+    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>
 {
 public:
     typedef MesherGroupBase::WorkItem WorkItem;
@@ -315,7 +523,7 @@ public:
      */
     Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId);
 
-    MesherGroup(std::size_t capacity);
+    MesherGroup(std::size_t spare);
 private:
     MesherBase::InputFunctor input;
     friend class MesherGroupBase::Worker;
@@ -341,10 +549,15 @@ public:
      */
     struct WorkItem
     {
+        cl_device_id key;
+        cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
+
         cl::Buffer splats;
         std::size_t numSplats;
         Grid grid;
         Bucket::Recursion recursionState;
+
+        cl_device_id getKey() const { return key; }
     };
 
     class Worker : public boost::noncopyable
@@ -352,6 +565,7 @@ public:
     private:
         DeviceWorkerGroup &owner;
 
+        cl_device_id key;
         const cl::CommandQueue queue;
         SplatTreeCL tree;
         MlsFunctor input;
@@ -364,6 +578,8 @@ public:
 
     public:
         typedef void result_type;
+
+        cl_device_id getKey() const { return key; }
 
         Worker(
             DeviceWorkerGroup &owner,
@@ -388,10 +604,10 @@ public:
  */
 class DeviceWorkerGroup :
     protected DeviceWorkerGroupBase,
-    public WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker>
+    public WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id>
 {
 private:
-    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker> Base;
+    typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
     ProgressDisplay *progress;
     MesherGroup &outGroup;
 
@@ -409,10 +625,10 @@ public:
      * Constructor.
      *
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
-     * @param capacity           Number of workitems to use.
+     * @param spare              Number of work items to have available in the pool when all workers are busy.
      * @param outGroup           Downstream mesher group which receives output blocks.
      * @param fullGrid           The overall bounding box grid.
-     * @param context, device    OpenCL context and device to run on.
+     * @param devices            OpenCL context and device to run on, with associated contexts.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
      * @param levels             Space to allocate for the octree.
@@ -421,16 +637,16 @@ public:
      * @param boundaryLimit      Tuning factor for boundary clipping.
      */
     DeviceWorkerGroup(
-        std::size_t numWorkers, std::size_t capacity,
+        std::size_t numWorkers, std::size_t spare,
         MesherGroup &outGroup,
         const Grid &fullGrid,
-        const cl::Context &context, const cl::Device &device,
+        const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling, bool keepBoundary, float boundaryLimit);
 
     /// Returns total resources that would be used by all workers and workitems
     static CLH::ResourceUsage resourceUsage(
-        std::size_t numWorkers, std::size_t capacity,
+        std::size_t numWorkers, std::size_t spare,
         const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, bool keepBoundary);
@@ -458,13 +674,12 @@ public:
     {
     private:
         FineBucketGroup &owner;
-        const cl::CommandQueue queue; ///< Queue for map and unmap operations
         ChunkId curChunkId;
 
     public:
         typedef void result_type;
 
-        Worker(FineBucketGroup &owner, const cl::Context &context, const cl::Device &device);
+        Worker(FineBucketGroup &owner);
 
         /// Bucketing callback for blocks sized for device execution.
         void operator()(
@@ -489,7 +704,9 @@ public:
  * calls @ref Bucket::bucket to subdivide the splats into buckets suitable for
  * device execution, and passes them on to a @ref DeviceWorkerGroup.
  */
-class FineBucketGroup : protected FineBucketGroupBase, public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker>
+class FineBucketGroup :
+    protected FineBucketGroupBase,
+    public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker, FineBucketGroup>
 {
 public:
     typedef FineBucketGroupBase::WorkItem WorkItem;
@@ -497,10 +714,9 @@ public:
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
 
     FineBucketGroup(
-        std::size_t numWorkers, std::size_t capacity,
+        std::size_t numWorkers, std::size_t spare,
         DeviceWorkerGroup &outGroup,
         const Grid &fullGrid,
-        const cl::Context &context, const cl::Device &device,
         std::size_t maxCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,

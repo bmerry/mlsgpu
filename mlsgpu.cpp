@@ -398,7 +398,8 @@ void HostBlock<Splats>::stop()
  * @todo --sort is gone for now.
  */
 template<typename Splats>
-static void run2(const cl::Context &context, const cl::Device &device, const string &out,
+static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+                 const string &out,
                  const po::variables_map &vm,
                  const Splats &splats,
                  const Grid &grid)
@@ -448,14 +449,14 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
         }
     }
 
-    MesherGroup mesherGroup(1);
+    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
     DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numDeviceThreads + numBucketThreads, mesherGroup,
-        grid, context, device, maxDeviceSplats, blockCells, levels, subsampling,
+        numDeviceThreads, numBucketThreads, mesherGroup,
+        grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
         keepBoundary, boundaryLimit);
     FineBucketGroup fineBucketGroup(
-        numBucketThreads, numBucketThreads + 1, deviceWorkerGroup,
-        grid, context, device, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+        numBucketThreads, 1, deviceWorkerGroup,
+        grid, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
     HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 
     MesherBase::Namer namer;
@@ -511,7 +512,8 @@ static void run2(const cl::Context &context, const cl::Device &device, const str
     }
 }
 
-static void run(const cl::Context &context, const cl::Device &device, const string &out,
+static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+                const string &out,
                 const po::variables_map &vm)
 {
     const float spacing = vm[Option::fitGrid].as<double>();
@@ -539,19 +541,12 @@ static void run(const cl::Context &context, const cl::Device &device, const stri
         exit(1);
     }
 
-    run2(context, device, out, vm, splats, splats.getBoundingGrid());
+    run2(devices, out, vm, splats, splats.getBoundingGrid());
     writeStatistics(vm);
 }
 
-static void validateOptions(const cl::Device &device, const po::variables_map &vm)
+static void validateOptions(const po::variables_map &vm)
 {
-    if (!Marching::validateDevice(device)
-        || !SplatTreeCL::validateDevice(device))
-    {
-        cerr << "This OpenCL device is not supported.\n";
-        exit(1);
-    }
-
     const int levels = vm[Option::levels].as<int>();
     const int subsampling = vm[Option::subsampling].as<int>();
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
@@ -560,7 +555,6 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
-    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
 
     int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
     /* TODO make dynamic, considering maximum image sizes etc */
@@ -597,7 +591,7 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
     const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
     if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
     {
-        cerr << "Sum of --subsampling and --levels it too small.\n";
+        cerr << "Sum of --subsampling and --levels is too small.\n";
         exit(1);
     }
 
@@ -616,35 +610,61 @@ static void validateOptions(const cl::Device &device, const po::variables_map &v
         cerr << "Value of --fit-prune must be in [0, 1]\n";
         exit(1);
     }
+}
+
+static CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
+{
+    const int levels = vm[Option::levels].as<int>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
+    const int bucketThreads = vm[Option::bucketThreads].as<int>();
+    const int deviceThreads = vm[Option::deviceThreads].as<int>();
+    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
 
     /* Check that we have enough memory on the device. This is no guarantee against OOM, but
      * we can at least turn down silly requests before wasting any time.
      */
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
+    // TODO: get rid of device parameter
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
-        deviceThreads, deviceThreads + bucketThreads, device, maxDeviceSplats, maxCells, levels, keepBoundary);
+        deviceThreads, bucketThreads, cl::Device(), maxDeviceSplats, maxCells, levels, keepBoundary);
+    return totalUsage;
+}
 
+// TODO: do some of these checks during findDevices
+static void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsage)
+{
+    const std::string deviceName = "OpenCL device `" + device.getInfo<CL_DEVICE_NAME>() + "'";
+    if (!Marching::validateDevice(device)
+        || !SplatTreeCL::validateDevice(device))
+    {
+        cerr << deviceName << " is not supported.\n";
+        exit(1);
+    }
+
+    /* Check that we have enough memory on the device. This is no guarantee against OOM, but
+     * we can at least turn down silly requests before wasting any time.
+     */
     const std::size_t deviceTotalMemory = device.getInfo<CL_DEVICE_GLOBAL_MEM_SIZE>();
     const std::size_t deviceMaxMemory = device.getInfo<CL_DEVICE_MAX_MEM_ALLOC_SIZE>();
     if (totalUsage.getMaxMemory() > deviceMaxMemory)
     {
         cerr << "Arguments require an allocation of " << totalUsage.getMaxMemory() << ",\n"
-            << "but the OpenCL device only supports up to " << deviceMaxMemory << ".\n"
+            << "but " << deviceName << " only supports up to " << deviceMaxMemory << ".\n"
             << "Try reducing --levels or --subsampling.\n";
         exit(1);
     }
     if (totalUsage.getTotalMemory() > deviceTotalMemory)
     {
         cerr << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
-            << "but the OpenCL device has " << deviceTotalMemory << ".\n"
+            << "but " << deviceName << " only has " << deviceTotalMemory << ".\n"
             << "Try reducing --levels or --subsampling.\n";
         exit(1);
     }
 
-    Log::log[Log::info] << "About " << totalUsage.getTotalMemory() / (1024 * 1024) << "MiB of device memory will be used.\n";
     if (totalUsage.getTotalMemory() > deviceTotalMemory * 0.8)
     {
-        Log::log[Log::warn] << "WARNING: More than 80% of the device memory will be used.\n";
+        Log::log[Log::warn] << "WARNING: More than 80% of the memory on " << deviceName << " will be used.\n";
     }
 }
 
@@ -658,21 +678,32 @@ int main(int argc, char **argv)
     else if (vm.count(Option::debug))
         Log::log.setLevel(Log::debug);
 
-    cl::Device device = CLH::findDevice(vm);
-    if (!device())
+    std::vector<cl::Device> devices = CLH::findDevices(vm);
+    if (devices.empty())
     {
         cerr << "No suitable OpenCL device found\n";
         exit(1);
     }
-    Log::log[Log::info] << "Using device " << device.getInfo<CL_DEVICE_NAME>() << "\n";
 
-    validateOptions(device, vm);
+    validateOptions(vm);
+    CLH::ResourceUsage totalUsage = resourceUsage(vm);
+    Log::log[Log::info] << "About " << totalUsage.getTotalMemory() / (1024 * 1024) << "MiB of device memory will be used per device.\n";
+    BOOST_FOREACH(const cl::Device &device, devices)
+    {
+        validateDevice(device, totalUsage);
+        Log::log[Log::info] << "Using device " << device.getInfo<CL_DEVICE_NAME>() << "\n";
+    }
 
-    cl::Context context = CLH::makeContext(device);
+    std::vector<std::pair<cl::Context, cl::Device> > cd;
+    cd.reserve(devices.size());
+    for (std::size_t i = 0; i < devices.size(); i++)
+    {
+        cd.push_back(std::make_pair(CLH::makeContext(devices[i]), devices[i]));
+    }
 
     try
     {
-        run(context, device, vm[Option::outputFile].as<string>(), vm);
+        run(cd, vm[Option::outputFile].as<string>(), vm);
     }
     catch (ios::failure &e)
     {
