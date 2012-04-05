@@ -32,8 +32,10 @@ private:
 
 protected:
     MemoryMapping(const cl::Memory &memory, const cl::Device &device);
+    MemoryMapping(const cl::Memory &memory, const cl::CommandQueue &queue);
     ~MemoryMapping();
 
+    /// Subclasses must call this inside the constructor to set the mapped pointer
     void setPointer(void *ptr) { this->ptr = ptr; }
     const cl::CommandQueue &getQueue() const { return queue; }
     const cl::Memory &getMemory() const { return memory; }
@@ -42,32 +44,81 @@ public:
     void *get() const { return ptr; }
 };
 
+template<typename T>
+class TypedMemoryMapping : public MemoryMapping
+{
+protected:
+    TypedMemoryMapping(const cl::Memory &memory, const cl::Device &device)
+        : MemoryMapping(memory, device)
+    {
+    }
+
+    TypedMemoryMapping(const cl::Memory &memory, const cl::CommandQueue &queue)
+        : MemoryMapping(memory, queue)
+    {
+    }
+
+public:
+    T *get() const { return static_cast<T *>(MemoryMapping::get()); }
+    T &operator *() const { return *get(); }
+    T *operator->() const { return get(); }
+    T &operator[](std::size_t index) const { return get()[index]; }
+};
+
 } // namespace detail
 
 /**
  * RAII wrapper around mapping and unmapping a buffer.
  * It only handles synchronous mapping and unmapping.
  */
-class BufferMapping : public detail::MemoryMapping
+template<typename T>
+class BufferMapping : public detail::TypedMemoryMapping<T>
 {
 public:
-    BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size);
+    BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size)
+        : detail::TypedMemoryMapping<T>(buffer, device)
+    {
+        this->setPointer(this->getQueue.enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size));
+    }
 
-    const cl::Buffer &getBuffer() const { return static_cast<const cl::Buffer &>(getMemory()); }
+    BufferMapping(const cl::Buffer &buffer, const cl::CommandQueue &queue, cl_map_flags flags, ::size_t offset, ::size_t size)
+        : detail::TypedMemoryMapping<T>(buffer, queue)
+    {
+        this->setPointer(queue.enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size));
+    }
+
+    const cl::Buffer &getBuffer() const { return static_cast<const cl::Buffer &>(this->getMemory()); }
 };
 
 /**
- * RAII wrapper around mapping and unmapping an image.
- * It only handles synchronous mapping and unmapped.
+ * RAII wrapper to both allocate and map a buffer with the @c
+ * CL_MEM_ALLOC_HOST_PTR flag. It can be treated as a memory allocator for
+ * memory that can be efficiently transferred to and from device memory (at
+ * least for some particular CL implementations) but which cannot be directly
+ * used on the device.
  */
-class ImageMapping : public detail::MemoryMapping
+template<typename T>
+class PinnedMemory : public detail::TypedMemoryMapping<T>
 {
+private:
+    // Shadow the base class version to prevent accident use as an array
+    T &operator[](std::size_t index);
 public:
-    ImageMapping(const cl::Image &image, const cl::Device &device, cl_map_flags flags,
-                 const cl::size_t<3> &origin, const cl::size_t<3> &region,
-                 ::size_t *rowPitch, ::size_t *slicePitch);
+    PinnedMemory(const cl::Context &context, const cl::Device &device)
+        : detail::TypedMemoryMapping<T>(cl::Buffer(context, CL_MEM_ALLOC_HOST_PTR, sizeof(T)), device)
+    {
+        T *ptr = static_cast<T *>(this->getQueue().enqueueMapBuffer(
+                static_cast<const cl::Buffer &>(this->getMemory()),
+                CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, sizeof(T)));
+        this->setPointer(ptr);
+        new(ptr) T(); // run constructor on the allocated memory
+    }
 
-    const cl::Image &getImage() const { return static_cast<const cl::Image &>(getMemory()); }
+    ~PinnedMemory()
+    {
+        if (this->get() != NULL)
+            this->get()->~T();
+    }
 };
 
 /**

@@ -75,6 +75,19 @@ public:
 
 private:
     /**
+     * Structure to hold the various values read back from the device at
+     * various times.  This is allocated in a @ref CLH::PinnedMemory so that only
+     * one page needs to be pinned.
+     */
+    struct Readback
+    {
+        cl_uint compacted;
+        cl_uint2 elementCounts;
+        cl_uint numWelded;
+        cl_uint firstExternal;
+    };
+
+    /**
      * The vertices incident on each edge. It is important that the vertex indices
      * are in order in each edge.
      */
@@ -228,6 +241,9 @@ private:
     clogs::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
     clogs::Scan scanElements;               ///< Scanner to scan @ref viCount.
     clogs::Radixsort sortVertices;          ///< Sorts vertices by keys for welding.
+
+    /// Pinned memory for doing readbacks
+    CLH::PinnedMemory<Readback> readback;
 
     /**
      * Finds the edge incident on vertices v0 and v1.

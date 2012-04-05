@@ -315,7 +315,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     maxWidth(maxWidth), maxHeight(maxHeight), context(context),
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
-    sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4))
+    sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
+    readback(context, device)
 {
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
@@ -409,8 +410,8 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
     scanUint.enqueue(queue, occupied, levelCells + 1, NULL, &wait, &last);
     wait[0] = last;
 
-    cl_uint compacted;
-    queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint), &compacted,
+    queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint),
+                            &readback->compacted,
                             &wait, NULL);
 
     // In parallel to the readback, do compaction
@@ -422,7 +423,7 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 
     // Now obtain the number of compacted cells for subsequent steps
     queue.finish();
-    return compacted;
+    return readback->compacted;
 }
 
 cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
@@ -447,10 +448,9 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
     scanElements.enqueue(queue, viCount, compacted + 1, NULL, &wait, &last);
     wait[0] = last;
 
-    cl_uint2 ans;
     queue.enqueueReadBuffer(viCount, CL_TRUE, compacted * sizeof(cl_uint2), sizeof(cl_uint2),
-                            &ans, &wait, NULL);
-    return ans;
+                            &readback->elementCounts, &wait, NULL);
+    return readback->elementCounts;
 }
 
 void Marching::shipOut(const cl::CommandQueue &queue,
@@ -487,8 +487,8 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     wait[0] = last;
 
     // Start this readback - but we don't immediately need the result.
-    cl_uint numWelded;
-    queue.enqueueReadBuffer(vertexUnique, CL_FALSE, sizes.s0 * sizeof(cl_uint), sizeof(cl_uint), &numWelded, &wait, NULL);
+    queue.enqueueReadBuffer(vertexUnique, CL_FALSE, sizes.s0 * sizeof(cl_uint), sizeof(cl_uint),
+                            &readback->numWelded, &wait, NULL);
 
     // TODO: should we be sorting key/value pairs? The values are going to end up moving
     // twice, and most of them will be eliminated entirely! However, sorting them does
@@ -508,8 +508,8 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                               &wait, &last);
     wait[0] = last;
 
-    cl_uint hFirstExternal;
-    queue.enqueueReadBuffer(firstExternal, CL_FALSE, 0, sizeof(cl_uint), &hFirstExternal, &wait, NULL);
+    queue.enqueueReadBuffer(firstExternal, CL_FALSE, 0, sizeof(cl_uint),
+                            &readback->firstExternal, &wait, NULL);
 
     CLH::enqueueNDRangeKernel(queue,
                               reindexKernel,
@@ -523,8 +523,8 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     outputMesh.vertices = weldedVertices;
     outputMesh.vertexKeys = weldedVertexKeys;
     outputMesh.triangles = indices;
-    outputMesh.numVertices = numWelded;
-    outputMesh.numInternalVertices = hFirstExternal;
+    outputMesh.numVertices = readback->numWelded;
+    outputMesh.numInternalVertices = readback->firstExternal;
     outputMesh.numTriangles = sizes.s1 / 3;
     output(queue, outputMesh, NULL, event);
 }

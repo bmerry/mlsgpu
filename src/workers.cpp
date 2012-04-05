@@ -263,26 +263,24 @@ void FineBucketGroupBase::Worker::operator()(
     outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
-    Splat *splats = static_cast<Splat *>(
-        outItem->mapQueue.enqueueMapBuffer(outItem->splats, CL_TRUE, CL_MAP_WRITE,
-                                           0, splatSet.numSplats() * sizeof(Splat)));
-
-
-    std::size_t pos = 0;
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
-    while (!splatStream->empty())
     {
-        splats[pos] = **splatStream;
-        ++*splatStream;
-        ++pos;
+        CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
+                                         0, splatSet.numSplats() * sizeof(Splat));
+
+        std::size_t pos = 0;
+        boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
+        while (!splatStream->empty())
+        {
+            splats[pos] = **splatStream;
+            ++*splatStream;
+            ++pos;
+        }
+        assert(pos == splatSet.numSplats());
+
+        registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
+        registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
+        registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
     }
-    assert(pos == splatSet.numSplats());
-
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
-    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
-
-    outItem->mapQueue.enqueueUnmapMemObject(outItem->splats, splats);
     outItem->mapQueue.finish(); // TODO: see if this can be made asynchronous
 
     owner.outGroup.push(curChunkId, outItem);

@@ -39,6 +39,11 @@ MemoryMapping::MemoryMapping(const cl::Memory &memory, const cl::Device &device)
     ptr = NULL;
 }
 
+MemoryMapping::MemoryMapping(const cl::Memory &memory, const cl::CommandQueue &queue)
+    : memory(memory), queue(queue), ptr(NULL)
+{
+}
+
 MemoryMapping::~MemoryMapping()
 {
     if (ptr)
@@ -49,21 +54,6 @@ MemoryMapping::~MemoryMapping()
 }
 
 } // namespace detail
-
-BufferMapping::BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size)
-    : detail::MemoryMapping(buffer, device)
-{
-    setPointer(getQueue().enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size));
-}
-
-ImageMapping::ImageMapping(
-    const cl::Image &image, const cl::Device &device, cl_map_flags flags,
-    const cl::size_t<3> &origin, const cl::size_t<3> &region,
-    ::size_t *rowPitch, ::size_t *slicePitch)
-    : detail::MemoryMapping(image, device)
-{
-    setPointer(getQueue().enqueueMapImage(image, CL_TRUE, flags, origin, region, rowPitch, slicePitch));
-}
 
 ResourceUsage ResourceUsage::operator+(const ResourceUsage &b) const
 {
