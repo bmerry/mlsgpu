@@ -174,7 +174,8 @@ private:
      * will thus typically be negative. @ref upsweepCounts applies the
      * summation up the tree.
      */
-    std::vector<boost::multi_array<std::tr1::int64_t, 3> > nodeCounts;
+    std::vector<boost::multi_array<std::tr1::int64_t, 3>,
+        Statistics::MakeAllocator<boost::multi_array<std::tr1::int64_t, 3> >::type> nodeCounts;
 
     /**
      * Index of the chosen subregion for each leaf (BAD_REGION if empty).

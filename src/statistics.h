@@ -168,6 +168,30 @@ public:
     }
 
     /**
+     * Increment the current value by @a x. Unlike @ref add, it will default-initialize
+     * the value if there is no existing value.
+     */
+    Peak<T> &operator+=(T x)
+    {
+        if (!hasValue)
+            set(T());
+        set(current + x);
+        return *this;
+    }
+
+    /**
+     * Decrement the current value by @a x. Unlike @ref add, it will default-initialize
+     * the value if there is no existing value.
+     */
+    Peak<T> &operator-=(T x)
+    {
+        if (!hasValue)
+            set(T());
+        set(current - x);
+        return *this;
+    }
+
+    /**
      * Replaces the current value (if any).
      */
     void set(T x)
@@ -349,6 +373,84 @@ template<typename T>
 static inline T &getStatistic(const std::string &name)
 {
     return Registry::getInstance().getStatistic<T>(name);
+}
+
+template<typename BaseAllocator>
+class Allocator : public BaseAllocator
+{
+private:
+    Statistics::Peak<typename BaseAllocator::size_type> *usage;
+
+public:
+    explicit Allocator(Statistics::Peak<typename BaseAllocator::size_type> *usage = NULL,
+                       const BaseAllocator &base = BaseAllocator()) throw()
+        : BaseAllocator(base), usage(usage) {}
+
+    template<typename U> struct rebind
+    {
+        typedef Allocator<typename BaseAllocator::template rebind<U>::other> other;
+    };
+
+    typename BaseAllocator::pointer allocate(typename BaseAllocator::size_type n)
+    {
+        typename BaseAllocator::pointer ans = BaseAllocator::allocate(n);
+        if (usage != NULL)
+            *usage += n * sizeof(typename BaseAllocator::value_type);
+        return ans;
+    }
+
+    template<typename U>
+    typename BaseAllocator::pointer allocate(
+        typename BaseAllocator::size_type n,
+        typename BaseAllocator::template rebind<U>::other::pointer hint)
+    {
+        typename BaseAllocator::pointer ans = BaseAllocator::allocate(n, hint);
+        if (usage != NULL)
+            *usage += n * sizeof(typename BaseAllocator::value_type);
+        return ans;
+    }
+
+    void deallocate(typename BaseAllocator::pointer p, typename BaseAllocator::size_type n)
+    {
+        BaseAllocator::deallocate(p, n);
+        if (usage != NULL)
+            *usage -= n * sizeof(typename BaseAllocator::value_type);
+    }
+
+    template<typename A, typename B>
+    friend bool operator==(const Allocator<A> &a, const Allocator<B> &b);
+};
+
+template<typename A, typename B>
+bool operator==(const Allocator<A> &a, const Allocator<B> &b)
+{
+    return a.usage == b.usage && static_cast<const A &>(a) == static_cast<const B &>(b);
+}
+
+template<typename A, typename B>
+bool operator!=(const Allocator<A> &a, const Allocator<B> &b)
+{
+    return !(a == b);
+}
+
+template<typename T>
+struct MakeAllocator
+{
+    typedef Allocator<std::allocator<T> > type;
+};
+
+template<typename T>
+typename MakeAllocator<T>::type makeAllocator(
+    Statistics::Peak<typename MakeAllocator<T>::type::size_type> &usage)
+{
+    return typename MakeAllocator<T>::type(&usage);
+}
+
+template<typename T>
+typename MakeAllocator<T>::type makeAllocator(const std::string &name)
+{
+    typedef typename MakeAllocator<T>::type::size_type size_type;
+    return makeAllocator<T>(Statistics::getStatistic<Statistics::Peak<size_type> >(name));
 }
 
 } // namespace Statistics
