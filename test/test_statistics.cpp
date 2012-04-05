@@ -103,6 +103,7 @@ class TestPeak : public TestStatistic
 {
     CPPUNIT_TEST_SUB_SUITE(TestPeak, TestStatistic);
     CPPUNIT_TEST(testAdd);
+    CPPUNIT_TEST(testSub);
     CPPUNIT_TEST(testSet);
     CPPUNIT_TEST(testGet);
     CPPUNIT_TEST(testGetMax);
@@ -111,15 +112,19 @@ class TestPeak : public TestStatistic
     CPPUNIT_TEST_SUITE_END();
 
 private:
-    /// Peak statistic fixture
+    /**
+     * Peak statistic fixture. It is initialized to the value -100, with the
+     * maximum being left at 0.
+     */
     boost::scoped_ptr<Statistics::Peak<long long> > peak;
 
-    void testAdd();      ///< Test @ref Statistics::Peak::add
-    void testSet();      ///< Test @ref Statistics::Peak::set
+    void testAdd();      ///< Test Statistics::Peak::operator+=()
+    void testSub();      ///< Test Statistics::Peak::operator-=()
+    void testSet();      ///< Test Statistics::Peak::operator=()
     void testGet();      ///< Test @ref Statistics::Peak::get
     void testGetMax();   ///< Test @ref Statistics::Peak::getMax
     void testStream();   ///< Test streaming a @ref Statistics::Peak to an @c ostream
-    void testEmpty();    ///< Test that methods throw when no value is set
+    void testEmpty();    ///< Test initial state
 
 protected:
     virtual Statistics::Statistic *createStatistic(const std::string &name) const;
@@ -255,42 +260,50 @@ Statistics::Statistic *TestCounter::createStatistic(const std::string &name) con
 void TestPeak::setUp()
 {
     peak.reset(new Statistics::Peak<long long>("peak"));
-    peak->set(-100LL);
+    *peak = -100LL;
 }
 
 void TestPeak::testSet()
 {
     // Test initial state
     CPPUNIT_ASSERT_EQUAL(-100LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(-100LL, peak->max);
-    CPPUNIT_ASSERT(peak->hasValue);
+    CPPUNIT_ASSERT_EQUAL(0LL, peak->max);
 
     // Test setting a maximal value
-    peak->set(1234567890LL);
+    *peak = 1234567890LL;
     CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->current);
     CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
-    CPPUNIT_ASSERT(peak->hasValue);
 
     // Test setting a non-maximal value
-    peak->set(123456LL);
+    *peak = 123456LL;
     CPPUNIT_ASSERT_EQUAL(123456LL, peak->current);
     CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
-    CPPUNIT_ASSERT(peak->hasValue);
 }
 
 void TestPeak::testAdd()
 {
     // Go up
-    peak->add(250LL);
+    *peak += 250LL;
     CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
     CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
-    CPPUNIT_ASSERT(peak->hasValue);
 
     // Go down
-    peak->add(-200LL);
+    *peak += -200LL;
     CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
     CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
-    CPPUNIT_ASSERT(peak->hasValue);
+}
+
+void TestPeak::testSub()
+{
+    // Go up
+    *peak -= -250LL;
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+
+    // Go down
+    *peak -= 200LL;
+    CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
 }
 
 void TestPeak::testGet()
@@ -302,9 +315,9 @@ void TestPeak::testGet()
 
 void TestPeak::testGetMax()
 {
-    CPPUNIT_ASSERT_EQUAL(-100LL, peak->getMax());
+    CPPUNIT_ASSERT_EQUAL(0LL, peak->getMax());
     peak->set(-200LL);
-    CPPUNIT_ASSERT_EQUAL(-100LL, peak->getMax());
+    CPPUNIT_ASSERT_EQUAL(0LL, peak->getMax());
     peak->set(200LL);
     CPPUNIT_ASSERT_EQUAL(200LL, peak->getMax());
 }
@@ -312,21 +325,21 @@ void TestPeak::testGetMax()
 void TestPeak::testStream()
 {
     std::ostringstream o;
+    *peak = 123LL;
     o << *peak;
-    CPPUNIT_ASSERT_EQUAL(std::string("peak: -100"), o.str());
+    CPPUNIT_ASSERT_EQUAL(std::string("peak: 123"), o.str());
 
     Statistics::Peak<int> empty("empty");
     o.str("");
     o << empty;
-    CPPUNIT_ASSERT_EQUAL(std::string("empty: [no samples]"), o.str());
+    CPPUNIT_ASSERT_EQUAL(std::string("empty: 0"), o.str());
 }
 
 void TestPeak::testEmpty()
 {
     Statistics::Peak<int> empty("empty");
-    CPPUNIT_ASSERT_THROW(empty.add(1), std::length_error);
-    CPPUNIT_ASSERT_THROW(empty.get(), std::length_error);
-    CPPUNIT_ASSERT_THROW(empty.getMax(), std::length_error);
+    CPPUNIT_ASSERT_EQUAL(0, empty.get());
+    CPPUNIT_ASSERT_EQUAL(0, empty.getMax());
 }
 
 Statistics::Statistic *TestPeak::createStatistic(const std::string &name) const

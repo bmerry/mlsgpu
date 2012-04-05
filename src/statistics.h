@@ -130,10 +130,9 @@ public:
 };
 
 /**
- * Statistic class that measures the maximum value a variable takes.
- *
- * In the initial state it has no value, and one must be set with @ref set before
- * using @ref add.
+ * Statistic class that measures the maximum value a variable takes. In the initial
+ * state, the current value and the maximum are default-initialized. It is operated
+ * on using @c =, @c += and @c -=.
  */
 template<typename T>
 class Peak : public Statistic
@@ -142,87 +141,68 @@ class Peak : public Statistic
 private:
     T current;
     T max;
-    bool hasValue;
 
 protected:
     virtual void write(std::ostream &o) const
     {
-        if (hasValue)
-            o << max;
-        else
-            o << "[no samples]";
-    }
-
-public:
-    Peak(const std::string &name) : Statistic(name), current(), max(), hasValue(false) {}
-
-    /**
-     * Increment the current value by @a x.
-     * @throw std::length_error if no value has been set using @ref set.
-     */
-    void add(T x)
-    {
-        if (!hasValue)
-            throw std::length_error("No samples");
-        set(current + x);
+        o << max;
     }
 
     /**
-     * Increment the current value by @a x. Unlike @ref add, it will default-initialize
-     * the value if there is no existing value.
-     */
-    Peak<T> &operator+=(T x)
-    {
-        if (!hasValue)
-            set(T());
-        set(current + x);
-        return *this;
-    }
-
-    /**
-     * Decrement the current value by @a x. Unlike @ref add, it will default-initialize
-     * the value if there is no existing value.
-     */
-    Peak<T> &operator-=(T x)
-    {
-        if (!hasValue)
-            set(T());
-        set(current - x);
-        return *this;
-    }
-
-    /**
-     * Replaces the current value (if any).
+     * Replaces the current value.
+     *
+     * @pre The caller must hold the lock.
      */
     void set(T x)
     {
         current = x;
-        if (!hasValue || current > max)
-        {
+        if (max < current)
             max = current;
-            hasValue = true;
-        }
     }
 
+public:
     /**
-     * Retrieves the current value.
-     * @throw std::length_error if no value has been set using @ref set.
+     * Construct, setting a name and default-initializing the current and maximum values.
      */
+    Peak(const std::string &name) : Statistic(name), current(), max() {}
+
+    /**
+     * Increment the current value by @a x.
+     */
+    Peak<T> &operator+=(T x)
+    {
+        boost::lock_guard<boost::mutex> _(mutex);
+        set(current + x);
+        return *this;
+    }
+
+    /// Decrement the current value by @a x.
+    Peak<T> &operator-=(T x)
+    {
+        boost::lock_guard<boost::mutex> _(mutex);
+        set(current - x);
+        return *this;
+    }
+
+    /// Set the current value to @a x.
+    Peak<T> &operator=(T x)
+    {
+        boost::lock_guard<boost::mutex> _(mutex);
+        set(x);
+        return *this;
+    }
+
+    /// Retrieve the current value.
     T get() const
     {
-        if (!hasValue)
-            throw std::length_error("No samples");
+        boost::lock_guard<boost::mutex> _(mutex);
         return current;
     }
 
-    /**
-     * Retrieves the highest value that has been set.
-     * @throw std::length_error if no value has been set using @ref set.
-     */
+    /// Retrieves the highest value that has been set.
     T getMax() const
     {
-        if (!hasValue)
-            throw std::length_error("No samples");
+        boost::lock_guard<boost::mutex> _(mutex);
         return max;
     }
 };
