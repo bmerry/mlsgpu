@@ -55,6 +55,14 @@ variants = {
     }
 }
 
+libs = [
+    'boost_program_options-mt',
+    'boost_iostreams-mt',
+    'boost_thread-mt',
+    'boost_math_c99-mt', 'boost_math_c99f-mt',
+    'rt'
+]
+
 def options(opt):
     opt.load('compiler_cxx')
     opt.load('waf_unit_test')
@@ -126,6 +134,8 @@ def configure(conf):
     conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
     conf.check_cxx(header_name = 'clogs/clogs.h', lib = 'clogs', use = 'OPENCL', uselib_store = 'CLOGS')
     conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
+    for l in libs:
+        conf.check_cxx(lib = l)
 
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')
@@ -167,13 +177,6 @@ def build(bld):
             target = 'mls',
             use = 'OPENCL CLOGS STXXL',
             name = 'libmls')
-    libs = [
-        'boost_program_options-mt',
-        'boost_iostreams-mt',
-        'boost_thread-mt',
-        'boost_math_c99-mt', 'boost_math_c99f-mt',
-        'rt'
-    ]
     bld.program(
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
