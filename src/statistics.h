@@ -360,11 +360,16 @@ class Allocator : public BaseAllocator
 {
 private:
     Statistics::Peak<typename BaseAllocator::size_type> *usage;
+    template<typename B> friend class Allocator;
 
 public:
     explicit Allocator(Statistics::Peak<typename BaseAllocator::size_type> *usage = NULL,
                        const BaseAllocator &base = BaseAllocator()) throw()
         : BaseAllocator(base), usage(usage) {}
+
+    /// Copy and conversion constructors
+    template<typename B>
+    Allocator(const Allocator<B> &b) : BaseAllocator(b), usage(b.usage) {}
 
     template<typename U> struct rebind
     {

@@ -38,6 +38,7 @@
 #include "fast_ply.h"
 #include "union_find.h"
 #include "work_queue.h"
+#include "statistics.h"
 
 /**
  * Enumeration of the supported mesher types
@@ -341,7 +342,9 @@ protected:
         }
     };
 
-    typedef std::tr1::unordered_map<cl_ulong, std::tr1::uint32_t> vertex_id_map_type;
+    typedef std::tr1::unordered_map<
+        cl_ulong, std::tr1::uint32_t, std::tr1::hash<cl_ulong>, std::equal_to<cl_ulong>,
+        Statistics::MakeAllocator<cl_ulong>::type> vertex_id_map_type;
     typedef std::tr1::unordered_map<cl_ulong, clump_id> clump_id_map_type;
 
     /// Maps external vertex keys to external indices for the current chunk
@@ -428,6 +431,14 @@ protected:
         std::tr1::uint32_t priorVertices,
         const std::vector<std::tr1::uint32_t> &indexTable,
         HostKeyMesh &mesh) const;
+
+    KeyMapMesher() :
+        vertexIdMap(1048576,
+                    vertex_id_map_type::hasher(),
+                    vertex_id_map_type::key_equal(),
+                    Statistics::makeAllocator<vertex_id_map_type::key_type>("mem.vertexIdMap"))
+    {
+    }
 };
 
 } // namespace detail
