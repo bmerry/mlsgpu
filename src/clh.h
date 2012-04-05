@@ -23,6 +23,9 @@ namespace CLH
 namespace detail
 {
 
+/**
+ * RAII encapsulation of a memory-mapped OpenCL buffer or image.
+ */
 class MemoryMapping : public boost::noncopyable
 {
 private:
@@ -31,17 +34,71 @@ private:
     void *ptr;              ///< Mapped pointer
 
 protected:
+    /**
+     * Construct without a queue. The map and unmap operations will be
+     * performed on an internally-allocated queue. The subclass constructor
+     * must perform the mapping and provide the pointer to @ref setPointer.
+     *
+     * @param memory       The object that is mapped.
+     * @param device       The device used to construct the command queue.
+     */
     MemoryMapping(const cl::Memory &memory, const cl::Device &device);
+
+    /**
+     * Construct using an existing queue. The subclass constructor must
+     * perform the mapping using this queue, and provide the pointer to
+     * @ref setPointer.
+     */
     MemoryMapping(const cl::Memory &memory, const cl::CommandQueue &queue);
+
+    /**
+     * Destructor that releases the mapping. Note that it will @em suppress any
+     * error that occurs during unmapping, due to the exception safety
+     * requirements of constructors. In most cases you should use @ref reset
+     * and only rely on the destructor for cleaning up after an exception.
+     */
     ~MemoryMapping();
 
-    /// Subclasses must call this inside the constructor to set the mapped pointer
+    /**
+     * Subclasses must call this inside the constructor to set the mapped pointer.
+     *
+     * @param ptr         Pointer to the mapping memory.
+     * @pre @a ptr is not @c NULL.
+     */
     void setPointer(void *ptr) { this->ptr = ptr; }
+
+    /**
+     * Retrieve the queue that will be used for unmapping. This will be a @c
+     * NULL pointer if @ref reset has been called.
+     */
     const cl::CommandQueue &getQueue() const { return queue; }
+
+    /**
+     * Retrieve the mapped memory object. This will be a @c NULL pointer if
+     * @ref reset has been called.
+     */
     const cl::Memory &getMemory() const { return memory; }
 
 public:
+    /**
+     * Retrieve the pointer to the mapped memory.
+     *
+     * This will be @c NULL if @ref reset has been called.
+     */
     void *get() const { return ptr; }
+
+    /**
+     * Release the mapping and optionally return an event. It is safe to call
+     * this multiple times, but if the object has already been released then
+     * @a event will be set to a NULL pointer.
+     *
+     * @param      events  If non-NULL, events to wait for before the unmapping occurs.
+     * @param[out] event   If non-NULL, contains an event for the unmapping.
+     *
+     * @post The mapping will be unmapped and the references to the queue and
+     * the memory object are released.
+     */
+    void reset(const std::vector<cl::Event> *events = NULL, cl::Event *event = NULL);
 };
 
 template<typename T>

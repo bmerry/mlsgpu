@@ -551,6 +551,7 @@ public:
     {
         cl_device_id key;
         cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
+        cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use
 
         cl::Buffer splats;
         std::size_t numSplats;

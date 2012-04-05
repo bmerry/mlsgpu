@@ -44,12 +44,31 @@ MemoryMapping::MemoryMapping(const cl::Memory &memory, const cl::CommandQueue &q
 {
 }
 
+void MemoryMapping::reset(const std::vector<cl::Event> *events, cl::Event *event)
+{
+    if (ptr != NULL)
+    {
+        queue.enqueueUnmapMemObject(memory, ptr, events, event);
+        memory = NULL;
+        queue = NULL;
+        ptr = NULL;
+    }
+    else if (event != NULL)
+        *event = cl::Event();
+}
+
 MemoryMapping::~MemoryMapping()
 {
-    if (ptr)
+    try
     {
-        queue.enqueueUnmapMemObject(memory, ptr);
-        queue.finish();
+        if (ptr != NULL)
+        {
+            reset();
+        }
+    }
+    catch (cl::Error &e)
+    {
+        // Suppress the error, because destructors are not supposed to throw.
     }
 }
 

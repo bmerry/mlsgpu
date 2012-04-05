@@ -201,8 +201,10 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
         Statistics::Timer timer("device.worker.time");
         cl::Event treeBuildEvent;
         std::vector<cl::Event> wait(1);
+
+        wait[0] = work.unmapEvent;
         tree.enqueueBuild(queue, work.splats, work.numSplats,
-                          expandedSize, offset, owner.subsampling, NULL, &treeBuildEvent);
+                          expandedSize, offset, owner.subsampling, &wait, &treeBuildEvent);
         wait[0] = treeBuildEvent;
 
         input.set(expandedSize, offset, tree, owner.subsampling);
@@ -263,25 +265,25 @@ void FineBucketGroupBase::Worker::operator()(
     outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
+
+    CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
+                                     0, splatSet.numSplats() * sizeof(Splat));
+
+    std::size_t pos = 0;
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
+    while (!splatStream->empty())
     {
-        CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
-                                         0, splatSet.numSplats() * sizeof(Splat));
-
-        std::size_t pos = 0;
-        boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
-        while (!splatStream->empty())
-        {
-            splats[pos] = **splatStream;
-            ++*splatStream;
-            ++pos;
-        }
-        assert(pos == splatSet.numSplats());
-
-        registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
-        registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
-        registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
+        splats[pos] = **splatStream;
+        ++*splatStream;
+        ++pos;
     }
-    outItem->mapQueue.finish(); // TODO: see if this can be made asynchronous
+    assert(pos == splatSet.numSplats());
+
+    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
+    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
+    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
+
+    splats.reset(NULL, &outItem->unmapEvent);
 
     owner.outGroup.push(curChunkId, outItem);
 }
