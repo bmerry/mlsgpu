@@ -71,7 +71,7 @@ namespace detail
 void KeyMapMesher::computeLocalComponents(
     std::size_t numVertices,
     const std::vector<boost::array<cl_uint, 3> > &triangles,
-    std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
+    Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
 {
     nodes.clear();
     nodes.resize(numVertices);
@@ -87,9 +87,9 @@ void KeyMapMesher::computeLocalComponents(
 
 void KeyMapMesher::updateClumps(
     unsigned int chunkGen,
-    const std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
+    const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
     const std::vector<boost::array<cl_uint, 3> > &triangles,
-    std::vector<clump_id> &clumpId)
+    Statistics::Container::vector<clump_id> &clumpId)
 {
     std::size_t numVertices = nodes.size();
 
@@ -136,8 +136,8 @@ void KeyMapMesher::updateKeyMaps(
     ChunkId::gen_type chunkGen,
     std::tr1::uint32_t vertexOffset,
     const std::vector<cl_ulong> &keys,
-    const std::vector<clump_id> &clumpId,
-    std::vector<std::tr1::uint32_t> &indexTable)
+    const Statistics::Container::vector<clump_id> &clumpId,
+    Statistics::Container::vector<std::tr1::uint32_t> &indexTable)
 {
     const std::size_t numExternalVertices = keys.size();
     const std::size_t numInternalVertices = clumpId.size() - numExternalVertices;
@@ -185,7 +185,7 @@ void KeyMapMesher::updateKeyMaps(
 
 void KeyMapMesher::rewriteTriangles(
     std::tr1::uint32_t priorVertices,
-    const std::vector<std::tr1::uint32_t> &indexTable,
+    const Statistics::Container::vector<std::tr1::uint32_t> &indexTable,
     HostKeyMesh &mesh) const
 {
     const std::size_t numInternalVertices = mesh.vertices.size() - mesh.vertexKeys.size();

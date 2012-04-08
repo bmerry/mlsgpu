@@ -22,7 +22,7 @@
 #include <tr1/cstdint>
 #include <boost/tr1/random.hpp>
 #include <tr1/unordered_map>
-#include <boost/tr1/unordered_set.hpp>
+#include <tr1/unordered_set>
 #include <map>
 #include <algorithm>
 #include <iterator>

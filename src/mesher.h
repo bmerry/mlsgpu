@@ -32,13 +32,14 @@
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
 #include <tr1/unordered_map>
-#include <boost/tr1/unordered_set.hpp>
+#include <tr1/unordered_set>
 #include <stxxl.h>
 #include "marching.h"
 #include "fast_ply.h"
 #include "union_find.h"
 #include "work_queue.h"
 #include "statistics.h"
+#include "allocator.h"
 
 /**
  * Enumeration of the supported mesher types
@@ -342,10 +343,8 @@ protected:
         }
     };
 
-    typedef std::tr1::unordered_map<
-        cl_ulong, std::tr1::uint32_t, std::tr1::hash<cl_ulong>, std::equal_to<cl_ulong>,
-        Statistics::MakeAllocator<cl_ulong>::type> vertex_id_map_type;
-    typedef std::tr1::unordered_map<cl_ulong, clump_id> clump_id_map_type;
+    typedef Statistics::Container::unordered_map<cl_ulong, std::tr1::uint32_t> vertex_id_map_type;
+    typedef Statistics::Container::unordered_map<cl_ulong, clump_id> clump_id_map_type;
 
     /// Maps external vertex keys to external indices for the current chunk
     vertex_id_map_type vertexIdMap;
@@ -354,7 +353,7 @@ protected:
     clump_id_map_type clumpIdMap;
 
     /// All clumps, in a structure usable with @ref UnionFind.
-    std::vector<Clump> clumps;
+    Statistics::Container::vector<Clump> clumps;
 
     /**
      * @name
@@ -363,9 +362,9 @@ protected:
      * These are stored in the object so that memory can be recycled if
      * possible, rather than thrashing the allocator.
      */
-    std::vector<std::tr1::uint32_t> tmpIndexTable;
-    std::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
-    std::vector<clump_id> tmpClumpId;
+    Statistics::Container::vector<std::tr1::uint32_t> tmpIndexTable;
+    Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
+    Statistics::Container::vector<clump_id> tmpClumpId;
     /** @} */
 
     /**
@@ -380,7 +379,7 @@ protected:
     static void computeLocalComponents(
         std::size_t numVertices,
         const std::vector<boost::array<cl_uint, 3> > &triangles,
-        std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
+        Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
 
     /**
      * Creates clumps from local components.
@@ -394,9 +393,9 @@ protected:
      */
     void updateClumps(
         unsigned int chunkGen,
-        const std::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
+        const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
         const std::vector<boost::array<cl_uint, 3> > &triangles,
-        std::vector<clump_id> &clumpId);
+        Statistics::Container::vector<clump_id> &clumpId);
 
     /**
      * Add external vertex keys to the key maps and computes an index rewrite table.
@@ -416,8 +415,8 @@ protected:
         ChunkId::gen_type chunkGen,
         std::tr1::uint32_t vertexOffset,
         const std::vector<cl_ulong> &keys,
-        const std::vector<clump_id> &clumpId,
-        std::vector<std::tr1::uint32_t> &indexTable);
+        const Statistics::Container::vector<clump_id> &clumpId,
+        Statistics::Container::vector<std::tr1::uint32_t> &indexTable);
 
     /**
      * Writes indices in place from being block-relative to the intermediate form (prior to
@@ -429,14 +428,16 @@ protected:
      */
     void rewriteTriangles(
         std::tr1::uint32_t priorVertices,
-        const std::vector<std::tr1::uint32_t> &indexTable,
+        const Statistics::Container::vector<std::tr1::uint32_t> &indexTable,
         HostKeyMesh &mesh) const;
 
     KeyMapMesher() :
-        vertexIdMap(1048576,
-                    vertex_id_map_type::hasher(),
-                    vertex_id_map_type::key_equal(),
-                    Statistics::makeAllocator<vertex_id_map_type::key_type>("mem.vertexIdMap"))
+        vertexIdMap("mem.vertexIdMap"),
+        clumpIdMap("mem.clumpIdMap"),
+        clumps("mem.clumps"),
+        tmpIndexTable("mem.tmpIndexTable"),
+        tmpNodes("mem.tmpNodes"),
+        tmpClumpId("mem.tmpClumpId")
     {
     }
 };

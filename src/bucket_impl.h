@@ -23,6 +23,7 @@
 #include "misc.h"
 #include "progress.h"
 #include "logging.h"
+#include "allocator.h"
 #include <stxxl.h>
 
 namespace Bucket
@@ -174,8 +175,7 @@ private:
      * will thus typically be negative. @ref upsweepCounts applies the
      * summation up the tree.
      */
-    std::vector<boost::multi_array<std::tr1::int64_t, 3>,
-        Statistics::MakeAllocator<boost::multi_array<std::tr1::int64_t, 3> >::type> nodeCounts;
+    Statistics::Container::vector<boost::multi_array<std::tr1::int64_t, 3> > nodeCounts;
 
     /**
      * Index of the chosen subregion for each leaf (BAD_REGION if empty).
@@ -185,7 +185,7 @@ private:
     /**
      * The nodes and ranges for the next level of the hierarchy.
      */
-    std::vector<Subregion> subregions;
+    Statistics::Container::vector<Subregion> subregions;
 
     /**
      * Clamp a range of microblocks to the coverage of nodeCounts, checking for

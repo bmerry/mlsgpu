@@ -115,9 +115,8 @@ BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    nodeCounts(macroLevels,
-               boost::multi_array<std::tr1::int64_t, 3>(),
-               Statistics::makeAllocator<boost::multi_array<std::tr1::int64_t, 3> >("mem.nodeCounts"))
+    nodeCounts("mem.nodeCounts", macroLevels),
+    subregions("mem.subregions")
 {
     for (int i = 0; i < 3; i++)
         dims[i] = divUp(grid.numCells(i), microSize);
