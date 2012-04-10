@@ -99,7 +99,6 @@ void MlsFunctor::operator()(
 
     boundaryKernel.setArg(0, distance);
     boundaryKernel.setArg(1, vertices);
-    // TODO: pick a useful work group size
     CLH::enqueueNDRangeKernelSplit(queue,
                                    boundaryKernel,
                                    cl::NullRange,
