@@ -25,7 +25,7 @@ static void readBinary(std::istream &in, T &out, const boost::integral_constant<
 template<typename T, bool b>
 static void writeBinary(std::ostream &out, const T &in, const boost::integral_constant<bool, b> &endian);
 
-namespace internal
+namespace detail
 {
 
 /**
@@ -173,7 +173,7 @@ static void writeBinaryImpl(std::ostream &out, double in, const boost::integral_
     writeBinary(out, value, endian);
 }
 
-} // namespace internal
+} // namespace detail
 
 /**
  * Reads a binary value from a stream, in either big or little endian.
@@ -189,7 +189,7 @@ static void writeBinaryImpl(std::ostream &out, double in, const boost::integral_
 template<typename T, bool b>
 static void readBinary(std::istream &in, T &out, const boost::integral_constant<bool, b> &endian)
 {
-    internal::readBinaryImpl(in, out, endian, boost::is_signed<T>(), boost::is_integral<T>());
+    detail::readBinaryImpl(in, out, endian, boost::is_signed<T>(), boost::is_integral<T>());
 }
 
 /**
@@ -206,7 +206,7 @@ static void readBinary(std::istream &in, T &out, const boost::integral_constant<
 template<typename T, bool b>
 static void writeBinary(std::ostream &out, const T &in, const boost::integral_constant<bool, b> &endian)
 {
-    internal::writeBinaryImpl(out, in, endian, boost::is_signed<T>(), boost::is_integral<T>());
+    detail::writeBinaryImpl(out, in, endian, boost::is_signed<T>(), boost::is_integral<T>());
 }
 
 #endif /* !BINARY_IO_H */

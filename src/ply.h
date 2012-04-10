@@ -108,7 +108,7 @@ DEFINE_FIELD_TYPE_TRAITS(double, FLOAT64);
  * will be called depending on the @c FieldType passed to this function
  * object.
  *
- * @todo move to PLY::internal namespace?
+ * @todo move to PLY::detail namespace?
  */
 template<typename F>
 class FieldTypeFunction
@@ -173,11 +173,11 @@ struct PropertyType
 };
 
 /**
- * Dummy structure used to allow the name index of #PLY::internal::SequencedMapType to be accessed by name.
+ * Dummy structure used to allow the name index of #PLY::detail::SequencedMapType to be accessed by name.
  */
 struct Name {};
 
-namespace internal
+namespace detail
 {
 
 /**
@@ -201,12 +201,12 @@ struct SequencedMapType
         > > type;
 };
 
-} // namespace internal
+} // namespace detail
 
 /**
  * An ordered sequence of named properties, searchable by name.
  */
-typedef internal::SequencedMapType<PropertyType>::type PropertyTypeSet;
+typedef detail::SequencedMapType<PropertyType>::type PropertyTypeSet;
 
 #if DOXYGEN_FAKE_CODE  // is never actually defined, except by Doxygen's preprocessor
 /**
@@ -743,7 +743,7 @@ public:
     /// The name for the element in the PLY header.
     std::string getName() const;
     /// The names and types of properties for the PLY header.
-    internal::PropertyTypeSet getProperties() const;
+    detail::PropertyTypeSet getProperties() const;
     /**
      * Write the properties for an element to the PLY file.
      *
@@ -759,7 +759,7 @@ public:
 };
 #endif // DOXYGEN_FAKE_CODE
 
-namespace internal
+namespace detail
 {
 
 struct ElementType
@@ -789,7 +789,7 @@ public:
     virtual void writeAll(Writer &writer) const = 0;
 };
 
-} // namespace internal
+} // namespace detail
 
 /**
  * Uses a user-provided fetcher object to handle processing of each
@@ -799,7 +799,7 @@ public:
  * in @ref Fetcher.
  */
 template<typename Iterator, typename Fetcher>
-class ElementRangeWriter : public internal::ElementRangeWriterBase
+class ElementRangeWriter : public detail::ElementRangeWriterBase
 {
 public:
     typedef Iterator const_iterator;
@@ -811,7 +811,7 @@ private:
 public:
     ElementRangeWriter(const_iterator first, const_iterator last,
                        const Fetcher &fetcher = Fetcher())
-        : internal::ElementRangeWriterBase(std::distance(first, last)),
+        : detail::ElementRangeWriterBase(std::distance(first, last)),
         first(first), last(last), fetcher(fetcher)
     {
         BOOST_CONCEPT_ASSERT((boost_concepts::ForwardTraversalConcept<Iterator>));
@@ -820,7 +820,7 @@ public:
     ElementRangeWriter(const_iterator first, const_iterator last,
                        std::tr1::uintmax_t number,
                        const Fetcher &fetcher = Fetcher())
-        : internal::ElementRangeWriterBase(number),
+        : detail::ElementRangeWriterBase(number),
         first(first), last(last), fetcher(fetcher)
     {
     }
@@ -853,15 +853,15 @@ public:
  */
 class Writer
 {
-    friend class internal::ElementRangeWriterBase;
+    friend class detail::ElementRangeWriterBase;
 private:
     FileFormat format;
-    internal::ElementTypeSet elements;
-    boost::ptr_vector<internal::ElementRangeWriterBase> writers;
+    detail::ElementTypeSet elements;
+    boost::ptr_vector<detail::ElementRangeWriterBase> writers;
     std::vector<std::string> comments;
 
     static const char *fieldTypeName(FieldType type);
-    void writeHeaderElement(const internal::ElementType &element);
+    void writeHeaderElement(const detail::ElementType &element);
 
     std::ostream out;
 
@@ -882,7 +882,7 @@ public:
     /**
      * Register an element to be written out by @ref write.
      */
-    void addElement(std::auto_ptr<internal::ElementRangeWriterBase> e);
+    void addElement(std::auto_ptr<detail::ElementRangeWriterBase> e);
 
     /**
      * Register a comment to be placed in the PLY header by @ref write.
@@ -933,11 +933,11 @@ void ElementRangeWriter<Iterator, Fetcher>::writeAll(Writer &writer) const
  * an explicit count must be used.
  */
 template<typename Iterator, typename Fetcher>
-static inline std::auto_ptr<internal::ElementRangeWriterBase> makeElementRangeWriter(
+static inline std::auto_ptr<detail::ElementRangeWriterBase> makeElementRangeWriter(
     Iterator first, Iterator last, const Fetcher &fetcher)
 {
     BOOST_CONCEPT_ASSERT((boost_concepts::ForwardTraversalConcept<Iterator>));
-    return std::auto_ptr<internal::ElementRangeWriterBase>(new ElementRangeWriter<Iterator, Fetcher>(first, last, fetcher));
+    return std::auto_ptr<detail::ElementRangeWriterBase>(new ElementRangeWriter<Iterator, Fetcher>(first, last, fetcher));
 }
 
 /**
@@ -949,12 +949,12 @@ static inline std::auto_ptr<internal::ElementRangeWriterBase> makeElementRangeWr
  * @param fetcher    Object for interpreting the elements.
  */
 template<typename Iterator, typename Fetcher>
-static inline std::auto_ptr<internal::ElementRangeWriterBase> makeElementRangeWriter(
+static inline std::auto_ptr<detail::ElementRangeWriterBase> makeElementRangeWriter(
     Iterator first, Iterator last,
     std::tr1::uintmax_t number,
     const Fetcher &fetcher)
 {
-    return std::auto_ptr<internal::ElementRangeWriterBase>(new ElementRangeWriter<Iterator, Fetcher>(first, last, number, fetcher));
+    return std::auto_ptr<detail::ElementRangeWriterBase>(new ElementRangeWriter<Iterator, Fetcher>(first, last, number, fetcher));
 }
 
 } // namespace PLY

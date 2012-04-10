@@ -26,7 +26,7 @@ using namespace std;
 
 namespace PLY
 {
-namespace internal
+namespace detail
 {
 
 /**
@@ -106,7 +106,7 @@ static string getHeaderLine(istream &in) throw(FormatError)
     }
 }
 
-} // namespace internal
+} // namespace detail
 
 template<typename T> long ElementRangeReaderBase::PropertyAsLong::operator()()
 {
@@ -202,7 +202,7 @@ void Reader::addElement(const std::string &name, const std::tr1::uintmax_t numbe
 
 void Reader::readHeader()
 {
-    using namespace internal;
+    using namespace detail;
 
     string elementName = "";
     std::tr1::uintmax_t elementNumber = 0;
@@ -321,7 +321,7 @@ void Reader::readHeader()
 
 /**************************************************************************/
 
-namespace internal
+namespace detail
 {
 
 ElementRangeWriterBase::ElementRangeWriterBase(std::tr1::uintmax_t number)
@@ -334,7 +334,7 @@ std::tr1::uintmax_t ElementRangeWriterBase::getNumber() const
     return number;
 }
 
-} // namespace internal
+} // namespace detail
 
 template<typename T>
 void Writer::writeField(T value, bool final)
@@ -383,7 +383,7 @@ const char * Writer::fieldTypeName(FieldType type)
     }
 }
 
-void Writer::writeHeaderElement(const internal::ElementType &element)
+void Writer::writeHeaderElement(const detail::ElementType &element)
 {
     out << "element " << element.name << ' ' << element.number << '\n';
     BOOST_FOREACH(const PropertyType &p, element.properties)
@@ -419,16 +419,16 @@ void Writer::writeHeader()
     {
         out << "comment " << comment << '\n';
     }
-    BOOST_FOREACH(const internal::ElementType &e, elements)
+    BOOST_FOREACH(const detail::ElementType &e, elements)
     {
         writeHeaderElement(e);
     }
     out << "end_header\n";
 }
 
-void Writer::addElement(std::auto_ptr<internal::ElementRangeWriterBase> e)
+void Writer::addElement(std::auto_ptr<detail::ElementRangeWriterBase> e)
 {
-    internal::ElementType et(e->getName(), e->getNumber());
+    detail::ElementType et(e->getName(), e->getNumber());
     et.properties = e->getProperties();
     if (!elements.push_back(et).second)
         throw std::invalid_argument("duplicate element " + et.name);
@@ -451,7 +451,7 @@ void Writer::addComment(const std::string &comment)
 void Writer::write()
 {
     writeHeader();
-    BOOST_FOREACH(const internal::ElementRangeWriterBase &w, writers)
+    BOOST_FOREACH(const detail::ElementRangeWriterBase &w, writers)
     {
         w.writeAll(*this);
     }

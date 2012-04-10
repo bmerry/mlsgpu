@@ -48,7 +48,7 @@ public:
  * Tracking of state across recursive calls.
  * This class has no impact on the algorithm, and exists for tracking metrics
  * and progress. It is used in several places:
- *  -# It is passed between calls to @ref internal::bucketRecurse to track
+ *  -# It is passed between calls to @ref detail::bucketRecurse to track
  *     statistics;
  *  -# It is passed to the processing callback so that it can update a
  *     progress meter if desired;

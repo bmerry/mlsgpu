@@ -91,7 +91,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
         splat_id id = splats->currentId();
 
         BlobData blob;
-        internal::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
+        detail::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
         if (blobs.empty()
             || blobs.back().lower != blob.lower
             || blobs.back().upper != blob.upper
@@ -171,7 +171,7 @@ template<typename Super>
 BlobStream *Subset<Super>::makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
 {
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-    return new internal::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    return new detail::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
 }
 
 template<typename Super>

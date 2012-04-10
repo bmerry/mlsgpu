@@ -29,7 +29,7 @@
 namespace Bucket
 {
 
-namespace internal
+namespace detail
 {
 
 /**
@@ -280,7 +280,7 @@ void BucketStateSet::processBlob(const SplatSet::BlobInfo &blob, const F &func)
 }
 
 /**
- * Functor for @ref Bucket::internal::forEachNode that chooses which
+ * Functor for @ref Bucket::detail::forEachNode that chooses which
  * nodes to turn into regions. A node is chosen if it contains few enough
  * splats and is small enough, or if it is a microblock. Otherwise it is
  * split.
@@ -441,7 +441,7 @@ void bucketRecurse(
     }
 }
 
-} // namespace internal
+} // namespace detail
 
 template<typename Splats>
 void bucket(const Splats &splats,
@@ -455,8 +455,8 @@ void bucket(const Splats &splats,
             ProgressDisplay *progress,
             const Recursion &recursionState)
 {
-    internal::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
-    internal::bucketRecurse(splats, region, params, chunkCells, process, recursionState);
+    detail::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
+    detail::bucketRecurse(splats, region, params, chunkCells, process, recursionState);
 }
 
 } // namespace Bucket

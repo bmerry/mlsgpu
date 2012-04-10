@@ -229,7 +229,7 @@ public:
 /**
  * Internal implementation details of @ref SplatSet.
  */
-namespace internal
+namespace detail
 {
 
 /**
@@ -482,23 +482,23 @@ class BlobbedSet : public CoreSet
 public:
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
     {
-        return new internal::SimpleBlobStream(CoreSet::makeSplatStream(), grid, bucketSize);
+        return new detail::SimpleBlobStream(CoreSet::makeSplatStream(), grid, bucketSize);
     }
 };
 
-} // namespace internal
+} // namespace detail
 
 /**
  * An implementation of @ref SubsettableConcept with data stored in multiple
  * PLY files.
  */
-typedef internal::BlobbedSet<internal::SimpleFileSet> FileSet;
+typedef detail::BlobbedSet<detail::SimpleFileSet> FileSet;
 
 /**
  * An implementation of @ref SubsettableConcept with data stored in a single
  * vector.
  */
-typedef internal::BlobbedSet<internal::SimpleVectorSet> VectorSet;
+typedef detail::BlobbedSet<detail::SimpleVectorSet> VectorSet;
 
 /**
  * Internal data stored in @ref FastBlobSet. This class is not accessed

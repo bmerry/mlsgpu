@@ -16,7 +16,7 @@ using namespace std;
 namespace Log
 {
 
-namespace internal
+namespace detail
 {
 
 LogArray::LogArray(Level minLevel) : minLevel(minLevel) {}
@@ -36,8 +36,8 @@ void LogArray::setLevel(Level minLevel)
     this->minLevel = minLevel;
 }
 
-} // namespace internal
+} // namespace detail
 
-internal::LogArray log;
+detail::LogArray log;
 
 } // namespace Log

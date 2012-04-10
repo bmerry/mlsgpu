@@ -18,7 +18,7 @@
 namespace SplatSet
 {
 
-namespace internal
+namespace detail
 {
 
 /**
@@ -120,14 +120,14 @@ private:
     };
 };
 
-} // namespace internal
+} // namespace detail
 
 /**
  * Implementation of the @ref SplatSet::SubsettableConcept that uses a
  * vector of vectors as the backing store, and assigns splat IDs in a similar
  * way to @ref SplatSet::FileSet.
  */
-typedef internal::BlobbedSet<internal::SimpleVectorsSet> VectorsSet;
+typedef detail::BlobbedSet<detail::SimpleVectorsSet> VectorsSet;
 
 } // namespace SplatSet
 

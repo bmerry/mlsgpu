@@ -17,7 +17,7 @@
 
 using namespace std;
 using namespace PLY;
-using namespace PLY::internal;
+using namespace PLY::detail;
 
 /**
  * Test fixture for PLY::Reader.

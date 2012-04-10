@@ -17,7 +17,7 @@
 namespace SplatSet
 {
 
-namespace internal
+namespace detail
 {
 
 const unsigned int SimpleFileSet::scanIdShift;
@@ -128,7 +128,7 @@ void SimpleFileSet::MySplatStream::refill()
     }
 }
 
-} // namespace internal
+} // namespace detail
 
 
 void SubsetBase::addBlob(const BlobInfo &blob)

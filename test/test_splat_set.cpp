@@ -118,7 +118,7 @@ static void createSplats2(std::vector<std::vector<Splat> > &splats)
     splats[7].push_back(makeSplat(7, 1, 0, NaN));
 }
 
-/// Tests for @ref SplatSet::internal::splatToBuckets.
+/// Tests for @ref SplatSet::detail::splatToBuckets.
 class TestSplatToBuckets : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatToBuckets);
@@ -141,7 +141,7 @@ void TestSplatToBuckets::testSimple()
     boost::array<Grid::difference_type, 3> lower, upper;
 
     Splat s1 = makeSplat(115.0f, -31.0f, 1090.0f, 7.0f);
-    SplatSet::internal::splatToBuckets(s1, grid, 3, lower, upper);
+    SplatSet::detail::splatToBuckets(s1, grid, 3, lower, upper);
     CPPUNIT_ASSERT_EQUAL(1, int(lower[0]));
     CPPUNIT_ASSERT_EQUAL(2, int(upper[0]));
     CPPUNIT_ASSERT_EQUAL(-1, int(lower[1]));
@@ -150,7 +150,7 @@ void TestSplatToBuckets::testSimple()
     CPPUNIT_ASSERT_EQUAL(16, int(upper[2]));
 
     Splat s2 = makeSplat(-1000.0f, -1000.0f, -1000.0f, 100.0f);
-    SplatSet::internal::splatToBuckets(s2, grid, 3, lower, upper);
+    SplatSet::detail::splatToBuckets(s2, grid, 3, lower, upper);
     CPPUNIT_ASSERT_EQUAL(-19, int(lower[0]));
     CPPUNIT_ASSERT_EQUAL(-15, int(upper[0]));
     CPPUNIT_ASSERT_EQUAL(-18, int(lower[1]));
@@ -167,7 +167,7 @@ void TestSplatToBuckets::testNan()
     boost::array<Grid::difference_type, 3> lower, upper;
     Splat s = makeSplat(115.0f, std::numeric_limits<float>::quiet_NaN(), 1090.0f, 7.0f);
 
-    CPPUNIT_ASSERT_THROW(SplatSet::internal::splatToBuckets(s, grid, 3, lower, upper), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(SplatSet::detail::splatToBuckets(s, grid, 3, lower, upper), std::invalid_argument);
 }
 
 void TestSplatToBuckets::testZero()
@@ -179,7 +179,7 @@ void TestSplatToBuckets::testZero()
 
     Splat s = makeSplat(115.0f, -31.0f, 1090.0f, 7.0f);
 
-    CPPUNIT_ASSERT_THROW(SplatSet::internal::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(SplatSet::detail::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
 }
 
 /// Base class for testing models of @ref SplatSet::SetConcept.
@@ -467,7 +467,7 @@ void TestSplatSet<SetType>::validateBlobs(
         for (std::size_t j = 0; j < numSplats; j++)
         {
             boost::array<Grid::difference_type, 3> lower, upper;
-            SplatSet::internal::splatToBuckets(
+            SplatSet::detail::splatToBuckets(
                 expected[nextSplat + j], grid, bucketSize, lower, upper);
             for (unsigned int k = 0; k < 3; k++)
             {

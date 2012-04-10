@@ -226,7 +226,7 @@ public:
     ~Timer();
 };
 
-namespace internal
+namespace detail
 {
     /**
      * Iterator adaptor that converts iteration over a pair pointer
@@ -265,7 +265,7 @@ namespace internal
         {}
     };
 
-} // namespace internal
+} // namespace detail
 
 /**
  * Holds a list of statistics that can be queried or dumped.
@@ -279,8 +279,8 @@ private:
     mutable boost::mutex mutex;  ///< Mutex protecting access to the statistics map
 
 public:
-    typedef internal::pair_second_iterator<boost::ptr_map<std::string, Statistic>::iterator> iterator;
-    typedef internal::pair_second_iterator<boost::ptr_map<std::string, Statistic>::const_iterator> const_iterator;
+    typedef detail::pair_second_iterator<boost::ptr_map<std::string, Statistic>::iterator> iterator;
+    typedef detail::pair_second_iterator<boost::ptr_map<std::string, Statistic>::const_iterator> const_iterator;
 
     Registry();
     ~Registry();

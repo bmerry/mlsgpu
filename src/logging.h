@@ -20,7 +20,7 @@ enum Level
     error
 };
 
-namespace internal
+namespace detail
 {
 
 class LogArray
@@ -33,9 +33,9 @@ public:
     std::ostream &operator[](Level level);
 };
 
-} // namespace internal
+} // namespace detail
 
-extern internal::LogArray log;
+extern detail::LogArray log;
 
 } // namespace Log
 

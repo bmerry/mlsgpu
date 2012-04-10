@@ -36,7 +36,7 @@
 namespace Bucket
 {
 
-namespace internal
+namespace detail
 {
 
 Node::Node(const size_type coords[3], unsigned int level) : level(level)
@@ -336,6 +336,6 @@ Grid::size_type chooseMicroSize(
     return microSize;
 }
 
-} // namespace internal
+} // namespace detail
 
 } // namespace Bucket

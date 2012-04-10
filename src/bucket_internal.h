@@ -31,7 +31,7 @@ namespace Bucket
 /**
  * Internal classes and functions for bucketing.
  */
-namespace internal
+namespace detail
 {
 
 /**
@@ -148,7 +148,7 @@ private:
 template<typename Func>
 void forEachNode(const Node::size_type dims[3], unsigned int levels, const Func &func);
 
-} // namespace internal
+} // namespace detail
 } // namespace Bucket
 
 #include "bucket_impl.h"

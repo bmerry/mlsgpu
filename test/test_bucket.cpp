@@ -35,7 +35,7 @@
 #include "../src/splat_set.h"
 
 using namespace Bucket;
-using namespace Bucket::internal;
+using namespace Bucket::detail;
 
 static bool gridsIntersect(const Grid &a, const Grid &b)
 {
@@ -50,7 +50,7 @@ static bool gridsIntersect(const Grid &a, const Grid &b)
 
 // clang doesn't find the overload except through argument dependent lookup,
 // so it needs to be in the namespace of Node
-namespace Bucket { namespace internal {
+namespace Bucket { namespace detail {
 
 std::ostream &operator<<(std::ostream &o, const Node &node)
 {
@@ -62,7 +62,7 @@ std::ostream &operator<<(std::ostream &o, const Node &node)
 
 }}
 
-/// Tests for @ref Bucket::internal::Node
+/// Tests for @ref Bucket::detail::Node
 class TestNode : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestNode);
@@ -163,7 +163,7 @@ void TestNode::testSize()
 }
 
 
-/// Tests for @ref Bucket::internal::forEachNode.
+/// Tests for @ref Bucket::detail::forEachNode.
 class TestForEachNode : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestForEachNode);
@@ -387,7 +387,7 @@ void TestBucket::validate(
             const Splat &splat = block.splats[i];
             std::tr1::uint64_t area = 1.0;
             boost::array<Grid::difference_type, 3> lower, upper;
-            SplatSet::internal::splatToBuckets(splat, block.grid, 1, lower, upper);
+            SplatSet::detail::splatToBuckets(splat, block.grid, 1, lower, upper);
             for (int k = 0; k < 3; k++)
             {
                 lower[k] = std::max(lower[k], 0);
@@ -414,7 +414,7 @@ void TestBucket::validate(
         Splat splat = **splatStream;
 
         boost::array<Grid::difference_type, 3> lower, upper;
-        SplatSet::internal::splatToBuckets(splat, fullGrid, 1, lower, upper);
+        SplatSet::detail::splatToBuckets(splat, fullGrid, 1, lower, upper);
         std::tr1::uint64_t area = 1;
         for (unsigned int k = 0; k < 3; k++)
             if (lower[k] <= upper[k])
