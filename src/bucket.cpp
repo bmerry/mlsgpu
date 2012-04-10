@@ -115,8 +115,8 @@ BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    nodeCounts("mem.nodeCounts", macroLevels),
-    subregions("mem.subregions")
+    nodeCounts("mem.BucketState::nodeCounts", macroLevels),
+    subregions("mem.BucketState::subregions")
 {
     for (int i = 0; i < 3; i++)
         dims[i] = divUp(grid.numCells(i), microSize);

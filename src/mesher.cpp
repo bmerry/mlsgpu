@@ -70,7 +70,7 @@ namespace detail
 
 void KeyMapMesher::computeLocalComponents(
     std::size_t numVertices,
-    const std::vector<boost::array<cl_uint, 3> > &triangles,
+    const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
 {
     nodes.clear();
@@ -88,7 +88,7 @@ void KeyMapMesher::computeLocalComponents(
 void KeyMapMesher::updateClumps(
     unsigned int chunkGen,
     const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
-    const std::vector<boost::array<cl_uint, 3> > &triangles,
+    const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
     Statistics::Container::vector<clump_id> &clumpId)
 {
     std::size_t numVertices = nodes.size();
@@ -135,7 +135,7 @@ void KeyMapMesher::updateClumps(
 void KeyMapMesher::updateKeyMaps(
     ChunkId::gen_type chunkGen,
     std::tr1::uint32_t vertexOffset,
-    const std::vector<cl_ulong> &keys,
+    const Statistics::Container::vector<cl_ulong> &keys,
     const Statistics::Container::vector<clump_id> &clumpId,
     Statistics::Container::vector<std::tr1::uint32_t> &indexTable)
 {
@@ -205,7 +205,11 @@ void KeyMapMesher::rewriteTriangles(
 
 BigMesher::BigMesher(FastPly::WriterBase &writer, const Namer &namer)
     : writer(writer), namer(namer),
-    nextVertex(0), nextTriangle(0), pruneThresholdVertices(0)
+    chunkIds("mem.BigMesher::chunkIds"),
+    nextVertex(0), nextTriangle(0), pruneThresholdVertices(0),
+    retainedExternal("mem.BigMesher::retainedExternal"),
+    chunkCounts("mem.BigMesher::chunkCounts"),
+    tmpClumpValid("mem.BigMesher::tmpChunkValid")
 {
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }

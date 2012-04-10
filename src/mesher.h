@@ -306,7 +306,7 @@ protected:
          * on root nodes.
          */
         Counts counts;                                                   ///< Global counts
-        std::tr1::unordered_map<ChunkId::gen_type, Counts> chunkCounts;  ///< Per-chunk counts
+        Statistics::Container::unordered_map<ChunkId::gen_type, Counts> chunkCounts;  ///< Per-chunk counts
         /** @} */
 
         void merge(Clump &b)
@@ -337,6 +337,7 @@ protected:
          * - <code>counts.chunkCounts.size() == 1</code>
          */
         Clump(ChunkId::gen_type chunkGen, std::tr1::uint64_t numVertices)
+            : chunkCounts("mem.Clump::chunkCounts")
         {
             counts.vertices = numVertices;
             chunkCounts[chunkGen].vertices = numVertices;
@@ -378,7 +379,7 @@ protected:
      */
     static void computeLocalComponents(
         std::size_t numVertices,
-        const std::vector<boost::array<cl_uint, 3> > &triangles,
+        const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
         Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
 
     /**
@@ -394,7 +395,7 @@ protected:
     void updateClumps(
         unsigned int chunkGen,
         const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
-        const std::vector<boost::array<cl_uint, 3> > &triangles,
+        const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
         Statistics::Container::vector<clump_id> &clumpId);
 
     /**
@@ -414,7 +415,7 @@ protected:
     void updateKeyMaps(
         ChunkId::gen_type chunkGen,
         std::tr1::uint32_t vertexOffset,
-        const std::vector<cl_ulong> &keys,
+        const Statistics::Container::vector<cl_ulong> &keys,
         const Statistics::Container::vector<clump_id> &clumpId,
         Statistics::Container::vector<std::tr1::uint32_t> &indexTable);
 
@@ -432,12 +433,12 @@ protected:
         HostKeyMesh &mesh) const;
 
     KeyMapMesher() :
-        vertexIdMap("mem.vertexIdMap"),
-        clumpIdMap("mem.clumpIdMap"),
-        clumps("mem.clumps"),
-        tmpIndexTable("mem.tmpIndexTable"),
-        tmpNodes("mem.tmpNodes"),
-        tmpClumpId("mem.tmpClumpId")
+        vertexIdMap("mem.KeyMapMesher::vertexIdMap"),
+        clumpIdMap("mem.KeyMapMesher::clumpIdMap"),
+        clumps("mem.KeyMapMesher::clumps"),
+        tmpIndexTable("mem.KeyMapMesher::tmpIndexTable"),
+        tmpNodes("mem.KeyMapMesher::tmpNodes"),
+        tmpClumpId("mem.KeyMapMesher::tmpClumpId")
     {
     }
 };
@@ -470,7 +471,7 @@ private:
      * Maps chunk generations to full chunk IDs. This is needed to generate
      * error messages during @ref prepareAdd.
      */
-    std::tr1::unordered_map<ChunkId::gen_type, ChunkId> chunkIds;
+    Statistics::Container::unordered_map<ChunkId::gen_type, ChunkId> chunkIds;
 
     /**
      * @name
@@ -486,17 +487,17 @@ private:
     std::tr1::uint64_t pruneThresholdVertices;
 
     /// Keys of external vertices in retained chunks
-    std::tr1::unordered_set<cl_ulong> retainedExternal;
+    Statistics::Container::unordered_set<cl_ulong> retainedExternal;
 
     /// Number of vertices and triangles that will be produced for each chunk
-    std::tr1::unordered_map<ChunkId::gen_type, Clump::Counts> chunkCounts;
+    Statistics::Container::unordered_map<ChunkId::gen_type, Clump::Counts> chunkCounts;
 
     /**
      * @}
      */
 
     /// Temporary storage for local clump validity
-    std::vector<bool> tmpClumpValid;
+    Statistics::Container::vector<bool> tmpClumpValid;
 
     /// Implementation of the first-pass functor
     void count(const ChunkId &chunkId, MesherWork &work);
@@ -557,7 +558,7 @@ private:
 
     vertices_type vertices;     ///< Buffer of all vertices seen so far
     triangles_type triangles;   ///< Buffer of all triangles seen so far
-    std::vector<Chunk> chunks;  ///< All chunks seen so far
+    Statistics::Container::vector<Chunk> chunks;  ///< All chunks seen so far
 
     /// Implementation of the functor
     void add(const ChunkId &chunkId, MesherWork &work);
@@ -597,6 +598,8 @@ private:
     };
 
 public:
+    StxxlMesher() : chunks("mem.StxxlMesher::chunks") {}
+
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
     virtual void write(FastPly::WriterBase &writer, const Namer &namer,

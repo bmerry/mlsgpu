@@ -31,6 +31,7 @@
 #include "statistics.h"
 #include "logging.h"
 #include "progress.h"
+#include "allocator.h"
 
 /**
  * Data structures for iteration over sets of splats.
@@ -259,10 +260,11 @@ void splatToBuckets(const Splat &splat,
  * simply the positions in the vector. It is legal to store non-finite splats;
  * they will be skipped over by the stream.
  *
- * All the public methods of @c std::vector&lt;Splat&gt; are available, but
- * modifying the data while a stream exists yields undefined behavior.
+ * All the public methods of @ref Statistics::Container::vector&lt;Splat&gt;
+ * are available, but modifying the data while a stream exists yields undefined
+ * behavior.
  */
-class SimpleVectorSet : public std::vector<Splat>
+class SimpleVectorSet : public Statistics::Container::vector<Splat>
 {
 public:
     splat_id maxSplats() const { return size(); }
@@ -276,6 +278,8 @@ public:
     {
         return new MySplatStream(*this, 0, 0);
     }
+
+    SimpleVectorSet() : Statistics::Container::vector<Splat>("mem.SimpleVectorSet") {}
 
 private:
     /// Splat stream implementation
@@ -656,14 +660,14 @@ public:
     splat_id numSplats() const { return nSplats; }
     splat_id maxSplats() const { return nSplats; }
 
-    SubsetBase() : nSplats(0) {}
+    SubsetBase() : splatRanges("mem.SubsetBase::splatRange"), nSplats(0) {}
 
 protected:
     /**
      * Store of blob ID ranges. Each range is a half-open interval of valid
      * IDs.
      */
-    std::vector<std::pair<splat_id, splat_id> > splatRanges;
+    Statistics::Container::vector<std::pair<splat_id, splat_id> > splatRanges;
 
     /// Number of splats in the supplied blobs.
     splat_id nSplats;

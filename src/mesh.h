@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <vector>
 #include <boost/array.hpp>
+#include "allocator.h"
 
 /**
  * Encapsulates a mesh consisting of vertices and triangles in OpenCL buffers.
@@ -84,15 +85,6 @@ struct DeviceKeyMesh : public DeviceMesh
 };
 
 /**
- * A host-memory counterpart to @ref DeviceMesh.
- */
-struct HostMesh
-{
-    std::vector<boost::array<cl_float, 3> > vertices;
-    std::vector<boost::array<cl_uint, 3> > triangles;
-};
-
-/**
  * A host-memory counterpart to @ref DeviceKeyMesh. However, unlike a @ref
  * DeviceKeyMesh, the host holds keys @em only for external vertices. Thus,
  * the number of internal vertices can be determined as
@@ -100,9 +92,16 @@ struct HostMesh
  * <code>vertexKeys[i]</code> corresponds to <code>vertices[i +
  * numInternalVertices]</code>.
  */
-struct HostKeyMesh : public HostMesh
+struct HostKeyMesh
 {
-    std::vector<cl_ulong> vertexKeys;
+    Statistics::Container::vector<boost::array<cl_float, 3> > vertices;
+    Statistics::Container::vector<boost::array<cl_uint, 3> > triangles;
+    Statistics::Container::vector<cl_ulong> vertexKeys;
+
+    HostKeyMesh() :
+        vertices("mem.HostMesh::vertices"),
+        triangles("mem.HostMesh::triangles"),
+        vertexKeys("mem.HostKeyMesh::vertexKeys") {}
 };
 
 /**
