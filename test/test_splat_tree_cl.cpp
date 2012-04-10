@@ -48,16 +48,10 @@ private:
     int callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_int ihix, cl_int ihiy, cl_int ihiz);
     float callPointBoxDist2(float px, float py, float pz, float lx, float ly, float lz, float hx, float hy, float hz);
     int callMakeCode(cl_int x, cl_int y, cl_int z);
-    float callSolveQuadratic(float a, float b, float c);
-    float callProjectDistOrigin(float p0, float p1, float p2, float p3, float p4);
-    float callProjectDistOrigin(const std::vector<float> &params);
 
     void testLevelShift();     ///< Test @ref levelShift in @ref octree.cl.
     void testPointBoxDist2();  ///< Test @ref pointBoxDist2 in @ref octree.cl.
     void testMakeCode();       ///< Test @ref makeCode in @ref octree.cl.
-    void testSolveQuadratic(); ///< Test @ref solveQuadratic in @ref mls.cl.
-    void testProjectDistOrigin();  ///< Test @ref projectDistOrigin in @ref mls.cl.
-    void testFitSphere();      ///< Test @ref fitSphere in @ref mls.cl.
 public:
     virtual void setUp();
     virtual void tearDown();
