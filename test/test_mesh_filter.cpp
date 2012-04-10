@@ -153,8 +153,12 @@ void TestMeshFilterChain::setUp()
 {
     CLH::Test::TestFixture::setUp();
 
-    dMesh = DeviceKeyMesh(context, CL_MEM_READ_WRITE, 5, 4, 3);
-    // TODO: specify the member contents
+    dMesh.numVertices = 5;
+    dMesh.numInternalVertices = 4;
+    dMesh.numTriangles = 3;
+    dMesh.vertices = createBuffer(CL_MEM_READ_WRITE, dMesh.numVertices * 3 * sizeof(cl_float));
+    dMesh.vertexKeys = createBuffer(CL_MEM_READ_WRITE, dMesh.numVertices * sizeof(cl_ulong));
+    dMesh.triangles = createBuffer(CL_MEM_READ_WRITE, dMesh.numTriangles * 3 * sizeof(cl_uint));
     filterChain.setOutput(CollectOutput(&hMesh));
 }
 
