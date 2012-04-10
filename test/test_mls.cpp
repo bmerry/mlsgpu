@@ -37,7 +37,7 @@ class TestMls : public CLH::Test::TestFixture
     CPPUNIT_TEST(testMakeCode);
     CPPUNIT_TEST(testSolveQuadratic);
     CPPUNIT_TEST(testFitSphere);
-    CPPUNIT_TEST(testProjectDistOrigin);
+    CPPUNIT_TEST(testProjectDistOriginSphere);
     CPPUNIT_TEST(testProcessCorners);
     CPPUNIT_TEST_SUITE_END();
 
@@ -74,8 +74,8 @@ private:
 
     int callMakeCode(cl_int x, cl_int y, cl_int z);
     float callSolveQuadratic(float a, float b, float c);
-    float callProjectDistOrigin(float p0, float p1, float p2, float p3, float p4);
-    float callProjectDistOrigin(const std::vector<float> &params);
+    float callProjectDistOriginSphere(float p0, float p1, float p2, float p3, float p4);
+    float callProjectDistOriginSphere(const std::vector<float> &params);
 
     /**
      * Wrapper around @c testFitSphere in @ref mls.cl.
@@ -92,7 +92,7 @@ public:
 
     void testMakeCode();           ///< Test @ref makeCode in @ref mls.cl.
     void testSolveQuadratic();     ///< Test @ref solveQuadratic in @ref mls.cl.
-    void testProjectDistOrigin();  ///< Test @ref projectDistOrigin in @ref mls.cl.
+    void testProjectDistOriginSphere();  ///< Test @ref projectDistOriginSphere in @ref mls.cl.
     void testFitSphere();          ///< Test @ref fitSphere in @ref mls.cl.
 
     void testProcessCorners();     ///< Test the @ref processCorners kernel.
@@ -108,6 +108,8 @@ void TestMls::setUp()
     defines["UNIT_TESTS"] = "1";
     defines["WGS_X"] = "1";
     defines["WGS_Y"] = "1";
+    defines["FIT_SPHERE"] = "1";
+    defines["FIT_PLANE"] = "0";
     mlsProgram = CLH::build(context, "kernels/mls.cl", defines);
 }
 
@@ -170,11 +172,11 @@ float TestMls::callSolveQuadratic(float a, float b, float c)
     return ans;
 }
 
-float TestMls::callProjectDistOrigin(float p0, float p1, float p2, float p3, float p4)
+float TestMls::callProjectDistOriginSphere(float p0, float p1, float p2, float p3, float p4)
 {
     cl_float ans;
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_float));
-    cl::Kernel kernel(mlsProgram, "testProjectDistOrigin");
+    cl::Kernel kernel(mlsProgram, "testProjectDistOriginSphere");
     kernel.setArg(0, out);
     kernel.setArg(1, p0);
     kernel.setArg(2, p1);
@@ -186,10 +188,10 @@ float TestMls::callProjectDistOrigin(float p0, float p1, float p2, float p3, flo
     return ans;
 }
 
-float TestMls::callProjectDistOrigin(const std::vector<float> &params)
+float TestMls::callProjectDistOriginSphere(const std::vector<float> &params)
 {
     CPPUNIT_ASSERT_EQUAL(std::vector<float>::size_type(5), params.size());
-    return callProjectDistOrigin(params[0], params[1], params[2], params[3], params[4]);
+    return callProjectDistOriginSphere(params[0], params[1], params[2], params[3], params[4]);
 }
 
 std::vector<float> TestMls::callFitSphere(const std::vector<Splat> &splats)
@@ -260,22 +262,22 @@ void TestMls::testSolveQuadratic()
     MLSGPU_ASSERT_DOUBLES_EQUAL(-1e-6, callSolveQuadratic(1e-6, 1, 1e-6), eps);
 }
 
-void TestMls::testProjectDistOrigin()
+void TestMls::testProjectDistOriginSphere()
 {
     float eps = std::numeric_limits<float>::epsilon() * 4;
     // General sphere case (3^2 + 4^2 + 12^2 = 13^2)
-    MLSGPU_ASSERT_DOUBLES_EQUAL(7.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, 1.0f)), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(7.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, 2.5f)), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(-7.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, -2.5f)), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(0.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 13.0f, 2.5f)), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(-5.0f, callProjectDistOrigin(makeSphere(3.0f, 4.0f, 12.0f, 18.0f, 2.5f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(7.0f, callProjectDistOriginSphere(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, 1.0f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(7.0f, callProjectDistOriginSphere(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, 2.5f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(-7.0f, callProjectDistOriginSphere(makeSphere(3.0f, 4.0f, 12.0f, 6.0f, -2.5f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(0.0f, callProjectDistOriginSphere(makeSphere(3.0f, 4.0f, 12.0f, 13.0f, 2.5f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(-5.0f, callProjectDistOriginSphere(makeSphere(3.0f, 4.0f, 12.0f, 18.0f, 2.5f)), eps);
     // Origin at center of sphere
-    MLSGPU_ASSERT_DOUBLES_EQUAL(-6.0f, callProjectDistOrigin(makeSphere(0.0f, 0.0f, 0.0f, 6.0f, 2.5f)), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(5.0f, callProjectDistOrigin(makeSphere(0.0f, 0.0f, 0.0f, 5.0f, -1.5f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(-6.0f, callProjectDistOriginSphere(makeSphere(0.0f, 0.0f, 0.0f, 6.0f, 2.5f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(5.0f, callProjectDistOriginSphere(makeSphere(0.0f, 0.0f, 0.0f, 5.0f, -1.5f)), eps);
 
     // Plane
-    MLSGPU_ASSERT_DOUBLES_EQUAL(-5.0f / 1.5f, callProjectDistOrigin(makePlane(1.0f, 2.0f, 3.0f, 1.0f, 0.5f, 1.0f)), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(5.0f / 1.5f, callProjectDistOrigin(makePlane(-1.0f, -2.0f, -3.0f, 1.0f, 0.5f, 1.0f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(-5.0f / 1.5f, callProjectDistOriginSphere(makePlane(1.0f, 2.0f, 3.0f, 1.0f, 0.5f, 1.0f)), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(5.0f / 1.5f, callProjectDistOriginSphere(makePlane(-1.0f, -2.0f, -3.0f, 1.0f, 0.5f, 1.0f)), eps);
 }
 
 std::vector<Splat> TestMls::sphereSplats(std::size_t N, const float center[3], float radius)

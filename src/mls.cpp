@@ -26,6 +26,8 @@ MlsFunctor::MlsFunctor(const cl::Context &context)
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
+    defines["FIT_SPHERE"] = "1";
+    defines["FIT_PLANE"] = "0";
 
     cl::Program program = CLH::build(context, "kernels/mls.cl", defines);
     kernel = cl::Kernel(program, "processCorners");
