@@ -73,6 +73,15 @@ public:
      */
     static const std::size_t MAX_DIMENSION = 1U << MAX_DIMENSION_LOG2;
 
+    /// Total bytes held in @ref countTable.
+    static const std::size_t COUNT_TABLE_BYTES = 256 * sizeof(cl_uchar2);
+    /// Total bytes held in @ref startTable.
+    static const std::size_t START_TABLE_BYTES = 257 * sizeof(cl_ushort2);
+    /// Total bytes held in @ref dataTable.
+    static const std::size_t DATA_TABLE_BYTES = 8192 * sizeof(cl_uchar);
+    /// Total bytes held in @ref keyTable.
+    static const std::size_t KEY_TABLE_BYTES = 2432 * sizeof(cl_uint3);
+
 private:
     /**
      * Structure to hold the various values read back from the device at

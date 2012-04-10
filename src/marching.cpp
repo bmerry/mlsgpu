@@ -29,6 +29,10 @@
 const int Marching::KEY_AXIS_BITS;
 const int Marching::MAX_DIMENSION_LOG2;
 const std::size_t Marching::MAX_DIMENSION;
+const std::size_t Marching::COUNT_TABLE_BYTES;
+const std::size_t Marching::START_TABLE_BYTES;
+const std::size_t Marching::DATA_TABLE_BYTES;
+const std::size_t Marching::KEY_TABLE_BYTES;
 
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
 {
@@ -228,6 +232,10 @@ void Marching::makeTables()
                             hVertexTable.size() * sizeof(hVertexTable[0]), &hVertexTable[0]);
     keyTable =   cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                             hKeyTable.size() * sizeof(hKeyTable[0]), &hKeyTable[0]);
+    assert(countTable.getInfo<CL_MEM_SIZE>() == COUNT_TABLE_BYTES);
+    assert(startTable.getInfo<CL_MEM_SIZE>() == START_TABLE_BYTES);
+    assert(dataTable.getInfo<CL_MEM_SIZE>() == DATA_TABLE_BYTES);
+    assert(keyTable.getInfo<CL_MEM_SIZE>() == KEY_TABLE_BYTES);
 }
 
 bool Marching::validateDevice(const cl::Device &device)
@@ -304,7 +312,12 @@ CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t
     ans.addBuffer(vertexSpace * sizeof(cl_ulong));
     ans.addBuffer(vertexSpace * sizeof(cl_float4));
 
-    // TODO: constant space needed for tables, and temporaries for the sorter and scanners
+    // Lookup tables
+    ans.addBuffer(COUNT_TABLE_BYTES);
+    ans.addBuffer(START_TABLE_BYTES);
+    ans.addBuffer(DATA_TABLE_BYTES);
+    ans.addBuffer(KEY_TABLE_BYTES);
+    // TODO: temporaries for the sorter and scanners
 
     return ans;
 }
