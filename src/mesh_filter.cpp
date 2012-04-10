@@ -75,13 +75,12 @@ void ScaleBiasFilter::operator()(
     cl::Event *event,
     DeviceKeyMesh &outMesh) const
 {
-    // TODO: pick a work group size
     kernel.setArg(0, inMesh.vertices);
-    CLH::enqueueNDRangeKernel(queue,
-                              kernel,
-                              cl::NullRange,
-                              cl::NDRange(inMesh.numVertices),
-                              cl::NullRange,
-                              events, event);
+    CLH::enqueueNDRangeKernelSplit(queue,
+                                   kernel,
+                                   cl::NullRange,
+                                   cl::NDRange(inMesh.numVertices),
+                                   cl::NullRange,
+                                   events, event);
     outMesh = inMesh;
 }
