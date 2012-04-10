@@ -337,12 +337,12 @@ std::tr1::uintmax_t ElementRangeWriterBase::getNumber() const
 } // namespace internal
 
 template<typename T>
-void Writer::writeField(T value)
+void Writer::writeField(T value, bool final)
 {
     switch (format)
     {
     case FILE_FORMAT_ASCII:
-        out << numberToString(value) << ' ';
+        out << numberToString(value) << (final ? '\n' : ' ');
         break;
     case FILE_FORMAT_LITTLE_ENDIAN:
         writeBinary(out, value, boost::true_type());
@@ -353,14 +353,14 @@ void Writer::writeField(T value)
     }
 }
 
-template void Writer::writeField<std::tr1::uint8_t>(std::tr1::uint8_t value);
-template void Writer::writeField<std::tr1::int8_t>(std::tr1::int8_t value);
-template void Writer::writeField<std::tr1::uint16_t>(std::tr1::uint16_t value);
-template void Writer::writeField<std::tr1::int16_t>(std::tr1::int16_t value);
-template void Writer::writeField<std::tr1::uint32_t>(std::tr1::uint32_t value);
-template void Writer::writeField<std::tr1::int32_t>(std::tr1::int32_t value);
-template void Writer::writeField<float>(float value);
-template void Writer::writeField<double>(double value);
+template void Writer::writeField<std::tr1::uint8_t>(std::tr1::uint8_t value, bool final);
+template void Writer::writeField<std::tr1::int8_t>(std::tr1::int8_t value, bool final);
+template void Writer::writeField<std::tr1::uint16_t>(std::tr1::uint16_t value, bool final);
+template void Writer::writeField<std::tr1::int16_t>(std::tr1::int16_t value, bool final);
+template void Writer::writeField<std::tr1::uint32_t>(std::tr1::uint32_t value, bool final);
+template void Writer::writeField<std::tr1::int32_t>(std::tr1::int32_t value, bool final);
+template void Writer::writeField<float>(float value, bool final);
+template void Writer::writeField<double>(double value, bool final);
 
 Writer::Writer(FileFormat format, std::streambuf *buf)
     : format(format), out(buf)
@@ -424,17 +424,6 @@ void Writer::writeHeader()
         writeHeaderElement(e);
     }
     out << "end_header\n";
-}
-
-void Writer::startElement()
-{
-    // TODO: use this to avoid trailing spaces in ASCII format
-}
-
-void Writer::endElement()
-{
-    if (format == FILE_FORMAT_ASCII)
-        out << '\n';
 }
 
 void Writer::addElement(std::auto_ptr<internal::ElementRangeWriterBase> e)

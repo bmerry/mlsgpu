@@ -752,9 +752,6 @@ public:
      * returned by getProperties(), or the PLY file will be malformed
      * (particularly if it is binary).
      *
-     * This method must not call @ref PLY::Writer::startElement or @ref PLY::Writer::endElement.
-     * That will be done automatically.
-     *
      * @param e        The element to write.
      * @param writer   The PLY file to write to.
      */
@@ -902,25 +899,13 @@ public:
     /**
      * Write a scalar field to the PLY file.
      *
+     * @param value       Value to write.
+     * @param final       Whether this is the final field for the element.
+     *
      * This should only be called by element fetcher classes.
      */
     template<typename T>
-    void writeField(T value);
-
-    /**
-     * Start a new element record in the body.
-     *
-     * This should only be called by element fetcher classes.
-     */
-    void startElement();
-
-    /**
-     * Terminate an element record in the body.
-     *
-     * This should only be called by element fetcher classes.
-     */
-    void endElement();
-
+    void writeField(T value, bool final);
 };
 
 template<typename Iterator, typename Fetcher>
@@ -930,9 +915,7 @@ void ElementRangeWriter<Iterator, Fetcher>::writeAll(Writer &writer) const
     for (const_iterator i = first; i != last; ++i)
     {
         const typename std::iterator_traits<const_iterator>::value_type &e = *i;
-        writer.startElement();
         fetcher.writeElement(e, writer);
-        writer.endElement();
         n++;
     }
     MLSGPU_ASSERT(n == getNumber(), std::length_error);
