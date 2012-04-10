@@ -556,7 +556,6 @@ static void validateOptions(const po::variables_map &vm)
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
     int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
-    /* TODO make dynamic, considering maximum image sizes etc */
     if (levels < 1 || levels > maxLevels)
     {
         cerr << "Value of --levels must be in the range 1 to " << maxLevels << ".\n";

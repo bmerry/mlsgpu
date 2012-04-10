@@ -419,7 +419,7 @@ void TestMarching::testGenerate(
     {
         FastPly::StreamWriter writer;
         StxxlMesher mesher(writer, TrivialNamer(filename));
-        marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
+        marching.generate(queue, input, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
         mesher.write();
     }
 
@@ -428,7 +428,7 @@ void TestMarching::testGenerate(
     {
         MemoryWriter writer;
         StxxlMesher mesher(writer, TrivialNamer(filename));
-        marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
+        marching.generate(queue, input, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
         mesher.write();
 
         const MemoryWriter::Output output = writer.getOutput(filename);

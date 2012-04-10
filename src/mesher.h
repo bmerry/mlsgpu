@@ -619,7 +619,11 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const Mes
 /**
  * Creates an adapter between @ref MesherBase::InputFunctor and @ref Marching::OutputFunctor
  * that reads the mesh from the device to the host synchronously.
+ *
+ * @param in        The mesher functor which will receive the host copy of the mesh.
+ * @param chunkId   Chunk ID to pass to @a in.
  */
-Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in);
+Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in,
+                                     const ChunkId &chunkId);
 
 #endif /* !MESHER_H */

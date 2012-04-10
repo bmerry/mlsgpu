@@ -719,6 +719,7 @@ class DeviceMesher
 {
 private:
     const MesherBase::InputFunctor in;
+    const ChunkId chunkId;
 
 public:
     typedef void result_type;
@@ -737,17 +738,18 @@ public:
         work.verticesEvent = wait[0];
         work.vertexKeysEvent = wait[1];
         work.trianglesEvent = wait[2];
-        in(ChunkId(), work); // TODO: should be able to pass through a ChunkId
+        in(chunkId, work);
     }
 
-    DeviceMesher(const MesherBase::InputFunctor &in) : in(in) {}
+    DeviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId)
+        : in(in), chunkId(chunkId) {}
 };
 
 } // anonymous namespace
 
-Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in)
+Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId)
 {
-    return DeviceMesher(in);
+    return DeviceMesher(in, chunkId);
 }
 
 MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer)
