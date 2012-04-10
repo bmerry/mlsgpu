@@ -59,6 +59,15 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
     classifyKernel = cl::Kernel(program, "classify");
     triangleCompactKernel = cl::Kernel(program, "triangleCompact");
     vertexCompactKernel = cl::Kernel(program, "vertexCompact");
+
+    classifyKernel.setArg(0, triangleCompact);
+    classifyKernel.setArg(1, vertexCompact);
+    classifyKernel.setArg(3, distances);
+
+    vertexCompactKernel.setArg(2, vertexCompact);
+
+    triangleCompactKernel.setArg(1, triangleCompact);
+    triangleCompactKernel.setArg(3, vertexCompact);
 }
 
 void Clip::setDistanceFunctor(const DistanceFunctor &distanceFunctor)
@@ -82,40 +91,32 @@ void Clip::operator()(
     std::vector<cl::Event> wait;
 
     /* TODO:
-     * - Pretty much every call needs to use an explicit work group size
-     *   and have some manner to handle the leftover bits.
-     * - Move setArg into constructor where feasible
      * - If interpolation is being done, probably need to split welding
      *   out of Marching and re-use it here.
-     * - Change interface to pass in wait events, to avoid waitForEvents
-     *   below.
      */
 
     /*** Classify and compact vertices and indices ***/
 
     cl::Event vertexInitEvent;
     vertexInitKernel.setArg(0, vertexCompact);
-    CLH::enqueueNDRangeKernel(queue,
-                              vertexInitKernel,
-                              cl::NullRange,
-                              cl::NDRange(mesh.numVertices),
-                              cl::NullRange,
-                              NULL, &vertexInitEvent);
+    CLH::enqueueNDRangeKernelSplit(queue,
+                                   vertexInitKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(mesh.numVertices),
+                                   cl::NullRange,
+                                   NULL, &vertexInitEvent);
 
     wait.resize(2);
     wait[0] = distanceEvent;
     wait[1] = vertexInitEvent;
     cl::Event classifyEvent;
-    classifyKernel.setArg(0, triangleCompact);
-    classifyKernel.setArg(1, vertexCompact);
     classifyKernel.setArg(2, mesh.triangles);
-    classifyKernel.setArg(3, distances);
-    CLH::enqueueNDRangeKernel(queue,
-                              classifyKernel,
-                              cl::NullRange,
-                              cl::NDRange(mesh.numTriangles),
-                              cl::NullRange,
-                              &wait, &classifyEvent);
+    CLH::enqueueNDRangeKernelSplit(queue,
+                                   classifyKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(mesh.numTriangles),
+                                   cl::NullRange,
+                                   &wait, &classifyEvent);
 
     /*** Compact vertices and their keys ***/
 
@@ -140,15 +141,14 @@ void Clip::operator()(
     cl::Event vertexCompactEvent;
     vertexCompactKernel.setArg(0, outMesh.vertices);
     vertexCompactKernel.setArg(1, outMesh.vertexKeys);
-    vertexCompactKernel.setArg(2, vertexCompact);
     vertexCompactKernel.setArg(3, mesh.vertices);
     vertexCompactKernel.setArg(4, mesh.vertexKeys);
-    CLH::enqueueNDRangeKernel(queue,
-                              vertexCompactKernel,
-                              cl::NullRange,
-                              cl::NDRange(mesh.numVertices),
-                              cl::NullRange,
-                              &wait, &vertexCompactEvent);
+    CLH::enqueueNDRangeKernelSplit(queue,
+                                   vertexCompactKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(mesh.numVertices),
+                                   cl::NullRange,
+                                   &wait, &vertexCompactEvent);
 
     /*** Compact triangles, while also rewriting the indices ***/
 
@@ -170,15 +170,13 @@ void Clip::operator()(
     wait[1] = vertexScanEvent;
     cl::Event triangleCompactEvent;
     triangleCompactKernel.setArg(0, outMesh.triangles);
-    triangleCompactKernel.setArg(1, triangleCompact);
     triangleCompactKernel.setArg(2, mesh.triangles);
-    triangleCompactKernel.setArg(3, vertexCompact);
-    CLH::enqueueNDRangeKernel(queue,
-                              triangleCompactKernel,
-                              cl::NullRange,
-                              cl::NDRange(mesh.numTriangles),
-                              cl::NullRange,
-                              &wait, &triangleCompactEvent);
+    CLH::enqueueNDRangeKernelSplit(queue,
+                                   triangleCompactKernel,
+                                   cl::NullRange,
+                                   cl::NDRange(mesh.numTriangles),
+                                   cl::NullRange,
+                                   &wait, &triangleCompactEvent);
 
     // Some of these happen-after others and so some steps are redundant, but
     // checking for all of them is safe.
