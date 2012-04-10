@@ -554,7 +554,7 @@ void Marching::generate(
     Statistics::Variable &nonempty = registry.getStatistic<Statistics::Variable>("marching.slice.nonempty");
 
     // Work group size for kernels that operate on compacted cells
-    const std::size_t wgsCompacted = 1; // TODO: not very good at all!
+    const std::size_t wgsCompacted = 128;
 
     // Pointers into @ref backingImages, which are swapped to advance to the next slice.
     cl::Image2D *images[2] = { &backingImages[0], &backingImages[1] };
@@ -616,12 +616,12 @@ void Marching::generate(
             generateElementsKernel.setArg(12, offsets);
             generateElementsKernel.setArg(13, top);
             generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
-            CLH::enqueueNDRangeKernel(queue,
-                                      generateElementsKernel,
-                                      cl::NullRange,
-                                      cl::NDRange(compacted),
-                                      cl::NDRange(wgsCompacted),
-                                      &wait, &last);
+            CLH::enqueueNDRangeKernelSplit(queue,
+                                           generateElementsKernel,
+                                           cl::NullRange,
+                                           cl::NDRange(compacted),
+                                           cl::NDRange(wgsCompacted),
+                                           &wait, &last);
             wait.resize(1);
             wait[0] = last;
 
