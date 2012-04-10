@@ -163,8 +163,7 @@ public:
  *    Each pass must generate exactly the same geometry, but the blocks may
  *    be generated in different order within each chunk (chunks must be in
  *    order).
- * -# Call @ref finalize.
- * -# If file output is desired, call @ref write.
+ * -# Call @ref write.
  *
  * @warning The functor is @em not required to be thread-safe. The caller must
  * serialize calls if necessary (@ref MesherGroup only uses one thread).
@@ -184,8 +183,20 @@ public:
      */
     typedef boost::function<std::string(const ChunkId &chunkId)> Namer;
 
-    /// Constructor
-    MesherBase() : pruneThreshold(0.0) {}
+    /**
+     * Constructor. The mesher object retains a reference to @a writer and so it
+     * must persist until the mesher is destroyed. The @a namer is copied and so
+     * may be transient.
+     *
+     * The @a writer must not be open when the constructor is called, nor
+     * should it be directly accessed when the mesher exists. The mesher will
+     * open and close the writer once per output file.
+     *
+     * @param writer         Writer that will be used to emit output files.
+     * @param namer          Callback function to assign names to output files.
+     */
+    MesherBase(FastPly::WriterBase &writer, const Namer &namer)
+        : pruneThreshold(0.0), writer(writer), namer(namer) {}
 
     /// Virtual destructor to allow destruction via base class pointer
     virtual ~MesherBase() {}
@@ -213,6 +224,9 @@ public:
      * pass @a pass once pass @a pass - 1 has completed. It must also
      * only be called once per pass.
      *
+     * The functor might perform file I/O (depending on the subclass), in which
+     * case it may throw any of the exceptions documented for @ref write.
+     *
      * @pre @a pass is less than @ref numPasses().
      *
      * @warning The returned functor is @em not required to be thread-safe.
@@ -220,34 +234,25 @@ public:
     virtual InputFunctor functor(unsigned int pass) = 0;
 
     /**
-     * Perform any final processing once the last pass has completed.
+     * Performs any final file I/O.
      *
-     * @param progressStream If non-NULL and finalization does significant work,
-     * a progress meter will be displayed.
-     * @pre All passes have been executed.
-     */
-    virtual void finalize(std::ostream *progressStream = NULL) { (void) progressStream; }
-
-    /**
-     * Writes the data to file. The writer passed in must not yet have been opened
-     * (this function will do that). The caller may optionally have set comments on it.
-     *
-     * @param writer          Writer to use for writing.
-     * @param namer           Filename generator.
      * @param progressStream  If non-NULL, a log stream for a progress meter.
      * @throw std::ios_base::failure on I/O failure (including failure to open the file).
      * @throw std::overflow_error if too many connected components were found.
      * @throw std::overflow_error if too many vertices were found in one output chunk.
-     *
-     * @pre @a writer is closed.
-     * @pre @ref finalize() has been called.
      */
-    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
-                       std::ostream *progressStream = NULL) const = 0;
+    virtual void write(std::ostream *progressStream = NULL) = 0;
+
+protected:
+    FastPly::WriterBase &getWriter() const { return writer; }
+    std::string getOutputName(const ChunkId &id) const { return namer(id); }
 
 private:
     /// Threshold set by @ref setPruneThreshold
     double pruneThreshold;
+
+    FastPly::WriterBase &writer;   ///< Writer for output files
+    const Namer namer;             ///< Output file namer
 };
 
 namespace detail
@@ -432,7 +437,11 @@ protected:
         const Statistics::Container::vector<std::tr1::uint32_t> &indexTable,
         HostKeyMesh &mesh) const;
 
-    KeyMapMesher() :
+    /**
+     * @copydoc MesherBase::MesherBase
+     */
+    KeyMapMesher(FastPly::WriterBase &writer, const Namer &namer) :
+        MesherBase(writer, namer),
         vertexIdMap("mem.KeyMapMesher::vertexIdMap"),
         clumpIdMap("mem.KeyMapMesher::clumpIdMap"),
         clumps("mem.KeyMapMesher::clumps"),
@@ -464,9 +473,6 @@ protected:
 class BigMesher : public detail::KeyMapMesher
 {
 private:
-    FastPly::WriterBase &writer;
-    const Namer namer;
-
     /**
      * Maps chunk generations to full chunk IDs. This is needed to generate
      * error messages during @ref prepareAdd.
@@ -515,20 +521,13 @@ public:
     virtual unsigned int numPasses() const { return 2; }
 
     /**
-     * Constructor. Unlike the in-core mesher types, the file information must
-     * be passed to the constructor so that results can be streamed into it.
-     *
-     * The files will be created on the second pass.
+     * @copydoc MesherBase::MesherBase
      */
     BigMesher(FastPly::WriterBase &writer, const Namer &namer);
 
     virtual InputFunctor functor(unsigned int pass);
 
-    /**
-     * Completes writing. The parameters must have the same values given to the constructor.
-     */
-    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
-                       std::ostream *progressStream = NULL) const;
+    virtual void write(std::ostream *progressStream = NULL);
 };
 
 /**
@@ -598,16 +597,22 @@ private:
     };
 
 public:
-    StxxlMesher() : chunks("mem.StxxlMesher::chunks") {}
+    /**
+     * @copydoc MesherBase::MesherBase
+     */
+    StxxlMesher(FastPly::WriterBase &writer, const Namer &namer)
+        : KeyMapMesher(writer, namer), chunks("mem.StxxlMesher::chunks") {}
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
-    virtual void write(FastPly::WriterBase &writer, const Namer &namer,
-                       std::ostream *progressStream = NULL) const;
+    virtual void write(std::ostream *progressStream = NULL);
 };
 
 /**
  * Factory function to create a mesher of the specified type.
+ *
+ * @param writer, namer     Parameters to @ref MesherBase::MesherBase.
+ * @param type              The type of mesher to create.
  */
 MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer);
 

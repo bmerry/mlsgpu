@@ -204,7 +204,7 @@ void KeyMapMesher::rewriteTriangles(
 } // namespace detail
 
 BigMesher::BigMesher(FastPly::WriterBase &writer, const Namer &namer)
-    : writer(writer), namer(namer),
+    : KeyMapMesher(writer, namer),
     chunkIds("mem.BigMesher::chunkIds"),
     nextVertex(0), nextTriangle(0), pruneThresholdVertices(0),
     retainedExternal("mem.BigMesher::retainedExternal"),
@@ -242,6 +242,7 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
 
 void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
 {
+    FastPly::WriterBase &writer = getWriter();
     if (!curChunkGen || chunkId.gen != *curChunkGen)
     {
         assert(!curChunkGen || *curChunkGen < chunkId.gen);
@@ -256,7 +257,7 @@ void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
         curChunkGen = chunkId.gen;
         writer.setNumVertices(counts.vertices);
         writer.setNumTriangles(counts.triangles);
-        writer.open(namer(chunkId));
+        writer.open(getOutputName(chunkId));
         Statistics::getStatistic<Statistics::Counter>("output.files").add();
 
         nextVertex = 0;
@@ -386,7 +387,7 @@ void BigMesher::prepareAdd()
         {
             if (chunkCounts[item.first].vertices >= UINT32_MAX)
             {
-                std::string name = namer(item.second);
+                std::string name = getOutputName(item.second);
                 throw std::overflow_error("Too many vertices for " + name);
             }
         }
@@ -430,14 +431,11 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
     }
 }
 
-void BigMesher::write(FastPly::WriterBase &writer, const Namer &namer,
-                      std::ostream *progressStream) const
+void BigMesher::write(std::ostream *progressStream)
 {
-    (void) namer;
     (void) progressStream;
-    assert(&writer == &this->writer);
-    if (writer.isOpen())
-        writer.close();
+    if (getWriter().isOpen())
+        getWriter().close();
 }
 
 
@@ -543,9 +541,10 @@ void StxxlMesher::TriangleBuffer::flush()
     buffer.clear();
 }
 
-void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
-                        std::ostream *progressStream) const
+void StxxlMesher::write(std::ostream *progressStream)
 {
+    FastPly::WriterBase &writer = getWriter();
+
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
@@ -633,7 +632,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
         }
         if (chunkVertices >= UINT32_MAX)
         {
-            std::string name = namer(chunk.chunkId);
+            std::string name = getOutputName(chunk.chunkId);
             throw std::overflow_error("Too many vertices for " + name);
         }
 
@@ -641,7 +640,7 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
         {
             writer.setNumVertices(chunkVertices);
             writer.setNumTriangles(chunkTriangles);
-            writer.open(namer(chunk.chunkId));
+            writer.open(getOutputName(chunk.chunkId));
             Statistics::getStatistic<Statistics::Counter>("output.files").add();
 
             // Write out the valid vertices, simultaneously building a chunk-wide remap table
@@ -649,8 +648,8 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             cl_uint nextVertex = 0;
             {
                 stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
-                    vertex_stream = stxxl::stream::streamify(vertices.begin() + chunk.firstVertex,
-                                                             vertices.begin() + lastVertex);
+                    vertex_stream = stxxl::stream::streamify(vertices.cbegin() + chunk.firstVertex,
+                                                             vertices.cbegin() + lastVertex);
                 VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
                 while (!vertex_stream.empty())
                 {
@@ -676,8 +675,8 @@ void StxxlMesher::write(FastPly::WriterBase &writer, const Namer &namer,
             // Write out the triangles
             {
                 stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
-                    triangle_stream = stxxl::stream::streamify(triangles.begin() + chunk.firstTriangle,
-                                                               triangles.begin() + lastTriangle);
+                    triangle_stream = stxxl::stream::streamify(triangles.cbegin() + chunk.firstTriangle,
+                                                               triangles.cbegin() + lastTriangle);
                 TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
                 while (!triangle_stream.empty())
                 {
@@ -756,7 +755,7 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const Mes
     switch (type)
     {
     case BIG_MESHER:    return new BigMesher(writer, namer);
-    case STXXL_MESHER:  return new StxxlMesher();
+    case STXXL_MESHER:  return new StxxlMesher(writer, namer);
     }
     return NULL; // should never be reached
 }

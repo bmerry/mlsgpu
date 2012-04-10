@@ -411,21 +411,31 @@ void TestMarching::testGenerate(
 {
     Grid::size_type size[3] = { width, height, depth };
 
-    Marching marching(context, device, maxWidth, maxHeight);
-    StxxlMesher mesher;
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
+    Marching marching(context, device, maxWidth, maxHeight);
 
-    mesher.finalize();
-    FastPly::StreamWriter writer;
-    mesher.write(writer, TrivialNamer(filename));
+    /*** Pass 1: write to file ***/
 
-    MemoryWriter mwriter;
-    mesher.write(mwriter, TrivialNamer(filename));
-    const MemoryWriter::Output output = mwriter.getOutput(filename);
-    const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = output.triangles;
-    std::string reason = Manifold::isManifold(output.vertices.size(), triangles.begin(), triangles.end());
-    CPPUNIT_ASSERT_EQUAL(string(""), reason);
+    {
+        FastPly::StreamWriter writer;
+        StxxlMesher mesher(writer, TrivialNamer(filename));
+        marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
+        mesher.write();
+    }
+
+    /*** Pass 2: write to memory and validate ***/
+
+    {
+        MemoryWriter writer;
+        StxxlMesher mesher(writer, TrivialNamer(filename));
+        marching.generate(queue, input, deviceMesher(mesher.functor(0)), size, keyOffset, NULL);
+        mesher.write();
+
+        const MemoryWriter::Output output = writer.getOutput(filename);
+        const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = output.triangles;
+        std::string reason = Manifold::isManifold(output.vertices.size(), triangles.begin(), triangles.end());
+        CPPUNIT_ASSERT_EQUAL(string(""), reason);
+    }
 }
 
 void TestMarching::testSphere()

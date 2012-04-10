@@ -500,8 +500,7 @@ void TestMesherBase::testSimple()
                 internalVertices0, NULL, NULL, indices0);
         }
     }
-    mesher->finalize();
-    mesher->write(writer, TrivialNamer(""));
+    mesher->write();
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(5, int(boost::size(internalVertices0)));
@@ -553,8 +552,7 @@ void TestMesherBase::testNoInternal()
             boost::size(indices2),
             NULL, externalVertices2, externalKeys2, indices2);
     }
-    mesher->finalize();
-    mesher->write(writer, TrivialNamer(""));
+    mesher->write();
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -605,8 +603,7 @@ void TestMesherBase::testNoExternal()
             boost::size(indices2),
             internalVertices2, NULL, NULL, indices2);
     }
-    mesher->finalize();
-    mesher->write(writer, TrivialNamer(""));
+    mesher->write();
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -622,8 +619,7 @@ void TestMesherBase::testEmpty()
         const MesherBase::InputFunctor functor = mesher->functor(i);
         add(ChunkId(), functor, 0, 0, 0, NULL, NULL, NULL, NULL);
     }
-    mesher->finalize();
-    mesher->write(writer, TrivialNamer(""));
+    mesher->write();
 
     // Output should not be produced for empty chunks
     CPPUNIT_ASSERT_THROW(writer.getOutput(""), std::invalid_argument);
@@ -691,8 +687,7 @@ void TestMesherBase::testWeld()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesher->finalize();
-    mesher->write(writer, TrivialNamer(""));
+    mesher->write();
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(9, int(boost::size(indices3)));
@@ -871,8 +866,7 @@ void TestMesherBase::testPrune()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesher->finalize();
-    mesher->write(writer, TrivialNamer(""));
+    mesher->write();
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -931,8 +925,7 @@ void TestMesherBase::testChunk()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesher->finalize();
-    mesher->write(writer, namer);
+    mesher->write();
 
     checkIsomorphic(boost::size(internalVertices0),
                     boost::size(indices0),
@@ -1125,8 +1118,7 @@ void TestMesherBase::testRandom()
             }
         }
     }
-    mesher->finalize();
-    mesher->write(writer, namer);
+    mesher->write();
 
     BOOST_FOREACH(Chunk &chunk, chunks)
     {
@@ -1191,7 +1183,7 @@ class TestStxxlMesherSlow : public TestStxxlMesher
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesherSlow, TestSet::perCommit());
 
-MesherBase *TestStxxlMesher::mesherFactory(FastPly::WriterBase &, const MesherBase::Namer &)
+MesherBase *TestStxxlMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
 {
-    return new StxxlMesher();
+    return new StxxlMesher(writer, namer);
 }

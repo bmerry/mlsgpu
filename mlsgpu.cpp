@@ -507,8 +507,7 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
     {
         Statistics::Timer timer("finalize.time");
 
-        mesher->finalize(&Log::log[Log::info]);
-        mesher->write(*writer, namer, &Log::log[Log::info]);
+        mesher->write(&Log::log[Log::info]);
     }
 }
 
