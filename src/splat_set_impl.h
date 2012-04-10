@@ -57,7 +57,7 @@ BlobStream *FastBlobSet<Base, BlobVector>::makeBlobStream(
 
 template<typename Base, typename BlobVector>
 void FastBlobSet<Base, BlobVector>::computeBlobs(
-    float spacing, Grid::size_type bucketSize, std::ostream *progressStream)
+    float spacing, Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
 {
     const float ref[3] = {0.0f, 0.0f, 0.0f};
 
@@ -123,7 +123,8 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     {
         if (progress != NULL)
             *progress += nonFinite;
-        Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
+        if (warnNonFinite)
+            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
     }
     registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
 

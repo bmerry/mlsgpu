@@ -261,8 +261,7 @@ private:
 
 public:
     /**
-     * Generates fixture data, and disables the warning log to prevent
-     * warnings about NaN values (which are expected in the test).
+     * Generates fixture data.
      */
     virtual void setUp();
     /// Re-enable the warning log
@@ -417,14 +416,6 @@ void TestSplatSet<SetType>::setUp()
 
     const float ref[3] = {0.0f, 0.0f, 0.0f};
     grid = Grid(ref, 2.5f, 2, 20, -30, 25, 0, 30);
-
-    /* The NaN test normally causes a warning to be printed about
-     * invalid splats, but in this case it's intentional, so we
-     * suppress the warning.
-     *
-     * TODO: move up to FastBlobSet test.
-     */
-    Log::log.setLevel(Log::error);
 }
 
 template<typename SetType>
@@ -432,8 +423,6 @@ void TestSplatSet<SetType>::tearDown()
 {
     splatData.clear();
     flatSplats.clear();
-    // Restore the default log level
-    Log::log.setLevel(Log::warn);
     CppUnit::TestFixture::tearDown();
 }
 
@@ -780,14 +769,14 @@ FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
         return NULL; // otherwise computeBlobs will throw
     std::auto_ptr<Set> set(new Set);
     TestFileSet::populate(*set, splatData, store);
-    set->computeBlobs(spacing, bucketSize);
+    set->computeBlobs(spacing, bucketSize, NULL, false);
     return set.release();
 }
 
 void TestFastFileSet::testEmpty()
 {
     boost::scoped_ptr<Set> set(new Set);
-    CPPUNIT_ASSERT_THROW(set->computeBlobs(2.5f, 5), std::runtime_error);
+    CPPUNIT_ASSERT_THROW(set->computeBlobs(2.5f, 5, NULL, false), std::runtime_error);
 }
 
 void TestFastFileSet::testProgress()
@@ -797,7 +786,7 @@ void TestFastFileSet::testProgress()
 
     boost::iostreams::null_sink nullSink;
     boost::iostreams::stream<boost::iostreams::null_sink> nullStream(nullSink);
-    set->computeBlobs(2.5f, 5, &nullStream);
+    set->computeBlobs(2.5f, 5, &nullStream, false);
 }
 
 FastBlobSet<VectorSet, std::vector<BlobData> > *TestFastVectorSet::setFactory(
@@ -808,7 +797,7 @@ FastBlobSet<VectorSet, std::vector<BlobData> > *TestFastVectorSet::setFactory(
         return NULL;
     std::auto_ptr<Set> set(new Set);
     TestVectorSet::populate(*set, splatData);
-    set->computeBlobs(spacing, bucketSize);
+    set->computeBlobs(spacing, bucketSize, NULL, false);
     return set.release();
 }
 
@@ -824,7 +813,7 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
     std::tr1::variate_generator<std::tr1::mt19937 &, std::tr1::bernoulli_distribution> gen(engine, dist);
 
     TestVectorSet::populate(super, splatData);
-    super.computeBlobs(spacing, bucketSize);
+    super.computeBlobs(spacing, bucketSize, NULL, false);
     std::auto_ptr<Set> set(new Set(super));
 
     // Select a random subset of the blobs in the superset
