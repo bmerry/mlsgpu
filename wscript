@@ -1,5 +1,7 @@
 import os.path
 
+APPNAME = 'mlsgpu'
+VERSION = '0.99'
 out = 'build'
 
 variants = {
@@ -67,10 +69,10 @@ def options(opt):
     opt.load('compiler_cxx')
     opt.load('waf_unit_test')
     opt.load('provenance', tooldir = '../../waf-tools')
-    opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'debug', action = 'store', help = 'build variant', choices = variants.keys())
+    opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'release', action = 'store', help = 'build variant', choices = variants.keys())
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
-    opt.add_option('--notests', action = 'store_true', default = False, help = 'Do not run unit tests')
+    opt.add_option('--no-tests', action = 'store_true', default = False, help = 'Do not run unit tests')
 
 def configure_variant(conf):
     if conf.env['assertions']:
@@ -136,6 +138,7 @@ def configure(conf):
     conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
     for l in libs:
         conf.check_cxx(lib = l)
+    conf.find_program('xsltproc')
 
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')
@@ -186,9 +189,15 @@ def build(bld):
             source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
             target = 'plymanifold',
             lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'])
+
+    bld(
+            rule = '${XSLTPROC} --xinclude --stringparam mlsgpu.version ' + VERSION + ' -o ${TGT} ${SRC}',
+            source = ['doc/mlsgpu-user-manual-xml.xsl', 'doc/mlsgpu-user-manual.xml'],
+            target = 'doc/mlsgpu-user-manual.html')
+
     if bld.env['unit_tests']:
         test_features = 'cxx cxxprogram'
-        if not bld.options.notests:
+        if not bld.options.no_tests:
             test_features += ' test'
         bld.program(
                 features = test_features,

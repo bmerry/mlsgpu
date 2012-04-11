@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.3//EN" "http://www.oasis-open.org/docbook/xml/4.3/docbookx.dtd">
+<book>
+    <title>MLSGPU User Manual</title>
+    <bookinfo>
+        <author>
+            <firstname>Bruce</firstname><surname>Merry</surname>
+            <email>bmerry@cs.uct.ac.za</email>
+        </author>
+        <copyright>
+            <year>2012</year>
+            <holder>University of Cape Town</holder>
+        </copyright>
+        <!-- Stylesheet replaces this empty element with a version number -->
+        <releaseinfo>
+        </releaseinfo>
+    </bookinfo>
+    <chapter id="installation">
+        <title>Installation</title>
+        <section id="installation.dependencies">
+            <title>Dependencies</title>
+            <para>
+                MLSGPU requires a POSIX operating system such as a GNU/Linux
+                system. At present only Ubuntu 11.10 has been tested, but other
+                variants are expected to work. It is also highly recommended
+                that you use a 64-bit operating system, as otherwise you will
+                be limited to around 2GB of input data.
+            </para>
+            <para>
+                MLSGPU dependends on the following software to compile and run.
+                Versions listed are the ones that have been tested; older
+                versions may work.
+            </para>
+            <itemizedlist>
+                <listitem><para>A C++ compiler. GCC 4.4 and 4.6, and clang 2.9
+                        have been tested.</para></listitem>
+                <listitem><para><ulink
+                            href="http://www.boost.org/">Boost</ulink> 1.46,
+                        including the following runtime libraries:</para>
+                    <itemizedlist>
+                        <listitem><para><systemitem
+                                    class="library">boost_program_options</systemitem></para></listitem>
+                        <listitem><para><systemitem
+                                    class="library">boost_iostreams</systemitem></para></listitem>
+                        <listitem><para><systemitem
+                                    class="library">boost_thread</systemitem></para></listitem>
+                        <listitem><para><systemitem
+                                    class="library">boost_math_c99</systemitem></para></listitem>
+                        <listitem><para><systemitem
+                                    class="library">boost_math_c99f</systemitem></para></listitem>
+                    </itemizedlist>
+                </listitem>
+                <listitem><para><ulink
+                            href="http://stxxl.sourceforge.net/">STXXL</ulink> 1.3.1</para></listitem>
+                <listitem><para><ulink
+                            href="http://clogs.sourceforge.net/">clogs</ulink> 1.0.2</para></listitem>
+                <listitem><para><ulink
+                            href="http://www.stack.nl/~dimitri/doxygen/">Doxygen</ulink> 1.7.4</para></listitem>
+                <listitem><para><ulink
+                            href="http://www.python.org">Python</ulink> 2.7</para></listitem>
+                <listitem><para><ulink
+                            href="http://xmlsoft.org/xslt/">xsltproc</ulink> 1.1</para></listitem>
+                <listitem><para><ulink
+                            href="http://docbook.sf.net/">DocBook</ulink> 4.3 stylesheets</para></listitem>
+                <listitem><para>An implementation of OpenCL. GPU device
+                        drivers will normally include this. It has been tested
+                        with NVIDIA GPU drivers and with the AMD APP SDK 2.6
+                        on a CPU.</para></listitem>
+            </itemizedlist>
+            <para>
+                The following tools and libraries are necessarily to build
+                optional parts, but are not required:
+            </para>
+            <itemizedlist>
+                <listitem><para><ulink
+                            href="http://sourceforge.net/apps/mediawiki/cppunit/">CppUnit</ulink>
+                        1.12 is needed to build the test
+                        suite.</para></listitem>
+            </itemizedlist>
+            <para>
+                The following list of packages should suffice on Ubuntu 11.10 (although it has
+                not been tested against a clean installation), with the
+                exception of <systemitem class="library">clogs</systemitem> which has not been
+                packaged for Ubuntu.
+            </para>
+            <screen>xsltproc
+docbook-xml
+docbook-xsl
+libboost-dev
+libboost-iostreams-dev
+libboost-math-dev
+libboost-program-options-dev
+libboost-thread-dev
+libcppunit-dev
+libstxxl-dev
+g++-4.6
+python2.7</screen>
+        </section>
+        <section id="installation.compiling">
+            <title>Compiling</title>
+            <para>
+                Before actually compiling, the build must be configured. This can be
+                done by running <userinput>./waf configure</userinput>. This
+                will check that the required libraries are present. If
+                configuration fails, you can find more detailed error
+                information in <filename>build/config.log</filename>. The
+                build system will attempt to auto-detect the compiler, but if
+                you wish to override it you can set the <envar>CXX</envar>
+                environment variable before doing the configuration.
+            </para>
+            <para>
+                There are also
+                some command-line options that can be given to affect the
+                configured build. They are intended mainly for developer
+                rather than end-user use, so they are not documented here.
+                Running <userinput>./waf configure --help</userinput> will
+                show a full list.
+            </para>
+            <para>
+                Once configuration is complete, running
+                <userinput>./waf</userinput> will perform the compilation.
+            </para>
+        </section>
+        <section id="installation.stxxl">
+            <title>Configuring STXXL</title>
+            <para>
+                STXXL is a library that manages large data sets by using
+                temporary storage on disk. Although it can be used without
+                configuration for small runs, its default configuration will
+                not provide enough storage for large data sets.
+            </para>
+            <para>
+                See the <ulink
+                    href="http://algo2.iti.kit.edu/stxxl/tags/1.3.1/installation_linux_gcc.html">STXXL
+                    documentation</ulink> for instructions on configuring
+                STXXL's on-disk storage. As a rule of thumb, you will need
+                to reserve a minimum of 60 bytes per output vertex, and having
+                slightly more is safer. Note that this applies to all output
+                vertices from a single run, even if they are split across
+                multiple output files. If you do not have this much temporary
+                space available, see TODO for an alternative mode which takes
+                longer but uses far less temporary storage.
+            </para>
+        </section>
+        <section id="installation.install">
+            <title>Installing</title>
+            <para>
+                TODO: build system doesn't currently handle <userinput>./waf
+                    install</userinput> well at all.
+            </para>
+        </section>
+    </chapter>
+    <chapter id="running">
+        <title>Running MLSGPU</title>
+        <section id="running.input">
+            <title>Input files</title>
+            <para>
+                The input format for MLSGPU is the PLY file format.
+                Additionally, it is restricted to a subset of valid PLY files:
+            </para>
+            <itemizedlist>
+                <listitem><para>Only binary files are supported, and only in
+                        the endianness used by the host CPU (typically
+                        little-endian for an x86 or x86-64
+                        CPU).</para></listitem>
+                <listitem><para>The first type of element in the file must be
+                        <literal>vertex</literal>. Other elements may be
+                        present but they must occur later in the file, and
+                        will be ignored.</para></listitem>
+                <listitem><para>The <literal>vertex</literal> element must
+                        contain the fields
+                        <literal>x</literal>,
+                        <literal>y</literal>,
+                        <literal>z</literal>,
+                        <literal>nx</literal>,
+                        <literal>ny</literal>,
+                        <literal>nz</literal>
+                        and <literal>radius</literal> (explained below), and
+                        they must all have type <symbol>float32</symbol>.
+                        Other fields may be present as long as they are not
+                        lists, and they will be ignored.</para></listitem>
+            </itemizedlist>
+            <para>
+                The positions are given by <literal>x</literal>,
+                <literal>y</literal> and <literal>z</literal>. The units are
+                arbitrarily, but they must of course match across all input
+                files. The oriented normals are given by
+                <literal>nx</literal>, <literal>ny</literal> and
+                <literal>nz</literal>, and they must have unit length. The
+                final required field is <literal>radius</literal>, which is an
+                estimate of the spacing between the sample and its neighbors.
+                This must be positive and use the same units as the position.
+            </para>
+            <para>
+                For best performance, the order of input samples in a file
+                should correlate will with position. Simply outputting the
+                points they are encountered in a regular sampling grid will
+                give good results. In particular, do not sort the points along
+                a single axis, as this will reduce coherence.
+            </para>
+            <para>
+                MLSGPU accepts multiple input files. The files must already
+                have been registered and transformed into a common coordinate
+                system.  While MLSGPU itself imposes an upper bound on the
+                number of input files that can be used, in practise it is
+                operating system limits on the number of open files that are
+                likely to be the real limitation. On Ubuntu (and probably most
+                other GNU/Linux systems) the limit on the number of open files
+                can be increased once-off using <command>ulimit</command> or
+                for all users by editing
+                <filename>/etc/security/limits.conf</filename>.
+            </para>
+        </section>
+        <section id="running.output">
+            <title>Output files</title>
+            <para>
+                The output format for MLSGPU is again the PLY file format. The
+                output file will contain just vertex positions and triangles;
+                all other metadata from the input is discarded. MLSGPU can
+                either write the entire output mesh to a single PLY file, or
+                break the bounding box up into a regular grid and output a
+                separate PLY file for each non-empty grid cell. In the latter
+                case, the vertices at the boundaries between files will be
+                duplicated in both files, so that neighboring files can be
+                loaded together to give a seamless join.
+            </para>
+        </section>
+        <section id="running.commandline">
+            <title>Command-line options</title>
+            <para>TODO</para>
+        </section>
+        <section id="running.device">
+            <title>Selecting an OpenCL device</title>
+            <para>TODO</para>
+        </section>
+        <section id="running.response">
+            <title>Response files</title>
+            <para>TODO</para>
+        </section>
+        <section id="running.limitations">
+            <title>Limitations</title>
+            <para>TODO</para>
+        </section>
+    </chapter>
+    <chapter id="troubleshooting">
+        <title>Troubleshooting</title>
+        <para>TODO</para>
+        <!--
+        Items to list:
+        - meshlab crashes opening output files: remove comments
+        - output not identical between runs: use bucket-threads=1
+        - density error: check fit grid
+        - no output files produced: check fit grid
+        - lots of holes in output: use finer grid
+        -->
+    </chapter>
+</book>
