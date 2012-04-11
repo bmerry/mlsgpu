@@ -35,7 +35,7 @@
                 <listitem><para>A C++ compiler. GCC 4.4 and 4.6, and clang 2.9
                         have been tested.</para></listitem>
                 <listitem><para><ulink
-                            href="http://www.boost.org/">Boost</ulink> 1.46,
+                            url="http://www.boost.org/">Boost</ulink> 1.46,
                         including the following runtime libraries:</para>
                     <itemizedlist>
                         <listitem><para><systemitem
@@ -51,17 +51,17 @@
                     </itemizedlist>
                 </listitem>
                 <listitem><para><ulink
-                            href="http://stxxl.sourceforge.net/">STXXL</ulink> 1.3.1</para></listitem>
+                            url="http://stxxl.sourceforge.net/">STXXL</ulink> 1.3.1</para></listitem>
                 <listitem><para><ulink
-                            href="http://clogs.sourceforge.net/">clogs</ulink> 1.0.2</para></listitem>
+                            url="http://clogs.sourceforge.net/">clogs</ulink> 1.0.2</para></listitem>
                 <listitem><para><ulink
-                            href="http://www.stack.nl/~dimitri/doxygen/">Doxygen</ulink> 1.7.4</para></listitem>
+                            url="http://www.stack.nl/~dimitri/doxygen/">Doxygen</ulink> 1.7.4</para></listitem>
                 <listitem><para><ulink
-                            href="http://www.python.org">Python</ulink> 2.7</para></listitem>
+                            url="http://www.python.org">Python</ulink> 2.7</para></listitem>
                 <listitem><para><ulink
-                            href="http://xmlsoft.org/xslt/">xsltproc</ulink> 1.1</para></listitem>
+                            url="http://xmlsoft.org/xslt/">xsltproc</ulink> 1.1</para></listitem>
                 <listitem><para><ulink
-                            href="http://docbook.sf.net/">DocBook</ulink> 4.3 stylesheets</para></listitem>
+                            url="http://docbook.sf.net/">DocBook</ulink> 4.3 stylesheets</para></listitem>
                 <listitem><para>An implementation of OpenCL 1.1. GPU device
                         drivers will normally include this. It has been tested
                         with NVIDIA GPU drivers and with the AMD APP SDK 2.6
@@ -73,7 +73,7 @@
             </para>
             <itemizedlist>
                 <listitem><para><ulink
-                            href="http://sourceforge.net/apps/mediawiki/cppunit/">CppUnit</ulink>
+                            url="http://sourceforge.net/apps/mediawiki/cppunit/">CppUnit</ulink>
                         1.12 is needed to build the test
                         suite.</para></listitem>
             </itemizedlist>
@@ -131,14 +131,16 @@ python2.7</screen>
             </para>
             <para>
                 See the <ulink
-                    href="http://algo2.iti.kit.edu/stxxl/tags/1.3.1/installation_linux_gcc.html">STXXL
+                    url="http://algo2.iti.kit.edu/stxxl/tags/1.3.1/installation_linux_gcc.html">STXXL
                     documentation</ulink> for instructions on configuring
                 STXXL's on-disk storage. As a rule of thumb, you will need
                 to reserve a minimum of 60 bytes per output vertex, and having
                 slightly more is safer. Note that this applies to all output
                 vertices from a single run, even if they are split across
                 multiple output files. If you do not have this much temporary
-                space available, see TODO for an alternative mode which takes
+                space available, see <xref
+                    linkend="running.commandline.mesher"/> for an alternative
+                mode which takes
                 longer but uses far less temporary storage.
             </para>
         </section>
@@ -479,19 +481,108 @@ python2.7</screen>
     </chapter>
     <chapter id="troubleshooting">
         <title>Troubleshooting</title>
+        <qandaset>
+            <qandaentry>
+                <question><para>
+                        The configuration said that a header file was not found,
+                        but I know it exists.
+                </para></question>
+                <answer><para>
+                        The error indicates that compilation using that header
+                        file failed, but this can happen for other reasons than
+                        the header file being absent. Look through
+                        <filename>build/config.log</filename> to find the
+                        error message.
+                </para></answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        Meshlab crashes when I try to open one of the output
+                        files.
+                </para></question>
+                <answer>
+                    <para>
+                        Meshlab is unable to process long comments. Try deleting
+                        the comments from the output file. You might be able to do
+                        this by running
+                    </para>
+                    <screen><userinput>sed -i '/^comment mlsgpu/d' <replaceable>filename</replaceable>.ply</userinput></screen>
+                </answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        Every time I run the program I get different output files,
+                        even though I use the same options.
+                </para></question>
+                <answer><para>
+                        This is normal behavior. The geometry is (or should be) the same every
+                        time. Only the order of the vertices and triangles are
+                        changing. If for some reason you need the exact same files
+                        each time, try passing <option>--bucket-threads=1</option>
+                        on the command line. This will slow MLSGPU down.
+                </para></answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        MLSGPU is using too much CPU memory.
+                </para></question>
+                <answer><para>
+                        Because MLSGPU uses memory-mapped files, it will have a
+                        very large virtual address space, and it will tend to
+                        consume all unused memory. However, the kernel will
+                        release this memory automatically if needed, so unless
+                        swap space is being heavily used this is not a problem.
+                </para></answer>
+                <answer><para>
+                        If MLSGPU really is using too much memory, you can reduce
+                        the amount used by passing a lower value for
+                        <option>--max-host-splats</option>. Using
+                        <option>--split</option> will also cause memory usage to
+                        be reduced.
+                </para></answer>
+                <answer><para>
+                        Check whether <option>--fit-grid</option> was specified
+                        using the right units. If the input data is in millimetres
+                        but <option>--fit-grid</option> was specified in metres,
+                        the reconstruction will be 1000 times more detailed than
+                        expected, and this will require excessive memory to
+                        compute.
+                </para></answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        I am getting errors about too much memory being used for
+                        an OpenCL device.
+                </para></question>
+                <answer><para>
+                        The first thing to try is to increase
+                        <option>--subsampling</option> by 1. If that fails, try
+                        reducing <option>--levels</option> by 1. If it still
+                        fails, experiment with decreasing
+                        <option>--max-device-splats</option>. It should be quite
+                        safe to halve it. If it still fails, repeat.
+                </para></answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        I get the error <computeroutput>Too many splats covering
+                            one cell</computeroutput>.
+                </para></question>
+                <answer><para>
+                        This usually indicates that the value of
+                        <option>--fit-grid</option> is far too high. This can
+                        happen if it is specified in millimetres when the input
+                        data is specified in metres, for example.
+                </para></answer>
+            </qandaentry>
+        </qandaset>
         <para>TODO</para>
         <!--
         Items to list:
-        - configuration errors
-        - meshlab crashes opening output files: remove comments
-        - output not identical between runs: use bucket-threads=1
-        - density error: check fit grid
         - no output files produced: check fit grid
         - lots of holes in output: use finer grid
         - some holes in output: use higher smoothing or less aggressive boundary handling
         - a disconnected component was deleted: use fit-prune
-        - out of GPU memory: various options to decrease
-        - out of CPU memory: reduce max-host-splats and bucket-threads
         -->
     </chapter>
 </book>

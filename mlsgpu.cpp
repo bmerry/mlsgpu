@@ -649,14 +649,14 @@ static void validateDevice(const cl::Device &device, const CLH::ResourceUsage &t
     {
         cerr << "Arguments require an allocation of " << totalUsage.getMaxMemory() << ",\n"
             << "but " << deviceName << " only supports up to " << deviceMaxMemory << ".\n"
-            << "Try reducing --levels or --subsampling.\n";
+            << "Try reducing --levels or increasing --subsampling.\n";
         exit(1);
     }
     if (totalUsage.getTotalMemory() > deviceTotalMemory)
     {
         cerr << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
             << "but " << deviceName << " only has " << deviceTotalMemory << ".\n"
-            << "Try reducing --levels or --subsampling.\n";
+            << "Try reducing --levels, increasing --subsampling or decreasing --max-device-splats.\n";
         exit(1);
     }
 
