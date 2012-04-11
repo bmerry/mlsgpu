@@ -29,7 +29,7 @@
             <para>
                 MLSGPU dependends on the following software to compile and run.
                 Versions listed are the ones that have been tested; older
-                versions may work.
+                or newer versions will often work too.
             </para>
             <itemizedlist>
                 <listitem><para>A C++ compiler. GCC 4.4 and 4.6, and clang 2.9
@@ -62,10 +62,10 @@
                             href="http://xmlsoft.org/xslt/">xsltproc</ulink> 1.1</para></listitem>
                 <listitem><para><ulink
                             href="http://docbook.sf.net/">DocBook</ulink> 4.3 stylesheets</para></listitem>
-                <listitem><para>An implementation of OpenCL. GPU device
+                <listitem><para>An implementation of OpenCL 1.1. GPU device
                         drivers will normally include this. It has been tested
                         with NVIDIA GPU drivers and with the AMD APP SDK 2.6
-                        on a CPU.</para></listitem>
+                        on a CPU. The device must support images.</para></listitem>
             </itemizedlist>
             <para>
                 The following tools and libraries are necessarily to build
@@ -227,19 +227,247 @@ python2.7</screen>
         </section>
         <section id="running.commandline">
             <title>Command-line options</title>
-            <para>TODO</para>
-        </section>
-        <section id="running.device">
-            <title>Selecting an OpenCL device</title>
-            <para>TODO</para>
-        </section>
-        <section id="running.response">
-            <title>Response files</title>
-            <para>TODO</para>
+            <para>
+                The minimum command-line for running MLSGPU is
+            </para>
+            <cmdsynopsis>
+                <command>mlsgpu</command>
+                <arg choice="plain">--fit-grid=<replaceable>spacing</replaceable></arg>
+                <arg choice="plain">-o <replaceable>output.ply</replaceable></arg>
+                <arg choice="plain" rep="repeat"><replaceable>input.ply</replaceable></arg>
+            </cmdsynopsis>
+            <para>
+                The <replaceable>spacing</replaceable> specifies the spacing
+                between sample points in a regular grid that will be used in
+                the Marching Tetrahedra algorithm. All vertices in the output
+                file will be on edges of this grid. This value should be of a
+                similar order of magnitude to the finest scanning density.
+                Using too large a value will not only cause the reconstruction
+                to look blocky, but will also lead to unexpected holes. Using
+                too small a value will lead to an excessively large output
+                file, and will also significantly increase the running time.
+            </para>
+            <para>
+                Operating systems sometimes place a limit on the length of a
+                command-line, which can be difficult if there are a very large
+                number of input files. To work around this, a
+                <firstterm>response file</firstterm> can be used to place the
+                command-line arguments in a file. First create a file with the
+                command-line arguments. The arguments can be separated by
+                whitespace or placed on separate lines. Then pass
+                <option>--response-file
+                    <replaceable>filename</replaceable></option> when running
+                MLSGPU. It is possible to place some arguments in the response
+                file and others on the command line, but only one response
+                file is supported. The response-file processor is also extremely
+                basic: spaces in filenames will cause problems, and shell
+                wildcards will not work.
+            </para>
+            <para>
+                The following subsections document the options that are
+                intended for general use. There are additional options that
+                are only intended for use by the developers of MLSGPU, and
+                which are not documented. You can see a full list of options
+                by running <userinput><command>mlsgpu</command>
+                    <option>--help</option></userinput>, which also shows the
+                default values used.
+            </para>
+            <section id="running.commandline.split">
+                <title>Splitting the output</title>
+                <para>
+                    Rather than producing a single giant output file, it is
+                    possible to split the output into chunks by passing
+                    <option>--split</option> on the command line. The chunks form
+                    a regular grid and each chunk is named
+                    <filename><replaceable>basename</replaceable>_<replaceable>XXXX</replaceable>_<replaceable>YYYY</replaceable>_<replaceable>ZZZZ</replaceable>.ply</filename>,
+                    where <replaceable>XXXX</replaceable>, <replaceable>YYYY</replaceable> and
+                    <replaceable>ZZZZ</replaceable> are the positions within
+                    this grid and <replaceable>basename</replaceable> is the
+                    argument to <option>-o</option>. Note that for this usage,
+                    the argument to <option>-o</option> should be just a
+                    prefix and not a full filename.
+                </para>
+                <para>
+                    Only output files that contain at least one triangle are
+                    written. If you are experimenting with different
+                    parameters, it is strongly recommended that you delete all
+                    the outputs from previous runs with the same basename
+                    before starting, as if the corresponding file is not
+                    written in the current run then the old file will be mixed
+                    in with the other newly written files.
+                </para>
+                <para>
+                    The spatial size of the chunks is chosen automatically
+                    using heuristics that attempt to keep the size of each
+                    file manageable, but since it is impossible to determine
+                    the sizes of the output files in advance, the heuristic
+                    may need to be adjusted if the output files are too big or
+                    too small. This can be done by passing
+                    <option>--split-size=<replaceable>size</replaceable></option>,
+                    where <replaceable>size</replaceable> is a target file in
+                    MiB. Use <option>--help</option> to see what the default
+                    value is and then adjust accordingly.
+                </para>
+            </section>
+            <section id="running.commandline.opencl">
+                <title>Selecting OpenCL devices</title>
+                <para>
+                    By default, MLSGPU will run on all GPU devices it finds in
+                    the system. This is often the desired result, but in some
+                    cases it may be desirable to use extra devices or restrict
+                    the set of devices used. In particular, when there are no
+                    OpenCL-capable GPUs in the system, it will usually be
+                    necessary to pass <option>--cl-cpu</option>.
+                </para>
+                <para>
+                    There are three command-line options that control device
+                    selection: <option>--cl-cpu</option>,
+                    <option>--cl-gpu</option> and
+                    <option>--cl-device</option>. The effects are additive,
+                    i.e., any device that matches any of the command-line
+                    selectors will be used. The <option>--cl-cpu</option> and
+                    <option>--cl-gpu</option> options take no arguments, and
+                    simple enable all CPU or GPU devices.
+                </para>
+                <para>
+                    The <option>--cl-device</option> option can be used in two
+                    ways: firstly,
+                    <option>--cl-device=<replaceable>prefix</replaceable></option>
+                    will enable all devices whose device name begins with
+                    <replaceable>prefix</replaceable>. The device name is
+                    determined by the OpenCL API; a tool like
+                    <command>clinfo</command> from the AMD APP SDK is useful
+                    to discover the names of the devices in the system.
+                    Secondly,
+                    <option>--cl-device=<replaceable>prefix</replaceable>:<replaceable>n</replaceable></option>
+                    will enable just the <replaceable>n</replaceable>th device
+                    (zero-based) whose name starts with
+                    <replaceable>prefix</replaceable>.  This is mainly useful
+                    if there are several identical devices in the system.
+                </para>
+                <para>
+                    As an example, passing
+                    <option>--cl-cpu</option>
+                    <option>--cl-device=Intel</option>
+                    <option>--cl-device=GeForce:0</option> will enable all CPU
+                    devices, all devices whose name begins with
+                    <literal>Intel</literal> and the first device whose name
+                    begins with <literal>GeForce</literal>.
+                </para>
+                <warning>
+                    <para>
+                        When mixing devices that are not identical,
+                        differences in floating-point computation can cause
+                        variations at the join between blocks. This can lead
+                        to cracks in the reconstructed mesh, and in extreme
+                        cases the mesh may even become non-manifold. For final
+                        production always use only identical devices.
+                    </para>
+                </warning>
+                <para>
+                    When MLSGPU starts, it will report which devices it is
+                    using.
+                </para>
+            </section>
+            <section id="running.commandline.smooth">
+                <title>Smoothing</title>
+                <para>
+                    The MLS reconstruction is essentially a process to smooth
+                    the noisy sampling process. The degree of smoothing can be
+                    controlled with <option>--fit-smooth</option>. Increasing
+                    the smoothing value will reduce noise, but may also smooth
+                    out detail. As a side effect of the implementation,
+                    increasing smoothing will also allow small holes to filled
+                    in that would not have been filled at lower smoothing
+                    levels. The running time scales roughly with the square of
+                    the smoothing factor, so using too much smoothing can also
+                    make MLSGPU very slow.
+                </para>
+            </section>
+            <section id="running.commandline.prune">
+                <title>Component pruning</title>
+                <para>
+                    The underlying reconstruction algorithm tends to create
+                    spurious pieces of geometry that are disconnected from the
+                    rest of the model, so as a final step any small connected
+                    components are discarded. Usually this will just do the
+                    right thing, but if the scans actually capture some small
+                    feature that is disconnected from the rest of the scanned
+                    data, it may accidentally be discarded. In this case, the
+                    threshhold for discarding a component (as a fraction of
+                    the total number of output vertices) may be specified with
+                    <option>--fit-prune</option>.
+                </para>
+            </section>
+            <section id="running.commandline.boundary">
+                <title>Boundary handling</title>
+                <para>
+                    MLSGPU explicitly detects boundaries in the provided point
+                    cloud. It tries to avoid extrapolating beyond these
+                    boundaries, as these extrapolations tend to have very poor
+                    quality. However, the heuristic is not perfect, and tends
+                    to both cause unwanted small holes in the reconstruction
+                    and to extrapolate in some areas it should not. The
+                    default tries to balance the two, but the user can
+                    override the threshhold using
+                    <option>--fit-boundary-limit</option>. Increasing the
+                    value will cause more extrapolation, while decreasing it
+                    will reduce extrapolation but potentially open more holes.
+                    It is also possible to completely disable the boundary
+                    detection, and gain a little performance, by passing
+                    <option>--fit-keep-boundary</option>.
+                </para>
+            </section>
+            <section id="running.commandline.mesher">
+                <title>Trading time against disk space</title>
+                <para>
+                    By default, MLSGPU will run only a single pass of
+                    computation, and save the data it produces to temporary
+                    storage before writing the output files. This is efficient
+                    but requires disk space for temporary files that is
+                    the same size as (actually slightly larger than) the final
+                    output files (see <xref linkend="installation.stxxl"/>).
+                    Passing <option>--mesher=big</option> selects an
+                    alternative output strategy can be used which requires
+                    about double the computation time but needs far less
+                    temporary space. The exact amount of temporary space
+                    required depends heavily on the order of points in the
+                    input, but 10% of the size of the input should generally
+                    be safe.
+                </para>
+            </section>
         </section>
         <section id="running.limitations">
             <title>Limitations</title>
-            <para>TODO</para>
+            <para>
+                There are a number of limitations to the amount and type of input and output
+                that MLSGPU can handle:
+            </para>
+            <itemizedlist>
+                <listitem><para>Only certain types of input files can be used.
+                        See <xref linkend="running.input"/> for
+                        details.</para></listitem>
+                <listitem><para>Up to 16 million input files (although the OS will almost
+                        certainly impose a lower limit, as the files are all
+                        open at the same time)</para></listitem>
+                <listitem><para>Up to 2<superscript>40</superscript> (about
+                        1.1 trillion) points per input
+                        file.</para></listitem>
+                <listitem><para>The virtual address space must be sufficient
+                        to hold all the input. This is only expected to be a
+                        limitation on a 32-bit machine, where it will limit
+                        the total size of the input files to around
+                        2GiB.</para></listitem>
+                <listitem><para>Up to 2<superscript>32</superscript> (about
+                        four billion) vertices per output file (this is a
+                        limitation of the PLY file
+                        format).</para></listitem>
+                <listitem><para>The total size of the model can be at most
+                        2<superscript>20</superscript> (about one million)
+                        times the grid spacing. For example, a model with a
+                        side length of 1 kilometre cannot be reconstructed at
+                        finer than 1mm.</para></listitem>
+            </itemizedlist>
         </section>
     </chapter>
     <chapter id="troubleshooting">
@@ -247,11 +475,16 @@ python2.7</screen>
         <para>TODO</para>
         <!--
         Items to list:
+        - configuration errors
         - meshlab crashes opening output files: remove comments
         - output not identical between runs: use bucket-threads=1
         - density error: check fit grid
         - no output files produced: check fit grid
         - lots of holes in output: use finer grid
+        - some holes in output: use higher smoothing or less aggressive boundary handling
+        - a disconnected component was deleted: use fit-prune
+        - out of GPU memory: various options to decrease
+        - out of CPU memory: reduce max-host-splats and bucket-threads
         -->
     </chapter>
 </book>

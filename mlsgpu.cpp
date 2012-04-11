@@ -122,8 +122,8 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(8000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
-        (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads for submitting OpenCL work")
-        (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (weld | big | stxxl)")
+        (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
+        (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (big | stxxl)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
 }
@@ -216,7 +216,7 @@ static po::variables_map processOptions(int argc, char **argv)
     desc.add_options()
         ("output-file,o",   po::value<string>()->required(), "output file")
         (Option::split,     "split output across multiple files")
-        (Option::splitSize, po::value<unsigned int>()->default_value(100), "approximate size of output chunks (MB)");
+        (Option::splitSize, po::value<unsigned int>()->default_value(100), "approximate size of output chunks (MiB)");
 
     po::options_description clopts("OpenCL options");
     CLH::addOptions(clopts);
