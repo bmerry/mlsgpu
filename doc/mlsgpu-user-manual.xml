@@ -468,6 +468,13 @@ python2.7</screen>
                         side length of 1 kilometre cannot be reconstructed at
                         finer than 1mm.</para></listitem>
             </itemizedlist>
+            <para>
+                Two runs of MLSGPU will generally not produce exactly the same
+                stream of bytes, even with identical arguments. However, the
+                only difference should be the order in which the vertices and
+                triangles appear in the files, and the geometry should be
+                identical.
+            </para>
         </section>
     </chapter>
     <chapter id="troubleshooting">
