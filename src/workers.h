@@ -26,6 +26,8 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <iostream>
+#include <cstdlib>
 #include <CL/cl.hpp>
 #include "splat_tree_cl.h"
 #include "clip.h"
@@ -189,18 +191,26 @@ private:
 
         void operator()()
         {
-            while (true)
+            try
             {
-                Timer timer;
-                gen_type gen;
-                boost::shared_ptr<WorkItem> item = owner.popImpl(worker, gen);
-                if (!item.get())
-                    break; // we have been asked to shut down
-                owner.popStat.add(timer.getElapsed());
-                worker(gen, *item);
-                owner.itemPool.push(item);
+                while (true)
+                {
+                    Timer timer;
+                    gen_type gen;
+                    boost::shared_ptr<WorkItem> item = owner.popImpl(worker, gen);
+                    if (!item.get())
+                        break; // we have been asked to shut down
+                    owner.popStat.add(timer.getElapsed());
+                    worker(gen, *item);
+                    owner.itemPool.push(item);
+                }
+                worker.stop();
             }
-            worker.stop();
+            catch (std::runtime_error &e)
+            {
+                std::cerr << "\n" << e.what() << std::endl;
+                std::exit(1);
+            }
         }
     };
 

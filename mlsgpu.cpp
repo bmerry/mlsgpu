@@ -710,29 +710,14 @@ int main(int argc, char **argv)
         else
             Log::log[Log::info] << filesWritten << " output files written.\n";
     }
-    catch (ios::failure &e)
-    {
-        cerr << e.what() << '\n';
-        return 1;
-    }
-    catch (std::overflow_error &e)
-    {
-        cerr << e.what() << '\n';
-        return 1;
-    }
-    catch (PLY::FormatError &e)
-    {
-        cerr << e.what() << '\n';
-        return 1;
-    }
     catch (cl::Error &e)
     {
-        cerr << "OpenCL error in " << e.what() << " (" << e.err() << ")\n";
+        cerr << "\nOpenCL error in " << e.what() << " (" << e.err() << ")\n";
         return 1;
     }
-    catch (Bucket::DensityError &e)
+    catch (std::runtime_error &e)
     {
-        cerr << "The splats were too dense. Try passing a higher value for --max-device-splats.\n";
+        cerr << '\n' << e.what() << std::endl;
         return 1;
     }
 
