@@ -15,6 +15,23 @@
         <releaseinfo>
         </releaseinfo>
     </bookinfo>
+    <chapter id="introduction">
+        <title>Introduction</title>
+        <para>
+            MLSGPU is a tool for reconstructing triangle meshes from point
+            clouds obtained via laser range scanning (or potentially other
+            methods). It is able to take advantage of GPUs for high
+            performance, and can handle hundreds of gigabytes of input and
+            output.
+        </para>
+        <para>
+            MLSGPU is only one step in a scanning pipeline. Acquistion,
+            cleaning, registration and feature size estimation all need to
+            occur before MLSGPU is used. Refer to <xref
+                linkend="running.input"/> and <xref linkend="running.output"/>
+            for further details on the input and output data formats.
+        </para>
+    </chapter>
     <chapter id="installation">
         <title>Installation</title>
         <section id="installation.dependencies">
@@ -575,14 +592,52 @@ python2.7</screen>
                         data is specified in metres, for example.
                 </para></answer>
             </qandaentry>
+            <qandaentry>
+                <question><para>
+                        I get almost no output, or I get the message
+                        <computeroutput>Warning: no output files
+                            written!</computeroutput>
+                </para></question>
+                <answer><para>
+                        This usually indicates that the value of
+                        <option>--fit-grid</option> is too large, possibly as
+                        a result of a mismatch between the units specified for
+                        the option and the units used in the data files.
+                </para></answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        The output model contains lots of tiny holes in a
+                        regular pattern.
+                </para></question>
+                <answer><para>
+                        This is usually caused by the value of
+                        <option>--fit-grid</option> being too large to
+                        accurately sample the surface. Try decreasing it
+                        slightly. Increasing <option>--fit-smooth</option> can
+                        also help and will avoid large increases to the output
+                        file size.
+                </para></answer>
+            </qandaentry>
+            <qandaentry>
+                <question><para>
+                        There are some small 
+            <qandaentry>
+                <question><para>
+                        My scans consisted of several unconnected pieces and
+                        one of them does not appear in the output.
+                </para></question>
+                <answer><para>
+                        See <xref linkend="running.commandline.prune"/> for an
+                        explanation of the <option>--fit-prune</option>
+                        option.
+                </para></answer>
+            </qandaentry>
         </qandaset>
         <para>TODO</para>
         <!--
         Items to list:
-        - no output files produced: check fit grid
-        - lots of holes in output: use finer grid
         - some holes in output: use higher smoothing or less aggressive boundary handling
-        - a disconnected component was deleted: use fit-prune
         -->
     </chapter>
 </book>

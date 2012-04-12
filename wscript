@@ -101,7 +101,7 @@ def configure_variant_gcc(conf):
     if conf.env['DEST_CPU'] == 'x86':
         # Avoids precision weirdness due to 80-bit 8087 registers
         ccflags.extend(['-mfpmath=sse', '-msse2'])
-    lto = conf.env['lto'] and conf.env['optimize']
+    lto = conf.env['lto']
     if lto:
         ccflags.extend(['-flto', '-B/usr/lib/gold-ld'])
     conf.env.append_value('CFLAGS', ccflags)
