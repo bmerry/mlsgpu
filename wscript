@@ -191,6 +191,7 @@ def build(bld):
             lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'])
 
     bld(
+            name = 'manual',
             rule = '${XSLTPROC} --xinclude --stringparam mlsgpu.version ' + VERSION + ' -o ${TGT} ${SRC}',
             source = ['doc/mlsgpu-user-manual-xml.xsl', 'doc/mlsgpu-user-manual.xml'],
             target = 'doc/mlsgpu-user-manual.html')
