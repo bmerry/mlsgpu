@@ -64,6 +64,7 @@ namespace Option
     const char * const fitPrune = "fit-prune";
     const char * const fitKeepBoundary = "fit-keep-boundary";
     const char * const fitBoundaryLimit = "fit-boundary-limit";
+    const char * const fitShape = "fit-shape";
 
     const char * const inputFile = "input-file";
     const char * const outputFile = "output-file";
@@ -100,7 +101,9 @@ static void addFitOptions(po::options_description &opts)
         (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
         (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component")
         (Option::fitKeepBoundary,                                           "Do not remove boundaries")
-        (Option::fitBoundaryLimit, po::value<double>()->default_value(1.5), "Tuning factor for boundary detection");
+        (Option::fitBoundaryLimit, po::value<double>()->default_value(1.5), "Tuning factor for boundary detection")
+        (Option::fitShape,        po::value<Choice<MlsShapeWrapper> >()->default_value(MLS_SHAPE_SPHERE),
+                                                                            "Model shape (sphere | plane)");
 }
 
 static void addStatisticsOptions(po::options_description &opts)
@@ -166,6 +169,8 @@ string makeOptions(const po::variables_map &vm)
                 opts << param.as<Choice<MesherTypeWrapper> >();
             else if (value.type() == typeid(Choice<FastPly::WriterTypeWrapper>))
                 opts << param.as<Choice<FastPly::WriterTypeWrapper> >();
+            else if (value.type() == typeid(Choice<MlsShapeWrapper>))
+                opts << param.as<Choice<MlsShapeWrapper> >();
             else
                 assert(!"Unhandled parameter type");
         }
@@ -414,6 +419,7 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const bool keepBoundary = vm.count(Option::fitKeepBoundary);
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
+    const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const bool split = vm.count(Option::split);
     const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
 
@@ -453,7 +459,7 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
     DeviceWorkerGroup deviceWorkerGroup(
         numDeviceThreads, numBucketThreads, mesherGroup,
         grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
-        keepBoundary, boundaryLimit);
+        keepBoundary, boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, 1, deviceWorkerGroup,
         grid, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);

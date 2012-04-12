@@ -30,7 +30,10 @@
 
 using namespace std;
 
-/// Tests for @ref MlsFunctor and related kernel code.
+/**
+ * Tests for @ref MlsFunctor and related kernel code.
+ * @todo Add tests for plane fitting.
+ */
 class TestMls : public CLH::Test::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestMls);

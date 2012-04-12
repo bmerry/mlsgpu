@@ -19,15 +19,23 @@
 #include "mls.h"
 #include "clh.h"
 
+std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
+{
+    std::map<std::string, MlsShape> ans;
+    ans["plane"] = MLS_SHAPE_PLANE;
+    ans["sphere"] = MLS_SHAPE_SPHERE;
+    return ans;
+}
+
 const std::size_t MlsFunctor::wgs[2] = {16, 16};
 
-MlsFunctor::MlsFunctor(const cl::Context &context)
+MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
 {
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
-    defines["FIT_SPHERE"] = "1";
-    defines["FIT_PLANE"] = "0";
+    defines["FIT_SPHERE"] = shape == MLS_SHAPE_SPHERE ? "1" : "0";
+    defines["FIT_PLANE"] = shape == MLS_SHAPE_PLANE ? "1" : "0";
 
     cl::Program program = CLH::build(context, "kernels/mls.cl", defines);
     kernel = cl::Kernel(program, "processCorners");

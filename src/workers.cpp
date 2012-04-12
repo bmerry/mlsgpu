@@ -82,7 +82,8 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     const Grid &fullGrid,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, int subsampling, bool keepBoundary, float boundaryLimit)
+    int levels, int subsampling, bool keepBoundary, float boundaryLimit,
+    MlsShape shape)
 :
     Base(
         devices.size(), numWorkers, spare,
@@ -107,7 +108,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     for (std::size_t i = 0; i < numWorkers * devices.size(); i++)
     {
         const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
-        addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit));
+        addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit, shape));
     }
 }
 
@@ -134,13 +135,14 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
 DeviceWorkerGroupBase::Worker::Worker(
     DeviceWorkerGroup &owner,
     const cl::Context &context, const cl::Device &device,
-    int levels, bool keepBoundary, float boundaryLimit)
+    int levels, bool keepBoundary, float boundaryLimit,
+    MlsShape shape)
 :
     owner(owner),
     key(device()),
     queue(context, device),
     tree(context, levels, owner.maxSplats),
-    input(context),
+    input(context, shape),
     marching(context, device, owner.maxCells + 1, owner.maxCells + 1),
     scaleBias(context)
 {

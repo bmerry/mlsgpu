@@ -13,8 +13,26 @@
 
 #include <CL/cl.hpp>
 #include <cstddef>
+#include <map>
+#include <string>
 #include "grid.h"
 #include "splat_tree_cl.h"
+
+enum MlsShape
+{
+    MLS_SHAPE_SPHERE,
+    MLS_SHAPE_PLANE
+};
+
+/**
+ * Wrapper around @ref MlsShape for use with @ref Choice.
+ */
+class MlsShapeWrapper
+{
+public:
+    typedef MlsShape type;
+    static std::map<std::string, MlsShape> getNameMap();
+};
 
 /**
  * Generates the signed distance from an MLS surface for a single slice.
@@ -57,8 +75,9 @@ public:
     /**
      * Constructor. It compiles the kernel, so it can throw a compilation error.
      * @param context   The context in which the function operates.
+     * @param shape     The shape to fit to the data.
      */
-    MlsFunctor(const cl::Context &context);
+    MlsFunctor(const cl::Context &context, MlsShape shape);
 
     /**
      * Specify the parameters. This must be called before using this object as a functor.

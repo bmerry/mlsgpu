@@ -595,7 +595,8 @@ public:
         Worker(
             DeviceWorkerGroup &owner,
             const cl::Context &context, const cl::Device &device,
-            int levels, bool keepBoundary, float boundaryLimit);
+            int levels, bool keepBoundary, float boundaryLimit,
+            MlsShape shape);
 
         /// Called at beginning of pass
         void start();
@@ -646,6 +647,7 @@ public:
      * @param subsampling        Octree subsampling level.
      * @param keepBoundary       If true, skips boundary clipping.
      * @param boundaryLimit      Tuning factor for boundary clipping.
+     * @param shape              The shape to fit to the data
      */
     DeviceWorkerGroup(
         std::size_t numWorkers, std::size_t spare,
@@ -653,7 +655,8 @@ public:
         const Grid &fullGrid,
         const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, int subsampling, bool keepBoundary, float boundaryLimit);
+        int levels, int subsampling, bool keepBoundary, float boundaryLimit,
+        MlsShape shape);
 
     /// Returns total resources that would be used by all workers and workitems
     static CLH::ResourceUsage resourceUsage(
