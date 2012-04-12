@@ -45,6 +45,7 @@ typedef struct
 
 typedef struct
 {
+    float sumW;
     float3 sumWn;
     float3 sumWp;
     uint hits;
@@ -68,6 +69,7 @@ inline void sphereFitInit(SphereFit *sf)
 
 inline void planeFitInit(PlaneFit *pf)
 {
+    pf->sumW = 0.0f;
     pf->sumWp = (float3) (0.0f, 0.0f, 0.0f);
     pf->sumWn = (float3) (0.0f, 0.0f, 0.0f);
     pf->hits = 0;
@@ -87,6 +89,7 @@ inline void sphereFitAdd(SphereFit *sf, float w, float3 p, float pp, float3 n)
 
 inline void planeFitAdd(PlaneFit *pf, float w, float3 p, float3 n)
 {
+    pf->sumW += w;
     pf->sumWp += w * p;
     pf->sumWn += w * n;
     pf->hits++;
@@ -121,7 +124,7 @@ inline float4 fitPlane(const PlaneFit * restrict pf)
 {
     float4 ans;
     ans.xyz = normalize(pf->sumWn);
-    ans.w = -dot3(ans.xyz, pf->sumWp);
+    ans.w = -dot3(ans.xyz, pf->sumWp / pf->sumW);
     return ans;
 }
 
