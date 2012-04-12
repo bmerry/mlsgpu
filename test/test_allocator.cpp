@@ -14,6 +14,99 @@
 #include "../src/statistics.h"
 #include "../src/allocator.h"
 
+class TestAllocator : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestAllocator);
+    CPPUNIT_TEST(testNoUsage);
+    CPPUNIT_TEST(testAllocate);
+    CPPUNIT_TEST(testAllocateHint);
+    CPPUNIT_TEST(testCopyConstruct);
+    CPPUNIT_TEST(testEqual);
+    CPPUNIT_TEST(testException);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    void testNoUsage();         ///< Test an allocator that has a null usage
+    void testAllocate();        ///< Test allocation (non-hint version)
+    void testAllocateHint();    ///< Test allocation that takes a hint
+    void testCopyConstruct();   ///< Test copy constructor
+    void testEqual();           ///< Test equality operator
+    void testException();       ///< Test handling of exception in allocation
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestAllocator, TestSet::perBuild());
+
+void TestAllocator::testNoUsage()
+{
+    Statistics::Allocator<std::allocator<int> > a;
+    int *p = a.allocate(3);
+    int *q = a.allocate(4, p);
+    a.deallocate(p, 3);
+    a.deallocate(q, 4);
+}
+
+void TestAllocator::testAllocate()
+{
+    typedef Statistics::Allocator<std::allocator<int> > A;
+
+    Statistics::Peak<A::size_type> peak("peak");
+    A a(&peak);
+    int *p = a.allocate(3);
+    a.deallocate(p, 3);
+    CPPUNIT_ASSERT(peak.getMax() == 3 * sizeof(int));
+    CPPUNIT_ASSERT(peak.get() == 0);
+}
+
+void TestAllocator::testAllocateHint()
+{
+    typedef Statistics::Allocator<std::allocator<int> > A;
+
+    Statistics::Peak<A::size_type> peak("peak");
+    A a(&peak);
+    int hint;
+    int *p = a.allocate(5, &hint);
+    a.deallocate(p, 5);
+    CPPUNIT_ASSERT(peak.getMax() == 5 * sizeof(int));
+    CPPUNIT_ASSERT(peak.get() == 0);
+}
+
+void TestAllocator::testCopyConstruct()
+{
+    typedef Statistics::Allocator<std::allocator<int> > A1;
+    typedef Statistics::Allocator<A1> A2;
+
+    Statistics::Peak<A1::size_type> peak1("peak1");
+    Statistics::Peak<A2::size_type> peak2("peak2");
+    A2 alloc(&peak1, A1(&peak2));
+    A2 dup(alloc);
+
+    CPPUNIT_ASSERT_EQUAL(&peak1, dup.usage);
+    CPPUNIT_ASSERT_EQUAL(&peak2, static_cast<A1 &>(dup).usage);
+}
+
+void TestAllocator::testEqual()
+{
+    typedef Statistics::Allocator<std::allocator<int> > A;
+
+    Statistics::Peak<A::size_type> peak1("peak1"), peak2("peak2");
+    A a(&peak1);
+    A b(&peak2);
+    A c(&peak2);
+    CPPUNIT_ASSERT(a != b);
+    CPPUNIT_ASSERT(b == c);
+}
+
+void TestAllocator::testException()
+{
+    typedef Statistics::Allocator<std::allocator<int> > A;
+
+    Statistics::Peak<A::size_type> peak("peak");
+    A a(&peak);
+
+    CPPUNIT_ASSERT_THROW(a.allocate(a.max_size()), std::bad_alloc);
+    CPPUNIT_ASSERT_EQUAL(A::size_type(0), peak.get());
+    CPPUNIT_ASSERT_EQUAL(A::size_type(0), peak.getMax());
+}
+
 class TestContainers : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestContainers);

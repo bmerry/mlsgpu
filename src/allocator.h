@@ -18,6 +18,8 @@
 #include <tr1/unordered_set>
 #include "statistics.h"
 
+class TestAllocator;
+
 namespace Statistics
 {
 
@@ -40,6 +42,7 @@ private:
     Statistics::Peak<typename BaseAllocator::size_type> *usage;
 
     template<typename B> friend class Allocator;
+    friend class ::TestAllocator;
 
 public:
     /// Underlying allocator type
@@ -79,10 +82,9 @@ public:
     }
 
     /// Allocate raw space for @a n items of the value type, with a location hint
-    template<typename U>
     typename BaseAllocator::pointer allocate(
         typename BaseAllocator::size_type n,
-        typename BaseAllocator::template rebind<U>::other::pointer hint)
+        std::allocator<void>::const_pointer hint)
     {
         // See comments in the other overload
         typename BaseAllocator::pointer ans = BaseAllocator::allocate(n, hint);
