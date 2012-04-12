@@ -126,12 +126,18 @@ python2.7</screen>
                 environment variable before doing the configuration.
             </para>
             <para>
-                There are also
-                some command-line options that can be given to affect the
-                configured build. They are intended mainly for developer
-                rather than end-user use, so they are not documented here.
-                Running <userinput>./waf configure --help</userinput> will
-                show a full list.
+                The installation directories should be chosen at configure
+                time. The default is to install files into subdirectories of
+                <filename class="directory">/usr/local</filename>, but this
+                can be overridden with
+                <option>--prefix=<replaceable>PREFIX</replaceable></option>.
+            </para>
+            <para>
+                There are also other command-line options that can be given to
+                affect the configured build. They are intended mainly for
+                developer rather than end-user use, so they are not documented
+                here.  Running <userinput>./waf configure --help</userinput>
+                will show a full list.
             </para>
             <para>
                 Once configuration is complete, running
@@ -164,8 +170,10 @@ python2.7</screen>
         <section id="installation.install">
             <title>Installing</title>
             <para>
-                TODO: build system doesn't currently handle <userinput>./waf
-                    install</userinput> well at all.
+                Once compilation is complete, run <userinput>./waf
+                    install</userinput> to install MLSGPU. If you used the
+                default installation paths on the POSIX system, you may need
+                to be root to do this.
             </para>
         </section>
     </chapter>
@@ -645,10 +653,5 @@ python2.7</screen>
                 </para></answer>
             </qandaentry>
         </qandaset>
-        <para>TODO</para>
-        <!--
-        Items to list:
-        - some holes in output: use higher smoothing or less aggressive boundary handling
-        -->
     </chapter>
 </book>
