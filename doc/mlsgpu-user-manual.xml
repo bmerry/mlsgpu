@@ -621,7 +621,18 @@ python2.7</screen>
             </qandaentry>
             <qandaentry>
                 <question><para>
-                        There are some small 
+                        There are some small holes in the output that I would like to fill.
+                </para></question>
+                <answer><para>
+                        Increasing <option>--fit-smooth</option> will provide
+                        some hole-filling, at the expense of being slower and
+                        potentially smoothing away important detail. Adjusting
+                        <option>--fit-boundary-limit</option> can also cause
+                        extrapolation to fill small holes, but will also cause
+                        extrapolation beyond genuine boundaries, sometimes with
+                        poor results.
+                </para></answer>
+            </qandaentry>
             <qandaentry>
                 <question><para>
                         My scans consisted of several unconnected pieces and
