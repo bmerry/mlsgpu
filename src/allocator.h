@@ -59,7 +59,7 @@ public:
 
     /// Copy and conversion constructors
     template<typename B>
-    Allocator(const Allocator<B> &b) : BaseAllocator(b), usage(b.usage) {}
+    Allocator(const Allocator<B> &b) : BaseAllocator(static_cast<const B &>(b)), usage(b.usage) {}
 
     /// Interface requirement
     template<typename U> struct rebind
@@ -125,8 +125,8 @@ template<typename Alloc>
 Alloc makeAllocator(const std::string &name)
 {
     typedef typename Alloc::size_type size_type;
-    static Statistics::Peak<size_type> &allStat = Statistics::getStatistic<Statistics::Peak<size_type> >("mem.all");
-    static typename Alloc::base_type base(&allStat);
+    Statistics::Peak<size_type> &allStat = Statistics::getStatistic<Statistics::Peak<size_type> >("mem.all");
+    typename Alloc::base_type base(&allStat);
 
     Statistics::Peak<size_type> &myStat = Statistics::getStatistic<Statistics::Peak<size_type> >(name);
     return Alloc(&myStat, base);
