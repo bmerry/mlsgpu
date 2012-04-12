@@ -66,6 +66,7 @@ libs = [
 ]
 
 def options(opt):
+    opt.load('gnu_dirs')
     opt.load('compiler_cxx')
     opt.load('waf_unit_test')
     opt.load('provenance', tooldir = '../../waf-tools')
@@ -112,6 +113,7 @@ def configure_variant_gcc(conf):
 
 def configure(conf):
     conf.load('waf_unit_test')
+    conf.load('gnu_dirs')
     conf.load('compiler_cxx')
     conf.load('provenance', tooldir = '../../waf-tools')
 
@@ -188,13 +190,20 @@ def build(bld):
     bld.program(
             source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
             target = 'plymanifold',
-            lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'])
+            lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'],
+            install_path = None)
 
     bld(
             name = 'manual',
             rule = '${XSLTPROC} --xinclude --stringparam mlsgpu.version ' + VERSION + ' -o ${TGT} ${SRC}',
             source = ['doc/mlsgpu-user-manual-xml.xsl', 'doc/mlsgpu-user-manual.xml'],
             target = 'doc/mlsgpu-user-manual.html')
+    output_dir = bld.bldnode.find_or_declare('doc')
+    output_dir.mkdir()
+    bld.install_files('${HTMLDIR}',
+            output_dir.ant_glob('mlsgpu-user-manual.*'),
+            cwd = bld.bldnode.find_dir('doc'),
+            relative_trick = True)
 
     if bld.env['unit_tests']:
         test_features = 'cxx cxxprogram'
@@ -205,7 +214,10 @@ def build(bld):
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],
-                lib = libs)
+                lib = libs,
+                install_path = None)
         def print_env(bld):
             print bld.env
         bld.add_post_fun(print_unit_tests)
+
+
