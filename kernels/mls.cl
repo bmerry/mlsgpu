@@ -255,12 +255,14 @@ float processCorner(command_type start, int3 coord,
 #if FIT_SPHERE
         float params[5];
         fitSphere(&fit, params);
-        ans = projectDistOriginSphere(params);
+        float d = projectDistOriginSphere(params);
 #elif FIT_PLANE
-        ans = projectDistOriginPlane(fitPlane(&fit));
+        float d = projectDistOriginPlane(fitPlane(&fit));
 #else
 #error "Expected FIT_SPHERE or FIT_PLANE"
 #endif
+        if (fabs(d) <= 1.5f)
+            ans = d;
     }
     else
     {
