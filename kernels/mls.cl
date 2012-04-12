@@ -261,7 +261,7 @@ float processCorner(command_type start, int3 coord,
 #else
 #error "Expected FIT_SPHERE or FIT_PLANE"
 #endif
-        if (fabs(d) <= 1.5f)
+        if (fabs(d) <= sqrt(2.0f))
             ans = d;
     }
     else
