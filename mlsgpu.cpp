@@ -397,18 +397,20 @@ void HostBlock<Splats>::stop()
 }
 
 /**
- * Second phase of execution, which is templated on the collection type
- * (which in turn depends on whether --sort was given or not).
+ * Main execution.
  *
- * @todo --sort is gone for now.
+ * @param devices         List of OpenCL devices to use
+ * @param out             Output filename or basename
+ * @param vm              Command-line options
  */
-template<typename Splats>
-static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  const string &out,
-                 const po::variables_map &vm,
-                 const Splats &splats,
-                 const Grid &grid)
+                 const po::variables_map &vm)
 {
+    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+
+    const float spacing = vm[Option::fitGrid].as<double>();
+    const float smooth = vm[Option::fitSmooth].as<double>();
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
@@ -429,8 +431,44 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
+    MesherBase::Namer namer;
+    if (split)
+        namer = ChunkNamer(out);
+    else
+        namer = TrivialNamer(out);
+
+    boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
+    writer->addComment("mlsgpu version: " + provenanceVersion());
+    writer->addComment("mlsgpu variant: " + provenanceVariant());
+    writer->addComment("mlsgpu options:" + makeOptions(vm));
+    boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
+    mesher->setPruneThreshold(pruneThreshold);
+
+    Splats splats;
+    prepareInputs(splats, vm, smooth);
+    try
+    {
+        Statistics::Timer timer("bbox.time");
+        splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
+    }
+    catch (std::length_error &e) // TODO: should be a subclass of runtime_error
+    {
+        cerr << "At least one input point is required.\n";
+        exit(1);
+    }
+    Grid grid = splats.getBoundingGrid();
+
+    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
+    DeviceWorkerGroup deviceWorkerGroup(
+        numDeviceThreads, numBucketThreads, mesherGroup,
+        grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
+        keepBoundary, boundaryLimit, shape);
+    FineBucketGroup fineBucketGroup(
+        numBucketThreads, 1, deviceWorkerGroup,
+        grid, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+    HostBlock<Splats> hostBlock(fineBucketGroup, grid);
+
     unsigned int chunkCells = 0;
-    boost::array<Grid::size_type, 3> numChunks = {{1, 1, 1}};
     if (split)
     {
         /* Determine a chunk size from splitSize. We assume that a chunk will be
@@ -446,37 +484,8 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
          */
         chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
         if (chunkCells == 0) chunkCells = 1;
-
-        std::tr1::uint64_t totalChunks = 1;
-        for (unsigned int i = 0; i < 3; i++)
-        {
-            numChunks[i] = divUp(grid.numCells(i), chunkCells);
-            totalChunks *= numChunks[i];
-        }
     }
 
-    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
-    DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numBucketThreads, mesherGroup,
-        grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
-        keepBoundary, boundaryLimit, shape);
-    FineBucketGroup fineBucketGroup(
-        numBucketThreads, 1, deviceWorkerGroup,
-        grid, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-    HostBlock<Splats> hostBlock(fineBucketGroup, grid);
-
-    MesherBase::Namer namer;
-    if (split)
-        namer = ChunkNamer(out);
-    else
-        namer = TrivialNamer(out);
-
-    boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
-    writer->addComment("mlsgpu version: " + provenanceVersion());
-    writer->addComment("mlsgpu variant: " + provenanceVariant());
-    writer->addComment("mlsgpu options:" + makeOptions(vm));
-    boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
-    mesher->setPruneThreshold(pruneThreshold);
     for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
     {
         Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
@@ -496,8 +505,21 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
         deviceWorkerGroup.start();
         mesherGroup.start();
 
-        Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
-                       boost::ref(hostBlock), &progress);
+        try
+        {
+            Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
+                           boost::ref(hostBlock), &progress);
+        }
+        catch (...)
+        {
+            // This can't be handled using unwinding, because that would operate in
+            // the wrong order
+            hostBlock.stop();
+            fineBucketGroup.stop();
+            deviceWorkerGroup.stop();
+            mesherGroup.stop();
+            throw;
+        }
 
         /* Shut down threads. Note that it has to be done in forward order to
          * satisfy the requirement that stop() is only called after producers
@@ -509,44 +531,11 @@ static void run2(const std::vector<std::pair<cl::Context, cl::Device> > &devices
         mesherGroup.stop();
     }
 
-
     {
         Statistics::Timer timer("finalize.time");
-
         mesher->write(&Log::log[Log::info]);
     }
-}
 
-static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
-                const string &out,
-                const po::variables_map &vm)
-{
-    const float spacing = vm[Option::fitGrid].as<double>();
-    const float smooth = vm[Option::fitSmooth].as<double>();
-    const int subsampling = vm[Option::subsampling].as<int>();
-    const int levels = vm[Option::levels].as<int>();
-    const unsigned int block = 1U << (levels + subsampling - 1);
-    const unsigned int blockCells = block - 1;
-
-    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
-    Splats splats;
-
-    boost::ptr_vector<FastPly::Reader> files;
-    prepareInputs(splats, vm, smooth);
-    Grid grid;
-
-    try
-    {
-        Statistics::Timer timer("bbox.time");
-        splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
-    }
-    catch (std::length_error &e)
-    {
-        cerr << "At least one input point is required.\n";
-        exit(1);
-    }
-
-    run2(devices, out, vm, splats, splats.getBoundingGrid());
     writeStatistics(vm);
 }
 
