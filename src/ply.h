@@ -98,6 +98,9 @@ DEFINE_FIELD_TYPE_TRAITS(float, FLOAT32);
 DEFINE_FIELD_TYPE_TRAITS(double, FLOAT64);
 #undef DEFINE_FIELD_TYPE_TRAITS
 
+namespace detail
+{
+
 /**
  * A wrapper class that adapts a templated function object to be dynamically
  * variadic depending on the type of a field.
@@ -107,8 +110,6 @@ DEFINE_FIELD_TYPE_TRAITS(double, FLOAT64);
  * @c operator() that accepts zero arguments. The appropriate specialization
  * will be called depending on the @c FieldType passed to this function
  * object.
- *
- * @todo move to PLY::detail namespace?
  */
 template<typename F>
 class FieldTypeFunction
@@ -143,6 +144,8 @@ public:
         }
     }
 };
+
+} // namespace detail
 
 /**
  * Encapsulates the information on a @c property line of a PLY header.
@@ -521,7 +524,7 @@ private:
     /**
      * Function object template that extracts a scalar property from the file
      * and passes it to a builder. It is expected to be used inside
-     * #PLY::FieldTypeFunction.
+     * #PLY::detail::FieldTypeFunction.
      */
     class PropertySetter
     {
@@ -554,7 +557,7 @@ private:
     /**
      * Function object template that extracts a list property from the file
      * and passes it to a builder. It is expected to be used inside
-     * #PLY::FieldTypeFunction.
+     * #PLY::detail::FieldTypeFunction.
      */
     class PropertyListSetter
     {
@@ -631,14 +634,14 @@ public:
             {
                 if (p.isList)
                 {
-                    FieldTypeFunction<FieldCaster<std::size_t> > caster(FieldCaster<std::size_t>(owner->reader));
+                    detail::FieldTypeFunction<FieldCaster<std::size_t> > caster(FieldCaster<std::size_t>(owner->reader));
                     std::size_t length = caster(p.lengthType);
-                    FieldTypeFunction<PropertyListSetter> setter(PropertyListSetter(owner->reader, builder, p.name, length));
+                    detail::FieldTypeFunction<PropertyListSetter> setter(PropertyListSetter(owner->reader, builder, p.name, length));
                     setter(p.valueType);
                 }
                 else
                 {
-                    FieldTypeFunction<PropertySetter> setter(PropertySetter(owner->reader, builder, p.name));
+                    detail::FieldTypeFunction<PropertySetter> setter(PropertySetter(owner->reader, builder, p.name));
                     setter(p.valueType);
                 }
             }

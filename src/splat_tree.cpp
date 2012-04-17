@@ -69,6 +69,7 @@ SplatTree::SplatTree(const std::vector<Splat> &splats,
     MLSGPU_ASSERT(splats.size() < (size_t) std::numeric_limits<command_type>::max() / (2 * maxAmplify), std::length_error);
     for (unsigned int i = 0; i < 3; i++)
     {
+        MLSGPU_ASSERT(size[i] < code_type(1) << (std::numeric_limits<code_type>::digits / 3), std::length_error);
         this->size[i] = size[i];
         this->offset[i] = offset[i];
     }

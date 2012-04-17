@@ -231,8 +231,6 @@ namespace detail
     /**
      * Iterator adaptor that converts iteration over a pair pointer
      * associative container into an iterator over its values.
-     *
-     * @todo Move into a separate file.
      */
     template<typename Base>
     class pair_second_iterator : public boost::iterator_adaptor<
