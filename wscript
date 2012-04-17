@@ -1,5 +1,7 @@
 import os.path
 
+import waflib.Errors
+
 APPNAME = 'mlsgpu'
 VERSION = '0.99'
 out = 'build'
@@ -61,8 +63,7 @@ libs = [
     'boost_program_options-mt',
     'boost_iostreams-mt',
     'boost_thread-mt',
-    'boost_math_c99-mt', 'boost_math_c99f-mt',
-    'rt'
+    'boost_math_c99-mt', 'boost_math_c99f-mt'
 ]
 
 def options(opt):
@@ -129,15 +130,70 @@ def configure(conf):
     conf.define('PROVENANCE_VARIANT', conf.options.variant)
 
     if conf.env['unit_tests']:
-        conf.check_cxx(header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT')
+        conf.check_cxx(
+            features = ['cxx', 'cxxprogram'],
+            header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT',
+            msg = 'Checking for cppunit')
     if conf.options.cl_headers:
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     else:
         conf.env.append_value('INCLUDES_OPENCL', [os.path.abspath('../../khronos_headers')])
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
-    conf.check_cxx(header_name = 'CL/cl.hpp', use = 'OPENCL')
-    conf.check_cxx(header_name = 'clogs/clogs.h', lib = 'clogs', use = 'OPENCL', uselib_store = 'CLOGS')
-    conf.check_cxx(header_name = 'stxxl.h', lib = 'stxxl', uselib_store = 'STXXL')
+    conf.check_cxx(
+        features = ['cxx', 'cxxprogram'],
+        header_name = 'CL/cl.hpp',
+        use = 'OPENCL',
+        msg = 'Checking for OpenCL')
+    conf.check_cxx(
+        features = ['cxx', 'cxxprogram'],
+        header_name = 'clogs/clogs.h', lib = 'clogs',
+        use = 'OPENCL',
+        uselib_store = 'CLOGS',
+        msg = 'Checking for clogs')
+    conf.check_cxx(
+        features = ['cxx', 'cxxprogram'],
+        header_name = 'stxxl.h',
+        lib = 'stxxl',
+        uselib_store = 'STXXL',
+        msg = 'Checking for STXXL')
+
+    # Detect which timer implementation to use
+    # We have to provide a fragment because with the default one the
+    # compiler can (and does) eliminate the symbol.
+    timer_test = '''
+#ifndef _POSIX_C_SOURCE
+# define _POSIX_C_SOURCE 200112L
+#endif
+#include <time.h>
+
+int main() {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_nsec;
+}'''
+    try:
+        conf.check_cxx(
+            # features = ['cxx', 'cxxprogram'],
+            fragment = timer_test,
+            function_name = 'clock_gettime',
+            uselib_store = 'TIMER',
+            msg = 'Checking for clock_gettime')
+    except waflib.Errors.ConfigurationError:
+        conf.check_cxx(
+            features = ['cxx', 'cxxprogram'],
+            function_name = 'clock_gettime', header_name = 'time.h', lib = 'rt',
+            fragment = timer_test,
+            uselib_store = 'TIMER',
+            msg = 'Checking for clock_gettime in -lrt',
+            mandatory = False)
+
+    conf.check_cxx(
+        features = ['cxx', 'cxxprogram'],
+        function_name = 'QueryPerformanceCounter', header_name = 'windows.h',
+        uselib_store = 'TIMER',
+        msg = 'Checking for QueryPerformanceCounter',
+        mandatory = False)
+
     for l in libs:
         conf.check_cxx(lib = l)
     conf.find_program('xsltproc')
@@ -180,7 +236,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = sources,
             target = 'mls',
-            use = 'OPENCL CLOGS STXXL',
+            use = 'OPENCL CLOGS STXXL TIMER',
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],
