@@ -128,10 +128,11 @@ def configure_variant_msvc(conf):
         'STXXL_BOOST_THREADS',
         'STXXL_BOOST_RANDOM'])
     conf.env.append_value('LINKFLAGS_STXXL', '/STACK:16777216')
-    conf.env['LIBS_STXXL'] = 'libstxxl'
+    conf.env['LIB_STXXL'] = 'libstxxl'
 
     # Autolinked, so no need to detect or link
-    conf.env['boost_libs'] = []
+    conf.env['LIB_BOOST'] = []
+    conf.env['LIB_BOOST_MATH'] = []
 
     if conf.env['optimize']:
         ccflags.extend(['/O2', '/Ob2'])
@@ -159,12 +160,14 @@ def configure(conf):
     configure_variant(conf)
 
     # Defaults that may be overridden per compiler
-    conf.env['LIBS_STXXL'] = 'stxxl'
-    conf.env['boost_libs'] = [
+    conf.env['LIB_STXXL'] = 'stxxl'
+    conf.env['LIB_BOOST_MATH'] = [
+        'boost_math_c99-mt',
+        'boost_math_c99f-mt']
+    conf.env['LIB_BOOST'] = conf.env['LIB_BOOST_MATH'] + [
         'boost_program_options-mt',
         'boost_iostreams-mt',
-        'boost_thread-mt',
-        'boost_math_c99-mt', 'boost_math_c99f-mt'
+        'boost_thread-mt'
     ]
 
     if conf.env['CXX_NAME'] == 'gcc':
@@ -241,7 +244,7 @@ int main() {
         msg = 'Checking for QueryPerformanceCounter',
         mandatory = False)
 
-    for l in conf.env['boost_libs']:
+    for l in conf.env['LIB_BOOST']:
         conf.check_cxx(lib = l)
     conf.find_program('xsltproc', mandatory = False)
 
@@ -283,17 +286,16 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = sources,
             target = 'mls',
-            use = 'OPENCL CLOGS STXXL TIMER',
-            lib = bld.env['boost_libs'],
+            use = 'OPENCL CLOGS STXXL TIMER BOOST',
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
-            use = ['libmls', 'provenance', 'OPENCL'])
+            use = ['libmls', 'provenance'])
     bld.program(
             source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
             target = 'plymanifold',
-            lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'],
+            use = 'BOOST_MATH',
             install_path = None)
 
     if bld.env['XSLTPROC']:
@@ -317,7 +319,7 @@ def build(bld):
                 features = test_features,
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
-                use = ['CPPUNIT', 'GMP', 'libmls'],
+                use = ['CPPUNIT', 'libmls'],
                 install_path = None)
         bld.add_post_fun(print_unit_tests)
 
