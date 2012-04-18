@@ -35,6 +35,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/numeric/conversion/cast.hpp>
+#include <boost/config.hpp>
 #include "tr1_cstdint.h"
 #include "binary_io.h"
 #include "ascii_io.h"
@@ -133,14 +134,14 @@ public:
     {
         switch (type)
         {
-        case INT8:     return f.template operator()<std::tr1::int8_t>(); break;
-        case UINT8:    return f.template operator()<std::tr1::uint8_t>(); break;
-        case INT16:    return f.template operator()<std::tr1::int16_t>(); break;
-        case UINT16:   return f.template operator()<std::tr1::uint16_t>(); break;
-        case INT32:    return f.template operator()<std::tr1::int32_t>(); break;
-        case UINT32:   return f.template operator()<std::tr1::uint32_t>(); break;
-        case FLOAT32:  return f.template operator()<float>(); break;
-        case FLOAT64:  return f.template operator()<double>(); break;
+        case INT8:     return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::int8_t>(); break;
+        case UINT8:    return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::uint8_t>(); break;
+        case INT16:    return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::int16_t>(); break;
+        case UINT16:   return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::uint16_t>(); break;
+        case INT32:    return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::int32_t>(); break;
+        case UINT32:   return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::uint32_t>(); break;
+        case FLOAT32:  return f.BOOST_NESTED_TEMPLATE operator()<float>(); break;
+        case FLOAT64:  return f.BOOST_NESTED_TEMPLATE operator()<double>(); break;
         default:       std::abort();
         }
     }
