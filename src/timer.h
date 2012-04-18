@@ -17,7 +17,7 @@
 # endif
 # include <time.h>
 # define TIMER_TYPE_POSIX 1
-#elif HAVE_QUERY_PERFORMANCE_COUNTER
+#elif HAVE_QUERYPERFORMANCECOUNTER
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
 # endif

@@ -1,3 +1,4 @@
+#include <stdexcept>
 #include "timer.h"
 
 #if TIMER_TYPE_POSIX
