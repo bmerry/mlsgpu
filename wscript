@@ -59,13 +59,6 @@ variants = {
     }
 }
 
-libs = [
-    'boost_program_options-mt',
-    'boost_iostreams-mt',
-    'boost_thread-mt',
-    'boost_math_c99-mt', 'boost_math_c99f-mt'
-]
-
 def options(opt):
     opt.load('gnu_dirs')
     opt.load('compiler_cxx')
@@ -113,11 +106,39 @@ def configure_variant_gcc(conf):
         conf.env.append_value('LINKFLAGS', ccflags)
 
 def configure_variant_msvc(conf):
-    ccflags = ['/Wall', '/EHsc', '/MD']
+    # Wall is not enable since boost vomits up zillions of warnings
+    ccflags = ['/W1', '/EHsc', '/MD']
+
+    # For STXXL
+    conf.env.append_value('CXXFLAGS_STXXL', [
+        '/EHs',
+        '/F', '16777216',
+        '/wd4820', '/wd4217', '/wd4668', '/wd4619',
+        '/wd4625', '/wd4626', '/wd4355', '/wd4996'])
+    conf.env.append_value('DEFINES_STXXL', [
+        '_SCL_SECURE_NO_DEPRECATE',
+        '_FILE_OFFSET_BITS=64',
+        '_LARGEFILE_SOURCE',
+        '_LARGEFILE64_SOURCE',
+        '_RTLDLL',
+        'BOOST_LIB_DIAGNOSTIC',
+        'STXXL_BOOST_TIMESTAMP',
+        'STXXL_BOOST_CONFIG',
+        'STXXL_BOOST_FILESYSTEM',
+        'STXXL_BOOST_THREADS',
+        'STXXL_BOOST_RANDOM'])
+    conf.env.append_value('LINKFLAGS_STXXL', '/STACK:16777216')
+    conf.env['LIBS_STXXL'] = 'libstxxl'
+
+    # Autolinked, so no need to detect or link
+    conf.env['boost_libs'] = []
+
     if conf.env['optimize']:
-        ccflags.append('/O2')
+        ccflags.extend(['/O2', '/Ob2'])
+        conf.env.append_value('LINKFLAGS', '/OPT:REF')
     if conf.env['debuginfo']:
         ccflags.append('/Zi')
+        conf.env.append_value('LINKFLAGS', '/DEBUG')
     if conf.env['lto']:
         ccflag.append('/Og')
     conf.env.append_value('CFLAGS', ccflags)
@@ -136,6 +157,15 @@ def configure(conf):
         conf.env[key] = value
     conf.env['lto'] = conf.options.lto
     configure_variant(conf)
+
+    # Defaults that may be overridden per compiler
+    conf.env['LIBS_STXXL'] = 'stxxl'
+    conf.env['boost_libs'] = [
+        'boost_program_options-mt',
+        'boost_iostreams-mt',
+        'boost_thread-mt',
+        'boost_math_c99-mt', 'boost_math_c99f-mt'
+    ]
 
     if conf.env['CXX_NAME'] == 'gcc':
         configure_variant_gcc(conf)
@@ -168,9 +198,11 @@ def configure(conf):
     conf.check_cxx(
         features = ['cxx', 'cxxprogram'],
         header_name = 'stxxl.h',
-        lib = 'stxxl',
-        uselib_store = 'STXXL',
+        use = 'STXXL',
         msg = 'Checking for STXXL')
+    conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
+    conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
+    conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
 
     # Detect which timer implementation to use
     # We have to provide a fragment because with the default one the
@@ -209,9 +241,9 @@ int main() {
         msg = 'Checking for QueryPerformanceCounter',
         mandatory = False)
 
-    for l in libs:
+    for l in conf.env['boost_libs']:
         conf.check_cxx(lib = l)
-    conf.find_program('xsltproc')
+    conf.find_program('xsltproc', mandatory = False)
 
     conf.write_config_header('config.h')
     conf.env.append_value('DEFINES', 'HAVE_CONFIG_H=1')
@@ -252,29 +284,30 @@ def build(bld):
             source = sources,
             target = 'mls',
             use = 'OPENCL CLOGS STXXL TIMER',
+            lib = bld.env['boost_libs'],
             name = 'libmls')
     bld.program(
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
-            use = ['libmls', 'provenance', 'OPENCL'],
-            lib = libs)
+            use = ['libmls', 'provenance', 'OPENCL'])
     bld.program(
             source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
             target = 'plymanifold',
             lib = ['boost_math_c99f-mt', 'boost_math_c99-mt'],
             install_path = None)
 
-    bld(
-            name = 'manual',
-            rule = '${XSLTPROC} --xinclude --stringparam mlsgpu.version ' + VERSION + ' -o ${TGT} ${SRC}',
-            source = ['doc/mlsgpu-user-manual-xml.xsl', 'doc/mlsgpu-user-manual.xml'],
-            target = 'doc/mlsgpu-user-manual.html')
-    output_dir = bld.bldnode.find_or_declare('doc')
-    output_dir.mkdir()
-    bld.install_files('${HTMLDIR}',
-            output_dir.ant_glob('mlsgpu-user-manual.*'),
-            cwd = bld.bldnode.find_dir('doc'),
-            relative_trick = True)
+    if bld.env['XSLTPROC']:
+        bld(
+                name = 'manual',
+                rule = '${XSLTPROC} --xinclude --stringparam mlsgpu.version ' + VERSION + ' -o ${TGT} ${SRC}',
+                source = ['doc/mlsgpu-user-manual-xml.xsl', 'doc/mlsgpu-user-manual.xml'],
+                target = 'doc/mlsgpu-user-manual.html')
+        output_dir = bld.bldnode.find_or_declare('doc')
+        output_dir.mkdir()
+        bld.install_files('${HTMLDIR}',
+                output_dir.ant_glob('mlsgpu-user-manual.*'),
+                cwd = bld.bldnode.find_dir('doc'),
+                relative_trick = True)
 
     if bld.env['unit_tests']:
         test_features = 'cxx cxxprogram'
@@ -285,7 +318,6 @@ def build(bld):
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
                 use = ['CPPUNIT', 'GMP', 'libmls'],
-                lib = libs,
                 install_path = None)
         bld.add_post_fun(print_unit_tests)
 

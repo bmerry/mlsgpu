@@ -8,13 +8,13 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+#include "tr1_cstdint.h"
 #include <boost/program_options.hpp>
 #include <boost/noncopyable.hpp>
 #include <vector>
 #include <string>
 #include <map>
 #include <CL/cl.hpp>
-#include <tr1/cstdint>
 
 /// OpenCL helper functions
 namespace CLH

@@ -7,7 +7,7 @@
 #ifndef BINARY_IO_H
 #define BINARY_IO_H
 
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <istream>
 #include <ostream>
 #include <boost/type_traits/is_integral.hpp>

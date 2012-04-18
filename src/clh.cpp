@@ -77,19 +77,19 @@ MemoryMapping::~MemoryMapping()
 ResourceUsage ResourceUsage::operator+(const ResourceUsage &b) const
 {
     ResourceUsage out;
-    out.maxMemory = std::max(maxMemory, b.maxMemory);
+    out.maxMemory = (std::max)(maxMemory, b.maxMemory);
     out.totalMemory = totalMemory + b.totalMemory;
-    out.imageWidth = std::max(imageWidth, b.imageWidth);
-    out.imageHeight = std::max(imageHeight, b.imageHeight);
+    out.imageWidth = (std::max)(imageWidth, b.imageWidth);
+    out.imageHeight = (std::max)(imageHeight, b.imageHeight);
     return out;
 }
 
 ResourceUsage &ResourceUsage::operator+=(const ResourceUsage &b)
 {
-    maxMemory = std::max(maxMemory, b.maxMemory);
+    maxMemory = (std::max)(maxMemory, b.maxMemory);
     totalMemory += b.totalMemory;
-    imageWidth = std::max(imageWidth, b.imageWidth);
-    imageHeight = std::max(imageHeight, b.imageHeight);
+    imageWidth = (std::max)(imageWidth, b.imageWidth);
+    imageHeight = (std::max)(imageHeight, b.imageHeight);
     return *this;
 }
 
@@ -107,7 +107,7 @@ ResourceUsage ResourceUsage::operator*(unsigned int n) const
 
 void ResourceUsage::addBuffer(std::tr1::uint64_t bytes)
 {
-    maxMemory = std::max(maxMemory, bytes);
+    maxMemory = (std::max)(maxMemory, bytes);
     totalMemory += bytes;
 }
 
@@ -117,8 +117,8 @@ void ResourceUsage::addImage(std::size_t width, std::size_t height, std::size_t 
     size *= height;
     size *= bytesPerPixel;
     addBuffer(size);
-    imageWidth = std::max(imageWidth, width);
-    imageHeight = std::max(imageHeight, height);
+    imageWidth = (std::max)(imageWidth, width);
+    imageHeight = (std::max)(imageHeight, height);
 }
 
 namespace detail
@@ -435,8 +435,9 @@ static cl::NDRange makeNDRange(cl_uint dimensions, const std::size_t *sizes)
     case 1: return cl::NDRange(sizes[0]);
     case 2: return cl::NDRange(sizes[0], sizes[1]);
     case 3: return cl::NDRange(sizes[0], sizes[1], sizes[2]);
-    default: abort(); // should never be reached
+    default: std::abort(); // should never be reached
     }
+    return cl::NDRange(); // should never be reached
 }
 
 cl_int enqueueNDRangeKernelSplit(

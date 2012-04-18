@@ -11,7 +11,7 @@
 # include <config.h>
 #endif
 #include <vector>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <stdexcept>
 #include <boost/function.hpp>
 #include <boost/array.hpp>

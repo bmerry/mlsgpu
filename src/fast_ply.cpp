@@ -14,7 +14,7 @@
 #include <sstream>
 #include <istream>
 #include <cstdlib>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <cstring>
 #include <algorithm>
 #include <limits>
@@ -96,7 +96,8 @@ static Reader::size_type fieldSize(const FieldType f)
     case FLOAT64:
         return 8;
     }
-    abort();
+    std::abort();
+    return 0;
 }
 
 /**

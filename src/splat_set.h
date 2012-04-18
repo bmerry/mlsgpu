@@ -11,7 +11,7 @@
 # include <config.h>
 #endif
 
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <vector>
 #include <utility>
 #include <algorithm>

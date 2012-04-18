@@ -91,7 +91,7 @@ void MlsFunctor::setBoundaryLimit(float limit)
 {
     // This is computed theoretically based on the weight function, and assuming a
     // uniform distribution of samples and a straight boundary
-    const float boundaryScale = (sqrt(6) * 512) / (693 * boost::math::constants::pi<float>());
+    const float boundaryScale = (sqrt(6.0f) * 512) / (693 * boost::math::constants::pi<float>());
 
     boundaryKernel.setArg(7, 1.0f / (boundaryScale * limit));
 }

@@ -17,7 +17,7 @@
 #include <boost/type_traits/is_signed.hpp>
 #include <boost/type_traits/is_integral.hpp>
 #include <boost/type_traits/is_floating_point.hpp>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <boost/tr1/cmath.hpp>
 #include <limits>
 #include <typeinfo>
@@ -58,8 +58,8 @@ stringToNumber(const std::string &s)
                             && boost::is_signed<T>::value));
 
     intmax_t value = boost::lexical_cast<intmax_t>(s);
-    if (value < static_cast<intmax_t>(std::numeric_limits<T>::min())
-        || value > static_cast<intmax_t>(std::numeric_limits<T>::max()))
+    if (value < static_cast<intmax_t>((std::numeric_limits<T>::min)())
+        || value > static_cast<intmax_t>((std::numeric_limits<T>::max)()))
     {
         throw boost::bad_lexical_cast(typeid(std::string), typeid(T));
     }

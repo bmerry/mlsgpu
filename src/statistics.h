@@ -140,12 +140,12 @@ class Peak : public Statistic
     friend class ::TestPeak;
 private:
     T current;
-    T max;
+    T peak;
 
 protected:
     virtual void write(std::ostream &o) const
     {
-        o << max;
+        o << peak;
     }
 
     /**
@@ -156,15 +156,15 @@ protected:
     void set(T x)
     {
         current = x;
-        if (max < current)
-            max = current;
+        if (peak < current)
+            peak = current;
     }
 
 public:
     /**
      * Construct, setting a name and default-initializing the current and maximum values.
      */
-    Peak(const std::string &name) : Statistic(name), current(), max() {}
+    Peak(const std::string &name) : Statistic(name), current(), peak () {}
 
     /**
      * Increment the current value by @a x.
@@ -203,7 +203,7 @@ public:
     T getMax() const
     {
         boost::lock_guard<boost::mutex> _(mutex);
-        return max;
+        return peak;
     }
 };
 

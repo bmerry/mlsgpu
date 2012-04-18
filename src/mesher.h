@@ -31,8 +31,8 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
-#include <tr1/unordered_map>
-#include <tr1/unordered_set>
+#include "tr1_unordered_map.h"
+#include "tr1_unordered_set.h"
 #include <stxxl.h>
 #include "marching.h"
 #include "fast_ply.h"

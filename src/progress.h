@@ -15,7 +15,7 @@
 #include <iostream>
 #include <string>
 #include <boost/thread/mutex.hpp>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <boost/noncopyable.hpp>
 
 /**

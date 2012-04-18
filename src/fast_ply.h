@@ -22,7 +22,7 @@
 #include <vector>
 #include <algorithm>
 #include <utility>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>

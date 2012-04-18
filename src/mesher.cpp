@@ -14,7 +14,7 @@
 # define __CL_ENABLE_EXCEPTIONS
 #endif
 
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <CL/cl.h>
 #include <vector>
 #include <boost/array.hpp>
@@ -28,7 +28,7 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/foreach.hpp>
 #include <boost/type_traits/make_unsigned.hpp>
-#include <tr1/unordered_map>
+#include "tr1_unordered_map.h"
 #include <cassert>
 #include <cstdlib>
 #include <utility>
@@ -99,7 +99,7 @@ void KeyMapMesher::updateClumps(
     {
         if (nodes[i].isRoot())
         {
-            if (clumps.size() >= boost::make_unsigned<clump_id>::type(std::numeric_limits<clump_id>::max()))
+            if (clumps.size() >= boost::make_unsigned<clump_id>::type((std::numeric_limits<clump_id>::max)()))
             {
                 /* Ideally this would throw, but it's called from a worker
                  * thread and there is no easy way to immediately notify the
@@ -150,7 +150,7 @@ void KeyMapMesher::updateKeyMaps(
         clump_id cid = clumpId[i + numInternalVertices];
 
         {
-            std::pair<std::tr1::unordered_map<cl_ulong, clump_id>::iterator, bool> added;
+            std::pair<Statistics::Container::unordered_map<cl_ulong, clump_id>::const_iterator, bool> added;
             added = clumpIdMap.insert(std::make_pair(key, cid));
             if (!added.second)
             {
@@ -165,8 +165,8 @@ void KeyMapMesher::updateKeyMaps(
         }
 
         {
-            std::pair<std::tr1::unordered_map<cl_ulong, std::tr1::uint32_t>::iterator, bool> added;
-            added = vertexIdMap.insert(std::make_pair(key, vertexOffset + newKeys));
+            std::pair<Statistics::Container::unordered_map<cl_ulong, std::tr1::uint32_t>::const_iterator, bool> added;
+            added = vertexIdMap.insert(std::make_pair(key, std::tr1::uint32_t(vertexOffset + newKeys)));
             if (added.second)
                 newKeys++; // key has not been set yet in this chunk
             else
@@ -427,7 +427,8 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
         prepareAdd();
         return boost::bind(&BigMesher::add, this, _1, _2);
     default:
-        abort();
+        std::abort();
+        return MesherBase::InputFunctor(); // should never be reached
     }
 }
 
@@ -621,7 +622,7 @@ void StxxlMesher::write(std::ostream *progressStream)
             // TODO: save a list of valid clumps?
             if (clump.isRoot() && clump.counts.vertices >= thresholdVertices)
             {
-                std::tr1::unordered_map<unsigned int, Clump::Counts>::const_iterator pos;
+                Statistics::Container::unordered_map<unsigned int, Clump::Counts>::const_iterator pos;
                 pos = clump.chunkCounts.find(gen);
                 if (pos != clump.chunkCounts.end())
                 {

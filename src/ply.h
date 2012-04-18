@@ -18,6 +18,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstring>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <algorithm>
@@ -34,7 +35,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/numeric/conversion/cast.hpp>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include "binary_io.h"
 #include "ascii_io.h"
 #include "errors.h"
@@ -140,7 +141,7 @@ public:
         case UINT32:   return f.template operator()<std::tr1::uint32_t>(); break;
         case FLOAT32:  return f.template operator()<float>(); break;
         case FLOAT64:  return f.template operator()<double>(); break;
-        default:       abort();
+        default:       std::abort();
         }
     }
 };

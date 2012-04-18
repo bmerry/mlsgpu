@@ -8,7 +8,7 @@
 # include <config.h>
 #endif
 #include <vector>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
@@ -79,8 +79,8 @@ void Node::toMicro(size_type lower[3], size_type upper[3], const size_type limit
     toMicro(lower, upper);
     for (unsigned int i = 0; i < 3; i++)
     {
-        lower[i] = std::min(lower[i], limit[i]);
-        upper[i] = std::min(upper[i], limit[i]);
+        lower[i] = (std::min)(lower[i], limit[i]);
+        upper[i] = (std::min)(upper[i], limit[i]);
     }
 }
 
@@ -99,8 +99,8 @@ void Node::toCells(Grid::size_type microSize, Grid::size_type lower[3], Grid::si
     toCells(microSize, lower, upper);
     for (unsigned int i = 0; i < 3; i++)
     {
-        lower[i] = std::min(lower[i], grid.numCells(i));
-        upper[i] = std::min(upper[i], grid.numCells(i));
+        lower[i] = (std::min)(lower[i], grid.numCells(i));
+        upper[i] = (std::min)(upper[i], grid.numCells(i));
     }
 }
 
@@ -268,7 +268,7 @@ BucketStateSet::BucketStateSet(
                     Grid::difference_type high = grid.getExtent(i).second;
                     Grid::difference_type offset = chunkCoord[i] * chunkCells;
                     sub.setExtent(i, low + offset,
-                                  std::min(low + offset + chunkCells, high));
+                                  (std::min)(low + offset + chunkCells, high));
                 }
                 (*this)(chunkCoord) = boost::make_shared<BucketState>(params, sub, microSize, macroLevels);
             }

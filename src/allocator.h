@@ -14,8 +14,8 @@
 #include <new>
 #include <vector>
 #include <string>
-#include <tr1/unordered_map>
-#include <tr1/unordered_set>
+#include "tr1_unordered_map.h"
+#include "tr1_unordered_set.h"
 #include "statistics.h"
 
 class TestAllocator;
@@ -179,21 +179,24 @@ class unordered_set : public std::tr1::unordered_set<Value, Hash, Pred, Alloc>
 {
 private:
     typedef std::tr1::unordered_set<Value, Hash, Pred, Alloc> BaseType;
+    typedef typename BaseType::size_type size_type;
+    typedef typename BaseType::hasher hasher;
+    typedef typename BaseType::key_equal key_equal;
 public:
     explicit unordered_set(
         const std::string &allocName,
-        typename BaseType::size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
-        const typename BaseType::hasher &hf = typename BaseType::hasher(),
-        const typename BaseType::key_equal &eql = typename BaseType::key_equal())
+        size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
+        const hasher &hf = hasher(),
+        const key_equal &eql = key_equal())
         : BaseType(n, hf, eql, makeAllocator<Alloc>(allocName)) {}
 
     template<typename InputIterator>
     unordered_set(
         const std::string &allocName,
         InputIterator f, InputIterator l,
-        typename BaseType::size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
-        const typename BaseType::hasher &hf = typename BaseType::hasher(),
-        const typename BaseType::key_equal &eql = typename BaseType::key_equal())
+        size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
+        const hasher &hf = hasher(),
+        const key_equal &eql = key_equal())
         : BaseType(f, l, n, hf, eql, makeAllocator<Alloc>(allocName)) {}
 };
 
@@ -211,21 +214,24 @@ class unordered_map : public std::tr1::unordered_map<Key, T, Hash, Pred, Alloc>
 {
 private:
     typedef std::tr1::unordered_map<Key, T, Hash, Pred, Alloc> BaseType;
+    typedef typename BaseType::size_type size_type;
+    typedef typename BaseType::hasher hasher;
+    typedef typename BaseType::key_equal key_equal;
 public:
     explicit unordered_map(
         const std::string &allocName,
-        typename BaseType::size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
-        const typename BaseType::hasher &hf = typename BaseType::hasher(),
-        const typename BaseType::key_equal &eql = typename BaseType::key_equal())
+        size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
+        const hasher &hf = hasher(),
+        const key_equal &eql = key_equal())
         : BaseType(n, hf, eql, makeAllocator<Alloc>(allocName)) {}
 
     template<typename InputIterator>
     unordered_map(
         const std::string &allocName,
         InputIterator f, InputIterator l,
-        typename BaseType::size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
-        const typename BaseType::hasher &hf = typename BaseType::hasher(),
-        const typename BaseType::key_equal &eql = typename BaseType::key_equal())
+        size_type n = 10,   // implementation-defined in base class, so perfect forwarding impossible
+        const hasher &hf = hasher(),
+        const key_equal &eql = key_equal())
         : BaseType(f, l, n, hf, eql, makeAllocator<Alloc>(allocName)) {}
 };
 

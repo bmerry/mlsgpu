@@ -18,7 +18,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include "clh.h"
 #include "marching.h"
 #include "grid.h"
@@ -101,8 +101,8 @@ void Marching::makeTables()
     std::vector<cl_ushort2> hStartTable(NUM_CUBES + 1);
     for (unsigned int i = 0; i < NUM_CUBES; i++)
     {
-        hStartTable[i].s0 = hVertexTable.size();
-        hStartTable[i].s1 = hIndexTable.size();
+        hStartTable[i].s[0] = hVertexTable.size();
+        hStartTable[i].s[1] = hIndexTable.size();
 
         /* Find triangles. For now we record triangle indices
          * as edge numbers, which we will compact later.
@@ -207,19 +207,19 @@ void Marching::makeTables()
             hIndexTable.push_back(edgeCompact[triangles[j]]);
         }
 
-        hCountTable[i].s0 = hVertexTable.size() - hStartTable[i].s0;
-        hCountTable[i].s1 = hIndexTable.size() - hStartTable[i].s1;
+        hCountTable[i].s[0] = hVertexTable.size() - hStartTable[i].s[0];
+        hCountTable[i].s[1] = hIndexTable.size() - hStartTable[i].s[1];
     }
 
-    hStartTable[NUM_CUBES].s0 = hVertexTable.size();
-    hStartTable[NUM_CUBES].s1 = hIndexTable.size();
+    hStartTable[NUM_CUBES].s[0] = hVertexTable.size();
+    hStartTable[NUM_CUBES].s[1] = hIndexTable.size();
 
     /* We're going to concatenate hVertexTable and hIndexTable, so the start values
      * need to be offset to point to where hIndexTable sits afterwards.
      */
     for (unsigned int i = 0; i <= NUM_CUBES; i++)
     {
-        hStartTable[i].s1 += hVertexTable.size();
+        hStartTable[i].s[1] += hVertexTable.size();
     }
     // Concatenate the two tables into one
     hVertexTable.insert(hVertexTable.end(), hIndexTable.begin(), hIndexTable.end());
@@ -479,28 +479,28 @@ void Marching::shipOut(const cl::CommandQueue &queue,
 
     // Write a sentinel key after the real vertex keys
     cl_ulong key = CL_ULONG_MAX;
-    queue.enqueueWriteBuffer(unweldedVertexKeys, CL_FALSE, sizes.s0 * sizeof(cl_ulong), sizeof(cl_ulong), &key,
+    queue.enqueueWriteBuffer(unweldedVertexKeys, CL_FALSE, sizes.s[0] * sizeof(cl_ulong), sizeof(cl_ulong), &key,
                              events, &last);
     wait[0] = last;
 
     // TODO: figure out how many actual bits there are
     // TODO: revisit the dependency tracking
-    sortVertices.enqueue(queue, unweldedVertexKeys, unweldedVertices, sizes.s0, 0, &wait, &last);
+    sortVertices.enqueue(queue, unweldedVertexKeys, unweldedVertices, sizes.s[0], 0, &wait, &last);
     wait[0] = last;
 
     CLH::enqueueNDRangeKernel(queue,
                               countUniqueVerticesKernel,
                               cl::NullRange,
-                              cl::NDRange(sizes.s0),
+                              cl::NDRange(sizes.s[0]),
                               cl::NullRange,
                               &wait, &last);
     wait[0] = last;
 
-    scanUint.enqueue(queue, vertexUnique, sizes.s0 + 1, NULL, &wait, &last);
+    scanUint.enqueue(queue, vertexUnique, sizes.s[0] + 1, NULL, &wait, &last);
     wait[0] = last;
 
     // Start this readback - but we don't immediately need the result.
-    queue.enqueueReadBuffer(vertexUnique, CL_FALSE, sizes.s0 * sizeof(cl_uint), sizeof(cl_uint),
+    queue.enqueueReadBuffer(vertexUnique, CL_FALSE, sizes.s[0] * sizeof(cl_uint), sizeof(cl_uint),
                             &readback->numWelded, &wait, NULL);
 
     // TODO: should we be sorting key/value pairs? The values are going to end up moving
@@ -508,15 +508,15 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     // give later passes better spatial locality and fewer indirections.
     cl_ulong minExternalKey = cl_ulong(zMax) << (2 * KEY_AXIS_BITS + 1);
     cl_ulong keyOffsetL =
-        (cl_ulong(keyOffset.z) << (2 * KEY_AXIS_BITS + 1))
-        | (cl_ulong(keyOffset.y) << (KEY_AXIS_BITS + 1))
-        | (cl_ulong(keyOffset.x) << 1);
+        (cl_ulong(keyOffset.s[2]) << (2 * KEY_AXIS_BITS + 1))
+        | (cl_ulong(keyOffset.s[1]) << (KEY_AXIS_BITS + 1))
+        | (cl_ulong(keyOffset.s[0]) << 1);
     compactVerticesKernel.setArg(7, minExternalKey);
     compactVerticesKernel.setArg(8, keyOffsetL);
     CLH::enqueueNDRangeKernel(queue,
                               compactVerticesKernel,
                               cl::NullRange,
-                              cl::NDRange(sizes.s0),
+                              cl::NDRange(sizes.s[0]),
                               cl::NullRange,
                               &wait, &last);
     wait[0] = last;
@@ -527,7 +527,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     CLH::enqueueNDRangeKernel(queue,
                               reindexKernel,
                               cl::NullRange,
-                              cl::NDRange(sizes.s1),
+                              cl::NDRange(sizes.s[1]),
                               cl::NullRange,
                               &wait, &last);
     queue.finish(); // wait for readback of numWelded and firstExternal (TODO: overkill)
@@ -538,7 +538,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     outputMesh.triangles = indices;
     outputMesh.numVertices = readback->numWelded;
     outputMesh.numInternalVertices = readback->firstExternal;
-    outputMesh.numTriangles = sizes.s1 / 3;
+    outputMesh.numTriangles = sizes.s[1] / 3;
     output(queue, outputMesh, NULL, event);
 }
 
@@ -588,8 +588,8 @@ void Marching::generate(
         if (compacted > 0)
         {
             cl_uint2 counts = countElements(queue, *images[0], *images[1], compacted, events);
-            if (offsets.s0 + counts.s0 > vertexSpace
-                || offsets.s1 + counts.s1 > indexSpace)
+            if (offsets.s[0] + counts.s[0] > vertexSpace
+                || offsets.s[1] + counts.s[1] > indexSpace)
             {
                 /* Too much information in this layer to just append. Ship out
                  * what we have before processing this layer.
@@ -599,14 +599,14 @@ void Marching::generate(
                 wait.resize(1);
                 wait[0] = last;
 
-                offsets.s0 = 0;
-                offsets.s1 = 0;
-                top.z = 2 * (z - 1);
+                offsets.s[0] = 0;
+                offsets.s[1] = 0;
+                top.s[2] = 2 * (z - 1);
 
                 /* We'd better have enough room to process one layer at a time.
                  */
-                assert(counts.s0 <= vertexSpace);
-                assert(counts.s1 <= indexSpace);
+                assert(counts.s[0] <= vertexSpace);
+                assert(counts.s[1] <= indexSpace);
             }
 
             generateElementsKernel.setArg(5, *images[0]);
@@ -625,12 +625,12 @@ void Marching::generate(
             wait.resize(1);
             wait[0] = last;
 
-            offsets.s0 += counts.s0;
-            offsets.s1 += counts.s1;
+            offsets.s[0] += counts.s[0];
+            offsets.s[1] += counts.s[1];
         }
         nonempty.add(compacted > 0);
     }
-    if (offsets.s0 > 0)
+    if (offsets.s[0] > 0)
     {
         shipOut(queue, keyOffset, offsets, depth - 1, output, &wait, &last);
         shipOuts++;

@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <vector>
 #include <utility>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <boost/function.hpp>
 #include <clogs/clogs.h>
 #include "grid.h"

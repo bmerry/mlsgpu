@@ -54,17 +54,17 @@ ScaleBiasFilter::ScaleBiasFilter(const cl::Context &context)
 
 void ScaleBiasFilter::setScaleBias(float scale, float x, float y, float z)
 {
-    scaleBias.x = x;
-    scaleBias.y = y;
-    scaleBias.z = z;
-    scaleBias.w = scale;
+    scaleBias.s[0] = x;
+    scaleBias.s[1] = y;
+    scaleBias.s[2] = z;
+    scaleBias.s[3] = scale;
     kernel.setArg(1, scaleBias);
 }
 
 void ScaleBiasFilter::setScaleBias(const Grid &grid)
 {
     grid.getVertex(0, 0, 0, scaleBias.s);
-    scaleBias.w = grid.getSpacing();
+    scaleBias.s[3] = grid.getSpacing();
     kernel.setArg(1, scaleBias);
 }
 

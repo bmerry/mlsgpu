@@ -6,6 +6,7 @@
 #endif
 #include <cstddef>
 #include <stdexcept>
+#include <cstdlib>
 #include <boost/type_traits/is_base_of.hpp>
 #include <boost/utility/enable_if.hpp>
 
@@ -25,7 +26,7 @@ static void mlsgpuThrow(const char *filename, int line, const char *msg,
     MLSGPU_UNUSED(dummy);
 #if MLSGPU_ASSERT_ABORT
     std::cerr << filename << ':' << line << ": " << msg << endl;
-    abort();
+    std::abort();
 #else
     MLSGPU_UNUSED(filename);
     MLSGPU_UNUSED(line);

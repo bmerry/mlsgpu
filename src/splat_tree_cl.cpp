@@ -14,10 +14,10 @@
 #include <CL/cl.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <cstddef>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <limits>
 #include <vector>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include "splat_tree_cl.h"
 #include "splat.h"
 #include "grid.h"
