@@ -71,7 +71,7 @@ def options(opt):
     opt.load('compiler_cxx')
     opt.load('waf_unit_test')
     opt.load('provenance', tooldir = '../../waf-tools')
-    opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'release', action = 'store', help = 'build variant', choices = variants.keys())
+    opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'release', action = 'store', help = 'build variant', choices = list(variants.keys()))
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
     opt.add_option('--no-tests', action = 'store_true', default = False, help = 'Do not run unit tests')
@@ -112,6 +112,20 @@ def configure_variant_gcc(conf):
         # -flto requires compilation flags to be provided at link time
         conf.env.append_value('LINKFLAGS', ccflags)
 
+def configure_variant_msvc(conf):
+    ccflags = ['/Wall', '/EHsc', '/MD']
+    if conf.env['optimize']:
+        ccflags.append('/O2')
+    if conf.env['debuginfo']:
+        ccflags.append('/Zi')
+    if conf.env['lto']:
+        ccflag.append('/Og')
+    conf.env.append_value('CFLAGS', ccflags)
+    conf.env.append_value('CXXFLAGS', ccflags)
+    if 'LIBPATH' in os.environ:
+        for item in os.environ['LIBPATH'].split(os.pathsep):
+            conf.env.append_value('LIBPATH', item)
+
 def configure(conf):
     conf.load('waf_unit_test')
     conf.load('gnu_dirs')
@@ -123,9 +137,10 @@ def configure(conf):
     conf.env['lto'] = conf.options.lto
     configure_variant(conf)
 
-    cgal_cxxflags = []
     if conf.env['CXX_NAME'] == 'gcc':
         configure_variant_gcc(conf)
+    elif conf.env['CXX_NAME'] == 'msvc':
+        configure_variant_msvc(conf)
 
     conf.define('PROVENANCE_VARIANT', conf.options.variant)
 
@@ -272,8 +287,6 @@ def build(bld):
                 use = ['CPPUNIT', 'GMP', 'libmls'],
                 lib = libs,
                 install_path = None)
-        def print_env(bld):
-            print bld.env
         bld.add_post_fun(print_unit_tests)
 
 
