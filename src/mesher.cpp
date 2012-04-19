@@ -99,7 +99,7 @@ void KeyMapMesher::updateClumps(
     {
         if (nodes[i].isRoot())
         {
-            if (clumps.size() >= boost::make_unsigned<clump_id>::type((std::numeric_limits<clump_id>::max)()))
+            if (clumps.size() >= boost::make_unsigned<clump_id>::type(std::numeric_limits<clump_id>::max()))
             {
                 /* Ideally this would throw, but it's called from a worker
                  * thread and there is no easy way to immediately notify the

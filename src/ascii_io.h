@@ -59,7 +59,7 @@ stringToNumber(const std::string &s)
 
     intmax_t value = boost::lexical_cast<intmax_t>(s);
     if (value < static_cast<intmax_t>((std::numeric_limits<T>::min)())
-        || value > static_cast<intmax_t>((std::numeric_limits<T>::max)()))
+        || value > static_cast<intmax_t>(std::numeric_limits<T>::max()))
     {
         throw boost::bad_lexical_cast(typeid(std::string), typeid(T));
     }
