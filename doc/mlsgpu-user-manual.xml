@@ -98,7 +98,10 @@
                 The following list of packages should suffice on Ubuntu 11.10 (although it has
                 not been tested against a clean installation), with the
                 exception of <systemitem class="library">clogs</systemitem> which has not been
-                packaged for Ubuntu.
+                packaged for Ubuntu. When configuring <systemitem
+                    class="library">clogs</systemitem> you can pass
+                <userinput>--cl-headers=<replaceable>MLSGPU_ROOT</replaceable>khronos_headers</userinput>
+                to get the OpenCL header files.
             </para>
             <screen>xsltproc
 docbook-xml
@@ -110,8 +113,8 @@ libboost-program-options-dev
 libboost-thread-dev
 libcppunit-dev
 libstxxl-dev
-g++-4.6
-python2.7</screen>
+g++
+libgl1-mesa-dev</screen>
         </section>
         <section id="installation.compiling">
             <title>Compiling</title>
