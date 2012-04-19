@@ -547,8 +547,13 @@ static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)
     using std::tr1::uniform_int;
     using std::tr1::variate_generator;
 
-    variate_generator<mt19937 &, uniform_int<int> > gen(engine, uniform_int<int>(min, max));
-    return gen();
+    /* According to TR1, there has to be a conversion from the output type
+     * of the engine to the input type of the distribution, so we can't
+     * just use uniform_int<int> (and MSVC will do the wrong thing in this
+     * case). We thus also have to manually bias to avoid negative numbers.
+     */
+    variate_generator<mt19937 &, uniform_int<mt19937::result_type> > gen(engine, uniform_int<mt19937::result_type>(0, max - min));
+    return int(gen()) + min;
 }
 
 static float simpleRandomFloat(std::tr1::mt19937 &engine, float min, float max)
@@ -587,7 +592,7 @@ void TestBucket::testRandom(unsigned long seed)
     float spacing = simpleRandomFloat(engine, 0.25f, 2.5f);
     float maxRadius = simpleRandomFloat(engine, 0.25f, 10.0f);
 
-    variate_generator<mt19937 &, uniform_int<int> > genNum(engine, uniform_int<int>(0, maxScan));
+    variate_generator<mt19937 &, uniform_int<mt19937::result_type> > genNum(engine, uniform_int<mt19937::result_type>(0, maxScan));
     variate_generator<mt19937 &, uniform_real<float> > genX(engine, uniform_real<float>(minX, maxX));
     variate_generator<mt19937 &, uniform_real<float> > genY(engine, uniform_real<float>(minY, maxY));
     variate_generator<mt19937 &, uniform_real<float> > genZ(engine, uniform_real<float>(minZ, maxZ));
