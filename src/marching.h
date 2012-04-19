@@ -52,15 +52,37 @@ class Marching
 {
     friend class TestMarching;
 public:
-    static const unsigned int MAX_CELL_VERTICES = 13; ///< Maximum vertices generated per cell
-    static const unsigned int MAX_CELL_INDICES = 36;  ///< Maximum triangles generated per cell
-    static const unsigned int NUM_CUBES = 256;        ///< Number of possible vertex codes for a cube (2^vertices)
-    static const unsigned int NUM_EDGES = 19;         ///< Number of edges in each cube
-    static const unsigned int NUM_TETRAHEDRA = 6;     ///< Number of tetrahedra in each cube
-    /// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
-    static const int KEY_AXIS_BITS = 21;
-    /// Logarithm base 2 of @ref MAX_DIMENSION.
-    static const int MAX_DIMENSION_LOG2 = 13;
+    enum
+    {
+        MAX_CELL_VERTICES = 13 ///< Maximum vertices generated per cell
+    };
+    enum
+    {
+        MAX_CELL_INDICES = 36  ///< Maximum triangles generated per cell
+    };
+    enum
+    {
+        NUM_CUBES = 256        ///< Number of possible vertex codes for a cube (2^vertices)
+    };
+    enum
+    {
+        NUM_EDGES = 19         ///< Number of edges in each cube
+    };
+    enum
+    {
+        NUM_TETRAHEDRA = 6     ///< Number of tetrahedra in each cube
+    };
+    enum
+    {
+        /// Number of bits in fixed-point xyz fields in a vertex key (including fractional bits)
+        KEY_AXIS_BITS = 21
+    };
+    enum
+    {
+        /// Logarithm base 2 of @ref MAX_DIMENSION.
+        MAX_DIMENSION_LOG2 = 13
+    };
+
     /**
      * Maximum size that is legal to pass to the constructor for @a maxWidth or
      * @a maxHeight.  This does not guarantee that it will be possible to
@@ -71,16 +93,31 @@ public:
      * @c CL_DEVICE_IMAGE2D_MAX_WIDTH. It could be raised if necessary, but for
      * current usage there is little point.
      */
-    static const std::size_t MAX_DIMENSION = 1U << MAX_DIMENSION_LOG2;
+    enum
+    {
+        MAX_DIMENSION = 1U << MAX_DIMENSION_LOG2
+    };
 
-    /// Total bytes held in @ref countTable.
-    static const std::size_t COUNT_TABLE_BYTES = 256 * sizeof(cl_uchar2);
-    /// Total bytes held in @ref startTable.
-    static const std::size_t START_TABLE_BYTES = 257 * sizeof(cl_ushort2);
-    /// Total bytes held in @ref dataTable.
-    static const std::size_t DATA_TABLE_BYTES = 8192 * sizeof(cl_uchar);
-    /// Total bytes held in @ref keyTable.
-    static const std::size_t KEY_TABLE_BYTES = 2432 * sizeof(cl_uint3);
+    enum
+    {
+        /// Total bytes held in @ref countTable.
+        COUNT_TABLE_BYTES = 256 * sizeof(cl_uchar2)
+    };
+    enum
+    {
+        /// Total bytes held in @ref startTable.
+        START_TABLE_BYTES = 257 * sizeof(cl_ushort2)
+    };
+    enum
+    {
+        /// Total bytes held in @ref dataTable.
+        DATA_TABLE_BYTES = 8192 * sizeof(cl_uchar)
+    };
+    enum
+    {
+        /// Total bytes held in @ref keyTable.
+        KEY_TABLE_BYTES = 2432 * sizeof(cl_uint3)
+    };
 
 private:
     /**

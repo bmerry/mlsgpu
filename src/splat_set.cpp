@@ -20,9 +20,6 @@ namespace SplatSet
 namespace detail
 {
 
-const unsigned int SimpleFileSet::scanIdShift;
-const std::size_t SimpleFileSet::MySplatStream::bufferSize;
-
 void splatToBuckets(const Splat &splat,
                     const Grid &grid, Grid::size_type bucketSize,
                     boost::array<Grid::difference_type, 3> &lower,

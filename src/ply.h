@@ -35,7 +35,6 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/numeric/conversion/cast.hpp>
-#include <boost/config.hpp>
 #include "tr1_cstdint.h"
 #include "binary_io.h"
 #include "ascii_io.h"
@@ -107,11 +106,8 @@ namespace detail
  * A wrapper class that adapts a templated function object to be dynamically
  * variadic depending on the type of a field.
  *
- * The underlying function object must be a true function object (not a
- * function pointer), with a @c result_type member and a templatized
- * @c operator() that accepts zero arguments. The appropriate specialization
- * will be called depending on the @c FieldType passed to this function
- * object.
+ * The function object must take a dummy parameter of the field type.
+ * This is used only to allow implicit template matching to work.
  */
 template<typename F>
 class FieldTypeFunction
@@ -134,16 +130,17 @@ public:
     {
         switch (type)
         {
-        case INT8:     return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::int8_t>(); break;
-        case UINT8:    return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::uint8_t>(); break;
-        case INT16:    return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::int16_t>(); break;
-        case UINT16:   return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::uint16_t>(); break;
-        case INT32:    return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::int32_t>(); break;
-        case UINT32:   return f.BOOST_NESTED_TEMPLATE operator()<std::tr1::uint32_t>(); break;
-        case FLOAT32:  return f.BOOST_NESTED_TEMPLATE operator()<float>(); break;
-        case FLOAT64:  return f.BOOST_NESTED_TEMPLATE operator()<double>(); break;
+        case INT8:     return f(std::tr1::int8_t(0)); break;
+        case UINT8:    return f(std::tr1::uint8_t(0)); break;
+        case INT16:    return f(std::tr1::int16_t(0)); break;
+        case UINT16:   return f(std::tr1::uint16_t(0)); break;
+        case INT32:    return f(std::tr1::int32_t(0)); break;
+        case UINT32:   return f(std::tr1::uint32_t(0)); break;
+        case FLOAT32:  return f(float(0)); break;
+        case FLOAT64:  return f(double(0)); break;
         default:       std::abort();
         }
+	return result_type(); // should never be reached
     }
 };
 
@@ -332,7 +329,7 @@ private:
         typedef long result_type;
 
         explicit PropertyAsLong(Reader &reader) : reader(reader) {}
-        template<typename T> long operator()();
+        template<typename T> long operator()(T);
     };
 
 public:
@@ -517,7 +514,7 @@ private:
         FieldCaster(Reader &reader) : reader(reader) {}
 
         template<typename S>
-        T operator()()
+        T operator()(S)
         {
             return boost::numeric_cast<T>(reader.template readField<S>());
         }
@@ -550,7 +547,7 @@ private:
         PropertySetter(Reader &reader, Builder &builder, const std::string &name) : reader(reader), builder(builder), name(name) {}
 
         template<typename T>
-        void operator()()
+        void operator()(T)
         {
             builder.template setProperty<T>(name, reader.template readField<T>());
         }
@@ -586,7 +583,7 @@ private:
             : reader(reader), builder(builder), name(name), length(length) {}
 
         template<typename T>
-        void operator()()
+        void operator()(T)
         {
             std::vector<T> values;
             values.reserve(length);

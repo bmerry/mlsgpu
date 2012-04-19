@@ -134,6 +134,9 @@ def configure_variant_msvc(conf):
     conf.env['LIB_BOOST'] = []
     conf.env['LIB_BOOST_MATH'] = []
 
+    # windows.h defines macros called min and max by default. EVIL!
+    conf.env.append_value('DEFINES', 'NOMINMAX')
+
     if conf.env['optimize']:
         ccflags.extend(['/O2', '/Ob2'])
         conf.env.append_value('LINKFLAGS', '/OPT:REF')

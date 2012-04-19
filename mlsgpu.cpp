@@ -21,7 +21,7 @@
 #include <boost/array.hpp>
 #include <boost/progress.hpp>
 #include <boost/io/ios_state.hpp>
-#include <tr1/unordered_map>
+#include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
 #include <vector>
@@ -550,7 +550,9 @@ static void validateOptions(const po::variables_map &vm)
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
-    int maxLevels = std::min(std::size_t(Marching::MAX_DIMENSION_LOG2 + 1), SplatTreeCL::MAX_LEVELS);
+    int maxLevels = std::min(
+            std::size_t(Marching::MAX_DIMENSION_LOG2 + 1),
+            std::size_t(SplatTreeCL::MAX_LEVELS));
     if (levels < 1 || levels > maxLevels)
     {
         cerr << "Value of --levels must be in the range 1 to " << maxLevels << ".\n";

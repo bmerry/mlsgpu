@@ -24,10 +24,6 @@
 #include "clh.h"
 #include "errors.h"
 
-/* Definitions of constants */
-const std::size_t SplatTreeCL::MAX_LEVELS;
-const std::size_t SplatTreeCL::MAX_SPLATS;
-
 bool SplatTreeCL::validateDevice(const cl::Device &device)
 {
     if (!device.getInfo<CL_DEVICE_IMAGE_SUPPORT>())

@@ -14,8 +14,6 @@
 #include <boost/thread/locks.hpp>
 #include "progress.h"
 
-const unsigned int ProgressDisplay::totalTics;
-
 ProgressDisplay::ProgressDisplay(size_type total,
                                  std::ostream &os,
                                  const std::string &s1,

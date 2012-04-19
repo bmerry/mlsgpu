@@ -25,15 +25,6 @@
 #include "errors.h"
 #include "statistics.h"
 
-/* Definitions of constants */
-const int Marching::KEY_AXIS_BITS;
-const int Marching::MAX_DIMENSION_LOG2;
-const std::size_t Marching::MAX_DIMENSION;
-const std::size_t Marching::COUNT_TABLE_BYTES;
-const std::size_t Marching::START_TABLE_BYTES;
-const std::size_t Marching::DATA_TABLE_BYTES;
-const std::size_t Marching::KEY_TABLE_BYTES;
-
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
 {
     {0, 1},

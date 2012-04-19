@@ -52,7 +52,10 @@ private:
     std::ostream &os;
     const std::string s1, s2, s3;
 
-    static const unsigned int totalTics = 51;
+    enum
+    {
+        totalTics = 51
+    };
 
     void updateNextTic();
 };

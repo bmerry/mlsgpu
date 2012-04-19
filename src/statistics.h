@@ -244,7 +244,16 @@ namespace detail
     private:
         friend class boost::iterator_core_access;
 
-        typename pair_second_iterator<Base>::iterator_adaptor_::reference dereference() const
+        // The base class already defines this, but MSVC 10 doesn't seem to work with it
+        typedef boost::iterator_adaptor<
+            pair_second_iterator<Base>,
+            Base,
+            typename boost::remove_pointer<typename std::iterator_traits<Base>::value_type::second_type>::type,
+            boost::use_default,
+            typename boost::remove_pointer<typename std::iterator_traits<Base>::value_type::second_type>::type &
+        > iterator_adaptor_;
+
+        typename pair_second_iterator::iterator_adaptor_::reference dereference() const
         {
             return *this->base()->second;
         }

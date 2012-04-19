@@ -109,7 +109,7 @@ bool Node::operator==(const Node &b) const
     return coords == b.coords && level == b.level;
 }
 
-const std::size_t BucketState::BAD_REGION;
+const std::size_t BucketState::BAD_REGION = (std::size_t) -1;
 
 BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,

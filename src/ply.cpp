@@ -108,7 +108,7 @@ static string getHeaderLine(istream &in) throw(FormatError)
 
 } // namespace detail
 
-template<typename T> long ElementRangeReaderBase::PropertyAsLong::operator()()
+template<typename T> long ElementRangeReaderBase::PropertyAsLong::operator()(T)
 {
     return long(reader.readField<T>());
 }

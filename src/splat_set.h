@@ -347,10 +347,16 @@ private:
 class SimpleFileSet
 {
 public:
-    /// Number of bits used to store the within-file splat ID
-    static const unsigned int scanIdShift = 40;
-    /// Mask of the bits used to store the within-file splat ID
-    static const splat_id splatIdMask = (splat_id(1) << scanIdShift) - 1;
+    enum
+    {
+        /// Number of bits used to store the within-file splat ID
+        scanIdShift = 40
+    };
+    enum
+    {
+        /// Mask of the bits used to store the within-file splat ID
+        splatIdMask = (splat_id(1) << scanIdShift) - 1
+    };
 
     /**
      * Append a new file to the set. The set takes over ownership of the file.
@@ -404,8 +410,11 @@ private:
         }
 
     private:
-        /// Size of internal buffer for holding splats
-        static const std::size_t bufferSize = 16384;
+        enum
+        {
+            /// Size of internal buffer for holding splats
+            bufferSize = 16384
+        };
 
         const SimpleFileSet &owner;     ///< Owning set
         splat_id last;                  ///< End of range to iterate over

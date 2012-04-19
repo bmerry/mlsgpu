@@ -144,7 +144,7 @@ public:
 private:
     friend class PickNodes;
 
-    static const std::size_t BAD_REGION = std::size_t(-1);
+    static const std::size_t BAD_REGION;
 
     /**
      * A child region. It is stored in a vector, so needs a valid copy
