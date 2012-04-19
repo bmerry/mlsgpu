@@ -140,7 +140,7 @@ public:
         case FLOAT64:  return f(double(0)); break;
         default:       std::abort();
         }
-	return result_type(); // should never be reached
+        return result_type(); // should never be reached
     }
 };
 
