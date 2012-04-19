@@ -553,8 +553,12 @@ void Marching::generate(
     Statistics::Registry &registry = Statistics::Registry::getInstance();
     Statistics::Variable &nonempty = registry.getStatistic<Statistics::Variable>("marching.slice.nonempty");
 
-    // Work group size for kernels that operate on compacted cells
-    const std::size_t wgsCompacted = 128;
+    std::size_t localSize = queue.getInfo<CL_QUEUE_DEVICE>().getInfo<CL_DEVICE_LOCAL_MEM_SIZE>();
+    // Work group size for kernels that operate on compacted cells.
+    // We make it the largest sane size that will fit into local mem
+    std::size_t wgsCompacted = 512;
+    while (wgsCompacted > 1 && wgsCompacted * NUM_EDGES * sizeof(cl_float3) >= localSize)
+        wgsCompacted /= 2;
 
     // Pointers into @ref backingImages, which are swapped to advance to the next slice.
     cl::Image2D *images[2] = { &backingImages[0], &backingImages[1] };
