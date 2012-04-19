@@ -183,8 +183,6 @@ void TestEnqueueReadMesh::testZeroInternal()
     dMesh.numInternalVertices = 0;
     enqueueReadMesh(queue, dMesh, hMesh, NULL, &verticesEvent, &vertexKeysEvent, &trianglesEvent);
 
-    CPPUNIT_ASSERT_EQUAL(CL_COMPLETE, int(vertexKeysEvent.getInfo<CL_EVENT_COMMAND_EXECUTION_STATUS>()));
-
     verticesEvent.wait();
     validateVertices(hMesh);
     vertexKeysEvent.wait();
