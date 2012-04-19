@@ -16,8 +16,6 @@
 #include "testmain.h"
 
 using namespace std;
-using namespace PLY;
-using namespace PLY::detail;
 
 /**
  * Test fixture for PLY::Reader.
@@ -25,31 +23,31 @@ using namespace PLY::detail;
 class TestPlyReader : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestPlyReader);
-    CPPUNIT_TEST_EXCEPTION(testEmpty, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadSignature, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadFormatFormat, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadFormatVersion, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadFormatLength, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadElementCount, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadElementOverflow, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadElementHex, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadElementLength, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadPropertyLength, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadPropertyListLength, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadPropertyListType, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadPropertyType, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testBadHeaderToken, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testDuplicateElement, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testEarlyProperty, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testDuplicateProperty, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testMissingEnd, FormatError);
+    CPPUNIT_TEST_EXCEPTION(testEmpty, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadSignature, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadFormatFormat, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadFormatVersion, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadFormatLength, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadElementCount, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadElementOverflow, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadElementHex, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadElementLength, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadPropertyLength, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadPropertyListLength, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadPropertyListType, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadPropertyType, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testBadHeaderToken, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testDuplicateElement, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testEarlyProperty, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testDuplicateProperty, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testMissingEnd, PLY::FormatError);
     CPPUNIT_TEST_EXCEPTION(testWrongPosition, std::invalid_argument);
     CPPUNIT_TEST_EXCEPTION(testWrongRange, std::invalid_argument);
     CPPUNIT_TEST_EXCEPTION(testDereferenceEnd, std::invalid_argument);
-    CPPUNIT_TEST_EXCEPTION(testSkipToStarted, FormatError);
+    CPPUNIT_TEST_EXCEPTION(testSkipToStarted, PLY::FormatError);
     // TODO rewrite CPPUNIT_TEST_EXCEPTION(testSkipToWrongType, std::bad_cast);
-    CPPUNIT_TEST_EXCEPTION(testSkipToMissed, FormatError);
-    CPPUNIT_TEST_EXCEPTION(testSkipToMissing, FormatError);
+    CPPUNIT_TEST_EXCEPTION(testSkipToMissed, PLY::FormatError);
+    CPPUNIT_TEST_EXCEPTION(testSkipToMissing, PLY::FormatError);
     CPPUNIT_TEST(testFormatAscii);
     CPPUNIT_TEST(testFormatLittleEndian);
     CPPUNIT_TEST(testFormatBigEndian);
@@ -71,7 +69,7 @@ private:
     stringbuf content;
 
     template<typename T>
-    void testReadFieldInternal(FileFormat format, const string &s, T expected);
+    void testReadFieldInternal(PLY::FileFormat format, const string &s, T expected);
 public:
     /**
      * @name Negative tests
@@ -129,119 +127,119 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestPlyReader, TestSet::perBuild());
 void TestPlyReader::testEmpty()
 {
     content.str("");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadSignature()
 {
     content.str("ply no not really");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadFormatFormat()
 {
     content.str("ply\nformat asciinotreally 1.0\nelement vertex 1\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadFormatVersion()
 {
     content.str("ply\nformat ascii 1.01\nelement vertex 1\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadFormatLength()
 {
     content.str("ply\nformat\nelement vertex 1\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadElementCount()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex -1\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadElementOverflow()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 123456789012345678901234567890\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadElementHex()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0xDEADBEEF\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadElementLength()
 {
     content.str("ply\nformat ascii 1.0\nelement\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadPropertyLength()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty int int int x\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadPropertyListLength()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty list int x\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadPropertyListType()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty list float int x\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadPropertyType()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty int1 x\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testBadHeaderToken()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nfoo\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testDuplicateElement()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nelement vertex 0\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testEarlyProperty()
 {
     content.str("ply\nformat ascii 1.0\nproperty int x\nelement vertex 0\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testDuplicateProperty()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty int x\nproperty float x\nend_header\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testMissingEnd()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty int x\n");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 void TestPlyReader::testWrongPosition()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 2\nproperty int x\nend_header\n"
                 "1\n2\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    ElementRangeReader<EmptyBuilder> &reader = r.skipTo<EmptyBuilder>("vertex");
-    ElementRangeReader<EmptyBuilder>::iterator i = reader.begin();
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &reader = r.skipTo<PLY::EmptyBuilder>("vertex");
+    PLY::ElementRangeReader<PLY::EmptyBuilder>::iterator i = reader.begin();
     *i;
     *i; // tries to re-read: should throw
 }
@@ -250,10 +248,10 @@ void TestPlyReader::testDereferenceEnd()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 2\nproperty int x\nend_header\n"
                 "1\n2\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    ElementRangeReader<EmptyBuilder> &reader = r.skipTo<EmptyBuilder>("vertex");
-    ElementRangeReader<EmptyBuilder>::iterator i = reader.begin();
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &reader = r.skipTo<PLY::EmptyBuilder>("vertex");
+    PLY::ElementRangeReader<PLY::EmptyBuilder>::iterator i = reader.begin();
     *i++;
     *i++;
     *i; // dereferences past the end, should throw
@@ -266,15 +264,15 @@ void TestPlyReader::testWrongRange()
                 "element dummy 2\nproperty int y\n"
                 "end_header\n"
                 "1\n2\n3\n4\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    ElementRangeReader<EmptyBuilder> &vertex = r.skipTo<EmptyBuilder>("vertex");
-    ElementRangeReader<EmptyBuilder>::iterator i, j;
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &vertex = r.skipTo<PLY::EmptyBuilder>("vertex");
+    PLY::ElementRangeReader<PLY::EmptyBuilder>::iterator i, j;
     i = vertex.begin();
     j = i;
     *j++;
     *j++;
-    r.skipTo<EmptyBuilder>("dummy");
+    r.skipTo<PLY::EmptyBuilder>("dummy");
     *i; // accesses from vertex, should throw
 }
 
@@ -285,12 +283,12 @@ void TestPlyReader::testSkipToStarted()
                 "element dummy 2\nproperty int y\n"
                 "end_header\n"
                 "1\n2\n3\n4\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    ElementRangeReader<EmptyBuilder> &vertex = r.skipTo<EmptyBuilder>("vertex");
-    ElementRangeReader<EmptyBuilder>::iterator i = vertex.begin();
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &vertex = r.skipTo<PLY::EmptyBuilder>("vertex");
+    PLY::ElementRangeReader<PLY::EmptyBuilder>::iterator i = vertex.begin();
     *i++;
-    r.skipTo<EmptyBuilder>("vertex");
+    r.skipTo<PLY::EmptyBuilder>("vertex");
 }
 
 void TestPlyReader::testSkipToWrongType()
@@ -305,10 +303,10 @@ void TestPlyReader::testSkipToMissed()
                 "element dummy 2\nproperty int y\n"
                 "end_header\n"
                 "1\n2\n3\n4\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    r.skipTo<EmptyBuilder>("dummy");
-    r.skipTo<EmptyBuilder>("vertex");
+    r.skipTo<PLY::EmptyBuilder>("dummy");
+    r.skipTo<PLY::EmptyBuilder>("vertex");
 }
 
 void TestPlyReader::testSkipToMissing()
@@ -317,88 +315,88 @@ void TestPlyReader::testSkipToMissing()
                 "element vertex 2\nproperty int x\n"
                 "end_header\n"
                 "1\n2\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    r.skipTo<EmptyBuilder>("missing");
+    r.skipTo<PLY::EmptyBuilder>("missing");
 }
 
 void TestPlyReader::testFormatAscii()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty int x\nend_header");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    CPPUNIT_ASSERT_EQUAL(FILE_FORMAT_ASCII, r.format);
+    CPPUNIT_ASSERT_EQUAL(PLY::FILE_FORMAT_ASCII, r.format);
 }
 
 void TestPlyReader::testFormatLittleEndian()
 {
     content.str("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int x\nend_header");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    CPPUNIT_ASSERT_EQUAL(FILE_FORMAT_LITTLE_ENDIAN, r.format);
+    CPPUNIT_ASSERT_EQUAL(PLY::FILE_FORMAT_LITTLE_ENDIAN, r.format);
 }
 
 void TestPlyReader::testFormatBigEndian()
 {
     content.str("ply\nformat binary_big_endian 1.0\nelement vertex 0\nproperty int x\nend_header");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    CPPUNIT_ASSERT_EQUAL(FILE_FORMAT_BIG_ENDIAN, r.format);
+    CPPUNIT_ASSERT_EQUAL(PLY::FILE_FORMAT_BIG_ENDIAN, r.format);
 }
 
 void TestPlyReader::testListType()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty list int float y\nproperty list uint8 float64 x\nend_header");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
     CPPUNIT_ASSERT_EQUAL(1, int(distance(r.begin(), r.end())));
-    const ElementRangeReaderBase &e = *r.begin();
+    const PLY::ElementRangeReaderBase &e = *r.begin();
     CPPUNIT_ASSERT_EQUAL(size_t(2), e.getProperties().size());
-    const PropertyType &y = *e.getProperties().begin();
-    const PropertyType &x = *boost::next(e.getProperties().begin());
+    const PLY::PropertyType &y = *e.getProperties().begin();
+    const PLY::PropertyType &x = *boost::next(e.getProperties().begin());
 
     CPPUNIT_ASSERT_EQUAL(string("y"), y.name);
     CPPUNIT_ASSERT(y.isList);
-    CPPUNIT_ASSERT_EQUAL(INT32, y.lengthType);
-    CPPUNIT_ASSERT_EQUAL(FLOAT32, y.valueType);
+    CPPUNIT_ASSERT_EQUAL(PLY::INT32, y.lengthType);
+    CPPUNIT_ASSERT_EQUAL(PLY::FLOAT32, y.valueType);
 
     CPPUNIT_ASSERT_EQUAL(string("x"), x.name);
     CPPUNIT_ASSERT(x.isList);
-    CPPUNIT_ASSERT_EQUAL(UINT8, x.lengthType);
-    CPPUNIT_ASSERT_EQUAL(FLOAT64, x.valueType);
+    CPPUNIT_ASSERT_EQUAL(PLY::UINT8, x.lengthType);
+    CPPUNIT_ASSERT_EQUAL(PLY::FLOAT64, x.valueType);
 }
 
 void TestPlyReader::testSimpleType()
 {
     content.str("ply\nformat ascii 1.0\nelement vertex 0\nproperty float y\nproperty uint16 x\nend_header");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
     CPPUNIT_ASSERT_EQUAL(1, int(distance(r.begin(), r.end())));
-    const ElementRangeReaderBase &e = *r.begin();
+    const PLY::ElementRangeReaderBase &e = *r.begin();
     CPPUNIT_ASSERT_EQUAL(size_t(2), e.getProperties().size());
-    const PropertyType &y = *e.getProperties().begin();
-    const PropertyType &x = *boost::next(e.getProperties().begin());
+    const PLY::PropertyType &y = *e.getProperties().begin();
+    const PLY::PropertyType &x = *boost::next(e.getProperties().begin());
 
     CPPUNIT_ASSERT_EQUAL(string("y"), y.name);
     CPPUNIT_ASSERT(!y.isList);
-    CPPUNIT_ASSERT_EQUAL(FLOAT32, y.valueType);
+    CPPUNIT_ASSERT_EQUAL(PLY::FLOAT32, y.valueType);
 
     CPPUNIT_ASSERT_EQUAL(string("x"), x.name);
     CPPUNIT_ASSERT(!x.isList);
-    CPPUNIT_ASSERT_EQUAL(UINT16, x.valueType);
+    CPPUNIT_ASSERT_EQUAL(PLY::UINT16, x.valueType);
 }
 
 void TestPlyReader::testComment()
 {
     content.str("ply\ncomment Hello world\nobj_info Created by hand\nformat ascii 1.0\nelement vertex 0\nend_header");
-    Reader(&content).readHeader();
+    PLY::Reader(&content).readHeader();
 }
 
 template<typename T>
-void TestPlyReader::testReadFieldInternal(FileFormat format, const string &s, T expected)
+void TestPlyReader::testReadFieldInternal(PLY::FileFormat format, const string &s, T expected)
 {
     content.str(s);
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.format = format;
     r.in.exceptions(ios::failbit | ios::badbit);
     T actual = r.readField<T>();
@@ -412,57 +410,57 @@ void TestPlyReader::testReadFieldInternal(FileFormat format, const string &s, T 
 
 void TestPlyReader::testReadFieldAscii()
 {
-    testReadFieldInternal(FILE_FORMAT_ASCII, "0", uint8_t(0));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "100", uint8_t(100));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "-100", int8_t(-100));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "10000", uint16_t(10000));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "-10000", int16_t(-10000));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "4294967295", uint32_t(0xFFFFFFFF));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "-2147483648", int32_t(-0x80000000LL));
-    testReadFieldInternal(FILE_FORMAT_ASCII, "1", 1.0f);
-    testReadFieldInternal(FILE_FORMAT_ASCII, "1.0", 1.0f);
-    testReadFieldInternal(FILE_FORMAT_ASCII, "1.0e00", 1.0f);
-    testReadFieldInternal(FILE_FORMAT_ASCII, "1", 1.0);
-    testReadFieldInternal(FILE_FORMAT_ASCII, "1.0", 1.0);
-    testReadFieldInternal(FILE_FORMAT_ASCII, "1.0e0", 1.0);
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "0", uint8_t(0));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "100", uint8_t(100));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "-100", int8_t(-100));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "10000", uint16_t(10000));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "-10000", int16_t(-10000));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "4294967295", uint32_t(0xFFFFFFFF));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "-2147483648", int32_t(-0x80000000LL));
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "1", 1.0f);
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "1.0", 1.0f);
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "1.0e00", 1.0f);
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "1", 1.0);
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "1.0", 1.0);
+    testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "1.0e0", 1.0);
 
     // Value too short
     CPPUNIT_ASSERT_THROW(
-        testReadFieldInternal(FILE_FORMAT_ASCII, "", 1.0f),
+        testReadFieldInternal(PLY::FILE_FORMAT_ASCII, "", 1.0f),
         PLY::FormatError);
 }
 
 void TestPlyReader::testReadFieldLittleEndian()
 {
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, "\xCA", uint8_t(0xCA));
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, "\xCA", int8_t(0xCA - 0x100));
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE", uint16_t(0xFECA));
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE", int16_t(0xFECA - 0x10000));
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE\xBA\xBE", uint32_t(0xBEBAFECA));
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE\xBA\xBE", int32_t(0xBEBAFECA - 0x100000000LL));
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, string("\x00\x00\x80\x3F", 4), 1.0f);
-    testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, string("\x00\x00\x00\x00\x00\x00\xF0\x3F", 8), 1.0);
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, "\xCA", uint8_t(0xCA));
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, "\xCA", int8_t(0xCA - 0x100));
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE", uint16_t(0xFECA));
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE", int16_t(0xFECA - 0x10000));
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE\xBA\xBE", uint32_t(0xBEBAFECA));
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, "\xCA\xFE\xBA\xBE", int32_t(0xBEBAFECA - 0x100000000LL));
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, string("\x00\x00\x80\x3F", 4), 1.0f);
+    testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, string("\x00\x00\x00\x00\x00\x00\xF0\x3F", 8), 1.0);
 
     // Value too short
     CPPUNIT_ASSERT_THROW(
-        testReadFieldInternal(FILE_FORMAT_LITTLE_ENDIAN, string("\x00\x00\x80", 3), 1.0f),
+        testReadFieldInternal(PLY::FILE_FORMAT_LITTLE_ENDIAN, string("\x00\x00\x80", 3), 1.0f),
         PLY::FormatError);
 }
 
 void TestPlyReader::testReadFieldBigEndian()
 {
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, "\xCA", uint8_t(0xCA));
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, "\xCA", int8_t(0xCA - 0x100));
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE", uint16_t(0xCAFE));
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE", int16_t(0xCAFE - 0x10000));
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE\xBA\xBE", uint32_t(0xCAFEBABE));
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE\xBA\xBE", int32_t(0xCAFEBABE - 0x100000000LL));
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, string("\x3F\x80\x00\x00", 4), 1.0f);
-    testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, string("\x3F\xF0\x00\x00\x00\x00\x00\x00", 8), 1.0);
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, "\xCA", uint8_t(0xCA));
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, "\xCA", int8_t(0xCA - 0x100));
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE", uint16_t(0xCAFE));
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE", int16_t(0xCAFE - 0x10000));
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE\xBA\xBE", uint32_t(0xCAFEBABE));
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, "\xCA\xFE\xBA\xBE", int32_t(0xCAFEBABE - 0x100000000LL));
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, string("\x3F\x80\x00\x00", 4), 1.0f);
+    testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, string("\x3F\xF0\x00\x00\x00\x00\x00\x00", 8), 1.0);
 
     // Value too short
     CPPUNIT_ASSERT_THROW(
-        testReadFieldInternal(FILE_FORMAT_BIG_ENDIAN, string("\x3F\x80\x00", 3), 1.0f),
+        testReadFieldInternal(PLY::FILE_FORMAT_BIG_ENDIAN, string("\x3F\x80\x00", 3), 1.0f),
         PLY::FormatError);
 }
 
@@ -474,19 +472,19 @@ void TestPlyReader::testSkip()
                 "element face 1\nproperty list int int z\n"
                 "end_header\n"
                 "1\n2\n3\n4\n1 5\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    Reader::iterator x = r.begin();
-    ElementRangeReader<EmptyBuilder> &vertex = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    ElementRangeReader<EmptyBuilder> &dummy = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    ElementRangeReader<EmptyBuilder> &face = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
+    PLY::Reader::iterator x = r.begin();
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &vertex = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &dummy = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &face = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
     vertex.skip();
-    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&dummy));
+    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<PLY::ElementRangeReaderBase *>(&dummy));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(0), r.currentPos);
     *dummy.begin();
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(1), r.currentPos);
     dummy.skip();
-    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&face));
+    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<PLY::ElementRangeReaderBase *>(&face));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(0), r.currentPos);
 }
 
@@ -498,20 +496,20 @@ void TestPlyReader::testSkipTo()
                 "element face 1\nproperty list int int z\n"
                 "end_header\n"
                 "1\n2\n3\n4\n1 5\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    Reader::iterator x = r.begin();
-    ElementRangeReader<EmptyBuilder> &vertex = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
+    PLY::Reader::iterator x = r.begin();
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &vertex = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
     // Check that it has the right type (otherwise an exception is thrown)
-    (void) & dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    ElementRangeReader<EmptyBuilder> &face = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    CPPUNIT_ASSERT(&vertex == &r.skipTo<EmptyBuilder>("vertex"));
-    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&vertex));
+    (void) & dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &face = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    CPPUNIT_ASSERT(&vertex == &r.skipTo<PLY::EmptyBuilder>("vertex"));
+    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<PLY::ElementRangeReaderBase *>(&vertex));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(0), r.currentPos);
     *vertex.begin();
 
-    CPPUNIT_ASSERT(&face == &r.skipTo<EmptyBuilder>("face"));
-    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&face));
+    CPPUNIT_ASSERT(&face == &r.skipTo<PLY::EmptyBuilder>("face"));
+    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<PLY::ElementRangeReaderBase *>(&face));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(0), r.currentPos);
 }
 
@@ -523,19 +521,19 @@ void TestPlyReader::testSkipToEmpty()
                 "element face 1\nproperty list int int z\n"
                 "end_header\n"
                 "1\n2\n1 5\n");
-    Reader r(&content);
+    PLY::Reader r(&content);
     r.readHeader();
-    Reader::iterator x = r.begin();
-    ElementRangeReader<EmptyBuilder> &vertex = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    ElementRangeReader<EmptyBuilder> &dummy = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    ElementRangeReader<EmptyBuilder> &face = dynamic_cast<ElementRangeReader<EmptyBuilder> &>(*x++);
-    ElementRangeReader<EmptyBuilder>::iterator i;
+    PLY::Reader::iterator x = r.begin();
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &vertex = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &dummy = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    PLY::ElementRangeReader<PLY::EmptyBuilder> &face = dynamic_cast<PLY::ElementRangeReader<PLY::EmptyBuilder> &>(*x++);
+    PLY::ElementRangeReader<PLY::EmptyBuilder>::iterator i;
     i = vertex.begin();
     *i++;
     *i++;
-    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&face));
+    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<PLY::ElementRangeReaderBase *>(&face));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(0), r.currentPos);
-    CPPUNIT_ASSERT(&dummy == &r.skipTo<EmptyBuilder>("dummy"));
-    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<ElementRangeReaderBase *>(&face));
+    CPPUNIT_ASSERT(&dummy == &r.skipTo<PLY::EmptyBuilder>("dummy"));
+    CPPUNIT_ASSERT_EQUAL(&*r.currentReader, static_cast<PLY::ElementRangeReaderBase *>(&face));
     CPPUNIT_ASSERT_EQUAL(std::tr1::uintmax_t(0), r.currentPos);
 }

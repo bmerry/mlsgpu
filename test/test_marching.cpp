@@ -207,17 +207,17 @@ void TestMarching::testConstructor()
 
     CPPUNIT_ASSERT_EQUAL(256, int(countTable.size()));
     CPPUNIT_ASSERT_EQUAL(257, int(startTable.size()));
-    CPPUNIT_ASSERT_EQUAL(int(startTable.back().s1), int(dataTable.size()));
-    CPPUNIT_ASSERT_EQUAL(0, int(startTable.front().s0));
+    CPPUNIT_ASSERT_EQUAL(int(startTable.back().s[1]), int(dataTable.size()));
+    CPPUNIT_ASSERT_EQUAL(0, int(startTable.front().s[0]));
     for (unsigned int i = 0; i < 256; i++)
     {
-        int sv = startTable[i].s0;
-        int si = startTable[i].s1;
-        int ev = startTable[i + 1].s0;
-        int ei = startTable[i + 1].s1;
-        CPPUNIT_ASSERT_EQUAL(int(countTable[i].s0), ev - sv);
-        CPPUNIT_ASSERT_EQUAL(int(countTable[i].s1), ei - si);
-        CPPUNIT_ASSERT(countTable[i].s1 % 3 == 0);
+        int sv = startTable[i].s[0];
+        int si = startTable[i].s[1];
+        int ev = startTable[i + 1].s[0];
+        int ei = startTable[i + 1].s[1];
+        CPPUNIT_ASSERT_EQUAL(int(countTable[i].s[0]), ev - sv);
+        CPPUNIT_ASSERT_EQUAL(int(countTable[i].s[1]), ei - si);
+        CPPUNIT_ASSERT(countTable[i].s[1] % 3 == 0);
         for (int j = sv; j < ev; j++)
         {
             if (j > sv)
@@ -342,10 +342,10 @@ void TestMarching::testCompactVertices()
 
     for (int i = 0; i < 5; i++)
     {
-        inVertices[i].x = i;
-        inVertices[i].y = i + 1;
-        inVertices[i].z = i + 2;
-        inVertices[i].w = uintAsFloat(ids[i]);
+        inVertices[i].s[0] = i;
+        inVertices[i].s[1] = i + 1;
+        inVertices[i].s[2] = i + 2;
+        inVertices[i].s[3] = uintAsFloat(ids[i]);
     }
 
     Marching marching(context, device, 2, 2);

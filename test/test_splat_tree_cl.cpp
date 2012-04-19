@@ -106,8 +106,8 @@ int TestSplatTreeCL::callLevelShift(cl_int ilox, cl_int iloy, cl_int iloz, cl_in
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
     cl::Kernel kernel(octreeProgram, "testLevelShift");
     cl_int3 ilo, ihi;
-    ilo.x = ilox; ilo.y = iloy; ilo.z = iloz;
-    ihi.x = ihix; ihi.y = ihiy; ihi.z = ihiz;
+    ilo.s[0] = ilox; ilo.s[1] = iloy; ilo.s[2] = iloz;
+    ihi.s[0] = ihix; ihi.s[1] = ihiy; ihi.s[2] = ihiz;
     kernel.setArg(0, out);
     kernel.setArg(1, ilo);
     kernel.setArg(2, ihi);
@@ -122,9 +122,9 @@ float TestSplatTreeCL::callPointBoxDist2(float px, float py, float pz, float lx,
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
     cl::Kernel kernel(octreeProgram, "testPointBoxDist2");
     cl_float3 pos, lo, hi;
-    pos.x = px; pos.y = py; pos.z = pz;
-    lo.x = lx; lo.y = ly; lo.z = lz;
-    hi.x = hx; hi.y = hy; hi.z = hz;
+    pos.s[0] = px; pos.s[1] = py; pos.s[2] = pz;
+    lo.s[0] = lx; lo.s[1] = ly; lo.s[2] = lz;
+    hi.s[0] = hx; hi.s[1] = hy; hi.s[2] = hz;
     kernel.setArg(0, out);
     kernel.setArg(1, pos);
     kernel.setArg(2, lo);
@@ -140,7 +140,7 @@ int TestSplatTreeCL::callMakeCode(cl_int x, cl_int y, cl_int z)
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
     cl::Kernel kernel(octreeProgram, "testMakeCode");
     cl_int3 xyz;
-    xyz.s0 = x; xyz.s1 = y; xyz.s2 = z;
+    xyz.s[0] = x; xyz.s[1] = y; xyz.s[2] = z;
     kernel.setArg(0, out);
     kernel.setArg(1, xyz);
     queue.enqueueTask(kernel);

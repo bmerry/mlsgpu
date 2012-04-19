@@ -10,7 +10,7 @@
 
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <string>
 #include <sstream>
 #include <algorithm>

@@ -9,7 +9,7 @@
 #endif
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include "testmain.h"
 #include "../src/misc.h"
 

@@ -267,17 +267,17 @@ void TestPeak::testSet()
 {
     // Test initial state
     CPPUNIT_ASSERT_EQUAL(-100LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(0LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(0LL, peak->peak);
 
     // Test setting a maximal value
     *peak = 1234567890LL;
     CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->peak);
 
     // Test setting a non-maximal value
     *peak = 123456LL;
     CPPUNIT_ASSERT_EQUAL(123456LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->peak);
 }
 
 void TestPeak::testAdd()
@@ -285,12 +285,12 @@ void TestPeak::testAdd()
     // Go up
     *peak += 250LL;
     CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->peak);
 
     // Go down
     *peak += -200LL;
     CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->peak);
 }
 
 void TestPeak::testSub()
@@ -298,12 +298,12 @@ void TestPeak::testSub()
     // Go up
     *peak -= -250LL;
     CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->peak);
 
     // Go down
     *peak -= 200LL;
     CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    CPPUNIT_ASSERT_EQUAL(150LL, peak->peak);
 }
 
 void TestPeak::testGet()

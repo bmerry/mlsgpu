@@ -14,8 +14,8 @@
 #include <utility>
 #include <vector>
 #include <string>
-#include <tr1/cstdint>
-#include <tr1/unordered_map>
+#include "../src/tr1_cstdint.h"
+#include "../src/tr1_unordered_map.h"
 #include <boost/array.hpp>
 #include "../src/fast_ply.h"
 

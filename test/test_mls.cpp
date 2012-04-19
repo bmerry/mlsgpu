@@ -153,7 +153,7 @@ std::vector<float> TestMls::makePlane(float px, float py, float pz, float dx, fl
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
     cl::Kernel kernel(mlsProgram, "testMakeCode");
     cl_int3 xyz;
-    xyz.s0 = x; xyz.s1 = y; xyz.s2 = z;
+    xyz.s[0] = x; xyz.s[1] = y; xyz.s[2] = z;
     kernel.setArg(0, out);
     kernel.setArg(1, xyz);
     queue.enqueueTask(kernel);

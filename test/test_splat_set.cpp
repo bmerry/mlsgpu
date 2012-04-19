@@ -24,7 +24,7 @@
 #include <sstream>
 #include <algorithm>
 #include <iterator>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <boost/tr1/random.hpp>
 #include "../src/splat.h"
 #include "../src/grid.h"

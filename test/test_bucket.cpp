@@ -26,7 +26,7 @@
 #include <limits>
 #include <sstream>
 #include <cstring>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <boost/tr1/random.hpp>
 #include "testmain.h"
 #include "test_splat_set.h"

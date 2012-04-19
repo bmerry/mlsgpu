@@ -19,10 +19,10 @@
 #include <utility>
 #include <stdexcept>
 #include <cstring>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <boost/tr1/random.hpp>
-#include <tr1/unordered_map>
-#include <tr1/unordered_set>
+#include "../src/tr1_unordered_map.h"
+#include "../src/tr1_unordered_set.h"
 #include <map>
 #include <algorithm>
 #include <iterator>
