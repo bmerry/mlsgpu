@@ -258,7 +258,7 @@ int main() {
 def empty(s):
     '''Determine whether s contains non-whitespace characters'''
     import re
-    return re.match('^\s*$', s)
+    return re.match(b'^\s*$', s)
 
 def print_unit_tests(bld):
     from waflib.Tools import waf_unit_test
@@ -270,10 +270,10 @@ def print_unit_tests(bld):
             color = 'RED'
         if not empty(out):
             Logs.pprint(color, 'Standard output from %s' % f)
-            Logs.pprint(color, out)
+            Logs.pprint(color, out.decode('utf-8'))
         if not empty(err):
             Logs.pprint(color, 'Standard error from %s' % f)
-            Logs.pprint(color, err)
+            Logs.pprint(color, err.decode('utf-8'))
 
 def build(bld):
     bld(
