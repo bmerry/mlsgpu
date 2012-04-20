@@ -347,16 +347,10 @@ private:
 class SimpleFileSet
 {
 public:
-    enum
-    {
-        /// Number of bits used to store the within-file splat ID
-        scanIdShift = 40
-    };
-    enum
-    {
-        /// Mask of the bits used to store the within-file splat ID
-        splatIdMask = (splat_id(1) << scanIdShift) - 1
-    };
+    /// Number of bits used to store the within-file splat ID
+    static const unsigned int scanIdShift;
+    /// Mask of the bits used to store the within-file splat ID
+    static const splat_id splatIdMask;
 
     /**
      * Append a new file to the set. The set takes over ownership of the file.

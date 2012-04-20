@@ -59,6 +59,9 @@ void SimpleVectorSet::MySplatStream::skipNonFinite()
 }
 
 
+const unsigned int SimpleFileSet::scanIdShift = 40;
+const splat_id SimpleFileSet::splatIdMask = (splat_id(1) << scanIdShift) - 1;
+
 void SimpleFileSet::addFile(FastPly::Reader *file)
 {
     files.push_back(file);
