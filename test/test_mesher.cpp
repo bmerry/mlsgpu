@@ -947,8 +947,13 @@ static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)
     using std::tr1::uniform_int;
     using std::tr1::variate_generator;
 
-    variate_generator<mt19937 &, uniform_int<int> > gen(engine, uniform_int<int>(min, max));
-    return gen();
+    /* According to TR1, there has to be a conversion from the output type
+     * of the engine to the input type of the distribution, so we can't
+     * just use uniform_int<int> (and MSVC will do the wrong thing in this
+     * case). We thus also have to manually bias to avoid negative numbers.
+     */
+    variate_generator<mt19937 &, uniform_int<mt19937::result_type> > gen(engine, uniform_int<mt19937::result_type>(0, max - min));
+    return int(gen()) + min;
 }
 
 void TestMesherBase::testRandom()
