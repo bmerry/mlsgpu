@@ -163,6 +163,7 @@ std::vector<float> TestMls::makePlane(float px, float py, float pz, float dx, fl
 
 float TestMls::callSolveQuadratic(float a, float b, float c)
 {
+    CPPUNIT_ASSERT(b >= 0.0f);
     cl_float ans;
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_float));
     cl::Kernel kernel(mlsProgram, "testSolveQuadratic");
@@ -225,9 +226,8 @@ void TestMls::testSolveQuadratic()
     float eps = std::numeric_limits<float>::epsilon() * 4;
 
     // Cases with no roots
-    MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(1, -2, 2), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(-1, 2, -2), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(1e20, -2e10, 1.0001), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(-1e20, 2e10, -1.0001), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(1, 0, 1), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(-1, 0, -1), eps);
     // Constant functions (no roots or infinitely many roots)
@@ -238,30 +238,29 @@ void TestMls::testSolveQuadratic()
     MLSGPU_ASSERT_DOUBLES_EQUAL(n, callSolveQuadratic(0, 0, 1e20), eps);
     // Linear functions
     MLSGPU_ASSERT_DOUBLES_EQUAL(-1.5, callSolveQuadratic(0, 2, 3), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(2.5, callSolveQuadratic(0, -2, 5), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(0.0, callSolveQuadratic(0, 5, 0), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(0.0, callSolveQuadratic(0, 1e20, 0), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(0.0, callSolveQuadratic(0, 1e-20, 0), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(1e-20, callSolveQuadratic(0, 1e10, 1e-10), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(-1e20, callSolveQuadratic(0, 1e-10, 1e10), eps);
     // Repeated roots
-    MLSGPU_ASSERT_DOUBLES_EQUAL(1.0, callSolveQuadratic(1, -2, 1), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(1.0, callSolveQuadratic(10, -20, 10), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(1e4, callSolveQuadratic(1, -2e4, 1e8), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(1.0, callSolveQuadratic(-1, 2, -1), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(1.0, callSolveQuadratic(-10, 20, -10), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(1e4, callSolveQuadratic(-1, 2e4, -1e8), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(0.0, callSolveQuadratic(1, 0, 0), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(0.0, callSolveQuadratic(1e30, 0, 0), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(0.0, callSolveQuadratic(1e-20, 0, 0), eps);
     // Regular two-root solutions
-    MLSGPU_ASSERT_DOUBLES_EQUAL(3.0, callSolveQuadratic(1, -5, 6), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(2.0, callSolveQuadratic(-1, 5, -6), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(2.0, callSolveQuadratic(-2, 10, -12), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(2.0, callSolveQuadratic(1, 1, -6), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(-3.0, callSolveQuadratic(-0.1f, -0.1f, 0.6f), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(3.0, callSolveQuadratic(1e-12, -5e-12, 6e-12), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(2.0, callSolveQuadratic(0.1f, 0.1f, -0.6f), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(2.0, callSolveQuadratic(-1e-12, 5e-12, -6e-12), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(-2e-12, callSolveQuadratic(1, 5e-12, 6e-24), eps);
     // Corner cases for stability
-    MLSGPU_ASSERT_DOUBLES_EQUAL(1.0, callSolveQuadratic(1, -1 - 1e-6, 1e-6), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(1e6, callSolveQuadratic(1, -1 - 1e6, 1e6), eps);
-    MLSGPU_ASSERT_DOUBLES_EQUAL(1e20, callSolveQuadratic(1e-20, -2, 1e20), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(1e-6, callSolveQuadratic(-1, 1 + 1e-6, -1e-6), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(1.0f, callSolveQuadratic(-1, 1 + 1e6, -1e6), eps);
+    MLSGPU_ASSERT_DOUBLES_EQUAL(1e20, callSolveQuadratic(-1e-20, 2, -1e20), eps);
     MLSGPU_ASSERT_DOUBLES_EQUAL(-1e-6, callSolveQuadratic(1e-6, 1, 1e-6), eps);
 }
 

@@ -156,29 +156,18 @@ inline void fitSphere(const SphereFit * restrict sf, float params[restrict 5])
 /**
  * Returns the root of ax^2 + bx + c which is larger (a > 0) or smaller (a < 0).
  * Returns NaN if there are no roots or infinitely many roots.
+ *
+ * @pre b &gt;= 0.
  */
 inline float solveQuadratic(float a, float b, float c)
 {
-    float x;
-    if (fabs(a) < 1e-20f)
+    float bdet = b + sqrt(b * b - 4.0f * a * c);
+    float x = -2.0f * c / bdet;
+    if (!isfinite(x))
     {
-        // Treat as linear to get initial estimate
-        x = -c / b;
-    }
-    else
-    {
-        // Start with a closed-form but numerically unstable solution
-        float det = sqrt(b * b - 4 * a * c);
-        x = (-b + det) / (2.0f * a);
-    }
-    // Refine using Newton iteration
-    for (uint pass = 0; pass < 1; pass++)
-    {
-        float fx = fma(fma(a, x, b), x, c);
-        float fpx = fma(2.0f * a, x, b);
-        // Prevent divide by zero when at the critical point
-        fpx = maxmag(fpx, 1e-20f);
-        x -= fx / fpx;
+        // happens if either b = 0 and ac = 0, or if the quadratic
+        // has no real solutions
+        x = bdet / (-2.0f * a);
     }
     return isfinite(x) ? x : nan(0U);
 }
@@ -191,7 +180,7 @@ inline float projectDistOriginSphere(const float params[5])
 {
     const float3 g = (float3) (params[0], params[1], params[2]);
 
-    // b will always be positive, so we will get the root we want
+    // b will always be positive
     return -solveQuadratic(params[3], length(g), params[4]);
 }
 
