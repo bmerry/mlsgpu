@@ -82,8 +82,8 @@ void MlsFunctor::operator()(
     kernel.setArg(6, cl_int(z));
     queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
-                               cl::NDRange(dims[0], dims[1]),
-                               cl::NDRange(wgs[0], wgs[1]),
+                               cl::NDRange(wgs[0] * wgs[1], dims[0] / wgs[0], dims[1] / wgs[1]),
+                               cl::NDRange(wgs[0] * wgs[1], 1, 1),
                                events, event);
 }
 

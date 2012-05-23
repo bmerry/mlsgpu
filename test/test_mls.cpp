@@ -396,8 +396,8 @@ void TestMls::testProcessCorners()
 
     queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
-                               cl::NDRange(4, 4),
-                               cl::NDRange(1, 1)); // values we forced in for WGS_X and WGS_Y
+                               cl::NDRange(1, 4, 4),
+                               cl::NDRange(1 * 1, 1, 1)); // values we forced in for WGS_X and WGS_Y
     queue.finish();
 
     // Read back results

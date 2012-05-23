@@ -120,6 +120,30 @@ inline uint makeCode(int3 xyz)
     return ans;
 }
 
+/**
+ * Turns an index along a 2D space-filling curve into coordinates.
+ *
+ * The code consists of the bits of the x and y coordinates interleaved
+ * (y major). It is thus more-or-less an inverse of @ref makeCode, but in 2D.
+ *
+ * @todo Investigate computing this from a table instead.
+ *
+ * @todo Write a test for this.
+ */
+inline int2 decode(uint code)
+{
+    int2 ans = (int2) (0, 0);
+    uint scale = 1;
+    while (code >= scale)
+    {
+        ans.x += code & scale;
+        ans.y += (code >> 1) & scale;
+        code >>= 1;
+        scale <<= 1;
+    }
+    return ans;
+}
+
 inline float4 fitPlane(const PlaneFit * restrict pf)
 {
     float4 ans;
@@ -270,10 +294,12 @@ float processCorner(command_type start, int3 coord,
  * @param      offset      Difference between global grid coordinates and the local region of interest.
  * @param      z           Z value of the slice, in local region coordinates.
  *
- * @todo Investigate making the global ID the linear ID and reversing @ref makeCode,
- * for better coherence.
+ * The global ID uses all three dimensions:
+ * X: linear ID within the workgroup, turned into coordinates with @ref code
+ * Y: X position of the workgroup block
+ * Z: Y position of the workgroup block
  */
-KERNEL(WGS_X, WGS_Y, 1)
+KERNEL(WGS_X * WGS_Y, 1, 1)
 void processCorners(
     __write_only image2d_t corners,
     __global const Splat * restrict splats,
@@ -283,7 +309,11 @@ void processCorners(
     int3 offset,
     int z)
 {
-    int3 gid = (int3) (get_global_id(0), get_global_id(1), z);
+    int3 gid;
+    gid.x = get_global_id(1) * WGS_X;
+    gid.y = get_global_id(2) * WGS_Y;
+    gid.xy += decode(get_global_id(0));
+    gid.z = z;
     uint code = makeCode(gid) >> startShift;
     command_type myStart = start[code];
 
