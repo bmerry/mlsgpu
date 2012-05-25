@@ -127,8 +127,6 @@ inline uint makeCode(int3 xyz)
  * (y major). It is thus more-or-less an inverse of @ref makeCode, but in 2D.
  *
  * @todo Investigate computing this from a table instead.
- *
- * @todo Write a test for this.
  */
 inline int2 decode(uint code)
 {
@@ -440,6 +438,11 @@ __kernel void testFitSphere(__global float *out, __global const Splat *in, uint 
 __kernel void testMakeCode(__global uint *out, int3 xyz)
 {
     *out = makeCode(xyz);
+}
+
+__kernel void testDecode(__global int2 *out, uint code)
+{
+    *out = decode(code);
 }
 
 #endif /* UNIT_TESTS */

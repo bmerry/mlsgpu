@@ -38,6 +38,7 @@ class TestMls : public CLH::Test::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestMls);
     CPPUNIT_TEST(testMakeCode);
+    CPPUNIT_TEST(testDecode);
     CPPUNIT_TEST(testSolveQuadratic);
     CPPUNIT_TEST(testFitSphere);
     CPPUNIT_TEST(testProjectDistOriginSphere);
@@ -76,6 +77,7 @@ private:
     std::vector<Splat> sphereSplats(std::size_t N, const float center[3], float radius);
 
     int callMakeCode(cl_int x, cl_int y, cl_int z);
+    cl_int2 callDecode(cl_uint code);
     float callSolveQuadratic(float a, float b, float c);
     float callProjectDistOriginSphere(float p0, float p1, float p2, float p3, float p4);
     float callProjectDistOriginSphere(const std::vector<float> &params);
@@ -94,6 +96,7 @@ public:
     virtual void tearDown();
 
     void testMakeCode();           ///< Test @ref makeCode in @ref mls.cl.
+    void testDecode();             ///< Test @ref decode in @ref mls.cl.
     void testSolveQuadratic();     ///< Test @ref solveQuadratic in @ref mls.cl.
     void testProjectDistOriginSphere();  ///< Test @ref projectDistOriginSphere in @ref mls.cl.
     void testFitSphere();          ///< Test @ref fitSphere in @ref mls.cl.
@@ -147,7 +150,9 @@ std::vector<float> TestMls::makePlane(float px, float py, float pz, float dx, fl
     params[3] = 0.0f;
     params[4] = -(dx * px + dy * py + dz * pz);
     return params;
-}int TestMls::callMakeCode(cl_int x, cl_int y, cl_int z)
+}
+
+int TestMls::callMakeCode(cl_int x, cl_int y, cl_int z)
 {
     cl_uint ans;
     cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_uint));
@@ -158,6 +163,18 @@ std::vector<float> TestMls::makePlane(float px, float py, float pz, float dx, fl
     kernel.setArg(1, xyz);
     queue.enqueueTask(kernel);
     queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_uint), &ans);
+    return ans;
+}
+
+cl_int2 TestMls::callDecode(cl_uint code)
+{
+    cl_int2 ans;
+    cl::Buffer out(context, CL_MEM_WRITE_ONLY, sizeof(cl_int2));
+    cl::Kernel kernel(mlsProgram, "testDecode");
+    kernel.setArg(0, out);
+    kernel.setArg(1, code);
+    queue.enqueueTask(kernel);
+    queue.enqueueReadBuffer(out, CL_TRUE, 0, sizeof(cl_int2), &ans);
     return ans;
 }
 
@@ -218,6 +235,27 @@ void TestMls::testMakeCode()
     CPPUNIT_ASSERT_EQUAL(7, callMakeCode(1, 1, 1));
     CPPUNIT_ASSERT_EQUAL(174, callMakeCode(2, 5, 3));
     CPPUNIT_ASSERT_EQUAL(511, callMakeCode(7, 7, 7));
+}
+
+void TestMls::testDecode()
+{
+    cl_int2 out;
+
+    out = callDecode(0xB1);
+    CPPUNIT_ASSERT_EQUAL(cl_int(5), out.s[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_int(12), out.s[1]);
+
+    out = callDecode(0x55555555);
+    CPPUNIT_ASSERT_EQUAL(cl_int(0xFFFF), out.s[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_int(0), out.s[1]);
+
+    out = callDecode(0xAAAAAAAA);
+    CPPUNIT_ASSERT_EQUAL(cl_int(0), out.s[0]);
+    CPPUNIT_ASSERT_EQUAL(cl_int(0xFFFF), out.s[1]);
+
+    out = callDecode(0);
+    CPPUNIT_ASSERT_EQUAL(cl_int(0), out.s[1]);
+    CPPUNIT_ASSERT_EQUAL(cl_int(0), out.s[1]);
 }
 
 void TestMls::testSolveQuadratic()
