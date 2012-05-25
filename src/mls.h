@@ -18,6 +18,9 @@
 #include "grid.h"
 #include "splat_tree_cl.h"
 
+/**
+ * Shape to fit through a local set of splats.
+ */
 enum MlsShape
 {
     MLS_SHAPE_SPHERE,

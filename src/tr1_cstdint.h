@@ -1,8 +1,8 @@
 /**
  * @file
  *
- * Wrapper header to include either <tr1/cstdint> or <cstdint> depending
- * on compiler version.
+ * Wrapper header to include either <tt>&lt;tr1/cstdint</tt> or
+ * <tt>&lt;cstdint&gt;</tt> depending on what the compiler provides.
  */
 
 #ifndef TR1_CSTDINT_H

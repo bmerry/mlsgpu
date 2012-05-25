@@ -293,7 +293,7 @@ float processCorner(command_type start, int3 coord,
  * @param      z           Z value of the slice, in local region coordinates.
  *
  * The global ID uses all three dimensions:
- * X: linear ID within the workgroup, turned into coordinates with @ref code
+ * X: linear ID within the workgroup, turned into coordinates with @ref decode
  * Y: X position of the workgroup block
  * Z: Y position of the workgroup block
  */

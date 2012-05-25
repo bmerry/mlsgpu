@@ -83,18 +83,18 @@ public:
         MAX_DIMENSION_LOG2 = 13
     };
 
-    /**
-     * Maximum size that is legal to pass to the constructor for @a maxWidth or
-     * @a maxHeight.  This does not guarantee that it will be possible to
-     * allocate sufficient memory, but asking for more will fail without even
-     * trying.
-     *
-     * The current value is chosen on the basis that it is the minimum value of
-     * @c CL_DEVICE_IMAGE2D_MAX_WIDTH. It could be raised if necessary, but for
-     * current usage there is little point.
-     */
     enum
     {
+        /**
+         * Maximum size that is legal to pass to the constructor for @a maxWidth or
+         * @a maxHeight.  This does not guarantee that it will be possible to
+         * allocate sufficient memory, but asking for more will fail without even
+         * trying.
+         *
+         * The current value is chosen on the basis that it is the minimum value of
+         * @c CL_DEVICE_IMAGE2D_MAX_WIDTH. It could be raised if necessary, but for
+         * current usage there is little point.
+         */
         MAX_DIMENSION = 1U << MAX_DIMENSION_LOG2
     };
 
