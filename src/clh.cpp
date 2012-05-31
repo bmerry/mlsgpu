@@ -492,7 +492,7 @@ cl_int enqueueNDRangeKernelSplit(
         std::size_t curOffset[3];
         std::size_t curGlobal[3];
         std::size_t curLocal[3];
-        bool use = false;
+        bool use = true;
         for (std::size_t i = 0; i < dims; i++)
         {
             if (mask & (1U << i))
@@ -507,7 +507,7 @@ cl_int enqueueNDRangeKernelSplit(
                 curOffset[i] = offset[i];
                 curLocal[i] = origLocal[i];
             }
-            use |= curGlobal[i] > 0;
+            use &= curGlobal[i] > 0;
         }
         if (use)
         {
