@@ -286,6 +286,7 @@ void FineBucketGroupBase::Worker::operator()(
     registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
 
     splats.reset(NULL, &outItem->unmapEvent);
+    outItem->mapQueue.flush();
 
     owner.outGroup.push(curChunkId, outItem);
 }
