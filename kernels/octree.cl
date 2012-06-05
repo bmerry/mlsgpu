@@ -291,7 +291,7 @@ __kernel void writeStart(
  * Variant of @ref writeStart for the coarsest level. In this level,
  * there is no previous level to chain to.
  *
- * @param[in,out]  start           Start array for previous and current level.
+ * @param[out]     start           Start array for current level.
  * @param[out]     commands        Command array in which to write jump commands.
  * @param          jumpPos         Jump positions in command array, as written by @ref writeSplatIds.
  * @param          curOffset       Offset added to code to get position in start array on current level.
