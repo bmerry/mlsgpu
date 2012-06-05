@@ -119,9 +119,9 @@ __kernel void countElements(
     __global uint2 * restrict viCount,
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
-    cl_uint yOffsetA,
+    uint yOffsetA,
     __read_only image2d_t isoB,
-    cl_uint yOffsetB,
+    uint yOffsetB,
     __global const uchar2 * restrict countTable)
 {
     uint gid = get_global_id(0);
@@ -154,7 +154,6 @@ inline float3 interp(float iso0, float iso1, uint3 cell, uint3 offset0, uint3 of
     // This needs to operate in an invariant manner, so take manual control over FMAs
 #pragma OPENCL FP_CONTRACT OFF
     float inv = 1.0f / (iso0 - iso1);
-    uint3 base = cell + offset0;
     uint3 delta = offset1 - offset0;
     float3 lcoord = fma(iso0 * inv, convert_float3(delta), convert_float3(cell + offset0));
     return lcoord;
@@ -215,9 +214,9 @@ __kernel void generateElements(
     __global const uint2 * restrict viStart,
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
-    cl_uint yOffsetA,
+    uint yOffsetA,
     __read_only image2d_t isoB,
-    cl_uint yOffsetB,
+    uint yOffsetB,
     __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
     __global const uint3 * restrict keyTable,
@@ -236,14 +235,14 @@ __kernel void generateElements(
     __local float3 *lverts = lvertices + NUM_EDGES * lid;
 
     float iso[8];
-    iso[0] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, yOffsetA))).x;
-    iso[1] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, yOffsetA))).x;
-    iso[2] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, yOffsetA + 1))).x;
-    iso[3] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, yOffsetA + 1))).x;
-    iso[4] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, yOffsetB))).x;
-    iso[5] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, yOffsetB))).x;
-    iso[6] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, yOffsetB + 1))).x;
-    iso[7] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, yOffsetB + 1))).x;
+    iso[0] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetA))).x;
+    iso[1] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetA))).x;
+    iso[2] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetA + 1))).x;
+    iso[3] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetA + 1))).x;
+    iso[4] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetB))).x;
+    iso[5] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetB))).x;
+    iso[6] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetB + 1))).x;
+    iso[7] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetB + 1))).x;
 
     lverts[0] = INTERP(0, 1);
     lverts[1] = INTERP(0, 2);
@@ -272,8 +271,6 @@ __kernel void generateElements(
 
     ushort2 start = startTable[code];
     ushort2 end = startTable[code + 1];
-
-    ulong cellKey = ((ulong) cell.z << (2 * KEY_AXIS_BITS + 1)) | ((ulong) cell.y << (KEY_AXIS_BITS + 1)) | ((ulong) cell.x << 1);
 
     for (uint i = 0; i < end.x - start.x; i++)
     {

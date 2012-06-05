@@ -191,9 +191,8 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
 
     /* We need to round up the octree size to a multiple of the granularity used for MLS. */
     Grid::size_type expandedSize[3];
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < 3; i++)
         expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
-    expandedSize[2] = size[2];
 
     owner.outGroup.producerNext(curChunkId, chunkId);
     curChunkId = chunkId;
@@ -209,7 +208,7 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
                           expandedSize, offset, owner.subsampling, &wait, &treeBuildEvent);
         wait[0] = treeBuildEvent;
 
-        input.set(expandedSize, offset, tree, owner.subsampling);
+        input.set(offset, tree, owner.subsampling);
         marching.generate(queue, input, filterChain, size, keyOffset, &wait);
     }
 

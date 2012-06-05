@@ -56,19 +56,20 @@ class MlsFunctor : public Marching::Generator
 {
 private:
     /**
-     * Kernel generated from @ref processCorners.
-     * It has to be mutable to allow arguments to be set.
+     * Context used by @ref allocateSlices.
      */
-    mutable cl::Kernel kernel;
+    cl::Context context;
+
+    /**
+     * Kernel generated from @ref processCorners.
+     */
+    cl::Kernel kernel;
 
     /**
      * Kernel generated from @ref measureBoundaries.
-     * It has to be mutable to allow arguments to be set.
+     * @todo See if @c mutable can be removed in future.
      */
     mutable cl::Kernel boundaryKernel;
-
-    /// Horizontal and vertical vertex count of the grid passed to @ref set
-    std::size_t dims[2];
 
 public:
     /**
@@ -97,7 +98,7 @@ public:
      * @pre
      * - @a tree was constructed with the same @a size, @a offset and @a subsamplingShift.
      */
-    void set(const Grid::size_type size[3], const Grid::difference_type offset[3],
+    void set(const Grid::difference_type offset[3],
              const SplatTreeCL &tree, unsigned int subsamplingShift);
 
     virtual Grid::size_type slicesHint() const { return wgs[2]; }

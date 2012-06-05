@@ -305,7 +305,8 @@ void processCorners(
     __global const command_type * restrict start,
     uint startShift,
     int3 offset,
-    int z)
+    int z,
+    int zOffset)
 {
     int3 gid;
     gid.x = get_global_id(1) * WGS_X;
@@ -321,6 +322,8 @@ void processCorners(
         int3 coord = gid + offset;
         f = processCorner(myStart, coord, splats, commands);
     }
+
+    gid.y += zOffset;
     write_imagef(corners, gid.xy, f);
 }
 
