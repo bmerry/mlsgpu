@@ -31,13 +31,18 @@ class TestMarching;
  * that could easily be changed to allow smaller jobs.
  *
  * At present, it has the following features and limitations:
- *  - The values are supplied by a functor that is called to enqueue work to produce
- *    a single slice as a 2D image. This allows the algorithm to work even if the entire
+ *  - The values are supplied by a callback object that is called to enqueue work to produce
+ *    a number of slices at a time. This allows the algorithm to work even if the entire
  *    grid is too large to fit in memory.
+ *  - The outputs are supplied to another functor, which may be called more than once for
+ *    a single volume. This allows the algorithm to work even if the output is too large
+ *    to hold in GPU memory.
  *  - Where a non-finite value is present in the field, all adjacent cells are discarded.
  *    This can lead to boundaries in the surface.
- *  - The output is mostly polygon soup. The common vertices within each cell are
- *    represented only once, but vertices are not shared between cells.
+ *  - Shared vertices at cell boundaries are welded together, except for those where the
+ *    volume was subdivided into separate calls to the output functor.
+ *  - Boundary ("external") vertices have associated vertex keys that uniquely identify
+ *    them and allow them to be welded in a post-processing step.
  *
  * The implementation operates on a slice at a time. For each slice, it:
  *  -# Identifies the cells that are not empty (not entirely inside, entirely
@@ -119,6 +124,68 @@ public:
         KEY_TABLE_BYTES = 2432 * sizeof(cl_uint3)
     };
 
+    /**
+     * An interface for classes that supply the signed distance function
+     * for @ref Marching.
+     */
+    class Generator
+    {
+    public:
+        virtual ~Generator() {}
+
+        /**
+         * Return the ideal number of slices this class would like to process at a
+         * time. This is just a hint, since there may not be that many available.
+         */
+        virtual Grid::size_type slicesHint() const = 0;
+
+        /**
+         * Allocate storage for holding a range of slices. The image must allow
+         * CL to read from it. The layout is that slices are stacked up along
+         * the Y dimension.
+         *
+         * The caller may choose to pad the image to a larger size if it
+         * desires. This may be useful if it uses a fixed workgroup size which
+         * would otherwise cause it to access outside the image dimensions.
+         *
+         * @return An image of dimensions at least @a width by @a height * @a depth.
+         */
+        virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const = 0;
+
+        /**
+         * Enqueue CL work to compute the signed distance function.
+         *
+         * This function is not required to be threadsafe or to be safe for concurrent
+         * execution of the CL commands.
+         *
+         * @param queue                 The command queue to use.
+         * @param distance              Output storage for the signed distance function
+         * @param size                  The dimensions of the entire volume.
+         * @param zFirst, zLast         Half-open range of Z values to process.
+         * @param[out] zStride          Y step between slices.
+         * @param events                Events to wait for (may be @c NULL).
+         * @param[out] event            Event signaled on completion (may be @c NULL).
+         *
+         * @pre
+         * - All elements of @a size are positive.
+         * - 0 &lt;= @a zFirst < @a zLast &lt;= @a size[2].
+         * - @a distance was allocated using @ref allocateSlices with dimensions at
+         *      least @a size[0], @a size[1], (@a zLast - @a zFirst).
+         * @post
+         * - The signed distance for point (x, y, z) in the volume will be stored
+         *   in @a distance at coordinates x, y + z * zStride.
+         * - @a zStride is at least @a size[1].
+         */
+        virtual void enqueue(
+            const cl::CommandQueue &queue,
+            const cl::Image2D &distance,
+            const Grid::size_type size[3],
+            Grid::size_type zFirst, Grid::size_type zLast,
+            Grid::size_type &zStride,
+            const std::vector<cl::Event> *events,
+            cl::Event *event) = 0;
+    };
+
 private:
     /**
      * Structure to hold the various values read back from the device at
@@ -149,7 +216,7 @@ private:
     /**
      * The number of cell corners (not cells) in the grid.
      */
-    std::size_t maxWidth, maxHeight;
+    Grid::size_type maxWidth, maxHeight, maxDepth;
 
     /**
      * Space allocated to hold intermediate vertices and indices.
@@ -328,13 +395,13 @@ public:
      * Returns the maximum number of vertices that may be passed in a call
      * to the output function.
      */
-    static std::tr1::uint64_t getMaxVertices(std::size_t maxWidth, std::size_t maxHeight);
+    static std::tr1::uint64_t getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight);
 
     /**
      * Returns the maximum number of triangles that may be passed in a call
      * to the output function.
      */
-    static std::tr1::uint64_t getMaxTriangles(std::size_t maxWidth, std::size_t maxHeight);
+    static std::tr1::uint64_t getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight);
 
     /**
      * Estimates the device memory required for particular values of the
@@ -342,38 +409,17 @@ public:
      * memory allocated in buffers and images, but excludes all overheads for
      * fragmentation, alignment, parameters, programs, command buffers etc.
      *
-     * @param device, maxWidth, maxHeight  Parameters that would be passed to the constructor.
+     * It does @em not account for the memory allocated for the slice data. For that
+     * you need to query the specific sub-class of @ref Generator.
+     *
+     * @param device, maxWidth, maxHeight, maxDepth  Parameters that would be passed to the constructor.
      * @return The required resources.
      *
-     * @pre @a maxWidth and @a maxHeight do not exceed @ref MAX_DIMENSION.
+     * @pre @a maxWidth, @a maxHeight and @a maxDepth do not exceed @ref MAX_DIMENSION.
      */
-    static CLH::ResourceUsage resourceUsage(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight);
-
-    /**
-     * The function type to pass to @ref generate for sampling the isofunction.
-     * An invocation of this function must enqueue commands to generate
-     * one slice of the sampling grid to the provided command queue (which
-     * is the same one passed to @ref generate). The @a z value will range
-     * from 0 to one less than the number of cell corners in the Z dimension.
-     * The return event must be populated (even for an in-order queue), because
-     * the caller will wait for it at the appropriate time.
-     *
-     * It is guaranteed that even if the queue is out-of-order, the events will
-     * be arranged such that the commands enqueued by one call to the functor will
-     * happen-before those enqueued by the next call (provided that the functor itself
-     * correctly inserts dependencies on the events passed in). It is thus safe
-     * for the functor to contain OpenCL scratch buffers that are overwritten during
-     * each call.
-     *
-     * However, it is not guaranteed that the commands enqueued by one call to the
-     * functor will complete before the next host call to the functor.
-     */
-    typedef boost::function<void(
-        const cl::CommandQueue &,
-        const cl::Image2D &,
-        cl_uint z,
-        const std::vector<cl::Event> *,
-        cl::Event *)> InputFunctor;
+    static CLH::ResourceUsage resourceUsage(
+        const cl::Device &device,
+        Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth);
 
     /**
      * The function type to pass to @ref generate for receiving output data.
@@ -414,18 +460,23 @@ public:
      *
      * Apart from O(1) overheads for tables etc, the total OpenCL memory
      * allocated is:
-     *  - 8 * @a width * @a height bytes in images.
      *  - 20 * (@a width - 1) * (@a height - 1) bytes in buffers.
+     *  - two calls to @ref Generator::allocateSlices.
      *
      * @param context        OpenCL context used to allocate buffers.
      * @param device         Device for which kernels are to be compiled.
-     * @param maxWidth, maxHeight Maximum X, Y dimensions (in corners) of the provided sampling grid.
+     * @param generator      Generator used to allocate the slice data and pad the
+     *                       dimensions. It need not be the same one passed to
+     *                       @ref generate, as long as they have the same metadata
+     *                       and can interchange image allocations.
+     * @param maxWidth, maxHeight, maxDepth Maximum X, Y, Z dimensions (in corners) of the provided sampling grid.
      *
      * @pre
-     * - @a maxWidth and @a maxHeight are both between 2 and @ref MAX_DIMENSION.
+     * - @a maxWidth, @a maxHeight and @a maxDepth are between 2 and @ref MAX_DIMENSION.
      */
     Marching(const cl::Context &context, const cl::Device &device,
-             std::size_t maxWidth, std::size_t maxHeight);
+             const Generator &generator,
+             Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth);
 
     /**
      * Generate an isosurface.
@@ -444,7 +495,7 @@ public:
      * surrounding isovalues are invariant.
      *
      * @param queue          Command queue to enqueue the work to.
-     * @param input          Generates slices of the function (see @ref InputFunctor).
+     * @param generator      Generates the function (see @ref MarchingGenerator).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param size           Number of vertices in each dimension to process.
      * @param keyOffset      XYZ values to add to vertex keys of external vertices.
@@ -452,19 +503,30 @@ public:
      *
      * @note @a keyOffset is specified in integer units, not fixed-point.
      *
-     * @note size is in units of corners, which is one more than the number of cells.
+     * @note @a size is in units of corners, which is one more than the number of cells.
      *
-     * @pre The X and Y values of @a size must not exceed the dimensions
-     * passed to the constructor.
+     * @pre The values of @a size must not exceed the dimensions passed to the
+     * constructor.
      */
     void generate(const cl::CommandQueue &queue,
-                  const InputFunctor &input,
+                  Generator &generator,
                   const OutputFunctor &output,
                   const Grid::size_type size[3],
                   const cl_uint3 &keyOffset,
                   const std::vector<cl::Event> *events = NULL);
 
 private:
+    /**
+     * Represents a single slice within a multi-slice image. Such
+     * images pack slices vertically, so @a yOffset is the number of
+     * pixels to skip vertically to find the slice in question.
+     */
+    struct Slice
+    {
+        cl::Image2D image;
+        cl_uint yOffset;
+    };
+
     /**
      * Determine which cells in a slice need to be processed further.
      * This function may wait for previous events, but operates
@@ -483,9 +545,9 @@ private:
      * @todo It need not be totally synchronous (compaction is independent).
      */
     std::size_t generateCells(const cl::CommandQueue &queue,
-                              const cl::Image2D &sliceA,
-                              const cl::Image2D &sliceB,
-                              std::size_t width, std::size_t height,
+                              const Slice &sliceA,
+                              const Slice &sliceB,
+                              Grid::size_type width, Grid::size_type height,
                               const std::vector<cl::Event> *events);
 
     /**
@@ -503,8 +565,8 @@ private:
      * @return The total number of vertices and indices that will be generated.
      */
     cl_uint2 countElements(const cl::CommandQueue &queue,
-                           const cl::Image2D &sliceA,
-                           const cl::Image2D &sliceB,
+                           const Slice &sliceA,
+                           const Slice &sliceB,
                            std::size_t compacted,
                            const std::vector<cl::Event> *events);
 

@@ -122,7 +122,7 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     std::size_t maxVertices = Marching::getMaxVertices(block, block);
     std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
     CLH::ResourceUsage workerUsage;
-    workerUsage += Marching::resourceUsage(device, block, block);
+    workerUsage += Marching::resourceUsage(device, block, block, block);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
     if (!keepBoundary)
         workerUsage += Clip::resourceUsage(device, maxVertices, maxTriangles);
@@ -143,7 +143,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     queue(context, device),
     tree(context, levels, owner.maxSplats),
     input(context, shape),
-    marching(context, device, owner.maxCells + 1, owner.maxCells + 1),
+    marching(context, device, input, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1),
     scaleBias(context)
 {
     if (!keepBoundary)

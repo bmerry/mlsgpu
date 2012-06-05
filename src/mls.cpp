@@ -27,7 +27,7 @@ std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
     return ans;
 }
 
-const std::size_t MlsFunctor::wgs[2] = {16, 16};
+const std::size_t MlsFunctor::wgs[3] = {8, 8, 8};
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
 {

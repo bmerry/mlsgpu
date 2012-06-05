@@ -17,6 +17,7 @@
 #include <string>
 #include "grid.h"
 #include "splat_tree_cl.h"
+#include "marching.h"
 
 /**
  * Shape to fit through a local set of splats.
@@ -51,7 +52,7 @@ public:
  * it is safe for back-to-back calls to the operator() without synchronization
  * i.e. there is no internal device state.
  */
-class MlsFunctor
+class MlsFunctor : public Marching::Generator
 {
 private:
     /**
@@ -73,7 +74,7 @@ public:
     /**
      * Work group size for @ref kernel.
      */
-    static const std::size_t wgs[2];
+    static const std::size_t wgs[3];
 
     /**
      * Constructor. It compiles the kernel, so it can throw a compilation error.
@@ -98,6 +99,20 @@ public:
      */
     void set(const Grid::size_type size[3], const Grid::difference_type offset[3],
              const SplatTreeCL &tree, unsigned int subsamplingShift);
+
+    virtual Grid::size_type slicesHint() const { return wgs[2]; }
+
+    virtual cl::Image2D allocateSlices(
+        Grid::size_type width, Grid::size_type height, Grid::size_type depth) const;
+
+    virtual void enqueue(
+        const cl::CommandQueue &queue,
+        const cl::Image2D &distance,
+        const Grid::size_type size[3],
+        Grid::size_type zFirst, Grid::size_type zLast,
+        Grid::size_type &zStride,
+        const std::vector<cl::Event> *events,
+        cl::Event *event);
 
     /**
      * Function object callback for use with @ref Marching.

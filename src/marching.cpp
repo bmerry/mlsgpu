@@ -236,21 +236,24 @@ bool Marching::validateDevice(const cl::Device &device)
     return true;
 }
 
-std::tr1::uint64_t Marching::getMaxVertices(std::size_t maxWidth, std::size_t maxHeight)
+std::tr1::uint64_t Marching::getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight)
 {
     return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES;
 }
 
-std::tr1::uint64_t Marching::getMaxTriangles(std::size_t maxWidth, std::size_t maxHeight)
+std::tr1::uint64_t Marching::getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight)
 {
     return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3);
 }
 
-CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t maxWidth, std::size_t maxHeight)
+CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device,
+                                           Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth)
 {
     MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(maxDepth <= MAX_DIMENSION, std::invalid_argument);
     (void) device; // not currently used, but should be used to determine usage of clogs
+    (void) maxDepth; // has no effect
 
     CLH::ResourceUsage ans;
 
@@ -260,12 +263,6 @@ CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t
     const std::tr1::uint64_t indexSpace = getMaxTriangles(maxWidth, maxHeight) * 3;
 
     // Keep this in sync with the actual allocations below
-
-    for (unsigned int i = 0; i < 2; i++)
-    {
-        // backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
-        ans.addImage(maxWidth, maxHeight, sizeof(cl_float));
-    }
 
     // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
     ans.addBuffer(sliceCells * sizeof(cl_uint2));
@@ -314,9 +311,11 @@ CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device, std::size_t
 }
 
 Marching::Marching(const cl::Context &context, const cl::Device &device,
-                   size_t maxWidth, size_t maxHeight)
+                   const Generator &generator,
+                   Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth)
 :
-    maxWidth(maxWidth), maxHeight(maxHeight), context(context),
+    maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
+    context(context),
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
@@ -324,10 +323,11 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 {
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(2 <= maxDepth && maxDepth <= MAX_DIMENSION, std::invalid_argument);
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
-        backingImages[i] = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), maxWidth, maxHeight);
+        backingImages[i] = generator.allocateSlices(maxWidth, maxHeight, generator.slicesHint());
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = sliceCells * MAX_CELL_VERTICES;
@@ -366,16 +366,16 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     countElementsKernel.setArg(0, viCount);
     countElementsKernel.setArg(1, cells);
-    countElementsKernel.setArg(4, countTable);
+    countElementsKernel.setArg(6, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, unweldedVertexKeys);
     generateElementsKernel.setArg(2, indices);
     generateElementsKernel.setArg(3, viCount);
     generateElementsKernel.setArg(4, cells);
-    generateElementsKernel.setArg(7, startTable);
-    generateElementsKernel.setArg(8, dataTable);
-    generateElementsKernel.setArg(9, keyTable);
+    generateElementsKernel.setArg(9, startTable);
+    generateElementsKernel.setArg(10, dataTable);
+    generateElementsKernel.setArg(11, keyTable);
 
     countUniqueVerticesKernel.setArg(0, vertexUnique);
     countUniqueVerticesKernel.setArg(1, unweldedVertexKeys);
@@ -393,16 +393,18 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 }
 
 std::size_t Marching::generateCells(const cl::CommandQueue &queue,
-                                    const cl::Image2D &sliceA,
-                                    const cl::Image2D &sliceB,
-                                    std::size_t width, std::size_t height,
+                                    const Slice &sliceA,
+                                    const Slice &sliceB,
+                                    Grid::size_type width, Grid::size_type height,
                                     const std::vector<cl::Event> *events)
 {
     cl::Event last;
     const std::size_t levelCells = (width - 1) * (height - 1);
 
-    countOccupiedKernel.setArg(1, sliceA);
-    countOccupiedKernel.setArg(2, sliceB);
+    countOccupiedKernel.setArg(1, sliceA.image);
+    countOccupiedKernel.setArg(2, sliceA.yOffset);
+    countOccupiedKernel.setArg(3, sliceB.image);
+    countOccupiedKernel.setArg(4, sliceB.yOffset);
     queue.enqueueNDRangeKernel(countOccupiedKernel,
                                cl::NullRange,
                                cl::NDRange(width - 1, height - 1),
@@ -431,16 +433,18 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 }
 
 cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
-                                 const cl::Image2D &sliceA,
-                                 const cl::Image2D &sliceB,
+                                 const Slice &sliceA,
+                                 const Slice &sliceB,
                                  std::size_t compacted,
                                  const std::vector<cl::Event> *events)
 {
     cl::Event last;
     std::vector<cl::Event> wait(1);
 
-    countElementsKernel.setArg(2, sliceA);
-    countElementsKernel.setArg(3, sliceB);
+    countElementsKernel.setArg(2, sliceA.image);
+    countElementsKernel.setArg(3, sliceA.yOffset);
+    countElementsKernel.setArg(4, sliceB.image);
+    countElementsKernel.setArg(5, sliceB.yOffset);
     CLH::enqueueNDRangeKernel(queue,
                               countElementsKernel,
                               cl::NullRange,
@@ -535,7 +539,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
 
 void Marching::generate(
     const cl::CommandQueue &queue,
-    const InputFunctor &input,
+    Generator &generator,
     const OutputFunctor &output,
     const Grid::size_type size[3],
     const cl_uint3 &keyOffset,
@@ -551,38 +555,54 @@ void Marching::generate(
     while (wgsCompacted > 1 && wgsCompacted * NUM_EDGES * sizeof(cl_float3) >= localSize)
         wgsCompacted /= 2;
 
-    // Pointers into @ref backingImages, which are swapped to advance to the next slice.
-    cl::Image2D *images[2] = { &backingImages[0], &backingImages[1] };
-
     const Grid::size_type width = size[0];
     const Grid::size_type height = size[1];
     const Grid::size_type depth = size[2];
     MLSGPU_ASSERT(1U <= width && width <= maxWidth, std::length_error);
     MLSGPU_ASSERT(1U <= height && height <= maxHeight, std::length_error);
-    MLSGPU_ASSERT(1U <= depth, std::length_error);
+    MLSGPU_ASSERT(1U <= depth && depth <= maxDepth, std::length_error);
 
     std::vector<cl::Event> wait(1);
     cl::Event last, readEvent;
     cl_uint2 offsets = { {0, 0} };
     cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
 
-    input(queue, *images[1], 0, events, &last);
+    Slice sliceA;
+    Slice sliceB = { backingImages[0], 0 };
+    int nextBacking = 1;
+
+    Grid::size_type nSlices = std::min(depth, generator.slicesHint());
+    Grid::size_type zStride;
+    generator.enqueue(queue, sliceB.image, size, 0, nSlices, zStride, events, &last);
+
     wait[0] = last;
 
     Grid::size_type shipOuts = 0;
     for (Grid::size_type z = 1; z < depth; z++)
     {
-        std::swap(images[0], images[1]);
-        input(queue, *images[1], z, &wait, &last);
-        wait.resize(1);
-        wait[0] = last;
+        sliceA = sliceB;
+        if (z % nSlices == 0)
+        {
+            sliceB.image = backingImages[nextBacking];
+            sliceB.yOffset = 0;
+            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), zStride, &wait, &last);
+            wait.resize(1);
+            wait[0] = last;
 
-        std::size_t compacted = generateCells(queue, *images[0], *images[1],
+            nextBacking = !nextBacking;
+        }
+        else
+        {
+            sliceB.image = sliceA.image;
+            sliceB.yOffset = sliceA.yOffset + zStride;
+        }
+
+        std::size_t compacted = generateCells(queue, sliceA, sliceB,
                                               width, height, &wait);
         wait.clear();
         if (compacted > 0)
         {
-            cl_uint2 counts = countElements(queue, *images[0], *images[1], compacted, events);
+            cl_uint2 counts = countElements(queue, sliceA, sliceB, compacted, events);
             if (offsets.s[0] + counts.s[0] > vertexSpace
                 || offsets.s[1] + counts.s[1] > indexSpace)
             {
@@ -604,13 +624,15 @@ void Marching::generate(
                 assert(counts.s[1] <= indexSpace);
             }
 
-            generateElementsKernel.setArg(5, *images[0]);
-            generateElementsKernel.setArg(6, *images[1]);
-            generateElementsKernel.setArg(10, cl_uint(z - 1));
-            generateElementsKernel.setArg(11, keyOffset);
-            generateElementsKernel.setArg(12, offsets);
-            generateElementsKernel.setArg(13, top);
-            generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(5, sliceA.image);
+            generateElementsKernel.setArg(6, sliceA.yOffset);
+            generateElementsKernel.setArg(7, sliceB.image);
+            generateElementsKernel.setArg(8, sliceB.yOffset);
+            generateElementsKernel.setArg(12, cl_uint(z - 1));
+            generateElementsKernel.setArg(13, keyOffset);
+            generateElementsKernel.setArg(14, offsets);
+            generateElementsKernel.setArg(15, top);
+            generateElementsKernel.setArg(16, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             CLH::enqueueNDRangeKernelSplit(queue,
                                            generateElementsKernel,
                                            cl::NullRange,

@@ -35,75 +35,133 @@
 using namespace std;
 
 /**
- * Function object to model a signed distance from a sphere.
+ * Helper class to simplify writing generators that just generate
+ * data on the host.
  */
-class SphereFunc
+class HostGenerator : public Marching::Generator, public boost::noncopyable
 {
 private:
-    std::size_t width, height, depth;
-    float cx, cy, cz;
-    float radius;
+    cl::Context context;
+    std::size_t maxWidth, maxHeight, maxDepth;
     vector<float> sliceData;
 
-public:
-    void operator()(const cl::CommandQueue &queue, const cl::Image2D &slice,
-                    cl_uint z,
-                    const std::vector<cl::Event> *events,
-                    cl::Event *event)
-    {
-        for (cl_uint y = 0; y < height; y++)
-            for (cl_uint x = 0; x < width; x++)
-            {
-                float d = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz));
-                sliceData[y * width + x] = d - radius;
-            }
+protected:
+    virtual cl_float generate(cl_uint x, cl_uint y, cl_int z) const = 0;
 
-        cl::size_t<3> origin, region;
-        origin[0] = 0; origin[1] = 0; origin[2] = 0;
-        region[0] = width; region[1] = height; region[2] = 1;
-        queue.enqueueWriteImage(slice, CL_FALSE, origin, region, width * sizeof(float), 0, &sliceData[0],
-                                events, event);
+    HostGenerator(
+        const cl::Context &context,
+        std::size_t maxWidth, std::size_t maxHeight, std::size_t maxDepth)
+        : context(context),
+        maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
+        sliceData(maxWidth * maxHeight)
+    {
     }
 
-    SphereFunc(std::size_t width, std::size_t height, std::size_t depth,
-               float cx, float cy, float cz, float radius)
-        : width(width), height(height), depth(depth),
-        cx(cx), cy(cy), cz(cz), radius(radius),
-        sliceData(width * height)
+public:
+    virtual Grid::size_type slicesHint() const
+    {
+        return 11; // a non power-of-two to make sure that works
+    }
+
+    virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
+    {
+        // We use a zStride to height + 1 instead of the usual height, to check
+        // that it is applies correctly.
+        return cl::Image2D(context, CL_MEM_READ_ONLY, cl::ImageFormat(CL_R, CL_FLOAT),
+                           width, (height + 1) * depth);
+    }
+
+    virtual void enqueue(
+        const cl::CommandQueue &queue,
+        const cl::Image2D &distance,
+        const Grid::size_type size[3],
+        Grid::size_type zFirst, Grid::size_type zLast,
+        Grid::size_type &zStride,
+        const std::vector<cl::Event> *events,
+        cl::Event *event)
+    {
+        zStride = size[1] + 1; // see comment in allocateSlices
+        CPPUNIT_ASSERT(0 < size[0]);
+        CPPUNIT_ASSERT(0 < size[1]);
+        CPPUNIT_ASSERT(0 < size[2]);
+        CPPUNIT_ASSERT(size[0] <= maxWidth);
+        CPPUNIT_ASSERT(size[1] <= maxHeight);
+        CPPUNIT_ASSERT(size[2] <= maxDepth);
+        CPPUNIT_ASSERT(zFirst < zLast && zLast <= size[2]);
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= size[0]);
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst));
+
+        std::vector<cl::Event> wait;
+        cl::Event last;
+        if (events != NULL)
+            wait = *events;
+
+        for (cl_uint z = zFirst; z < zLast; z++)
+        {
+            for (cl_uint y = 0; y < size[1]; y++)
+                for (cl_uint x = 0; x < size[0]; x++)
+                {
+                    sliceData[y * size[0] + x] = generate(x, y, z);
+                }
+
+            cl::size_t<3> origin, region;
+            origin[0] = 0; origin[1] = zStride * (z - zFirst); origin[2] = 0;
+            region[0] = size[0]; region[1] = size[1]; region[2] = 1;
+            queue.enqueueWriteImage(distance, CL_FALSE, origin, region,
+                                    size[0] * sizeof(float), 0, &sliceData[0],
+                                    &wait, &last);
+            wait.resize(1);
+            wait[0] = last;
+        }
+        if (event != NULL)
+            *event = last;
+    }
+};
+
+
+/**
+ * Function object to model a signed distance from a sphere.
+ */
+class SphereGenerator : public HostGenerator
+{
+private:
+    float cx, cy, cz;
+    float radius;
+
+protected:
+    virtual cl_float generate(cl_uint x, cl_uint y, cl_int z) const
+    {
+        cl_float d = std::sqrt((x - cx) * (x - cx) + (y - cx) * (y - cy) + (z - cz) * (z - cz));
+        return d - radius;
+    }
+
+public:
+    SphereGenerator(
+        const cl::Context &context,
+        Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+        float cx, float cy, float cz, float radius)
+        : HostGenerator(context, maxWidth, maxHeight, maxDepth),
+        cx(cx), cy(cy), cz(cz), radius(radius)
     {
     }
 };
 
 /**
- * Function object that alternates positive and negative on every cell.
+ * Signed distance generator that alternates positive and negative on every cell.
  */
-class AlternatingFunc
+class AlternatingGenerator : public HostGenerator
 {
-private:
-    std::size_t width, height;
-    vector<float> sliceData;
-
-public:
-    void operator()(const cl::CommandQueue &queue, const cl::Image2D &slice,
-                    cl_uint z,
-                    const std::vector<cl::Event> *events,
-                    cl::Event *event)
+protected:
+    virtual cl_float generate(cl_uint x, cl_uint y, cl_int z) const
     {
-        for (cl_uint y = 0; y < height; y++)
-            for (cl_uint x = 0; x < width; x++)
-            {
-                sliceData[y * width + x] = ((x ^ y ^ z) & 1) ? 1.0f : -1.0f;
-            }
-
-        cl::size_t<3> origin, region;
-        origin[0] = 0; origin[1] = 0; origin[2] = 0;
-        region[0] = width; region[1] = height; region[2] = 1;
-        queue.enqueueWriteImage(slice, CL_FALSE, origin, region, width * sizeof(float), 0, &sliceData[0],
-                                events, event);
+        return ((x ^ y ^ z) & 1) ? 1.0f : -1.0f;
     }
 
-    AlternatingFunc(std::size_t width, std::size_t height)
-        : width(width), height(height), sliceData(width * height)
+public:
+    AlternatingGenerator(
+        const cl::Context &context,
+        Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth)
+        : HostGenerator(context, maxWidth, maxHeight, maxDepth)
     {
     }
 };
@@ -165,9 +223,9 @@ private:
      * and write it to file.
      */
     void testGenerate(
-        std::size_t maxWidth, std::size_t maxHeight,
-        std::size_t width, std::size_t height, std::size_t depth,
-        const Marching::InputFunctor &input, const std::string &filename);
+        Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+        Grid::size_type width, Grid::size_type height, Grid::size_type depth,
+        Marching::Generator &generator, const std::string &filename);
 
     void testConstructor();     ///< Basic sanity tests on the tables
     void testComputeKey();      ///< Test @ref computeKey helper function
@@ -199,7 +257,8 @@ cl::Buffer TestMarching::vectorToBuffer(cl_mem_flags flags, const vector<T> &v)
 
 void TestMarching::testConstructor()
 {
-    Marching marching(context, device, 2, 2);
+    AlternatingGenerator generator(context, 2, 2, 2);
+    Marching marching(context, device, generator, 2, 2, 2);
 
     vector<cl_uchar2> countTable = bufferToVector<cl_uchar2>(marching.countTable);
     vector<cl_ushort2> startTable = bufferToVector<cl_ushort2>(marching.startTable);
@@ -348,7 +407,8 @@ void TestMarching::testCompactVertices()
         inVertices[i].s[3] = uintAsFloat(ids[i]);
     }
 
-    Marching marching(context, device, 2, 2);
+    AlternatingGenerator generator(context, 2, 2, 2);
+    Marching marching(context, device, generator, 2, 2, 2);
     callCompactVertices(marching.compactVerticesKernel, 3, 5,
                         outVertices, outKeys, indexRemap, firstExternal,
                         vertexUnique, inVertices, inKeys, 200);
@@ -404,22 +464,22 @@ void TestMarching::testCompactVertices()
 }
 
 void TestMarching::testGenerate(
-    std::size_t maxWidth, std::size_t maxHeight,
-    std::size_t width, std::size_t height, std::size_t depth,
-    const Marching::InputFunctor &input,
+    Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+    Grid::size_type width, Grid::size_type height, Grid::size_type depth,
+    Marching::Generator &generator,
     const std::string &filename)
 {
     Grid::size_type size[3] = { width, height, depth };
 
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    Marching marching(context, device, maxWidth, maxHeight);
+    Marching marching(context, device, generator, maxWidth, maxHeight, maxDepth);
 
     /*** Pass 1: write to file ***/
 
     {
         FastPly::StreamWriter writer;
         StxxlMesher mesher(writer, TrivialNamer(filename));
-        marching.generate(queue, input, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
+        marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
         mesher.write();
     }
 
@@ -428,7 +488,7 @@ void TestMarching::testGenerate(
     {
         MemoryWriter writer;
         StxxlMesher mesher(writer, TrivialNamer(filename));
-        marching.generate(queue, input, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
+        marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
         mesher.write();
 
         const MemoryWriter::Output output = writer.getOutput(filename);
@@ -440,37 +500,40 @@ void TestMarching::testGenerate(
 
 void TestMarching::testSphere()
 {
-    const std::size_t maxWidth = 83;
-    const std::size_t maxHeight = 78;
-    const std::size_t width = 71;
-    const std::size_t height = 75;
-    const std::size_t depth = 60;
+    const Grid::size_type maxWidth = 83;
+    const Grid::size_type maxHeight = 78;
+    const Grid::size_type maxDepth = 66;
+    const Grid::size_type width = 71;
+    const Grid::size_type height = 75;
+    const Grid::size_type depth = 60;
 
-    SphereFunc input(width, height, depth, 30.0, 41.5, 27.75, 25.3);
-    testGenerate(maxWidth, maxHeight, width, height, depth,
-                 boost::ref(input), "sphere.ply");
+    SphereGenerator generator(context, maxWidth, maxHeight, maxDepth, 30.0, 41.5, 27.75, 25.3);
+    testGenerate(maxWidth, maxHeight, maxDepth, width, height, depth,
+                 generator, "sphere.ply");
 }
 
 void TestMarching::testTruncatedSphere()
 {
-    const std::size_t maxWidth = 83;
-    const std::size_t maxHeight = 78;
-    const std::size_t width = 71;
-    const std::size_t height = 75;
-    const std::size_t depth = 60;
+    const Grid::size_type maxWidth = 83;
+    const Grid::size_type maxHeight = 78;
+    const Grid::size_type maxDepth = 66;
+    const Grid::size_type width = 71;
+    const Grid::size_type height = 75;
+    const Grid::size_type depth = 60;
 
-    SphereFunc input(width, height, depth, 0.5f * width, 0.5f * height, 0.5f * depth, 42.0f);
-    testGenerate(maxWidth, maxHeight, width, height, depth,
-                 boost::ref(input), "tsphere.ply");
+    SphereGenerator generator(context, maxWidth, maxHeight, maxDepth,
+                              0.5f * width, 0.5f * height, 0.5f * depth, 42.0f);
+    testGenerate(maxWidth, maxHeight, maxDepth, width, height, depth,
+                 generator, "tsphere.ply");
 }
 
 void TestMarching::testAlternating()
 {
-    const std::size_t width = 32;
-    const std::size_t height = 32;
-    const std::size_t depth = 32;
+    const Grid::size_type width = 32;
+    const Grid::size_type height = 32;
+    const Grid::size_type depth = 32;
 
-    AlternatingFunc input(width, height);
-    testGenerate(width, height, width, height, depth,
-                 boost::ref(input), "alternating.ply");
+    AlternatingGenerator generator(context, width, height, depth);
+    testGenerate(width, height, depth, width, height, depth,
+                 generator, "alternating.ply");
 }
