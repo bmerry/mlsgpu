@@ -296,7 +296,7 @@ void processCorners(
             pos += MAX_BUCKET;
             if (pos >= end)
             {
-                pos = -2 - commands[end]; // TODO: no longer need sign encoding in octree (after measureBoundaries is modified)
+                pos = commands[end];
                 end = (pos >= 0) ? commands[pos++] : INT_MIN;
             }
 
@@ -413,7 +413,7 @@ void measureBoundaries(
 
             if (pos == end)
             {
-                pos = -2 - commands[pos];
+                pos = commands[pos];
                 if (pos < 0)
                     break;
                 end = commands[pos++];

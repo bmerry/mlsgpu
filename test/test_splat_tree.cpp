@@ -103,11 +103,11 @@ void TestSplatTree::testBuild()
                             foundSplats.insert(cmd);
                         }
                         command_type cmd = commands[end];
-                        CPPUNIT_ASSERT(cmd < 0);
+                        CPPUNIT_ASSERT(cmd >= -1);
                         if (cmd == -1)
                             break;
                         else
-                            pos = -2 - cmd;
+                            pos = cmd;
                     }
                     CPPUNIT_ASSERT(ttl > 0);
                 }
@@ -135,16 +135,14 @@ void TestSplatTree::testBuild()
                 }
             }
 
-    /* Check that no splat appears more than 8 times in the command list.
-     * TODO Currently this uses a quick-n-dirty heuristic to detect the special
-     * values.
-     */
+    /* Check that no splat appears more than 8 times in the command list. */
     map<unsigned int, int> repeats;
-    for (command_type i = 1; i <= maxPos; i++)
+    for (command_type i = 0; i <= maxPos; i++)
     {
-        command_type cmd = commands[i];
-        if (cmd >= 0 && commands[i - 1] >= 0)
+        command_type end = commands[i++];
+        while (i < end)
         {
+            command_type cmd = commands[i++];
             repeats[cmd]++;
             CPPUNIT_ASSERT(repeats[cmd] <= 8);
         }
@@ -211,12 +209,12 @@ void TestSplatTree::testRandom()
                             steps++;
                         }
                         command_type cmd = commands[end];
-                        CPPUNIT_ASSERT(cmd < 0);
+                        CPPUNIT_ASSERT(cmd >= -1);
                         if (cmd == -1)
                             break;
                         else
                         {
-                            pos = -2 - cmd;
+                            pos = cmd;
                             CPPUNIT_ASSERT(size_t(pos) < commands.size());
                         }
                     }

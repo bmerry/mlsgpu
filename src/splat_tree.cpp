@@ -229,7 +229,7 @@ void SplatTree::initialize()
             command_type up = start[level + 1][code >> 3];
             if (jumpPos[level][code] != -1)
             {
-                commands[jumpPos[level][code]] = up == -1 ? -1 : -2 - up;
+                commands[jumpPos[level][code]] = up;
                 commands[start[level][code]] = jumpPos[level][code];
             }
             else

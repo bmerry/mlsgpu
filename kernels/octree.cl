@@ -279,7 +279,7 @@ __kernel void writeStart(
     int prev = start[prevOffset + (code >> 3)];
     if (jp >= 0)
     {
-        commands[jp] = (prev == -1) ? -1 : -2 - prev;
+        commands[jp] = prev;
         commands[start[pos]] = jp;
     }
     else
