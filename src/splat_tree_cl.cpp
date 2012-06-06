@@ -42,6 +42,7 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     const std::tr1::uint64_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+    const std::size_t maxRanges = std::min(maxStart, std::tr1::uint64_t(8 * maxSplats));
 
     CLH::ResourceUsage ans;
 
@@ -51,8 +52,8 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     ans.addBuffer(maxStart * sizeof(command_type));
     // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     ans.addBuffer(maxStart * sizeof(command_type));
-    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 24 * sizeof(command_type));
-    ans.addBuffer(maxSplats * 24 * sizeof(command_type));
+    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
+    ans.addBuffer((maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
     // commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     ans.addBuffer(maxSplats * 8 * sizeof(command_type));
     // entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
@@ -79,11 +80,13 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
 
-    std::size_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+    const std::tr1::uint64_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+    const std::size_t maxRanges = std::min(maxStart, std::tr1::uint64_t(8 * maxSplats));
+
     // If this section is modified, remember to update deviceMemory above
     start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 24 * sizeof(command_type));
+    commands = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
     commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
