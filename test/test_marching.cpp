@@ -46,7 +46,7 @@ private:
     vector<float> sliceData;
 
 protected:
-    virtual cl_float generate(cl_uint x, cl_uint y, cl_int z) const = 0;
+    virtual cl_float generate(cl_uint x, cl_uint y, cl_uint z) const = 0;
 
     HostGenerator(
         const cl::Context &context,
@@ -129,7 +129,7 @@ private:
     float radius;
 
 protected:
-    virtual cl_float generate(cl_uint x, cl_uint y, cl_int z) const
+    virtual cl_float generate(cl_uint x, cl_uint y, cl_uint z) const
     {
         cl_float d = std::sqrt((x - cx) * (x - cx) + (y - cx) * (y - cy) + (z - cz) * (z - cz));
         return d - radius;
@@ -152,7 +152,7 @@ public:
 class AlternatingGenerator : public HostGenerator
 {
 protected:
-    virtual cl_float generate(cl_uint x, cl_uint y, cl_int z) const
+    virtual cl_float generate(cl_uint x, cl_uint y, cl_uint z) const
     {
         return ((x ^ y ^ z) & 1) ? 1.0f : -1.0f;
     }
