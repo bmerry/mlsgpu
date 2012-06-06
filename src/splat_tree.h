@@ -27,23 +27,23 @@ class TestSplatTree;
  * The octree is a complete octree (i.e. has information about all cells at
  * all levels of the hierarchy). It is encoded in several layers of indirection:
  * -# The splats themselves.
- * -# A <em>command buffer</em>. Each command in the buffer is either a non-negative
- *    splat ID (indexing the array of splats), or a stop command (-1), or a jump
- *    command: -2 - x indicates a jump to position x in the command buffer.
+ * -# A <em>command buffer</em>, consisting of a mix of splat indices and metadata.
+ *    The buffer is grouped into <em>ranges</em>. The last entry in the range is
+ *    either non-negative (indicating the absolute offset to the start of another
+ *    range), or is -1 to indicate a terminal range. The first entry in each range
+ *    contains the absolute index of the last entry in the range (which is the
+ *    jump/terminate). All other entries in the range are splat IDs. Ranges always
+ *    contain at least one splat ID.
  * -# A <em>start array</em>, indicating where to start in the command buffer for
  *    each leaf. If the leaf has no overlapping splats (at any level of the hierarchy)
  *    the start value will be -1.
  *
  * To find all splats overlapping a leaf, look up the start position in the start
- * array, then walk along the command buffer until seeing a -1. After a non-jump,
- * proceed to the next element of the command buffer.
+ * array, then process the linked list of ranges (linked by the jump index).
  *
  * The octree structure is thus hidden, but internally each cell in the octree
  * corresponds to a contiguous slice of the command buffer, which ends with a
  * jump to an ancestor.
- *
- * It is guaranteed that the target of any jump is a splat ID. This simplifies
- * walking code by removing the need to re-check for special cases after a jump.
  *
  * The leaves correspond to grid cells. Thus, a splat will be found if it intersects
  * any part of that cell. The boundary conditions are not formally defined, but

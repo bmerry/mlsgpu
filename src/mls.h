@@ -42,7 +42,7 @@ public:
 
 /**
  * Generates the signed distance from an MLS surface for a single slice.
- * It is designed to be usable with @ref Marching::InputFunctor.
+ * It is designed to be usable with @ref Marching.
  *
  * After constructing the object, the user must call @ref set to specify
  * the parameters. The parameters can be changed again later, and doing so
@@ -110,21 +110,31 @@ public:
      * number of cells that will be processed by marching cubes will be one @em less
      * than @a size in each dimension.
      *
-     * @param size, offset     Region of interest used to construct @a tree.
+     * @param offset           Offset between world coordinates and region-relative coordinates.
      * @param tree             Octree containing input splats.
      * @param subsamplingShift Subsampling shift passed when building @a tree.
      *
      * @pre
-     * - @a tree was constructed with the same @a size, @a offset and @a subsamplingShift.
+     * - @a tree was constructed with the same @a offset and @a subsamplingShift.
      */
     void set(const Grid::difference_type offset[3],
              const SplatTreeCL &tree, unsigned int subsamplingShift);
 
     virtual Grid::size_type slicesHint() const { return wgs[2]; }
 
+    /**
+     * @copydoc Marching::Generator::allocateSlices
+     *
+     * @note This implementation will round the allocation up to multiples of
+     * @ref wgs.
+     */
     virtual cl::Image2D allocateSlices(
         Grid::size_type width, Grid::size_type height, Grid::size_type depth) const;
 
+    /**
+     * @pre The tree passed to @ref set was constructed with dimensions at least
+     * equal to @a size rounded up to multiples of @ref wgs.
+     */
     virtual void enqueue(
         const cl::CommandQueue &queue,
         const cl::Image2D &distance,

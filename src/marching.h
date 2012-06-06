@@ -496,7 +496,7 @@ public:
      * surrounding isovalues are invariant.
      *
      * @param queue          Command queue to enqueue the work to.
-     * @param generator      Generates the function (see @ref MarchingGenerator).
+     * @param generator      Generates the function (see @ref Generator).
      * @param output         Functor to receive chunks of output (see @ref OutputFunctor).
      * @param size           Number of vertices in each dimension to process.
      * @param keyOffset      XYZ values to add to vertex keys of external vertices.
