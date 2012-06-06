@@ -173,7 +173,7 @@ public:
          *      least @a size[0], @a size[1], (@a zLast - @a zFirst).
          * @post
          * - The signed distance for point (x, y, z) in the volume will be stored
-         *   in @a distance at coordinates x, y + z * zStride.
+         *   in @a distance at coordinates x, y + (z - zFirst) * zStride.
          * - @a zStride is at least @a size[1].
          */
         virtual void enqueue(

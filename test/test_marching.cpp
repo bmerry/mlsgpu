@@ -60,13 +60,13 @@ protected:
 public:
     virtual Grid::size_type slicesHint() const
     {
-        return 11; // a non power-of-two to make sure that works
+        return 5; // a non power-of-two to make sure that works
     }
 
     virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
     {
         // We use a zStride to height + 1 instead of the usual height, to check
-        // that it is applies correctly.
+        // that it is applied correctly.
         return cl::Image2D(context, CL_MEM_READ_ONLY, cl::ImageFormat(CL_R, CL_FLOAT),
                            width, (height + 1) * depth);
     }
