@@ -58,13 +58,17 @@ protected:
     }
 
 public:
-    virtual Grid::size_type slicesHint() const
+    virtual Grid::size_type maxSlices() const
     {
         return 11; // a non power-of-two to make sure that works
     }
 
     virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
     {
+        CPPUNIT_ASSERT(width > 0);
+        CPPUNIT_ASSERT(height > 0);
+        CPPUNIT_ASSERT(0 < depth && depth <= maxSlices());
+
         // We use a zStride to height + 1 instead of the usual height, to check
         // that it is applied correctly.
         return cl::Image2D(context, CL_MEM_READ_ONLY, cl::ImageFormat(CL_R, CL_FLOAT),
@@ -88,6 +92,7 @@ public:
         CPPUNIT_ASSERT(size[1] <= maxHeight);
         CPPUNIT_ASSERT(size[2] <= maxDepth);
         CPPUNIT_ASSERT(zFirst < zLast && zLast <= size[2]);
+        CPPUNIT_ASSERT(zLast - zFirst <= maxSlices());
         CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= size[0]);
         CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst));
 

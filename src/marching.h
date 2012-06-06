@@ -134,10 +134,10 @@ public:
         virtual ~Generator() {}
 
         /**
-         * Return the ideal number of slices this class would like to process at a
-         * time. This is just a hint, since there may not be that many available.
+         * Return the maximum number of slices this class can process at a
+         * time. It also indicates an alignment requirement (see @ref enqueue).
          */
-        virtual Grid::size_type slicesHint() const = 0;
+        virtual Grid::size_type maxSlices() const = 0;
 
         /**
          * Allocate storage for holding a range of slices. The image must allow
@@ -147,6 +147,8 @@ public:
          * The caller may choose to pad the image to a larger size if it
          * desires. This may be useful if it uses a fixed workgroup size which
          * would otherwise cause it to access outside the image dimensions.
+         *
+         * @pre @a depth &lt;= @ref maxSlices().
          *
          * @return An image of dimensions at least @a width by @a height * @a depth.
          */
@@ -168,10 +170,11 @@ public:
          *
          * @pre
          * - All elements of @a size are positive.
-         * - 0 &lt;= @a zFirst < @a zLast &lt;= @a size[2].
+         * - 0 &lt;= @a zFirst &lt; @a zLast &lt;= @a size[2].
          * - @a distance was allocated using @ref allocateSlices with dimensions at
          *      least @a size[0], @a size[1], (@a zLast - @a zFirst).
-         * - @a zFirst is a multiple of @ref slicesHint().
+         * - @a zFirst is a multiple of @ref maxSlices().
+         * - @a zLast &lt; @a zFirst + @ref maxSlices().
          * @post
          * - The signed distance for point (x, y, z) in the volume will be stored
          *   in @a distance at coordinates x, y + (z - zFirst) * zStride.
@@ -410,17 +413,18 @@ public:
      * memory allocated in buffers and images, but excludes all overheads for
      * fragmentation, alignment, parameters, programs, command buffers etc.
      *
-     * It does @em not account for the memory allocated for the slice data. For that
-     * you need to query the specific sub-class of @ref Generator.
-     *
      * @param device, maxWidth, maxHeight, maxDepth  Parameters that would be passed to the constructor.
+     * @param sliceUsage Resources required by the generator per call to
+     *                   <code>generator.allocateSlices(maxWidth, maxHeight, generator.maxSlices())</code>
+     *
      * @return The required resources.
      *
      * @pre @a maxWidth, @a maxHeight and @a maxDepth do not exceed @ref MAX_DIMENSION.
      */
     static CLH::ResourceUsage resourceUsage(
         const cl::Device &device,
-        Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth);
+        Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+        const CLH::ResourceUsage &sliceUsage);
 
     /**
      * The function type to pass to @ref generate for receiving output data.

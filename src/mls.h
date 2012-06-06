@@ -18,6 +18,7 @@
 #include "grid.h"
 #include "splat_tree_cl.h"
 #include "marching.h"
+#include "clh.h"
 
 class TestMls;
 
@@ -104,6 +105,12 @@ public:
     MlsFunctor(const cl::Context &context, MlsShape shape);
 
     /**
+     * Determines the resource usage of calling @ref allocateSlices, assuming a
+     * depth of @ref maxSlices().
+     */
+    static CLH::ResourceUsage sliceResourceUsage(Grid::size_type width, Grid::size_type height);
+
+    /**
      * Specify the parameters. This must be called before using this object as a functor.
      * The vertices that will be sampled by the functor are from
      * offset (inclusive) to offset + size (exclusive). Note that this means that the
@@ -120,7 +127,7 @@ public:
     void set(const Grid::difference_type offset[3],
              const SplatTreeCL &tree, unsigned int subsamplingShift);
 
-    virtual Grid::size_type slicesHint() const { return wgs[2]; }
+    virtual Grid::size_type maxSlices() const { return wgs[2]; }
 
     /**
      * @copydoc Marching::Generator::allocateSlices

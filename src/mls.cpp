@@ -79,6 +79,16 @@ void MlsFunctor::set(const Grid::difference_type offset[3],
     set(offset, tree.getSplats(), tree.getCommands(), tree.getStart(), subsamplingShift);
 }
 
+CLH::ResourceUsage MlsFunctor::sliceResourceUsage(Grid::size_type width, Grid::size_type height)
+{
+    width = roundUp(width, wgs[0]);
+    height = roundUp(height, wgs[1]);
+
+    CLH::ResourceUsage ans;
+    ans.addImage(width, height * wgs[2], sizeof(cl_float));
+    return ans;
+}
+
 cl::Image2D MlsFunctor::allocateSlices(
     Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
 {

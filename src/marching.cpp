@@ -246,8 +246,10 @@ std::tr1::uint64_t Marching::getMaxTriangles(Grid::size_type maxWidth, Grid::siz
     return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3);
 }
 
-CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device,
-                                           Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth)
+CLH::ResourceUsage Marching::resourceUsage(
+    const cl::Device &device,
+    Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+    const CLH::ResourceUsage &sliceUsage)
 {
     MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
@@ -255,7 +257,7 @@ CLH::ResourceUsage Marching::resourceUsage(const cl::Device &device,
     (void) device; // not currently used, but should be used to determine usage of clogs
     (void) maxDepth; // has no effect
 
-    CLH::ResourceUsage ans;
+    CLH::ResourceUsage ans = sliceUsage * 2;
 
     // The asserts above guarantee that these will not overflow
     const std::tr1::uint64_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
@@ -327,7 +329,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
-        backingImages[i] = generator.allocateSlices(maxWidth, maxHeight, generator.slicesHint());
+        backingImages[i] = generator.allocateSlices(maxWidth, maxHeight, generator.maxSlices());
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = sliceCells * MAX_CELL_VERTICES;
@@ -571,7 +573,7 @@ void Marching::generate(
     Slice sliceB = { backingImages[0], 0 };
     int nextBacking = 1;
 
-    Grid::size_type nSlices = std::min(depth, generator.slicesHint());
+    Grid::size_type nSlices = std::min(depth, generator.maxSlices());
     Grid::size_type zStride;
     generator.enqueue(queue, sliceB.image, size, 0, nSlices, zStride, events, &last);
 

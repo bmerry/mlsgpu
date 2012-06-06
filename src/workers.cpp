@@ -121,8 +121,10 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     Grid::size_type block = maxCells + 1;
     std::size_t maxVertices = Marching::getMaxVertices(block, block);
     std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
+    CLH::ResourceUsage sliceUsage =
+        MlsFunctor::sliceResourceUsage(block, block);
     CLH::ResourceUsage workerUsage;
-    workerUsage += Marching::resourceUsage(device, block, block, block);
+    workerUsage += Marching::resourceUsage(device, block, block, block, sliceUsage);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
     if (!keepBoundary)
         workerUsage += Clip::resourceUsage(device, maxVertices, maxTriangles);
