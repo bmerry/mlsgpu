@@ -60,7 +60,7 @@ protected:
 public:
     virtual Grid::size_type slicesHint() const
     {
-        return 5; // a non power-of-two to make sure that works
+        return 11; // a non power-of-two to make sure that works
     }
 
     virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
@@ -107,7 +107,7 @@ public:
             cl::size_t<3> origin, region;
             origin[0] = 0; origin[1] = zStride * (z - zFirst); origin[2] = 0;
             region[0] = size[0]; region[1] = size[1]; region[2] = 1;
-            queue.enqueueWriteImage(distance, CL_FALSE, origin, region,
+            queue.enqueueWriteImage(distance, CL_TRUE, origin, region,
                                     size[0] * sizeof(float), 0, &sliceData[0],
                                     &wait, &last);
             wait.resize(1);
