@@ -53,21 +53,30 @@ MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
 }
 
 void MlsFunctor::set(const Grid::difference_type offset[3],
-                     const SplatTreeCL &tree, unsigned int subsamplingShift)
+                     const cl::Buffer &splats,
+                     const cl::Buffer &commands,
+                     const cl::Buffer &start,
+                     unsigned int subsamplingShift)
 {
     cl_int3 offset3 = {{ offset[0], offset[1], offset[2] }};
 
-    kernel.setArg(1, tree.getSplats());
-    kernel.setArg(2, tree.getCommands());
-    kernel.setArg(3, tree.getStart());
+    kernel.setArg(1, splats);
+    kernel.setArg(2, commands);
+    kernel.setArg(3, start);
     kernel.setArg(4, 3 * subsamplingShift);
     kernel.setArg(5, offset3);
 
-    boundaryKernel.setArg(2, tree.getSplats());
-    boundaryKernel.setArg(3, tree.getCommands());
-    boundaryKernel.setArg(4, tree.getStart());
+    boundaryKernel.setArg(2, splats);
+    boundaryKernel.setArg(3, commands);
+    boundaryKernel.setArg(4, start);
     boundaryKernel.setArg(5, 3 * subsamplingShift);
     boundaryKernel.setArg(6, offset3);
+}
+
+void MlsFunctor::set(const Grid::difference_type offset[3],
+                     const SplatTreeCL &tree, unsigned int subsamplingShift)
+{
+    set(offset, tree.getSplats(), tree.getCommands(), tree.getStart(), subsamplingShift);
 }
 
 cl::Image2D MlsFunctor::allocateSlices(
@@ -96,14 +105,23 @@ void MlsFunctor::enqueue(
     MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);
     MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= height * (zLast - zFirst), std::length_error);
     MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
+    MLSGPU_ASSERT(zFirst % wgs[2] == 0, std::invalid_argument);
 
     kernel.setArg(0, distance);
     kernel.setArg(6, cl_int(zFirst));
     kernel.setArg(7, cl_int(height));
+
+    const std::size_t wgs3 = wgs[0] * wgs[1] * wgs[2];
+    const std::size_t blocks[3] =
+    {
+        width / wgs[0],
+        height / wgs[1],
+        divUp(zLast - zFirst, wgs[2])
+    };
     queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
-                               cl::NDRange(wgs[0] * wgs[1] * wgs[2], width / wgs[0], height / wgs[1]),
-                               cl::NDRange(wgs[0] * wgs[1] * wgs[2], 1, 1),
+                               cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
+                               cl::NDRange(wgs3, 1, 1),
                                events, event);
     zStride = height;
 }

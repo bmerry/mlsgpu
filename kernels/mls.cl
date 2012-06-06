@@ -237,10 +237,8 @@ inline float projectDistOriginPlane(const float4 params)
  * @param      zFirst      Z value of the first slice, in local region coordinates.
  * @param      zStride     Y pixels between stacked Z slices
  *
- * The global ID uses all three dimensions:
- * X: linear ID within the workgroup, turned into coordinates with @ref decode
- * Y: X position of the workgroup block
- * Z: Y position of the workgroup block
+ * The local ID is a one-dimension encoding of a 3D local ID (see @ref decode).
+ * The group ID specifies which of these 3D blocks we are processing.
  */
 KERNEL(WGS_X * WGS_Y * WGS_Z, 1, 1)
 void processCorners(
@@ -257,9 +255,9 @@ void processCorners(
     __local float4 lPositionRadius[MAX_BUCKET];
 
     int3 wid;  // position of one corner of the workgroup in region coordinates
-    wid.x = get_group_id(1) * WGS_X;
-    wid.y = get_group_id(2) * WGS_Y;
-    wid.z = zFirst;
+    wid.x = get_group_id(0) * WGS_X;
+    wid.y = get_group_id(1) * WGS_Y;
+    wid.z = zFirst + get_group_id(2) * WGS_Z;
     uint code = makeCode(wid) >> startShift;
     command_type pos = start[code];
 
@@ -352,7 +350,7 @@ void processCorners(
 
     int3 lid3 = decode(lid);
     int2 outCoord = wid.xy + lid3.xy;
-    outCoord.y += lid3.z * zStride;
+    outCoord.y += (get_group_id(2) * WGS_Z + lid3.z) * zStride;
     write_imagef(corners, outCoord, f);
 }
 
@@ -473,7 +471,7 @@ __kernel void testMakeCode(__global uint *out, int3 xyz)
     *out = makeCode(xyz);
 }
 
-__kernel void testDecode(__global int2 *out, uint code)
+__kernel void testDecode(__global int3 *out, uint code)
 {
     *out = decode(code);
 }

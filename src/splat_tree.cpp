@@ -178,13 +178,13 @@ void SplatTree::initialize()
     stable_sort(entries.begin(), entries.end());
 
     /* Determine memory requirements. Each distinct sort key requires
-     * a jump command (or a terminate command).
+     * a length and a jump command (or a terminate command).
      */
-    size_t numCommands = entries.size() + 1;
+    size_t numCommands = entries.size() + 2;
     for (size_t i = 1; i < entries.size(); i++)
     {
         if (entries[i].level != entries[i - 1].level || entries[i].code != entries[i - 1].code)
-            numCommands++;
+            numCommands += 2;
     }
 
     // Build command list, excluding jumps
@@ -205,6 +205,7 @@ void SplatTree::initialize()
             || entries[i].code != entries[i - 1].code)
         {
             start[entries[i].level][entries[i].code] = nextCommand;
+            nextCommand++;
         }
         commands[nextCommand++] = entries[i].splatId;
 
@@ -229,6 +230,7 @@ void SplatTree::initialize()
             if (jumpPos[level][code] != -1)
             {
                 commands[jumpPos[level][code]] = up == -1 ? -1 : -2 - up;
+                commands[start[level][code]] = jumpPos[level][code];
             }
             else
             {

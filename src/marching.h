@@ -171,6 +171,7 @@ public:
          * - 0 &lt;= @a zFirst < @a zLast &lt;= @a size[2].
          * - @a distance was allocated using @ref allocateSlices with dimensions at
          *      least @a size[0], @a size[1], (@a zLast - @a zFirst).
+         * - @a zFirst is a multiple of @ref slicesHint().
          * @post
          * - The signed distance for point (x, y, z) in the volume will be stored
          *   in @a distance at coordinates x, y + (z - zFirst) * zStride.

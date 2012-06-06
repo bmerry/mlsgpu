@@ -19,6 +19,8 @@
 #include "splat_tree_cl.h"
 #include "marching.h"
 
+class TestMls;
+
 /**
  * Shape to fit through a local set of splats.
  */
@@ -55,6 +57,8 @@ public:
 class MlsFunctor : public Marching::Generator
 {
 private:
+    friend class TestMls;
+
     /**
      * Context used by @ref allocateSlices.
      */
@@ -71,6 +75,16 @@ private:
      */
     mutable cl::Kernel boundaryKernel;
 
+    /**
+     * Specify the parameters. This is a private variant that
+     * does not require the buffers to be stored in a @ref SplatTreeCL, and
+     * is used for testing.
+     */
+    void set(const Grid::difference_type offset[3],
+             const cl::Buffer &splats,
+             const cl::Buffer &commands,
+             const cl::Buffer &start,
+             unsigned int subsamplingShift);
 public:
     /**
      * Work group size for @ref kernel.
