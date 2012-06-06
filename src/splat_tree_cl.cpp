@@ -51,8 +51,8 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     ans.addBuffer(maxStart * sizeof(command_type));
     // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     ans.addBuffer(maxStart * sizeof(command_type));
-    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
-    ans.addBuffer(maxSplats * 16 * sizeof(command_type));
+    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 24 * sizeof(command_type));
+    ans.addBuffer(maxSplats * 24 * sizeof(command_type));
     // commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     ans.addBuffer(maxSplats * 8 * sizeof(command_type));
     // entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
@@ -83,7 +83,7 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std:
     // If this section is modified, remember to update deviceMemory above
     start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
+    commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 24 * sizeof(command_type));
     commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
@@ -265,7 +265,8 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = sortEvent;
     enqueueCountCommands(queue, commandMap, entryKeys, numEntries, &wait, &countEvent);
     wait[0] = countEvent;
-    scan.enqueue(queue, commandMap, numEntries, NULL, &wait, &scanEvent);
+    const command_type scanOffset = 1; // make room for the first end pointer
+    scan.enqueue(queue, commandMap, numEntries, &scanOffset, &wait, &scanEvent);
     wait[0] = scanEvent;
     enqueueFill(queue, jumpPos, 0, numStart, (command_type) -1, &wait, &fillJumpPosEvent);
     wait[0] = fillJumpPosEvent;
