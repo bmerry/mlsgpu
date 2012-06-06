@@ -14,6 +14,7 @@
 
 #include <CL/cl.hpp>
 #include <stdexcept>
+#include <algorithm>
 #include <boost/math/constants/constants.hpp>
 #include "errors.h"
 #include "mls.h"
@@ -29,10 +30,14 @@ std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
 }
 
 const std::size_t MlsFunctor::wgs[3] = {8, 8, 8};
+const int MlsFunctor::subsamplingMin = 3; // must be at least log2 of highest wgs
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
     : context(context)
 {
+    // These would ideally be static assertions, but C++ doesn't allow that
+    MLSGPU_ASSERT((1U << subsamplingMin) >= *std::max_element(wgs, wgs + 3), std::length_error);
+
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
@@ -93,26 +98,14 @@ void MlsFunctor::enqueue(
     MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
 
     kernel.setArg(0, distance);
-
-    std::vector<cl::Event> wait;
-    cl::Event last;
-    if (events != NULL)
-        wait = *events;
-    for (Grid::size_type z = zFirst; z < zLast; z++)
-    {
-        kernel.setArg(6, cl_int(z));
-        kernel.setArg(7, cl_int((z - zFirst) * height));
-        queue.enqueueNDRangeKernel(kernel,
-                                   cl::NullRange,
-                                   cl::NDRange(wgs[0] * wgs[1], width / wgs[0], height / wgs[1]),
-                                   cl::NDRange(wgs[0] * wgs[1], 1, 1),
-                                   &wait, &last);
-        wait.resize(1);
-        wait[0] = last;
-    }
+    kernel.setArg(6, cl_int(zFirst));
+    kernel.setArg(7, cl_int(height));
+    queue.enqueueNDRangeKernel(kernel,
+                               cl::NullRange,
+                               cl::NDRange(wgs[0] * wgs[1] * wgs[2], width / wgs[0], height / wgs[1]),
+                               cl::NDRange(wgs[0] * wgs[1] * wgs[2], 1, 1),
+                               events, event);
     zStride = height;
-    if (event != NULL)
-        *event = last;
 }
 
 void MlsFunctor::setBoundaryLimit(float limit)

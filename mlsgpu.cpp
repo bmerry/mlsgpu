@@ -119,8 +119,8 @@ static void addAdvancedOptions(po::options_description &opts)
 {
     po::options_description advanced("Advanced options");
     advanced.add_options()
-        (Option::levels,       po::value<int>()->default_value(7), "Levels in octree")
-        (Option::subsampling,  po::value<int>()->default_value(2), "Subsampling of octree")
+        (Option::levels,       po::value<int>()->default_value(6), "Levels in octree")
+        (Option::subsampling,  po::value<int>()->default_value(3), "Subsampling of octree")
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(8000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")

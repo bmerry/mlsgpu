@@ -2,8 +2,9 @@
  * @file
  *
  * Required defines:
- * - WGS_X, WGS_Y
- * - USE_IMAGES
+ * - WGS_X, WGS_Y, WGS_Z
+ * - FIT_SPHERE (0 or 1)
+ * - FIT_PLANE (0 or 1)
  */
 
 /**
@@ -15,6 +16,9 @@
 #define RADIUS_CUTOFF 0.99f
 #define HITS_CUTOFF 4
 
+#if !defined(WGS_X) || !defined(WGS_Y) || !defined(WGS_Z)
+# error "WGS_X, WGS_Y and WGS_Z must all be defined"
+#endif
 #if !defined(FIT_PLANE) || (FIT_PLANE != 0 && FIT_PLANE != 1)
 # error "FIT_PLANE must be defined as 0 or 1"
 #endif
@@ -23,6 +27,15 @@
 #endif
 #if FIT_PLANE + FIT_SPHERE != 1
 # error "Exactly one of FIT_PLANE and FIT_SPHERE must be defined"
+#endif
+
+/**
+ * The number of workitems that cooperate to load splat IDs.
+ */
+#define MAX_BUCKET 256
+
+#if WGS_X * WGS_Y * WGS_Z < MAX_BUCKET
+# error "The workgroup must have at least MAX_BUCKET elements"
 #endif
 
 typedef int command_type;
@@ -121,22 +134,23 @@ inline uint makeCode(int3 xyz)
 }
 
 /**
- * Turns an index along a 2D space-filling curve into coordinates.
+ * Turns an index along a 3D space-filling curve into coordinates.
  *
- * The code consists of the bits of the x and y coordinates interleaved
- * (y major). It is thus more-or-less an inverse of @ref makeCode, but in 2D.
+ * The code consists of the bits of the x, y and z coordinates interleaved
+ * (z major). It is thus more-or-less an inverse of @ref makeCode.
  *
  * @todo Investigate computing this from a table instead.
  */
-inline int2 decode(uint code)
+inline int3 decode(uint code)
 {
-    int2 ans = (int2) (0, 0);
+    int3 ans = (int3) (0, 0, 0);
     uint scale = 1;
     while (code >= scale)
     {
         ans.x += code & scale;
         ans.y += (code >> 1) & scale;
-        code >>= 1;
+        ans.z += (code >> 2) & scale;
+        code >>= 2;
         scale <<= 1;
     }
     return ans;
@@ -211,76 +225,6 @@ inline float projectDistOriginPlane(const float4 params)
     return params.w;
 }
 
-float processCorner(command_type start, int3 coord,
-                    __global const Splat * restrict splats,
-                    __global const command_type * restrict commands)
-{
-    command_type pos = start;
-
-#if FIT_SPHERE
-    SphereFit fit;
-    sphereFitInit(&fit);
-#elif FIT_PLANE
-    PlaneFit fit;
-    planeFitInit(&fit);
-#else
-#error "Expected FIT_SPHERE or FIT_PLANE"
-#endif
-    while (true)
-    {
-        command_type cmd = commands[pos];
-        if (cmd < 0)
-        {
-            if (cmd == -1)
-                break;
-            pos = -2 - cmd;
-            cmd = commands[pos];
-        }
-
-        __global const Splat *splat = &splats[cmd];
-        float4 positionRadius = splat->positionRadius;
-        float3 p = positionRadius.xyz - convert_float3(coord);
-        float pp = dot3(p, p);
-        float d = pp * positionRadius.w; // .w is the inverse squared radius
-        if (d < RADIUS_CUTOFF)
-        {
-            float w = 1.0f - d;
-            w *= w; // raise to the 4th power
-            w *= w;
-            w *= splat->normalQuality.w;
-
-#if FIT_SPHERE
-            sphereFitAdd(&fit, w, p, pp, splat->normalQuality.xyz);
-#elif FIT_PLANE
-            planeFitAdd(&fit, w, p, splat->normalQuality.xyz);
-#else
-#error "Expected FIT_SPHERE or FIT_PLANE"
-#endif
-        }
-        pos++;
-    }
-
-    float ans;
-    if (fit.hits >= HITS_CUTOFF)
-    {
-#if FIT_SPHERE
-        float params[5];
-        fitSphere(&fit, params);
-        ans = projectDistOriginSphere(params);
-#elif FIT_PLANE
-        ans = projectDistOriginPlane(fitPlane(&fit));
-#else
-#error "Expected FIT_SPHERE or FIT_PLANE"
-#endif
-    }
-    else
-    {
-        ans = nan(0U);
-    }
-    return ans;
-}
-
-
 /**
  * Compute isovalues for all grid corners in a slice. Those with no defined
  * isovalue are assigned a value of NaN.
@@ -290,14 +234,15 @@ float processCorner(command_type start, int3 coord,
  * @param      commands, start Encoded octree for the region of interest.
  * @param      startShift  Subsampling shift for octree, times 3.
  * @param      offset      Difference between global grid coordinates and the local region of interest.
- * @param      z           Z value of the slice, in local region coordinates.
+ * @param      zFirst      Z value of the first slice, in local region coordinates.
+ * @param      zStride     Y pixels between stacked Z slices
  *
  * The global ID uses all three dimensions:
  * X: linear ID within the workgroup, turned into coordinates with @ref decode
  * Y: X position of the workgroup block
  * Z: Y position of the workgroup block
  */
-KERNEL(WGS_X * WGS_Y, 1, 1)
+KERNEL(WGS_X * WGS_Y * WGS_Z, 1, 1)
 void processCorners(
     __write_only image2d_t corners,
     __global const Splat * restrict splats,
@@ -305,26 +250,110 @@ void processCorners(
     __global const command_type * restrict start,
     uint startShift,
     int3 offset,
-    int z,
-    int zOffset)
+    int zFirst,
+    uint zStride)
 {
-    int3 gid;
-    gid.x = get_global_id(1) * WGS_X;
-    gid.y = get_global_id(2) * WGS_Y;
-    gid.xy += decode(get_global_id(0));
-    gid.z = z;
-    uint code = makeCode(gid) >> startShift;
-    command_type myStart = start[code];
+    __local command_type lSplatIds[MAX_BUCKET];
+    __local float4 lPositionRadius[MAX_BUCKET];
+
+    int3 wid;  // position of one corner of the workgroup in region coordinates
+    wid.x = get_group_id(1) * WGS_X;
+    wid.y = get_group_id(2) * WGS_Y;
+    wid.z = zFirst;
+    uint code = makeCode(wid) >> startShift;
+    command_type pos = start[code];
+
+    uint lid = get_local_id(0);
 
     float f = nan(0U);
-    if (myStart >= 0)
+
+    if (pos >= 0)
     {
-        int3 coord = gid + offset;
-        f = processCorner(myStart, coord, splats, commands);
+        float3 coord = convert_float3(wid + decode(lid) + offset);
+
+#if FIT_SPHERE
+        SphereFit fit;
+        sphereFitInit(&fit);
+#elif FIT_PLANE
+        PlaneFit fit;
+        planeFitInit(&fit);
+#else
+#error "Expected FIT_SPHERE or FIT_PLANE"
+#endif
+
+        command_type end = commands[pos++];
+        while (pos < end)
+        {
+            if (lid < MAX_BUCKET)
+            {
+                command_type lpos = pos + lid;
+                command_type mine = (lpos < end) ? commands[lpos] : -1;
+                lSplatIds[lid] = mine;
+                if (mine >= 0)
+                {
+                    lPositionRadius[lid] = splats[mine].positionRadius;
+                }
+            }
+
+            pos += MAX_BUCKET;
+            if (pos >= end)
+            {
+                pos = -2 - commands[end]; // TODO: no longer need sign encoding in octree (after measureBoundaries is modified)
+                end = (pos >= 0) ? commands[pos++] : INT_MIN;
+            }
+
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            for (int i = 0; i < MAX_BUCKET; i++)
+            {
+                command_type splatId = lSplatIds[i];
+                if (splatId < 0)
+                {
+                    break;
+                }
+
+                float4 positionRadius = lPositionRadius[i];
+                float3 p = positionRadius.xyz - coord;
+                float pp = dot3(p, p);
+                float d = pp * positionRadius.w; // .w is the inverse squared radius
+                if (d < RADIUS_CUTOFF)
+                {
+                    __global const Splat *splat = &splats[splatId];
+                    float w = 1.0f - d;
+                    w *= w; // raise to the 4th power
+                    w *= w;
+                    w *= splat->normalQuality.w;
+
+#if FIT_SPHERE
+                    sphereFitAdd(&fit, w, p, pp, splat->normalQuality.xyz);
+#elif FIT_PLANE
+                    planeFitAdd(&fit, w, p, splat->normalQuality.xyz);
+#else
+#error "Expected FIT_SPHERE or FIT_PLANE"
+#endif
+                }
+            }
+            barrier(CLK_LOCAL_MEM_FENCE);
+        }
+
+        if (fit.hits >= HITS_CUTOFF)
+        {
+#if FIT_SPHERE
+            float params[5];
+            fitSphere(&fit, params);
+            f = projectDistOriginSphere(params);
+#elif FIT_PLANE
+            f = projectDistOriginPlane(fitPlane(&fit));
+#else
+#error "Expected FIT_SPHERE or FIT_PLANE"
+#endif
+        }
     }
 
-    gid.y += zOffset;
-    write_imagef(corners, gid.xy, f);
+    int3 lid3 = decode(lid);
+    int2 outCoord = wid.xy + lid3.xy;
+    outCoord.y += lid3.z * zStride;
+    write_imagef(corners, outCoord, f);
 }
 
 /**
@@ -357,6 +386,7 @@ void measureBoundaries(
     if (myStart >= 0)
     {
         command_type pos = myStart;
+        pos++; // Skips over length. TODO: use length instead
         float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
         float sumWpp = 0.0f;
         float sumW = 0.0f;
@@ -369,6 +399,7 @@ void measureBoundaries(
                 if (cmd == -1)
                     break;
                 pos = -2 - cmd;
+                pos++; // Skips over length. TODO: use length instead
                 cmd = commands[pos];
             }
 

@@ -78,6 +78,11 @@ public:
     static const std::size_t wgs[3];
 
     /**
+     * Minimum subsampling for corresponding octree.
+     */
+    static const int subsamplingMin;
+
+    /**
      * Constructor. It compiles the kernel, so it can throw a compilation error.
      * @param context   The context in which the function operates.
      * @param shape     The shape to fit to the data.
