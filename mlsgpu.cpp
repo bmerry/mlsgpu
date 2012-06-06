@@ -558,9 +558,9 @@ static void validateOptions(const po::variables_map &vm)
         cerr << "Value of --levels must be in the range 1 to " << maxLevels << ".\n";
         exit(1);
     }
-    if (subsampling < 0)
+    if (subsampling < MlsFunctor::subsamplingMin)
     {
-        cerr << "Value of --subsampling must be non-negative.\n";
+        cerr << "Value of --subsampling must be at least " << MlsFunctor::subsamplingMin << ".\n";
         exit(1);
     }
     if (maxDeviceSplats < 1)

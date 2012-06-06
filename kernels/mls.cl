@@ -386,22 +386,14 @@ void measureBoundaries(
     if (myStart >= 0)
     {
         command_type pos = myStart;
-        pos++; // Skips over length. TODO: use length instead
+        command_type end = commands[pos++];
         float3 sumWp = (float3) (0.0f, 0.0f, 0.0f);
         float sumWpp = 0.0f;
         float sumW = 0.0f;
         uint hits = 0;
         while (true)
         {
-            command_type cmd = commands[pos];
-            if (cmd < 0)
-            {
-                if (cmd == -1)
-                    break;
-                pos = -2 - cmd;
-                pos++; // Skips over length. TODO: use length instead
-                cmd = commands[pos];
-            }
+            command_type cmd = commands[pos++];
 
             __global const Splat *splat = &splats[cmd];
             float4 positionRadius = splat->positionRadius;
@@ -420,7 +412,14 @@ void measureBoundaries(
                 sumW += w;
                 hits++;
             }
-            pos++;
+
+            if (pos == end)
+            {
+                pos = -2 - commands[pos];
+                if (pos < 0)
+                    break;
+                end = commands[pos++];
+            }
         }
         if (hits >= HITS_CUTOFF)
         {
