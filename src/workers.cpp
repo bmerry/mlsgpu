@@ -143,7 +143,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     owner(owner),
     key(device()),
     queue(context, device),
-    tree(context, levels, owner.maxSplats),
+    tree(context, device, levels, owner.maxSplats),
     input(context, shape),
     marching(context, device, input, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1),
     scaleBias(context)

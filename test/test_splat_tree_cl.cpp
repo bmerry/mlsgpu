@@ -85,7 +85,7 @@ void TestSplatTreeCL::build(
     int maxLevels, int subsamplingShift, std::size_t maxSplats,
     const Grid::size_type size[3], const Grid::difference_type offset[3])
 {
-    SplatTreeCL tree(context, maxLevels, maxSplats);
+    SplatTreeCL tree(context, device, maxLevels, maxSplats);
     std::vector<cl::Event> events(1);
     cl::Buffer splatBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                            splats.size() * sizeof(Splat), (void *) &splats[0]);

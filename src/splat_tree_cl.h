@@ -194,6 +194,7 @@ public:
      * buffers necessary, but does not populate them.
      *
      * @param context   OpenCL context used to create buffers, images etc.
+     * @param device    OpenCL device used to specialise kernels.
      * @param maxLevels Maximum number of octree levels (maximum dimension is 2^<sup>@a maxLevels - 1</sup>).
      * @param maxSplats Maximum number of splats supported.
      *
@@ -201,7 +202,8 @@ public:
      * - 1 <= @a maxLevels <= @ref MAX_LEVELS
      * - 1 <= @a maxSplats <= @ref MAX_SPLATS.
      */
-    SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats);
+    SplatTreeCL(const cl::Context &context, const cl::Device &device,
+                std::size_t maxLevels, std::size_t maxSplats);
 
     /**
      * Asynchronously builds the octree, discarding any previous contents.

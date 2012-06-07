@@ -257,7 +257,8 @@ cl::Context makeContext(const cl::Device &device)
 {
     const cl::Platform &platform = device.getInfo<CL_DEVICE_PLATFORM>();
     cl_context_properties props[3] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform(), 0};
-    return cl::Context(device.getInfo<CL_DEVICE_TYPE>(), props, contextCallback);
+    std::vector<cl::Device> devices(1, device);
+    return cl::Context(devices, props, contextCallback);
 }
 
 cl::Program build(const cl::Context &context, const std::vector<cl::Device> &devices,

@@ -72,10 +72,11 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     return ans;
 }
 
-SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)
+SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
+                         std::size_t maxLevels, std::size_t maxSplats)
     : maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
-    sort(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clogs::TYPE_UINT, clogs::TYPE_INT),
-    scan(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clogs::TYPE_UINT)
+    sort(context, device, clogs::TYPE_UINT, clogs::TYPE_INT),
+    scan(context, device, clogs::TYPE_UINT)
 {
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
