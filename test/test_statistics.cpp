@@ -421,8 +421,8 @@ void TestStatisticRegistry::testStream()
     CPPUNIT_ASSERT_EQUAL(std::string(
             "counter: 100\n"
             "stat0: [0]\n"
-            "stat1: 1 [1]\n"
-            "stat3: 4 +/- 2 [3]\n"), s.str());
+            "stat1: 1 : 1 [1]\n"
+            "stat3: 12 : 4 +/- 2 [3]\n"), s.str());
 }
 
 void TestStatisticRegistry::testIterate()

@@ -108,7 +108,7 @@ double Variable::getVariance() const
 void Variable::write(std::ostream &o) const
 {
     if (n >= 1)
-        o << sum / n << ' ';
+        o << sum << " : " << sum / n << ' ';
     if (n >= 2)
         o << "+/- " << std::sqrt(getVarianceUnlocked()) << ' ';
     o << "[" << n << "]";
