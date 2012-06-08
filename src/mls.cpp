@@ -20,6 +20,7 @@
 #include "mls.h"
 #include "clh.h"
 #include "misc.h"
+#include "statistics.h"
 
 std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
 {
@@ -33,7 +34,9 @@ const std::size_t MlsFunctor::wgs[3] = {8, 8, 8};
 const int MlsFunctor::subsamplingMin = 3; // must be at least log2 of highest wgs
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
-    : context(context)
+    : context(context),
+    kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.processCorners.time")),
+    boundaryKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.measureBoundaries.time"))
 {
     // These would ideally be static assertions, but C++ doesn't allow that
     MLSGPU_ASSERT((1U << subsamplingMin) >= *std::max_element(wgs, wgs + 3), std::length_error);
@@ -128,11 +131,16 @@ void MlsFunctor::enqueue(
         height / wgs[1],
         divUp(zLast - zFirst, wgs[2])
     };
+
+    cl::Event last;
     queue.enqueueNDRangeKernel(kernel,
                                cl::NullRange,
                                cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
                                cl::NDRange(wgs3, 1, 1),
-                               events, event);
+                               events, &last);
+    Statistics::timeEvent(last, kernelTime);
+    if (event != NULL)
+        *event = last;
     zStride = height;
 }
 
@@ -158,10 +166,15 @@ void MlsFunctor::operator()(
 
     boundaryKernel.setArg(0, distance);
     boundaryKernel.setArg(1, vertices);
+
+    cl::Event last;
     CLH::enqueueNDRangeKernelSplit(queue,
                                    boundaryKernel,
                                    cl::NullRange,
                                    cl::NDRange(numVertices),
                                    cl::NullRange,
-                                   events, event);
+                                   events, &last);
+    Statistics::timeEvent(last, boundaryKernelTime);
+    if (event != NULL)
+        *event = last;
 }

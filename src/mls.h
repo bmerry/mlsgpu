@@ -19,6 +19,7 @@
 #include "splat_tree_cl.h"
 #include "marching.h"
 #include "clh.h"
+#include "statistics.h"
 
 class TestMls;
 
@@ -75,6 +76,16 @@ private:
      * @todo See if @c mutable can be removed in future.
      */
     mutable cl::Kernel boundaryKernel;
+
+    /**
+     * Measures device time spent in @ref kernel.
+     */
+    Statistics::Variable &kernelTime;
+
+    /**
+     * Measures device time spent in @ref boundaryKernel.
+     */
+    Statistics::Variable &boundaryKernelTime;
 
     /**
      * Specify the parameters. This is a private variant that

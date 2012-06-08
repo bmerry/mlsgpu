@@ -142,7 +142,7 @@ DeviceWorkerGroupBase::Worker::Worker(
 :
     owner(owner),
     key(device()),
-    queue(context, device),
+    queue(context, device, CL_QUEUE_PROFILING_ENABLE),
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
     marching(context, device, input, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1),

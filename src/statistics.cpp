@@ -168,6 +168,8 @@ static void CL_CALLBACK timeEventCallback(cl_event event, cl_int event_command_e
     }
 
     double duration = 1e-9 * (values[1] - values[0]);
+    if (duration > 1.0)
+        Log::log[Log::debug] << values[0] << ' ' << values[1] << ' ' << duration << '\n';
     stat.add(duration);
 }
 

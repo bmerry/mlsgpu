@@ -15,10 +15,11 @@
 #include <utility>
 #include <boost/noncopyable.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <clogs/clogs.h>
 #include "splat_tree.h"
 #include "clh.h"
 #include "grid.h"
-#include "clogs/clogs.h"
+#include "statistics.h"
 
 /**
  * Concrete implementation of @ref SplatTree that stores the data
@@ -77,6 +78,21 @@ private:
     cl::Kernel writeStartKernel, writeStartTopKernel;
     cl::Kernel fillKernel;
     /** @} */
+
+    /**
+     * @name
+     * @{
+     * Statistics measuring time spent in each kernel.
+     */
+    Statistics::Variable &writeEntriesKernelTime;
+    Statistics::Variable &countCommandsKernelTime;
+    Statistics::Variable &writeSplatIdsKernelTime;
+    Statistics::Variable &writeStartKernelTime;
+    Statistics::Variable &writeStartTopKernelTime;
+    Statistics::Variable &fillKernelTime;
+    /**
+     * @}
+     */
 
     /**
      * @name
