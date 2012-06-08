@@ -6,6 +6,9 @@
  * Several types of statistics are supported:
  *  - Counters, which count the number of times an event occurs
  *  - Variables, which model a random variable and determine mean and standard deviation
+ *  - Peaks, which measure the highest value of some variable (useful for e.g. memory allocation)
+ *
+ * It also provides utility classes for interacting with timers.
  */
 
 #ifndef MLSGPU_STATISTICS_H
@@ -29,6 +32,11 @@
 class TestCounter;
 class TestVariable;
 class TestPeak;
+
+namespace cl
+{
+    class Event;
+};
 
 namespace Statistics
 {
@@ -225,6 +233,25 @@ public:
     /// Destructor that records the elapsed time
     ~Timer();
 };
+
+/**
+ * Requests that the timing statistics for an event be added to a timer statistic.
+ * This function operates asynchronously using an event callback, so the
+ * statistic must not be deleted until the event has definitely completed. However,
+ * the event does not need to be retained by the caller.
+ *
+ * If profiling was not enabled on the corresponding queue, no statistics are
+ * recorded. If some other error occurs, a warning is printed to the log, but
+ * no exception is thrown (this would be useless anyway, since it is undefined
+ * what thread the CL event callback is on).
+ *
+ * If the associated command did not complete successfully, a warning is printed
+ * to the log and the statistic is not updated.
+ *
+ * @param event   An enqueued (but not necessarily complete) event
+ * @param stat    Statistic to which the time will be added.
+ */
+void timeEvent(cl::Event event, Variable &stat);
 
 namespace detail
 {

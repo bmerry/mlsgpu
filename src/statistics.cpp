@@ -8,11 +8,17 @@
 # include <config.h>
 #endif
 
+#ifndef __CL_ENABLE_EXCEPTIONS
+# define __CL_ENABLE_EXCEPTIONS
+#endif
+
 #include <string>
 #include <stdexcept>
 #include <cmath>
 #include <boost/foreach.hpp>
+#include <CL/cl.hpp>
 #include "statistics.h"
+#include "logging.h"
 
 namespace Statistics
 {
@@ -127,6 +133,47 @@ Timer::Timer(Variable &stat)
 Timer::~Timer()
 {
     stat.add(getElapsed());
+}
+
+static void CL_CALLBACK timeEventCallback(cl_event event, cl_int event_command_exec_status, void *user_data)
+{
+    cl_int status;
+    const cl_profiling_info fields[2] =
+    {
+        CL_PROFILING_COMMAND_START,
+        CL_PROFILING_COMMAND_END
+    };
+    cl_ulong values[2];
+    Statistics::Variable &stat = *static_cast<Statistics::Variable *>(user_data);
+
+    if (event_command_exec_status != CL_COMPLETE)
+    {
+        Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
+        return;
+    }
+
+    for (unsigned int i = 0; i < 2; i++)
+    {
+        status = clGetEventProfilingInfo(event, fields[i], sizeof(values[i]), &values[i], NULL);
+        switch (status)
+        {
+        case CL_PROFILING_INFO_NOT_AVAILABLE:
+            return;
+        case CL_SUCCESS:
+            break;
+        default:
+            Log::log[Log::warn] << "Warning: Could not extract profiling information for " << stat.getName() << '\n';
+            return;
+        }
+    }
+
+    double duration = 1e-9 * (values[1] - values[0]);
+    stat.add(duration);
+}
+
+void timeEvent(cl::Event event, Variable &stat)
+{
+    event.setCallback(CL_COMPLETE, timeEventCallback, &stat);
 }
 
 Registry::Registry() : mutex()
