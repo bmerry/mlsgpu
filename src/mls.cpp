@@ -132,15 +132,12 @@ void MlsFunctor::enqueue(
         divUp(zLast - zFirst, wgs[2])
     };
 
-    cl::Event last;
-    queue.enqueueNDRangeKernel(kernel,
-                               cl::NullRange,
-                               cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
-                               cl::NDRange(wgs3, 1, 1),
-                               events, &last);
-    Statistics::timeEvent(last, kernelTime);
-    if (event != NULL)
-        *event = last;
+    CLH::enqueueNDRangeKernel(queue,
+                              kernel,
+                              cl::NullRange,
+                              cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
+                              cl::NDRange(wgs3, 1, 1),
+                              events, event, &kernelTime);
     zStride = height;
 }
 
@@ -167,14 +164,10 @@ void MlsFunctor::operator()(
     boundaryKernel.setArg(0, distance);
     boundaryKernel.setArg(1, vertices);
 
-    cl::Event last;
     CLH::enqueueNDRangeKernelSplit(queue,
                                    boundaryKernel,
                                    cl::NullRange,
                                    cl::NDRange(numVertices),
                                    cl::NullRange,
-                                   events, &last);
-    Statistics::timeEvent(last, boundaryKernelTime);
-    if (event != NULL)
-        *event = last;
+                                   events, event, &boundaryKernelTime);
 }

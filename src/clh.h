@@ -16,6 +16,11 @@
 #include <map>
 #include <CL/cl.hpp>
 
+namespace Statistics
+{
+    class Variable;
+}
+
 /// OpenCL helper functions
 namespace CLH
 {
@@ -355,6 +360,10 @@ cl_int enqueueCopyBuffer(
 /**
  * Extension of @c cl::CommandQueue::enqueueNDRangeKernel that allows the
  * number of work-items to be zero.
+ *
+ * @param queue      Queue to enqueue on
+ * @param kernel,offset,global,local,events,event As for @c cl::CommandQueue::enqueueNDRangeKernel
+ * @param stat       If non-NULL, the event time (if any) will be recorded in this statistic.
  */
 cl_int enqueueNDRangeKernel(
     const cl::CommandQueue &queue,
@@ -363,7 +372,8 @@ cl_int enqueueNDRangeKernel(
     const cl::NDRange &global,
     const cl::NDRange &local = cl::NullRange,
     const std::vector<cl::Event> *events = NULL,
-    cl::Event *event = NULL);
+    cl::Event *event = NULL,
+    Statistics::Variable *stat = NULL);
 
 /**
  * Extends kernel enqueuing by allowing the global size to not be a multiple of
@@ -380,6 +390,10 @@ cl_int enqueueNDRangeKernel(
  *
  * The provided @a local is used both as the preferred work group size for the
  * bulk of the work, and as an upper bound on work group size.
+ *
+ * @param queue      Queue to enqueue on
+ * @param kernel,offset,global,local,events,event As for @c cl::CommandQueue::enqueueNDRangeKernel
+ * @param stat       If non-NULL, the event time will be recorded in this statistic.
  */
 cl_int enqueueNDRangeKernelSplit(
     const cl::CommandQueue &queue,
@@ -388,7 +402,8 @@ cl_int enqueueNDRangeKernelSplit(
     const cl::NDRange &global,
     const cl::NDRange &local = cl::NullRange,
     const std::vector<cl::Event> *events = NULL,
-    cl::Event *event = NULL);
+    cl::Event *event = NULL,
+    Statistics::Variable *stat = NULL);
 
 } // namespace CLH
 

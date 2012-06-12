@@ -253,6 +253,18 @@ public:
 void timeEvent(cl::Event event, Variable &stat);
 
 /**
+ * Similar to @ref timeEvent, but requests that the combined time from multiple
+ * events is added to the statistic as a single data point.
+ *
+ * If there were problems retrieving the time for any of the events in the list,
+ * the entire list will be skipped.
+ *
+ * @param events  Enqueued (but not necessarily complete) events (can be empty)
+ * @param stat    Statistic to which the total time will be added.
+ */
+void timeEvents(const std::vector<cl::Event> &event, Variable &stat);
+
+/**
  * Ensure that the events registered using @ref timeEvent have had their
  * times extracted and recorded. This must only be called after the events
  * are guaranteed to have completed (e.g. by calling @c clFinish on the

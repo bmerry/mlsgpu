@@ -137,16 +137,12 @@ void SplatTreeCL::enqueueWriteEntries(
     writeEntriesKernel.setArg(5, (cl_uint) minShift);
     writeEntriesKernel.setArg(6, (cl_uint) maxShift);
 
-    cl::Event last;
     CLH::enqueueNDRangeKernel(queue,
                               writeEntriesKernel,
                               cl::NullRange,
                               cl::NDRange(numSplats),
                               cl::NullRange,
-                              events, &last);
-    Statistics::timeEvent(last, writeEntriesKernelTime);
-    if (event != NULL)
-        *event = last;
+                              events, event, &writeEntriesKernelTime);
 }
 
 void SplatTreeCL::enqueueCountCommands(
@@ -160,16 +156,12 @@ void SplatTreeCL::enqueueCountCommands(
     countCommandsKernel.setArg(0, indicator);
     countCommandsKernel.setArg(1, keys);
 
-    cl::Event last;
     CLH::enqueueNDRangeKernel(queue,
                               countCommandsKernel,
                               cl::NullRange,
                               cl::NDRange(numKeys - 1),
                               cl::NullRange,
-                              events, &last);
-    Statistics::timeEvent(last, countCommandsKernelTime);
-    if (event != NULL)
-        *event = last;
+                              events, event, &countCommandsKernelTime);
 }
 
 void SplatTreeCL::enqueueWriteSplatIds(
@@ -191,14 +183,10 @@ void SplatTreeCL::enqueueWriteSplatIds(
     writeSplatIdsKernel.setArg(4, keys);
     writeSplatIdsKernel.setArg(5, splatIds);
 
-    cl::Event last;
     CLH::enqueueNDRangeKernel(queue,
                               writeSplatIdsKernel,
                               cl::NullRange, cl::NDRange(numEntries), cl::NullRange,
-                              events, &last);
-    Statistics::timeEvent(last, writeSplatIdsKernelTime);
-    if (event != NULL)
-        *event = last;
+                              events, event, &writeSplatIdsKernelTime);
 }
 
 void SplatTreeCL::enqueueFill(
@@ -213,16 +201,12 @@ void SplatTreeCL::enqueueFill(
     fillKernel.setArg(0, buffer);
     fillKernel.setArg(1, value);
 
-    cl::Event last;
     CLH::enqueueNDRangeKernel(queue,
                               fillKernel,
                               cl::NDRange(offset),
                               cl::NDRange(elements),
                               cl::NullRange,
-                              events, &last);
-    Statistics::timeEvent(last, fillKernelTime);
-    if (event != NULL)
-        *event = last;
+                              events, event, &fillKernelTime);
 }
 
 void SplatTreeCL::enqueueWriteStart(
@@ -246,16 +230,12 @@ void SplatTreeCL::enqueueWriteStart(
     if (havePrev)
         kernel.setArg(4, prevOffset);
 
-    cl::Event last;
     CLH::enqueueNDRangeKernel(queue,
                               kernel,
                               cl::NullRange,
                               cl::NDRange(numCodes),
                               cl::NullRange,
-                              events, &last);
-    Statistics::timeEvent(last, time);
-    if (event != NULL)
-        *event = last;
+                              events, event, &time);
 }
 
 

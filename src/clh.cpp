@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include "clh.h"
 #include "logging.h"
+#include "statistics.h"
 
 namespace po = boost::program_options;
 
@@ -418,14 +419,22 @@ cl_int enqueueNDRangeKernel(
     const cl::NDRange &global,
     const cl::NDRange &local,
     const std::vector<cl::Event> *events,
-    cl::Event *event)
+    cl::Event *event,
+    Statistics::Variable *stat)
 {
     for (std::size_t i = 0; i < global.dimensions(); i++)
         if (static_cast<const std::size_t *>(global)[i] == 0)
         {
             return enqueueMarkerWithWaitList(queue, events, event);
         }
-    return queue.enqueueNDRangeKernel(kernel, offset, global, local, events, event);
+
+    cl::Event myEvent;
+    if (stat != NULL && event == NULL)
+        event = &myEvent;
+    int ret = queue.enqueueNDRangeKernel(kernel, offset, global, local, events, event);
+    if (stat != NULL && ret == CL_SUCCESS)
+        Statistics::timeEvent(*event, *stat);
+    return ret;
 }
 
 static cl::NDRange makeNDRange(cl_uint dimensions, const std::size_t *sizes)
@@ -448,7 +457,8 @@ cl_int enqueueNDRangeKernelSplit(
     const cl::NDRange &global,
     const cl::NDRange &local,
     const std::vector<cl::Event> *events,
-    cl::Event *event)
+    cl::Event *event,
+    Statistics::Variable *stat)
 {
     /* If no size given, pick a default.
      * TODO: get performance hint from CL_KERNEL_PREFERRED_KERNEL_WORK_GROUP_SIZE_MULTIPLE?
@@ -459,15 +469,15 @@ cl_int enqueueNDRangeKernelSplit(
         {
         case 1:
             return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
-                                             cl::NDRange(256), events, event);
+                                             cl::NDRange(256), events, event, stat);
         case 2:
             return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
-                                             cl::NDRange(16, 16), events, event);
+                                             cl::NDRange(16, 16), events, event, stat);
         case 3:
             return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
-                                             cl::NDRange(8, 8, 8), events, event);
+                                             cl::NDRange(8, 8, 8), events, event, stat);
         default:
-            return enqueueNDRangeKernel(queue, kernel, offset, global, local, events, event);
+            return enqueueNDRangeKernel(queue, kernel, offset, global, local, events, event, stat);
         }
     }
 
@@ -520,6 +530,9 @@ cl_int enqueueNDRangeKernelSplit(
                                        events, &wait.back());
         }
     }
+
+    if (stat != NULL)
+        Statistics::timeEvents(wait, *stat);
     return enqueueMarkerWithWaitList(queue, &wait, event);
 }
 

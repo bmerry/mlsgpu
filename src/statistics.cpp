@@ -139,11 +139,18 @@ Timer::~Timer()
 }
 
 
-static std::vector<std::pair<cl::Event, boost::reference_wrapper<Variable> > > savedEvents;
+static std::vector<std::pair<std::vector<cl::Event>, boost::reference_wrapper<Variable> > > savedEvents;
+
+void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
+{
+    if (!events.empty())
+        savedEvents.push_back(std::make_pair(events, boost::ref(stat)));
+}
 
 void timeEvent(cl::Event event, Variable &stat)
 {
-    savedEvents.push_back(std::make_pair(event, boost::ref(stat)));
+    std::vector<cl::Event> events(1, event);
+    timeEvents(events, stat);
 }
 
 void finalizeEventTimes()
@@ -156,39 +163,48 @@ void finalizeEventTimes()
 
     for (std::size_t i = 0; i < savedEvents.size(); i++)
     {
-        const cl::Event &event = savedEvents[i].first;
+        const std::vector<cl::Event> &events = savedEvents[i].first;
         Variable &stat = boost::unwrap_ref(savedEvents[i].second);
+        double total = 0.0;
+        bool good = true;
 
-        if (event.getInfo<CL_EVENT_COMMAND_EXECUTION_STATUS>() != CL_COMPLETE)
+        for (std::size_t j = 0; j < events.size() && good; j++)
         {
-            Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
-            continue;
-        }
-
-        cl_int status = CL_SUCCESS;
-        cl_ulong values[2];
-        for (unsigned int i = 0; i < 2 && status == CL_SUCCESS; i++)
-        {
-            status = clGetEventProfilingInfo(event(), fields[i], sizeof(values[i]), &values[i], NULL);
-            switch (status)
+            const cl::Event &event = events[j];
+            if (event.getInfo<CL_EVENT_COMMAND_EXECUTION_STATUS>() != CL_COMPLETE)
             {
-            case CL_PROFILING_INFO_NOT_AVAILABLE:
-                break;
-            case CL_SUCCESS:
-                break;
-            default:
-                Log::log[Log::warn] << "Warning: Could not extract profiling information for " << stat.getName() << '\n';
-                break;
+                Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
+                continue;
+            }
+
+            cl_int status;
+            cl_ulong values[2];
+            for (unsigned int i = 0; i < 2 && good; i++)
+            {
+                status = clGetEventProfilingInfo(event(), fields[i], sizeof(values[i]), &values[i], NULL);
+                switch (status)
+                {
+                case CL_PROFILING_INFO_NOT_AVAILABLE:
+                    good = false;
+                    break;
+                case CL_SUCCESS:
+                    break;
+                default:
+                    Log::log[Log::warn] << "Warning: Could not extract profiling information for " << stat.getName() << '\n';
+                    good = false;
+                    break;
+                }
+            }
+
+            if (good)
+            {
+                double duration = 1e-9 * (values[1] - values[0]);
+                total += duration;
             }
         }
 
-        if (status == CL_SUCCESS)
-        {
-            double duration = 1e-9 * (values[1] - values[0]);
-            if (duration > 1.0)
-                Log::log[Log::debug] << values[0] << ' ' << values[1] << ' ' << duration << '\n';
-            stat.add(duration);
-        }
+        if (good)
+            stat.add(total);
     }
     savedEvents.clear();
 }
