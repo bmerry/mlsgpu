@@ -471,6 +471,13 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         exit(1);
     }
     Grid grid = splats.getBoundingGrid();
+    for (unsigned int i = 0; i < 3; i++)
+        if (grid.numVertices(i) > Marching::MAX_GLOBAL_DIMENSION)
+        {
+            cerr << "The bounding box is too big (" << grid.numVertices(i) << " grid units).\n"
+                << "Perhaps you have used the wrong units for --fit-grid?\n";
+            exit(1);
+        }
 
     unsigned int chunkCells = 0;
     if (split)

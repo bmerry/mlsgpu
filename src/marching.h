@@ -87,6 +87,11 @@ public:
         /// Logarithm base 2 of @ref MAX_DIMENSION.
         MAX_DIMENSION_LOG2 = 13
     };
+    enum
+    {
+        /// Logarithm base 2 of @ref MAX_GLOBAL_DIMENSION.
+        MAX_GLOBAL_DIMENSION_LOG2 = KEY_AXIS_BITS - 1
+    };
 
     enum
     {
@@ -101,6 +106,15 @@ public:
          * current usage there is little point.
          */
         MAX_DIMENSION = 1U << MAX_DIMENSION_LOG2
+    };
+
+    enum
+    {
+        /**
+         * Maximum size that is legal for global coordinates (after biasing
+         * with an offset).
+         */
+        MAX_GLOBAL_DIMENSION = (1U << MAX_GLOBAL_DIMENSION_LOG2) - 1
     };
 
     enum
