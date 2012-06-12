@@ -19,6 +19,7 @@
 #include <utility>
 #include <boost/foreach.hpp>
 #include <boost/ref.hpp>
+#include <boost/thread/locks.hpp>
 #include <CL/cl.hpp>
 #include "statistics.h"
 #include "logging.h"
@@ -140,11 +141,15 @@ Timer::~Timer()
 
 
 static std::vector<std::pair<std::vector<cl::Event>, boost::reference_wrapper<Variable> > > savedEvents;
+static boost::mutex savedEventsMutex;
 
 void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
 {
     if (!events.empty())
+    {
+        boost::lock_guard<boost::mutex> lock(savedEventsMutex);
         savedEvents.push_back(std::make_pair(events, boost::ref(stat)));
+    }
 }
 
 void timeEvent(cl::Event event, Variable &stat)
@@ -155,6 +160,8 @@ void timeEvent(cl::Event event, Variable &stat)
 
 void finalizeEventTimes()
 {
+    boost::lock_guard<boost::mutex> lock(savedEventsMutex);
+
     const cl_profiling_info fields[2] =
     {
         CL_PROFILING_COMMAND_START,
