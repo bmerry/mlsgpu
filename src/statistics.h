@@ -38,6 +38,9 @@ namespace cl
     class Event;
 };
 
+/**
+ * Functions and classes for gathering statistics.
+ */
 namespace Statistics
 {
 
@@ -262,7 +265,7 @@ void timeEvent(cl::Event event, Variable &stat);
  * @param events  Enqueued (but not necessarily complete) events (can be empty)
  * @param stat    Statistic to which the total time will be added.
  */
-void timeEvents(const std::vector<cl::Event> &event, Variable &stat);
+void timeEvents(const std::vector<cl::Event> &events, Variable &stat);
 
 /**
  * Ensure that the events registered using @ref timeEvent have had their
