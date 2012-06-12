@@ -321,22 +321,22 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState);
 
-    HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid);
+    explicit HostBlock(FineBucketGroup &outGroup);
 
     /// Prepares for a pass
-    void start();
+    void start(const Grid &fullGrid);
 
     /// Ends a pass
     void stop();
 private:
     ChunkId curChunkId;
     FineBucketGroup &outGroup;
-    const Grid &fullGrid;
+    Grid fullGrid;
 };
 
 template<typename Splats>
-HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup, const Grid &fullGrid)
-: outGroup(outGroup), fullGrid(fullGrid)
+HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup)
+: outGroup(outGroup)
 {
 }
 
@@ -386,8 +386,9 @@ void HostBlock<Splats>::operator()(
 }
 
 template<typename Splats>
-void HostBlock<Splats>::start()
+void HostBlock<Splats>::start(const Grid &fullGrid)
 {
+    this->fullGrid = fullGrid;
     curChunkId = ChunkId();
     outGroup.producerStart(curChunkId);
 }
@@ -446,6 +447,17 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
     mesher->setPruneThreshold(pruneThreshold);
 
+    Log::log[Log::info] << "Initializing...\n";
+    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
+    DeviceWorkerGroup deviceWorkerGroup(
+        numDeviceThreads, numBucketThreads, mesherGroup,
+        devices, maxDeviceSplats, blockCells, levels, subsampling,
+        keepBoundary, boundaryLimit, shape);
+    FineBucketGroup fineBucketGroup(
+        numBucketThreads, 1, deviceWorkerGroup,
+        maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+    HostBlock<Splats> hostBlock(fineBucketGroup);
+
     Splats splats;
     prepareInputs(splats, vm, smooth);
     try
@@ -459,16 +471,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         exit(1);
     }
     Grid grid = splats.getBoundingGrid();
-
-    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
-    DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numBucketThreads, mesherGroup,
-        grid, devices, maxDeviceSplats, blockCells, levels, subsampling,
-        keepBoundary, boundaryLimit, shape);
-    FineBucketGroup fineBucketGroup(
-        numBucketThreads, 1, deviceWorkerGroup,
-        grid, maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-    HostBlock<Splats> hostBlock(fineBucketGroup, grid);
 
     unsigned int chunkCells = 0;
     if (split)
@@ -502,9 +504,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         fineBucketGroup.setProgress(&progress);
 
         // Start threads
-        hostBlock.start();
-        fineBucketGroup.start();
-        deviceWorkerGroup.start();
+        hostBlock.start(grid);
+        fineBucketGroup.start(grid);
+        deviceWorkerGroup.start(grid);
         mesherGroup.start();
 
         try

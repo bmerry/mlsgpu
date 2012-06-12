@@ -623,7 +623,7 @@ private:
     ProgressDisplay *progress;
     MesherGroup &outGroup;
 
-    const Grid fullGrid;
+    Grid fullGrid;
     const std::size_t maxSplats;
     const Grid::size_type maxCells;
     const int subsampling;
@@ -639,7 +639,6 @@ public:
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
      * @param spare              Number of work items to have available in the pool when all workers are busy.
      * @param outGroup           Downstream mesher group which receives output blocks.
-     * @param fullGrid           The overall bounding box grid.
      * @param devices            OpenCL context and device to run on, with associated contexts.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
@@ -652,7 +651,6 @@ public:
     DeviceWorkerGroup(
         std::size_t numWorkers, std::size_t spare,
         MesherGroup &outGroup,
-        const Grid &fullGrid,
         const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling, bool keepBoundary, float boundaryLimit,
@@ -664,6 +662,13 @@ public:
         const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, bool keepBoundary);
+
+    /**
+     * @copydoc WorkerGroupMulti::start
+     *
+     * @param fullGrid  The bounding box grid.
+     */
+    void start(const Grid &fullGrid);
 
     /**
      * Sets a progress display that will be updated by the number of cells
@@ -723,6 +728,7 @@ class FineBucketGroup :
     public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker, FineBucketGroup>
 {
 public:
+    typedef WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker, FineBucketGroup> Base;
     typedef FineBucketGroupBase::WorkItem WorkItem;
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }
@@ -730,16 +736,17 @@ public:
     FineBucketGroup(
         std::size_t numWorkers, std::size_t spare,
         DeviceWorkerGroup &outGroup,
-        const Grid &fullGrid,
         std::size_t maxCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
         std::size_t maxSplit);
 
+    void start(const Grid &fullGrid);
+
 private:
     DeviceWorkerGroup &outGroup;
 
-    const Grid fullGrid;
+    Grid fullGrid;
     std::size_t maxSplats;
     Grid::size_type maxCells;
     std::size_t maxSplit;

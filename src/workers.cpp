@@ -79,7 +79,6 @@ void MesherGroup::outputFunc(
 DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers, std::size_t spare,
     MesherGroup &outGroup,
-    const Grid &fullGrid,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, int subsampling, bool keepBoundary, float boundaryLimit,
@@ -90,7 +89,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
-    progress(NULL), outGroup(outGroup), fullGrid(fullGrid),
+    progress(NULL), outGroup(outGroup),
     maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
 {
     for (std::size_t i = 0; i < (numWorkers + spare) * devices.size(); i++)
@@ -110,6 +109,12 @@ DeviceWorkerGroup::DeviceWorkerGroup(
         const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
         addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit, shape));
     }
+}
+
+void DeviceWorkerGroup::start(const Grid &fullGrid)
+{
+    this->fullGrid = fullGrid;
+    this->Base::start();
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
@@ -159,13 +164,13 @@ DeviceWorkerGroupBase::Worker::Worker(
     }
 
     filterChain.addFilter(boost::ref(scaleBias));
-    scaleBias.setScaleBias(owner.fullGrid);
 }
 
 void DeviceWorkerGroupBase::Worker::start()
 {
     curChunkId = ChunkId();
     owner.outGroup.producerStart(curChunkId);
+    scaleBias.setScaleBias(owner.fullGrid);
 }
 
 void DeviceWorkerGroupBase::Worker::stop()
@@ -222,7 +227,6 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
 FineBucketGroup::FineBucketGroup(
     std::size_t numWorkers, std::size_t spare,
     DeviceWorkerGroup &outGroup,
-    const Grid &fullGrid,
     std::size_t maxCoarseSplats,
     std::size_t maxSplats,
     Grid::size_type maxCells,
@@ -234,7 +238,6 @@ FineBucketGroup::FineBucketGroup(
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.get")),
     outGroup(outGroup),
-    fullGrid(fullGrid),
     maxSplats(maxSplats),
     maxCells(maxCells),
     maxSplit(maxSplit),
@@ -250,6 +253,12 @@ FineBucketGroup::FineBucketGroup(
         item->splats.reserve(maxCoarseSplats);
         addPoolItem(item);
     }
+}
+
+void FineBucketGroup::start(const Grid &fullGrid)
+{
+    this->fullGrid = fullGrid;
+    this->Base::start();
 }
 
 FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner)
