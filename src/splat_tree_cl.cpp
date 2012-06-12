@@ -76,12 +76,12 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
 SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
                          std::size_t maxLevels, std::size_t maxSplats)
     :
-    writeEntriesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.writeEntries.time")),
-    countCommandsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.countCommands.time")),
-    writeSplatIdsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.writeSplatIds.time")),
-    writeStartKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.writeStart.time")),
-    writeStartTopKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.writeStartTop.time")),
-    fillKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.fill.time")),
+    writeEntriesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeEntries.time")),
+    countCommandsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.countCommands.time")),
+    writeSplatIdsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeSplatIds.time")),
+    writeStartKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeStart.time")),
+    writeStartTopKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeStartTop.time")),
+    fillKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.fill.time")),
     maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
     sort(context, device, clogs::TYPE_UINT, clogs::TYPE_INT),
     scan(context, device, clogs::TYPE_UINT)
