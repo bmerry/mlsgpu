@@ -355,6 +355,20 @@ private:
     cl::Kernel compactVerticesKernel;       ///< Kernel compiled from @ref compactVerticesKernel.
     cl::Kernel reindexKernel;               ///< Kernel compiled from @ref reindexKernel.
 
+    /**
+     * @name
+     * @{
+     * Statistics measuring time spent in kernels with corresponding names.
+     */
+    Statistics::Variable &countOccupiedKernelTime;
+    Statistics::Variable &compactKernelTime;
+    Statistics::Variable &countElementsKernelTime;
+    Statistics::Variable &generateElementsKernelTime;
+    Statistics::Variable &countUniqueVerticesKernelTime;
+    Statistics::Variable &compactVerticesKernelTime;
+    Statistics::Variable &reindexKernelTime;
+    /** @} */
+
     clogs::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
     clogs::Scan scanElements;               ///< Scanner to scan @ref viCount.
     clogs::Radixsort sortVertices;          ///< Sorts vertices by keys for welding.

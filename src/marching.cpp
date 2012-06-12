@@ -318,6 +318,13 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 :
     maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
     context(context),
+    countOccupiedKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countOccupied")),
+    compactKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.compact")),
+    countElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countElements")),
+    generateElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.generateElements")),
+    countUniqueVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countUniqueVertices")),
+    compactVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.compactVertices")),
+    reindexKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.reindex")),
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
@@ -407,11 +414,12 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
     countOccupiedKernel.setArg(2, sliceA.yOffset);
     countOccupiedKernel.setArg(3, sliceB.image);
     countOccupiedKernel.setArg(4, sliceB.yOffset);
-    queue.enqueueNDRangeKernel(countOccupiedKernel,
-                               cl::NullRange,
-                               cl::NDRange(width - 1, height - 1),
-                               cl::NullRange,
-                               events, &last);
+    CLH::enqueueNDRangeKernel(queue,
+                              countOccupiedKernel,
+                              cl::NullRange,
+                              cl::NDRange(width - 1, height - 1),
+                              cl::NullRange,
+                              events, &last, &countOccupiedKernelTime);
 
     std::vector<cl::Event> wait(1);
     wait[0] = last;
@@ -423,11 +431,12 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
                             &wait, NULL);
 
     // In parallel to the readback, do compaction
-    queue.enqueueNDRangeKernel(compactKernel,
-                               cl::NullRange,
-                               cl::NDRange(width - 1, height - 1),
-                               cl::NullRange,
-                               &wait, NULL);
+    CLH::enqueueNDRangeKernel(queue,
+                              compactKernel,
+                              cl::NullRange,
+                              cl::NDRange(width - 1, height - 1),
+                              cl::NullRange,
+                              &wait, NULL, &compactKernelTime);
 
     // Now obtain the number of compacted cells for subsequent steps
     queue.finish();
@@ -452,7 +461,7 @@ cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
                               cl::NullRange,
                               cl::NDRange(compacted),
                               cl::NullRange,
-                              events, &last);
+                              events, &last, &countElementsKernelTime);
     wait[0] = last;
 
     scanElements.enqueue(queue, viCount, compacted + 1, NULL, &wait, &last);
@@ -490,7 +499,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                               cl::NullRange,
                               cl::NDRange(sizes.s[0]),
                               cl::NullRange,
-                              &wait, &last);
+                              &wait, &last, &countUniqueVerticesKernelTime);
     wait[0] = last;
 
     scanUint.enqueue(queue, vertexUnique, sizes.s[0] + 1, NULL, &wait, &last);
@@ -515,7 +524,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                               cl::NullRange,
                               cl::NDRange(sizes.s[0]),
                               cl::NullRange,
-                              &wait, &last);
+                              &wait, &last, &compactVerticesKernelTime);
     wait[0] = last;
 
     queue.enqueueReadBuffer(firstExternal, CL_FALSE, 0, sizeof(cl_uint),
@@ -526,7 +535,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
                               cl::NullRange,
                               cl::NDRange(sizes.s[1]),
                               cl::NullRange,
-                              &wait, &last);
+                              &wait, &last, &reindexKernelTime);
     queue.finish(); // wait for readback of numWelded and firstExternal (TODO: overkill)
 
     DeviceKeyMesh outputMesh; // TODO: store buffers in this instead of copying references
@@ -640,7 +649,7 @@ void Marching::generate(
                                            cl::NullRange,
                                            cl::NDRange(compacted),
                                            cl::NDRange(wgsCompacted),
-                                           &wait, &last);
+                                           &wait, &last, &generateElementsKernelTime);
             wait.resize(1);
             wait[0] = last;
 
