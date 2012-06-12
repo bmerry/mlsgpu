@@ -434,118 +434,122 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
-    MesherBase::Namer namer;
-    if (split)
-        namer = ChunkNamer(out);
-    else
-        namer = TrivialNamer(out);
-
-    boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
-    writer->addComment("mlsgpu version: " + provenanceVersion());
-    writer->addComment("mlsgpu variant: " + provenanceVariant());
-    writer->addComment("mlsgpu options:" + makeOptions(vm));
-    boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
-    mesher->setPruneThreshold(pruneThreshold);
-
-    Log::log[Log::info] << "Initializing...\n";
-    MesherGroup mesherGroup(devices.size() * numDeviceThreads);
-    DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numBucketThreads, mesherGroup,
-        devices, maxDeviceSplats, blockCells, levels, subsampling,
-        keepBoundary, boundaryLimit, shape);
-    FineBucketGroup fineBucketGroup(
-        numBucketThreads, 1, deviceWorkerGroup,
-        maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-    HostBlock<Splats> hostBlock(fineBucketGroup);
-
-    Splats splats;
-    prepareInputs(splats, vm, smooth);
-    try
     {
-        Statistics::Timer timer("bbox.time");
-        splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
-    }
-    catch (std::length_error &e) // TODO: should be a subclass of runtime_error
-    {
-        cerr << "At least one input point is required.\n";
-        exit(1);
-    }
-    Grid grid = splats.getBoundingGrid();
-    for (unsigned int i = 0; i < 3; i++)
-        if (grid.numVertices(i) > Marching::MAX_GLOBAL_DIMENSION)
-        {
-            cerr << "The bounding box is too big (" << grid.numVertices(i) << " grid units).\n"
-                << "Perhaps you have used the wrong units for --fit-grid?\n";
-            exit(1);
-        }
+        Statistics::Timer grandTotalTimer("run.time");
 
-    unsigned int chunkCells = 0;
-    if (split)
-    {
-        /* Determine a chunk size from splitSize. We assume that a chunk will be
-         * sliced by an axis-aligned plane. This plane will cut each vertical and
-         * each diagonal edge ones, thus generating 2x^2 vertices. We then
-         * apply a fudge factor of 10 to account for the fact that the real
-         * world is not a simple plane, and will have walls, noise, etc, giving
-         * 20x^2 vertices.
-         *
-         * A manifold with genus 0 has two triangles per vertex; vertices take
-         * 12 bytes (3 floats) and triangles take 13 (count plus 3 uints in
-         * PLY), giving 38 bytes per vertex. So there are 760x^2 bytes.
-         */
-        chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
-        if (chunkCells == 0) chunkCells = 1;
-    }
+        MesherBase::Namer namer;
+        if (split)
+            namer = ChunkNamer(out);
+        else
+            namer = TrivialNamer(out);
 
-    for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
-    {
-        Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
-        ostringstream passName;
-        passName << "pass" << pass + 1 << ".time";
-        Statistics::Timer timer(passName.str());
+        boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
+        writer->addComment("mlsgpu version: " + provenanceVersion());
+        writer->addComment("mlsgpu variant: " + provenanceVariant());
+        writer->addComment("mlsgpu options:" + makeOptions(vm));
+        boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
+        mesher->setPruneThreshold(pruneThreshold);
 
-        ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+        Log::log[Log::info] << "Initializing...\n";
+        MesherGroup mesherGroup(devices.size() * numDeviceThreads);
+        DeviceWorkerGroup deviceWorkerGroup(
+            numDeviceThreads, numBucketThreads, mesherGroup,
+            devices, maxDeviceSplats, blockCells, levels, subsampling,
+            keepBoundary, boundaryLimit, shape);
+        FineBucketGroup fineBucketGroup(
+            numBucketThreads, 1, deviceWorkerGroup,
+            maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+        HostBlock<Splats> hostBlock(fineBucketGroup);
 
-        mesherGroup.setInputFunctor(mesher->functor(pass));
-        deviceWorkerGroup.setProgress(&progress);
-        fineBucketGroup.setProgress(&progress);
-
-        // Start threads
-        hostBlock.start(grid);
-        fineBucketGroup.start(grid);
-        deviceWorkerGroup.start(grid);
-        mesherGroup.start();
-
+        Splats splats;
+        prepareInputs(splats, vm, smooth);
         try
         {
-            Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
-                           boost::ref(hostBlock), &progress);
+            Statistics::Timer timer("bbox.time");
+            splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
         }
-        catch (...)
+        catch (std::length_error &e) // TODO: should be a subclass of runtime_error
         {
-            // This can't be handled using unwinding, because that would operate in
-            // the wrong order
+            cerr << "At least one input point is required.\n";
+            exit(1);
+        }
+        Grid grid = splats.getBoundingGrid();
+        for (unsigned int i = 0; i < 3; i++)
+            if (grid.numVertices(i) > Marching::MAX_GLOBAL_DIMENSION)
+            {
+                cerr << "The bounding box is too big (" << grid.numVertices(i) << " grid units).\n"
+                    << "Perhaps you have used the wrong units for --fit-grid?\n";
+                exit(1);
+            }
+
+        unsigned int chunkCells = 0;
+        if (split)
+        {
+            /* Determine a chunk size from splitSize. We assume that a chunk will be
+             * sliced by an axis-aligned plane. This plane will cut each vertical and
+             * each diagonal edge ones, thus generating 2x^2 vertices. We then
+             * apply a fudge factor of 10 to account for the fact that the real
+             * world is not a simple plane, and will have walls, noise, etc, giving
+             * 20x^2 vertices.
+             *
+             * A manifold with genus 0 has two triangles per vertex; vertices take
+             * 12 bytes (3 floats) and triangles take 13 (count plus 3 uints in
+             * PLY), giving 38 bytes per vertex. So there are 760x^2 bytes.
+             */
+            chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
+            if (chunkCells == 0) chunkCells = 1;
+        }
+
+        for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
+        {
+            Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
+            ostringstream passName;
+            passName << "pass" << pass + 1 << ".time";
+            Statistics::Timer timer(passName.str());
+
+            ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+
+            mesherGroup.setInputFunctor(mesher->functor(pass));
+            deviceWorkerGroup.setProgress(&progress);
+            fineBucketGroup.setProgress(&progress);
+
+            // Start threads
+            hostBlock.start(grid);
+            fineBucketGroup.start(grid);
+            deviceWorkerGroup.start(grid);
+            mesherGroup.start();
+
+            try
+            {
+                Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
+                               boost::ref(hostBlock), &progress);
+            }
+            catch (...)
+            {
+                // This can't be handled using unwinding, because that would operate in
+                // the wrong order
+                hostBlock.stop();
+                fineBucketGroup.stop();
+                deviceWorkerGroup.stop();
+                mesherGroup.stop();
+                throw;
+            }
+
+            /* Shut down threads. Note that it has to be done in forward order to
+             * satisfy the requirement that stop() is only called after producers
+             * are terminated.
+             */
             hostBlock.stop();
             fineBucketGroup.stop();
             deviceWorkerGroup.stop();
             mesherGroup.stop();
-            throw;
         }
 
-        /* Shut down threads. Note that it has to be done in forward order to
-         * satisfy the requirement that stop() is only called after producers
-         * are terminated.
-         */
-        hostBlock.stop();
-        fineBucketGroup.stop();
-        deviceWorkerGroup.stop();
-        mesherGroup.stop();
-    }
-
-    {
-        Statistics::Timer timer("finalize.time");
-        mesher->write(&Log::log[Log::info]);
-    }
+        {
+            Statistics::Timer timer("finalize.time");
+            mesher->write(&Log::log[Log::info]);
+        }
+    } // ends scope for grandTotalTimer
 
     Statistics::finalizeEventTimes();
     writeStatistics(vm);
