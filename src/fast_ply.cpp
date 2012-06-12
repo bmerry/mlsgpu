@@ -23,6 +23,7 @@
 #include <boost/iostreams/stream.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/foreach.hpp>
+#include <boost/exception/all.hpp>
 #include "fast_ply.h"
 #include "splat.h"
 #include "errors.h"
@@ -76,7 +77,7 @@ static FieldType parseType(const std::string &t) throw(FormatError)
     else if (t == "uint32" || t == "uint") return UINT32;
     else if (t == "float32" || t == "float") return FLOAT32;
     else if (t == "float64") return FLOAT64;
-    else throw FormatError("Unknown type `" + t + "'");
+    else throw boost::enable_error_info(FormatError("Unknown type `" + t + "'"));
 }
 
 static Reader::size_type fieldSize(const FieldType f)
@@ -119,7 +120,7 @@ static std::string getHeaderLine(std::istream &in) throw(FormatError)
     catch (std::ios::failure &e)
     {
         if (in.eof())
-            throw FormatError("End of file in PLY header");
+            throw boost::enable_error_info(FormatError("End of file in PLY header"));
         else
             throw;
     }
@@ -157,7 +158,7 @@ void Reader::readHeader(std::istream &in)
     in.exceptions(std::ios::failbit);
     std::string line = getHeaderLine(in);
     if (line != "ply")
-        throw FormatError("PLY signature missing");
+        throw boost::enable_error_info(FormatError("PLY signature missing"));
 
     // read the header
     bool haveFormat = false;
@@ -174,34 +175,34 @@ void Reader::readHeader(std::istream &in)
         else if (tokens[0] == "format")
         {
             if (tokens.size() != 3)
-                throw FormatError("Malformed format line");
+                throw boost::enable_error_info(FormatError("Malformed format line"));
 
             if (tokens[1] == "ascii")
-                throw FormatError("PLY ASCII format not supported");
+                throw boost::enable_error_info(FormatError("PLY ASCII format not supported"));
             else if (tokens[1] == "binary_big_endian")
             {
                 if (!cpuBigEndian())
-                    throw FormatError("PLY big endian format not supported on this CPU");
+                    throw boost::enable_error_info(FormatError("PLY big endian format not supported on this CPU"));
             }
             else if (tokens[1] == "binary_little_endian")
             {
                 if (!cpuLittleEndian())
-                    throw FormatError("PLY little endian format not supported on this CPU");
+                    throw boost::enable_error_info(FormatError("PLY little endian format not supported on this CPU"));
             }
             else
             {
-                throw FormatError("Unknown PLY format " + tokens[1]);
+                throw boost::enable_error_info(FormatError("Unknown PLY format " + tokens[1]));
             }
 
             if (tokens[2] != "1.0")
-                throw FormatError("Unknown PLY version " + tokens[2]);
+                throw boost::enable_error_info(FormatError("Unknown PLY version " + tokens[2]));
 
             haveFormat = true;
         }
         else if (tokens[0] == "element")
         {
             if (tokens.size() != 3)
-                throw FormatError("Malformed element line");
+                throw boost::enable_error_info(FormatError("Malformed element line"));
             std::string elementName = tokens[1];
             size_type elementCount;
             try
@@ -210,14 +211,14 @@ void Reader::readHeader(std::istream &in)
             }
             catch (boost::bad_lexical_cast &e)
             {
-                throw FormatError("Malformed element line or too many elements");
+                throw boost::enable_error_info(FormatError("Malformed element line or too many elements"));
             }
 
             if (elements == 0)
             {
                 /* Expect the vertex element */
                 if (elementName != "vertex")
-                    throw FormatError("First element is not vertex");
+                    throw boost::enable_error_info(FormatError("First element is not vertex"));
                 vertexCount = elementCount;
             }
             elements++;
@@ -225,7 +226,7 @@ void Reader::readHeader(std::istream &in)
         else if (tokens[0] == "property")
         {
             if (tokens.size() < 3)
-                throw FormatError("Malformed property line");
+                throw boost::enable_error_info(FormatError("Malformed property line"));
             bool isList;
             FieldType lengthType, valueType;
             std::string name;
@@ -233,18 +234,18 @@ void Reader::readHeader(std::istream &in)
             if (tokens[1] == "list")
             {
                 if (tokens.size() != 5)
-                    throw FormatError("Malformed property line");
+                    throw boost::enable_error_info(FormatError("Malformed property line"));
                 isList = true;
                 lengthType = parseType(tokens[2]);
                 valueType = parseType(tokens[3]);
                 if (lengthType == FLOAT32 || lengthType == FLOAT64)
-                    throw FormatError("List cannot have floating-point count");
+                    throw boost::enable_error_info(FormatError("List cannot have floating-point count"));
                 name = tokens[4];
             }
             else
             {
                 if (tokens.size() != 3)
-                    throw FormatError("Malformed property line");
+                    throw boost::enable_error_info(FormatError("Malformed property line"));
                 isList = false;
                 lengthType = INT32; // unused, just to avoid undefined values
                 valueType = parseType(tokens[1]);
@@ -252,20 +253,20 @@ void Reader::readHeader(std::istream &in)
             }
 
             if (elements == 0)
-                throw FormatError("Property `" + name + "' appears before any element declaration");
+                throw boost::enable_error_info(FormatError("Property `" + name + "' appears before any element declaration"));
             if (elements == 1)
             {
                 /* Vertex element - match it up to the expected fields */
                 if (isList)
-                    throw FormatError("Lists in a vertex are not supported");
+                    throw boost::enable_error_info(FormatError("Lists in a vertex are not supported"));
                 for (unsigned int i = 0; i < numProperties; i++)
                 {
                     if (name == propertyNames[i])
                     {
                         if (haveProperty[i])
-                            throw FormatError("Duplicate property " + name);
+                            throw boost::enable_error_info(FormatError("Duplicate property " + name));
                         if (valueType != FLOAT32)
-                            throw FormatError("Property " + name + " must be FLOAT32");
+                            throw boost::enable_error_info(FormatError("Property " + name + " must be FLOAT32"));
                         haveProperty[i] = true;
                         offsets[i] = vertexSize;
                         break;
@@ -277,14 +278,14 @@ void Reader::readHeader(std::istream &in)
     }
 
     if (!haveFormat)
-        throw FormatError("No format line found");
+        throw boost::enable_error_info(FormatError("No format line found"));
 
     if (elements < 1)
-        throw FormatError("No elements found");
+        throw boost::enable_error_info(FormatError("No elements found"));
 
     for (unsigned int i = 0; i < numProperties; i++)
         if (!haveProperty[i])
-            throw FormatError(std::string("Property ") + propertyNames[i] + " not found");
+            throw boost::enable_error_info(FormatError(std::string("Property ") + propertyNames[i] + " not found"));
 }
 
 Reader::value_type * Reader::read(size_type first, size_type last, value_type *out, boost::true_type) const
@@ -310,19 +311,28 @@ Reader::value_type * Reader::read(size_type first, size_type last, value_type *o
 }
 
 Reader::Reader(const std::string &filename, float smooth = 1.0f)
-    : mapping(new boost::iostreams::mapped_file_source(filename)), filePtr(mapping->data())
 {
-    /* Note: we have to wrap the mapping in an array_source because otherwise
-     * the stream will close the mapping when it is destroyed.
-     */
-    boost::iostreams::array_source source(filePtr, mapping->size());
-    boost::iostreams::stream<boost::iostreams::array_source> in(source);
-    readHeader(in);
-    size_type offset = in.tellg();
-    vertexPtr = filePtr + offset;
-    if ((mapping->size() - offset) / vertexSize < vertexCount)
-        throw FormatError("File is too small to contain its vertices");
-    this->smooth = smooth;
+    try
+    {
+        mapping.reset(new boost::iostreams::mapped_file_source(filename));
+        filePtr = mapping->data();
+        /* Note: we have to wrap the mapping in an array_source because otherwise
+         * the stream will close the mapping when it is destroyed.
+         */
+        boost::iostreams::array_source source(filePtr, mapping->size());
+        boost::iostreams::stream<boost::iostreams::array_source> in(source);
+        readHeader(in);
+        size_type offset = in.tellg();
+        vertexPtr = filePtr + offset;
+        if ((mapping->size() - offset) / vertexSize < vertexCount)
+            throw boost::enable_error_info(FormatError("File is too small to contain its vertices"));
+        this->smooth = smooth;
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 Reader::Reader(const char *data, size_type size, float smooth)
@@ -334,7 +344,7 @@ Reader::Reader(const char *data, size_type size, float smooth)
     size_type offset = in.tellg();
     vertexPtr = filePtr + offset;
     if ((size - offset) / vertexSize < vertexCount)
-        throw FormatError("Input source is too small to contain its vertices");
+        throw boost::enable_error_info(FormatError("Input source is too small to contain its vertices"));
     this->smooth = smooth;
 }
 
@@ -491,6 +501,10 @@ bool MmapWriter::supportsOutOfOrder() const
 
 void StreamWriter::openCommon(const std::string &header)
 {
+    if (!*file)
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not open file"));
+    }
     file->exceptions(std::ios::failbit | std::ios::badbit);
     *file << header;
 
@@ -503,9 +517,17 @@ void StreamWriter::open(const std::string &filename)
 {
     MLSGPU_ASSERT(!isOpen(), state_error);
 
-    std::string header = makeHeader();
-    file.reset(new std::ofstream(filename.c_str(), std::ios::out | std::ios::binary));
-    openCommon(header);
+    try
+    {
+        std::string header = makeHeader();
+        file.reset(new std::ofstream(filename.c_str(), std::ios::out | std::ios::binary));
+        openCommon(header);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 std::pair<char *, StreamWriter::size_type> StreamWriter::open()

@@ -21,6 +21,7 @@
 #include <boost/array.hpp>
 #include <boost/progress.hpp>
 #include <boost/io/ios_state.hpp>
+#include <boost/exception/all.hpp>
 #include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
@@ -298,8 +299,9 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
     const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
     BOOST_FOREACH(const string &name, names)
     {
-        FastPly::Reader *reader = new FastPly::Reader(name, smooth);
-        files.addFile(reader);
+        std::auto_ptr<FastPly::Reader> reader(new FastPly::Reader(name, smooth));
+        files.addFile(reader.get());
+        reader.release();
     }
 }
 
@@ -664,6 +666,16 @@ static void validateDevice(const cl::Device &device, const CLH::ResourceUsage &t
     }
 }
 
+static void reportException(std::exception &e)
+{
+    cerr << '\n';
+
+    std::string *file_name = boost::get_error_info<boost::errinfo_file_name>(e);
+    if (file_name != NULL)
+        cerr << *file_name << ": ";
+    cerr << e.what() << std::endl;
+}
+
 int main(int argc, char **argv)
 {
     Log::log.setLevel(Log::debug);
@@ -713,9 +725,14 @@ int main(int argc, char **argv)
         cerr << "\nOpenCL error in " << e.what() << " (" << e.err() << ")\n";
         return 1;
     }
+    catch (std::ios::failure &e)
+    {
+        reportException(e);
+        return 1;
+    }
     catch (std::runtime_error &e)
     {
-        cerr << '\n' << e.what() << std::endl;
+        reportException(e);
         return 1;
     }
 
