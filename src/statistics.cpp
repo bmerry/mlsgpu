@@ -15,7 +15,10 @@
 #include <string>
 #include <stdexcept>
 #include <cmath>
+#include <vector>
+#include <utility>
 #include <boost/foreach.hpp>
+#include <boost/ref.hpp>
 #include <CL/cl.hpp>
 #include "statistics.h"
 #include "logging.h"
@@ -135,47 +138,59 @@ Timer::~Timer()
     stat.add(getElapsed());
 }
 
-static void CL_CALLBACK timeEventCallback(cl_event event, cl_int event_command_exec_status, void *user_data)
+
+static std::vector<std::pair<cl::Event, boost::reference_wrapper<Variable> > > savedEvents;
+
+void timeEvent(cl::Event event, Variable &stat)
 {
-    cl_int status;
+    savedEvents.push_back(std::make_pair(event, boost::ref(stat)));
+}
+
+void finalizeEventTimes()
+{
     const cl_profiling_info fields[2] =
     {
         CL_PROFILING_COMMAND_START,
         CL_PROFILING_COMMAND_END
     };
-    cl_ulong values[2];
-    Statistics::Variable &stat = *static_cast<Statistics::Variable *>(user_data);
 
-    if (event_command_exec_status != CL_COMPLETE)
+    for (std::size_t i = 0; i < savedEvents.size(); i++)
     {
-        Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
-        return;
-    }
+        const cl::Event &event = savedEvents[i].first;
+        Variable &stat = boost::unwrap_ref(savedEvents[i].second);
 
-    for (unsigned int i = 0; i < 2; i++)
-    {
-        status = clGetEventProfilingInfo(event, fields[i], sizeof(values[i]), &values[i], NULL);
-        switch (status)
+        if (event.getInfo<CL_EVENT_COMMAND_EXECUTION_STATUS>() != CL_COMPLETE)
         {
-        case CL_PROFILING_INFO_NOT_AVAILABLE:
-            return;
-        case CL_SUCCESS:
-            break;
-        default:
-            Log::log[Log::warn] << "Warning: Could not extract profiling information for " << stat.getName() << '\n';
-            return;
+            Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
+            continue;
+        }
+
+        cl_int status = CL_SUCCESS;
+        cl_ulong values[2];
+        for (unsigned int i = 0; i < 2 && status == CL_SUCCESS; i++)
+        {
+            status = clGetEventProfilingInfo(event(), fields[i], sizeof(values[i]), &values[i], NULL);
+            switch (status)
+            {
+            case CL_PROFILING_INFO_NOT_AVAILABLE:
+                break;
+            case CL_SUCCESS:
+                break;
+            default:
+                Log::log[Log::warn] << "Warning: Could not extract profiling information for " << stat.getName() << '\n';
+                break;
+            }
+        }
+
+        if (status == CL_SUCCESS)
+        {
+            double duration = 1e-9 * (values[1] - values[0]);
+            if (duration > 1.0)
+                Log::log[Log::debug] << values[0] << ' ' << values[1] << ' ' << duration << '\n';
+            stat.add(duration);
         }
     }
-
-    double duration = 1e-9 * (values[1] - values[0]);
-    if (duration > 1.0)
-        Log::log[Log::debug] << values[0] << ' ' << values[1] << ' ' << duration << '\n';
-    stat.add(duration);
-}
-
-void timeEvent(cl::Event event, Variable &stat)
-{
-    event.setCallback(CL_COMPLETE, timeEventCallback, &stat);
+    savedEvents.clear();
 }
 
 Registry::Registry() : mutex()

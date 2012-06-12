@@ -536,6 +536,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         mesher->write(&Log::log[Log::info]);
     }
 
+    Statistics::finalizeEventTimes();
     writeStatistics(vm);
 }
 
