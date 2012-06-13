@@ -28,6 +28,11 @@
 #include "splat.h"
 #include "errors.h"
 
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <errno.h>
+
 namespace FastPly
 {
 
@@ -438,6 +443,67 @@ ReaderBase::Handle *MemoryReader::createHandle(boost::shared_array<char> buffer,
     (void) buffer; // no buffer is used
     (void) bufferSize;
     return new MemoryHandle(*this, data);
+}
+
+
+SyscallReader::SyscallHandle::SyscallHandle(
+    const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
+: Handle(owner, buffer, bufferSize)
+{
+    fd = open(owner.filename.c_str(), O_RDONLY);
+    if (fd < 0)
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not open file"))
+            << boost::errinfo_errno(errno)
+            << boost::errinfo_file_name(owner.filename);
+    }
+}
+
+const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    std::size_t vertexSize = owner.getVertexSize();
+
+    ssize_t remain = vertexSize * (last - first);
+    char *ptr = buffer;
+    lseek(fd, static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize, SEEK_SET);
+
+    while (remain > 0)
+    {
+        ssize_t bytes = ::read(fd, (void *) ptr, remain);
+        if (bytes < 0)
+        {
+            if (errno == EAGAIN || errno == EINTR)
+                continue;
+            throw boost::enable_error_info(std::ios::failure("read failed"))
+                << boost::errinfo_errno(errno);
+        }
+        else if (bytes == 0)
+        {
+            throw boost::enable_error_info(std::ios::failure("unexpected end of file"));
+        }
+        else
+        {
+            ptr += bytes;
+            remain -= bytes;
+        }
+    }
+    return buffer;
+}
+
+SyscallReader::SyscallHandle::~SyscallHandle()
+{
+    close(fd);
+}
+
+SyscallReader::SyscallReader(const std::string &filename, float smooth)
+    : ReaderBase(filename, smooth), filename(filename)
+{
+}
+
+ReaderBase::Handle *SyscallReader::createHandle(
+    boost::shared_array<char> buffer, std::size_t bufferSize) const
+{
+    return new SyscallHandle(*this, buffer, bufferSize);
 }
 
 

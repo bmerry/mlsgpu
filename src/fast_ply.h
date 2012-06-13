@@ -242,6 +242,8 @@ protected:
      * If an exception is thrown, it will have the filename stored in it
      * using @c boost::errinfo_file_name.
      *
+     * @param filename         File to open.
+     * @param smooth           Scale factor applied to radii as they're read.
      * @throw FormatError if the header is malformed.
      * @throw std::ios::failure if there was an I/O error.
      */
@@ -293,11 +295,7 @@ private:
 
 public:
     /**
-     * Construct from a file.
-     * @param filename         File to open.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @throw std::ios_base::failure if the file could not be opened
-     * @throw FormatError if the file was malformed
+     * @copydoc ReaderBase::ReaderBase(const std::string &, float)
      */
     explicit MmapReader(const std::string &filename, float smooth);
 
@@ -354,6 +352,41 @@ public:
 
 private:
     const char *data;
+};
+
+/**
+ * Reader that uses @c read or equivalent OS-level functionality.
+ *
+ * @todo Port to Windows
+ */
+class SyscallReader : public ReaderBase
+{
+private:
+    class SyscallHandle : public ReaderBase::Handle
+    {
+    private:
+        int fd;
+
+    public:
+        /**
+         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &, boost::shared_array<char>, std::size)
+         */
+        SyscallHandle(const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize);
+
+        virtual const char * readRaw(size_type first, size_type last, char *buffer) const;
+
+        virtual ~SyscallHandle();
+    };
+
+    std::string filename;
+
+public:
+    /**
+     * @copydoc ReaderBase::ReaderBase(const std::string &, float)
+     */
+    SyscallReader(const std::string &filename, float smooth);
+
+    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
 };
 
 /// Common code shared by @ref MmapWriter and @ref StreamWriter
