@@ -613,8 +613,8 @@ OutputIterator ReaderBase::Handle::read(size_type first, size_type last, OutputI
 
     for (size_type i = first; i < last; i += blockSize)
     {
-        const char *data = readRaw(first, last, buffer.get());
         size_type blockEnd = std::min(last, i + blockSize);
+        const char *data = readRaw(i, blockEnd, buffer.get());
         for (size_type j = i; j < blockEnd; j++)
         {
             loadSplat(data, out);
