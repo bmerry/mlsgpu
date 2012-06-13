@@ -17,6 +17,7 @@
 #include <cmath>
 #include <vector>
 #include <utility>
+#include <queue>
 #include <boost/foreach.hpp>
 #include <boost/ref.hpp>
 #include <boost/thread/locks.hpp>
@@ -140,38 +141,21 @@ Timer::~Timer()
 }
 
 
-static std::vector<std::pair<std::vector<cl::Event>, boost::reference_wrapper<Variable> > > savedEvents;
+static std::queue<std::pair<std::vector<cl::Event>, boost::reference_wrapper<Variable> > > savedEvents;
 static boost::mutex savedEventsMutex;
 
-void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
+static void flushEventTimes(bool finalize)
 {
-    if (!events.empty())
-    {
-        boost::lock_guard<boost::mutex> lock(savedEventsMutex);
-        savedEvents.push_back(std::make_pair(events, boost::ref(stat)));
-    }
-}
-
-void timeEvent(cl::Event event, Variable &stat)
-{
-    std::vector<cl::Event> events(1, event);
-    timeEvents(events, stat);
-}
-
-void finalizeEventTimes()
-{
-    boost::lock_guard<boost::mutex> lock(savedEventsMutex);
-
     const cl_profiling_info fields[2] =
     {
         CL_PROFILING_COMMAND_START,
         CL_PROFILING_COMMAND_END
     };
 
-    for (std::size_t i = 0; i < savedEvents.size(); i++)
+    while (!savedEvents.empty())
     {
-        const std::vector<cl::Event> &events = savedEvents[i].first;
-        Variable &stat = boost::unwrap_ref(savedEvents[i].second);
+        const std::vector<cl::Event> &events = savedEvents.front().first;
+        Variable &stat = boost::unwrap_ref(savedEvents.front().second);
         double total = 0.0;
         bool good = true;
 
@@ -180,8 +164,17 @@ void finalizeEventTimes()
             const cl::Event &event = events[j];
             if (event.getInfo<CL_EVENT_COMMAND_EXECUTION_STATUS>() != CL_COMPLETE)
             {
-                Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
-                continue;
+                if (finalize)
+                {
+                    Log::log[Log::warn] << "Warning: Event for " << stat.getName() << " did not complete successfully\n";
+                    good = false;
+                    break;
+                }
+                else
+                {
+                    // The front item is not ready to be reaped yet
+                    return;
+                }
             }
 
             cl_int status;
@@ -212,8 +205,32 @@ void finalizeEventTimes()
 
         if (good)
             stat.add(total);
+        savedEvents.pop();
+        getStatistic<Peak<std::size_t> >("events.peak") -= 1;
     }
-    savedEvents.clear();
+}
+
+void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
+{
+    if (!events.empty())
+    {
+        boost::lock_guard<boost::mutex> lock(savedEventsMutex);
+        savedEvents.push(std::make_pair(events, boost::ref(stat)));
+        getStatistic<Peak<std::size_t> >("events.peak") += 1;
+        flushEventTimes(false);
+    }
+}
+
+void timeEvent(cl::Event event, Variable &stat)
+{
+    std::vector<cl::Event> events(1, event);
+    timeEvents(events, stat);
+}
+
+void finalizeEventTimes()
+{
+    boost::lock_guard<boost::mutex> lock(savedEventsMutex);
+    flushEventTimes(true);
 }
 
 Registry::Registry() : mutex()
