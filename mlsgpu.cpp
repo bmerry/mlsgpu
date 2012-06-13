@@ -83,6 +83,7 @@ namespace Option
     const char * const bucketThreads = "bucket-threads";
     const char * const deviceThreads = "device-threads";
     const char * const mesher = "mesher";
+    const char * const reader = "reader";
     const char * const writer = "writer";
 };
 
@@ -128,6 +129,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (big | stxxl)")
+        (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
 }
@@ -170,6 +172,8 @@ string makeOptions(const po::variables_map &vm)
                 opts << param.as<Choice<MesherTypeWrapper> >();
             else if (value.type() == typeid(Choice<FastPly::WriterTypeWrapper>))
                 opts << param.as<Choice<FastPly::WriterTypeWrapper> >();
+            else if (value.type() == typeid(Choice<FastPly::ReaderTypeWrapper>))
+                opts << param.as<Choice<FastPly::ReaderTypeWrapper> >();
             else if (value.type() == typeid(Choice<MlsShapeWrapper>))
                 opts << param.as<Choice<MlsShapeWrapper> >();
             else
@@ -297,9 +301,10 @@ static po::variables_map processOptions(int argc, char **argv)
 static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float smooth)
 {
     const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
+    const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
     BOOST_FOREACH(const string &name, names)
     {
-        std::auto_ptr<FastPly::ReaderBase> reader(new FastPly::MmapReader(name, smooth));
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
         files.addFile(reader.get());
         reader.release();
     }

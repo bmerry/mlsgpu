@@ -581,6 +581,12 @@ private:
     boost::iostreams::stream_offset triangleOffset;
 };
 
+
+/**
+ * Factory function to create a new reader of the specified type.
+ */
+ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth);
+
 /**
  * Factory function to create a new writer of the specified type.
  */

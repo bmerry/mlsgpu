@@ -754,12 +754,30 @@ bool StreamWriter::supportsOutOfOrder() const
 }
 
 
+std::map<std::string, ReaderType> ReaderTypeWrapper::getNameMap()
+{
+    std::map<std::string, ReaderType> ans;
+    ans["mmap"] = MMAP_READER;
+    ans["syscall"] = SYSCALL_READER;
+    return ans;
+}
+
 std::map<std::string, WriterType> WriterTypeWrapper::getNameMap()
 {
     std::map<std::string, WriterType> ans;
     ans["mmap"] = MMAP_WRITER;
     ans["stream"] = STREAM_WRITER;
     return ans;
+}
+
+ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth)
+{
+    switch (type)
+    {
+    case MMAP_READER: return new MmapReader(filename, smooth);
+    case SYSCALL_READER: return new SyscallReader(filename, smooth);
+    }
+    return NULL; // should never be reached
 }
 
 WriterBase *createWriter(WriterType type)
