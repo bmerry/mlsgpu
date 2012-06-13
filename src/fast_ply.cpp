@@ -80,7 +80,7 @@ static FieldType parseType(const std::string &t) throw(FormatError)
     else throw boost::enable_error_info(FormatError("Unknown type `" + t + "'"));
 }
 
-static Reader::size_type fieldSize(const FieldType f)
+static ReaderBase::size_type fieldSize(const FieldType f)
 {
     switch (f)
     {
@@ -144,7 +144,7 @@ static bool cpuBigEndian()
     return y[0] == 0x12 && y[1] == 0x34 && y[2] == 0x56 && y[3] == 0x78;
 }
 
-void Reader::readHeader(std::istream &in)
+void ReaderBase::readHeader(std::istream &in)
 {
     static const char * const propertyNames[numProperties] =
     {
@@ -286,47 +286,17 @@ void Reader::readHeader(std::istream &in)
     for (unsigned int i = 0; i < numProperties; i++)
         if (!haveProperty[i])
             throw boost::enable_error_info(FormatError(std::string("Property ") + propertyNames[i] + " not found"));
+
+    headerSize = in.tellg();
 }
 
-Reader::value_type * Reader::read(size_type first, size_type last, value_type *out, boost::true_type) const
-{
-    MLSGPU_ASSERT(first <= last && last <= vertexCount, std::out_of_range);
-
-    const char *base = vertexPtr + first * vertexSize;
-    for (size_type i = last - first; i > 0; i--, base += vertexSize, out++)
-    {
-        float radius;
-        std::memcpy(&out->position[0], base + offsets[X], sizeof(float));
-        std::memcpy(&out->position[1], base + offsets[Y], sizeof(float));
-        std::memcpy(&out->position[2], base + offsets[Z], sizeof(float));
-        std::memcpy(&radius,           base + offsets[RADIUS], sizeof(float));
-        std::memcpy(&out->normal[0],   base + offsets[NX], sizeof(float));
-        std::memcpy(&out->normal[1],   base + offsets[NY], sizeof(float));
-        std::memcpy(&out->normal[2],   base + offsets[NZ], sizeof(float));
-        radius *= smooth;
-        out->radius = radius;
-        out->quality = 1.0 / (radius * radius);
-    }
-    return out;
-}
-
-Reader::Reader(const std::string &filename, float smooth = 1.0f)
+ReaderBase::ReaderBase(const std::string &filename, float smooth)
+    : smooth(smooth)
 {
     try
     {
-        mapping.reset(new boost::iostreams::mapped_file_source(filename));
-        filePtr = mapping->data();
-        /* Note: we have to wrap the mapping in an array_source because otherwise
-         * the stream will close the mapping when it is destroyed.
-         */
-        boost::iostreams::array_source source(filePtr, mapping->size());
-        boost::iostreams::stream<boost::iostreams::array_source> in(source);
+        std::ifstream in(filename.c_str());
         readHeader(in);
-        size_type offset = in.tellg();
-        vertexPtr = filePtr + offset;
-        if ((mapping->size() - offset) / vertexSize < vertexCount)
-            throw boost::enable_error_info(FormatError("File is too small to contain its vertices"));
-        this->smooth = smooth;
     }
     catch (boost::exception &e)
     {
@@ -335,18 +305,141 @@ Reader::Reader(const std::string &filename, float smooth = 1.0f)
     }
 }
 
-Reader::Reader(const char *data, size_type size, float smooth)
-    : filePtr(data)
+ReaderBase::ReaderBase(float smooth) : smooth(smooth)
+{
+}
+
+ReaderBase::Handle::Handle(const ReaderBase &owner, std::size_t bufferSize)
+    : owner(owner), bufferSize(bufferSize)
+{
+    if (bufferSize != 0)
+    {
+        if (owner.getVertexSize() > bufferSize)
+            throw std::runtime_error("The vertices each take too many bytes");
+        buffer.reset(new char[bufferSize]);
+    }
+}
+
+ReaderBase::Handle::Handle(const ReaderBase &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
+    : owner(owner), buffer(buffer), bufferSize(bufferSize)
+{
+    if (owner.getVertexSize() > bufferSize)
+        throw std::runtime_error("The vertices each take too many bytes");
+}
+
+template<>
+void ReaderBase::Handle::loadSplat<Splat *>(const char *buffer, Splat *out) const
+{
+    float radius;
+    std::memcpy(&out->position[0], buffer + owner.offsets[X], sizeof(float));
+    std::memcpy(&out->position[1], buffer + owner.offsets[Y], sizeof(float));
+    std::memcpy(&out->position[2], buffer + owner.offsets[Z], sizeof(float));
+    std::memcpy(&radius,           buffer + owner.offsets[RADIUS], sizeof(float));
+    std::memcpy(&out->normal[0],   buffer + owner.offsets[NX], sizeof(float));
+    std::memcpy(&out->normal[1],   buffer + owner.offsets[NY], sizeof(float));
+    std::memcpy(&out->normal[2],   buffer + owner.offsets[NZ], sizeof(float));
+    radius *= owner.smooth;
+    out->radius = radius;
+    out->quality = 1.0 / (radius * radius);
+}
+
+ReaderBase::Handle *ReaderBase::createHandle() const
+{
+    return createHandle(128 * 1024 * 1024);
+}
+
+ReaderBase::Handle *ReaderBase::createHandle(std::size_t bufferSize) const
+{
+    boost::shared_array<char> buffer(new char[bufferSize]);
+    return createHandle(buffer, bufferSize);
+}
+
+MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &filename)
+    : ReaderBase::Handle(owner, 0)
+{
+    try
+    {
+        mapping.open(filename);
+        vertexPtr = mapping.data() + owner.getHeaderSize();
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
+}
+
+const char *MmapReader::MmapHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    (void) buffer; // will be NULL anyway
+    (void) last;
+    return vertexPtr + first * owner.getVertexSize();
+}
+
+MmapReader::MmapReader(const std::string &filename, float smooth = 1.0f)
+    : ReaderBase(filename, smooth), filename(filename)
+{
+}
+
+ReaderBase::Handle *MmapReader::createHandle() const
+{
+    return new MmapHandle(*this, filename);
+}
+
+ReaderBase::Handle *MmapReader::createHandle(std::size_t bufferSize) const
+{
+    (void) bufferSize; // no buffer is used
+    return new MmapHandle(*this, filename);
+}
+
+ReaderBase::Handle *MmapReader::createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const
+{
+    (void) buffer; // no buffer is used
+    (void) bufferSize;
+    return new MmapHandle(*this, filename);
+}
+
+
+MemoryReader::MemoryHandle::MemoryHandle(const MemoryReader &owner, const char *data)
+    : ReaderBase::Handle(owner, 0), vertexPtr(data + owner.getHeaderSize())
+{
+}
+
+const char *MemoryReader::MemoryHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    (void) buffer; // will be NULL anyway
+    (void) last;
+    return vertexPtr + first * owner.getVertexSize();
+}
+
+MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth)
+    : ReaderBase(smooth), data(data)
 {
     boost::iostreams::array_source source(data, size);
     boost::iostreams::stream<boost::iostreams::array_source> in(source);
     readHeader(in);
-    size_type offset = in.tellg();
-    vertexPtr = filePtr + offset;
-    if ((size - offset) / vertexSize < vertexCount)
+    if ((size - getHeaderSize()) / getVertexSize() < this->size())
         throw boost::enable_error_info(FormatError("Input source is too small to contain its vertices"));
-    this->smooth = smooth;
 }
+
+ReaderBase::Handle *MemoryReader::createHandle() const
+{
+    return new MemoryHandle(*this, data);
+}
+
+ReaderBase::Handle *MemoryReader::createHandle(std::size_t bufferSize) const
+{
+    (void) bufferSize; // no buffer is used
+    return new MemoryHandle(*this, data);
+}
+
+ReaderBase::Handle *MemoryReader::createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const
+{
+    (void) buffer; // no buffer is used
+    (void) bufferSize;
+    return new MemoryHandle(*this, data);
+}
+
 
 bool WriterBase::isOpen() const
 {

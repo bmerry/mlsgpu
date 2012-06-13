@@ -20,6 +20,9 @@ namespace SplatSet
 namespace detail
 {
 
+static const std::size_t RAW_BUFFER_SIZE = 128 * 1024 * 1024;
+static const std::size_t BUFFER_SIZE = RAW_BUFFER_SIZE / sizeof(Splat);
+
 void splatToBuckets(const Splat &splat,
                     const Grid &grid, Grid::size_type bucketSize,
                     boost::array<Grid::difference_type, 3> &lower,
@@ -62,10 +65,19 @@ void SimpleVectorSet::MySplatStream::skipNonFinite()
 const unsigned int SimpleFileSet::scanIdShift = 40;
 const splat_id SimpleFileSet::splatIdMask = (splat_id(1) << scanIdShift) - 1;
 
-void SimpleFileSet::addFile(FastPly::Reader *file)
+void SimpleFileSet::addFile(FastPly::ReaderBase *file)
 {
     files.push_back(file);
     nSplats += file->size();
+}
+
+SimpleFileSet::MySplatStream::MySplatStream(
+    const SimpleFileSet &owner, splat_id first, splat_id last)
+: owner(owner)
+{
+    rawBuffer.reset(new char[RAW_BUFFER_SIZE]);
+    buffer.reset(new Splat[BUFFER_SIZE]);
+    reset(first, last);
 }
 
 SplatStream &SimpleFileSet::MySplatStream::operator++()
@@ -85,6 +97,7 @@ void SimpleFileSet::MySplatStream::reset(splat_id first, splat_id last)
     bufferCur = 0;
     bufferEnd = 0;
     cur = next = first;
+    handle.reset();
     refill();
 }
 
@@ -111,16 +124,25 @@ void SimpleFileSet::MySplatStream::refill()
         }
         next = (splat_id(file) << scanIdShift) + offset;
         if (next >= last)
+        {
+            handle.reset();
             break;
+        }
+
+        if (file != handleFile || !handle)
+        {
+            handle.reset(owner.files[file].createHandle(rawBuffer, RAW_BUFFER_SIZE));
+            handleFile = file;
+        }
 
         bufferCur = 0;
-        bufferEnd = bufferSize;
+        bufferEnd = BUFFER_SIZE;
         if (last - next < bufferEnd)
             bufferEnd = last - next;
         if (owner.files[file].size() - offset < bufferEnd)
             bufferEnd = owner.files[file].size() - offset;
         assert(bufferEnd > 0);
-        owner.files[file].read(offset, offset + bufferEnd, &buffer[0]);
+        handle->read(offset, offset + bufferEnd, &buffer[0]);
         cur = next;
         next += bufferEnd;
 

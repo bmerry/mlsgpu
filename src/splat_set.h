@@ -356,7 +356,7 @@ public:
      * Append a new file to the set. The set takes over ownership of the file.
      * This must not be called while a stream is in progress.
      */
-    void addFile(FastPly::Reader *file);
+    void addFile(FastPly::ReaderBase *file);
 
     SplatStream *makeSplatStream() const
     {
@@ -397,26 +397,22 @@ private:
 
         virtual void reset(splat_id first, splat_id last);
 
-        MySplatStream(const SimpleFileSet &owner, splat_id first, splat_id last)
-            : owner(owner)
-        {
-            reset(first, last);
-        }
+        MySplatStream(const SimpleFileSet &owner, splat_id first, splat_id last);
 
     private:
-        enum
-        {
-            /// Size of internal buffer for holding splats
-            bufferSize = 16384
-        };
-
         const SimpleFileSet &owner;     ///< Owning set
         splat_id last;                  ///< End of range to iterate over
         splat_id next;                  ///< Next ID to load into the buffer once exhausted
         splat_id cur;                   ///< Splat ID at the front of the buffer
         std::size_t bufferCur;          ///< First position in @ref buffer with data
         std::size_t bufferEnd;          ///< Past-the-end position for @ref buffer
-        Splat buffer[bufferSize];       ///< Buffer for splats read from file
+        boost::shared_array<char> rawBuffer; ///< Buffer used by @ref FastPly::ReaderBase::Handle
+        boost::scoped_array<Splat> buffer;   ///< Buffer for splats read from file
+
+        /// Handle for current file being read (can be NULL)
+        boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
+        /// File ID currently corresponding to @ref handle (undefined if @ref handle is NULL)
+        std::size_t handleFile;
 
         /**
          * Advances over non-finite elements in the buffer. It stops when a
@@ -433,7 +429,7 @@ private:
     };
 
     /// Backing store of files
-    boost::ptr_vector<FastPly::Reader> files;
+    boost::ptr_vector<FastPly::ReaderBase> files;
 
     /// Number of splats stored in the files (including non-finites)
     splat_id nSplats;

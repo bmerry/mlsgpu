@@ -27,8 +27,10 @@
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_array.hpp>
 #include <boost/type_traits/is_pointer.hpp>
 #include <boost/ref.hpp>
+#include <boost/noncopyable.hpp>
 #include "splat.h"
 #include "errors.h"
 
@@ -37,15 +39,29 @@ class TestFastPlyReader;
 namespace FastPly
 {
 
+/// Enumeration of the subclasses of @ref ReaderBase
+enum ReaderType
+{
+    MMAP_READER,
+    SYSCALL_READER
+};
+
+/// Enumeration of the subclasses of @ref WriterBase
 enum WriterType
 {
     MMAP_WRITER,
     STREAM_WRITER
 };
 
-/**
- * Wrapper around WriterType for use with @ref Choice.
- */
+/// Wrapper around @ref ReaderType for use with @ref Choice.
+class ReaderTypeWrapper
+{
+public:
+    typedef ReaderType type;
+    static std::map<std::string, ReaderType> getNameMap();
+};
+
+/// Wrapper around @ref WriterType for use with @ref Choice.
 class WriterTypeWrapper
 {
 public:
@@ -65,7 +81,7 @@ public:
 };
 
 /**
- * Class for quickly reading a subset of PLY files.
+ * Base class for quickly reading a subset of PLY files.
  * It only supports the following:
  * - Binary files, endianness matching the host.
  * - Only the "vertex" element is loaded.
@@ -73,63 +89,137 @@ public:
  * - The x, y, z, nx, ny, nz, radius elements must all be present and FLOAT32.
  * - The vertex element must not contain any lists.
  * - It must be possible to mmap the entire file (thus, a 64-bit
- *   address space is needed to handle very large files).
+ *   address space is needed to handle very large files). (TODO: move to subclass)
  *
- * In addition to memory-mapping a file, it can also accept an existing
- * memory range (this is mainly provided to simplify testing).
+ * This is a virtual base class that provides the interfaces and handles the
+ * header, but the actual movement of data is down to the subclasses.
+ *
+ * An instance of this class just holds the metadata, but no OS resources or
+ * buffers. To actually read the data, one calls @ref createHandle() to create
+ * a handle, at which point the file is opened.
  */
-class Reader
+class ReaderBase
 {
     friend class ::TestFastPlyReader;
 public:
     /// Size capable of holding maximum supported file size
-    typedef boost::iostreams::mapped_file_source::size_type size_type;
+    typedef std::tr1::uint64_t size_type;
     typedef Splat value_type;
 
     /**
-     * Construct from a file.
-     * @param filename         File to open.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @throw std::ios_base::failure if the file could not be opened
-     * @throw FormatError if the file was malformed
+     * A file handle to a PLY file, used for reading. This is a virtual base
+     * class which is overloaded by each type of reader to provide the mechanisms
+     * for accessing the file.
+     *
+     * A word about thread safety. Two threads must not simultaneously access the
+     * same handle, because it is possible that handles encode an OS-level file
+     * position. It is safe to simultaneously access two handles that reference
+     * the same underlying file. However, if two handles share a buffer, it is
+     * not safe to simultaneously access both.
      */
-    explicit Reader(const std::string &filename, float smooth);
+    class Handle : public boost::noncopyable
+    {
+    protected:
+        const ReaderBase &owner;
 
-    /**
-     * Construct from an existing memory range.
-     * This is primarily intended for testing this class.
-     * @param data             Start of memory region.
-     * @param size             Bytes in memory region.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @throw FormatError if the file was malformed
-     * @note The memory range must not be deleted or modified until the object
-     * is destroyed.
-     */
-    Reader(const char *data, size_type size, float smooth);
+    private:
+        boost::shared_array<char> buffer;
+        std::size_t bufferSize;
+
+        /// Copy a single splat from raw data representation into an output iterator
+        template<typename OutputIterator>
+        void loadSplat(const char *buffer, OutputIterator out) const;
+
+    protected:
+        /**
+         * Create with an internal buffer of specified size.
+         * It is legal for the size to be 0, in which case the subclass does not require
+         * a buffer (e.g. because of memory mapping).
+         *
+         * @throw std::runtime_error If @a bufferSize < <code>owner.getVertexSize()</code>.
+         */
+        Handle(const ReaderBase &owner, std::size_t bufferSize);
+
+        /** Create with a user-provided buffer
+         *
+         * @throw std::runtime_error If @a bufferSize < <code>owner.getVertexSize()</code>.
+         */
+        Handle(const ReaderBase &owner, boost::shared_array<char> buffer, std::size_t bufferSize);
+
+        /**
+         * Method implemented in subclasses to back the read. It must copy the specified
+         * vertices to the buffer, in exactly the form they exist in the file i.e. just
+         * a byte-level copy of the relevant data, without selecting the required fields.
+         *
+         * If the handle was created with no buffer, then @a buffer will be @c NULL.
+         *
+         * @param first,last      %Range of vertices to read.
+         * @param buffer          Output buffer, or @c NULL if no buffer created.
+         * @return A pointer to the data.
+         *
+         * @pre @a first &lt;= @a last &lt;= @ref size().
+         * @post If @a buffer is non-NULL then it is also the return value.
+         */
+        virtual const char *readRaw(size_type first, size_type last, char *buffer) const = 0;
+
+    public:
+        /**
+         * Copy out a contiguous selection of the vertices.
+         * @param first,last      %Range of vertices to copy.
+         * @param out             Target of copy.
+         * @return The output iterator after the copy.
+         * @pre @a first &lt;= @a last &lt;= @ref size().
+         */
+        template<typename OutputIterator>
+            OutputIterator read(size_type first, size_type last, OutputIterator out) const;
+
+        virtual ~Handle() {}
+    };
 
     /// Number of vertices in the file
     size_type size() const { return vertexCount; }
 
-    /**
-     * Copy out a contiguous selection of the vertices.
-     * @param first,last      %Range of vertices to copy.
-     * @param out             Target of copy.
-     * @return The output iterator after the copy.
-     * @pre @a first &lt;= @a last &lt;= @ref size().
-     */
-    template<typename OutputIterator>
-    OutputIterator read(size_type first, size_type last, OutputIterator out) const;
-private:
-    /// The memory mapping, if constructed from a filename; otherwise @c NULL.
-    boost::scoped_ptr<boost::iostreams::mapped_file_source> mapping;
+    /// Return the number of bytes per vertex
+    size_type getVertexSize() const { return vertexSize; }
 
+    /**
+     * Open the file and return a @ref Handle for reading it.
+     *
+     * The default implementation calls @ref createHandle(std::size_t) with
+     * a default size.
+     *
+     * @see @ref Handle.
+     */
+    virtual Handle *createHandle() const;
+
+    /**
+     * Open the file and return a @ref Handle for reading it. The default
+     * implementation calls @ref createHandle(boost::shared_array<char>, std::Size_t)
+     * with a freshly-allocated buffer.
+     *
+     * @param bufferSize     Size to be used for internally-allocated buffer.
+     *
+     * @pre @a bufferSize >= @ref getVertexSize().
+     */
+    virtual Handle *createHandle(std::size_t bufferSize) const;
+
+    /**
+     * Open the file and return a @ref Handle for reading it. The user
+     * provides a buffer to be used. Handles can share buffers, provided that
+     * multiple threads do not try to use them at the same time.
+     *
+     * @param buffer         Shared buffer to be used.
+     * @param bufferSize     Number of bytes in @a buffer.
+     *
+     * @pre @a bufferSize >= @ref getVertexSize().
+     */
+    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const = 0;
+
+    virtual ~ReaderBase() {}
+
+private:
     /// Scale factor for radii
     float smooth;
-
-    /// Pointer to the start of the whole file.
-    const char *filePtr;
-    /// Pointer to the first vertex.
-    const char *vertexPtr;
 
     /// The properties found in the file.
     enum Property
@@ -139,18 +229,131 @@ private:
         RADIUS
     };
     static const unsigned int numProperties = 7;
+    size_type headerSize;              ///< Bytes before the first vertex
     size_type vertexSize;              ///< Bytes per vertex
     size_type vertexCount;             ///< Number of vertices
     size_type offsets[numProperties];  ///< Byte offsets of each property within a vertex
 
-    void readHeader(std::istream &in); ///< Does the heavy lifting of parsing the header
+protected:
+    /**
+     * Construct from a file.
+     *
+     * This will open the file to parse the header and then close it again.
+     * If an exception is thrown, it will have the filename stored in it
+     * using @c boost::errinfo_file_name.
+     *
+     * @throw FormatError if the header is malformed.
+     * @throw std::ios::failure if there was an I/O error.
+     */
+    ReaderBase(const std::string &filename, float smooth);
 
-    /// Implementation of @ref read for the general case
-    template<typename OutputIterator>
-    OutputIterator read(size_type first, size_type last, OutputIterator out, boost::false_type) const;
+    /**
+     * Construct from an arbitrary stream.
+     *
+     * This is a more generic constructor that does not require the header
+     * to be stored in a file. The subclass @em must call @ref readHeader
+     * to load the header.
+     */
+    ReaderBase(float smooth);
 
-    /// Implementation of @ref read for the special case of reading into raw memory
-    value_type *read(size_type first, size_type last, value_type *out, boost::true_type) const;
+    /**
+     * Does the heavy lifting of parsing the header. This is called by
+     * the constructor if it takes a file, otherwise by the subclass
+     * constructor.
+     */
+    void readHeader(std::istream &in);
+
+    /// Return the number of bytes from the beginning of the file to the first vertex
+    size_type getHeaderSize() const { return headerSize; }
+};
+
+/**
+ * Reader that uses a memory mapping to access the file.
+ * It must be possible to mmap the entire file (thus, a 64-bit
+ * address space is needed to handle very large files).
+ */
+class MmapReader : public ReaderBase
+{
+private:
+    class MmapHandle : public ReaderBase::Handle
+    {
+    private:
+        /// The memory mapping
+        boost::iostreams::mapped_file_source mapping;
+
+        /// Pointer to the first vertex.
+        const char *vertexPtr;
+
+    protected:
+        virtual const char *readRaw(size_type first, size_type last, char *buffer) const;
+
+    public:
+        explicit MmapHandle(const MmapReader &owner, const std::string &filename);
+    };
+
+public:
+    /**
+     * Construct from a file.
+     * @param filename         File to open.
+     * @param smooth           Scale factor applied to radii as they're read.
+     * @throw std::ios_base::failure if the file could not be opened
+     * @throw FormatError if the file was malformed
+     */
+    explicit MmapReader(const std::string &filename, float smooth);
+
+    virtual Handle *createHandle() const;
+    virtual Handle *createHandle(std::size_t bufferSize) const;
+    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
+
+private:
+    const std::string filename;
+};
+
+/**
+ * A reader that processes a range of existing memory.
+ *
+ * This is primarily intended for test code.
+ * @todo Move it into the test directory
+ */
+class MemoryReader : public ReaderBase
+{
+private:
+    class MemoryHandle : public ReaderBase::Handle
+    {
+    private:
+        /// Pointer to the first vertex
+        const char *vertexPtr;
+
+    protected:
+        virtual const char *readRaw(size_type first, size_type last, char *buffer) const;
+
+    public:
+        /**
+         * Constructor.
+         * @param owner     The creating reader.
+         * @param data      Pointer to the start of the file (the header, not the vertices).
+         */
+        explicit MemoryHandle(const MemoryReader &owner, const char *data);
+    };
+
+public:
+    /**
+     * Construct from an existing memory range.
+     * @param data             Start of memory region.
+     * @param size             Bytes in memory region.
+     * @param smooth           Scale factor applied to radii as they're read.
+     * @throw FormatError if the file was malformed
+     * @note The memory range must not be deleted or modified until the object
+     * is destroyed.
+     */
+    MemoryReader(const char *data, std::size_t size, float smooth);
+
+    virtual Handle *createHandle() const;
+    virtual Handle *createHandle(std::size_t bufferSize) const;
+    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
+
+private:
+    const char *data;
 };
 
 /// Common code shared by @ref MmapWriter and @ref StreamWriter
@@ -352,26 +555,41 @@ WriterBase *createWriter(WriterType type);
 
 
 template<typename OutputIterator>
-OutputIterator Reader::read(size_type first, size_type last, OutputIterator out, boost::false_type) const
+void ReaderBase::Handle::loadSplat(const char *buffer, OutputIterator out) const
 {
-    MLSGPU_ASSERT(first <= last && last <= size(), std::out_of_range);
-
-    const size_type bufferSize = 8192;
-    value_type buffer[bufferSize];
-    while (first < last)
-    {
-        size_type size = std::min(bufferSize, last - first);
-        read(first, first + size, buffer);
-        out = std::copy(buffer, buffer + size, out);
-        first += size;
-    }
-    return out;
+    Splat tmp;
+    loadSplat(buffer, &tmp);
+    *out = tmp;
 }
 
+template<>
+void ReaderBase::Handle::loadSplat<Splat *>(const char *buffer, Splat *out) const;
+
 template<typename OutputIterator>
-OutputIterator Reader::read(size_type first, size_type last, OutputIterator out) const
+OutputIterator ReaderBase::Handle::read(size_type first, size_type last, OutputIterator out) const
 {
-    return read(first, last, out, boost::is_pointer<OutputIterator>());
+    MLSGPU_ASSERT(first <= last && last <= owner.size(), std::out_of_range);
+
+    const size_type vertexSize = owner.getVertexSize();
+    size_type blockSize;
+    if (bufferSize == 0)
+        blockSize = last - first;
+    else
+        blockSize = bufferSize / vertexSize;
+    MLSGPU_ASSERT(blockSize > 0, std::length_error);
+
+    for (size_type i = first; i < last; i += blockSize)
+    {
+        const char *data = readRaw(first, last, buffer.get());
+        size_type blockEnd = std::min(last, i + blockSize);
+        for (size_type j = i; j < blockEnd; j++)
+        {
+            loadSplat(data, out);
+            data += vertexSize;
+            ++out;
+        }
+    }
+    return out;
 }
 
 } // namespace FastPly

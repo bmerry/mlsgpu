@@ -299,7 +299,7 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
     const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
     BOOST_FOREACH(const string &name, names)
     {
-        std::auto_ptr<FastPly::Reader> reader(new FastPly::Reader(name, smooth));
+        std::auto_ptr<FastPly::ReaderBase> reader(new FastPly::MmapReader(name, smooth));
         files.addFile(reader.get());
         reader.release();
     }
