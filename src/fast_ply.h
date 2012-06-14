@@ -36,17 +36,21 @@
 
 class TestFastPlyReader;
 
+/**
+ * Classes and functions for efficient access to PLY files in a narrow
+ * range of possible formats.
+ */
 namespace FastPly
 {
 
-/// Enumeration of the subclasses of @ref ReaderBase
+/// Enumeration of the subclasses of @ref FastPly::ReaderBase
 enum ReaderType
 {
     MMAP_READER,
     SYSCALL_READER
 };
 
-/// Enumeration of the subclasses of @ref WriterBase
+/// Enumeration of the subclasses of @ref FastPly::WriterBase
 enum WriterType
 {
     MMAP_WRITER,
@@ -88,8 +92,6 @@ public:
  * - The "vertex" element must be the first element in the file.
  * - The x, y, z, nx, ny, nz, radius elements must all be present and FLOAT32.
  * - The vertex element must not contain any lists.
- * - It must be possible to mmap the entire file (thus, a 64-bit
- *   address space is needed to handle very large files). (TODO: move to subclass)
  *
  * This is a virtual base class that provides the interfaces and handles the
  * header, but the actual movement of data is down to the subclasses.
@@ -120,10 +122,19 @@ public:
     class Handle : public boost::noncopyable
     {
     protected:
+        /// The reader whose file we're reading
         const ReaderBase &owner;
 
     private:
+        /**
+         * A buffer used as a target for reads. This can be @c NULL if the subclass
+         * doesn't require a buffer.
+         * @see @ref readRaw
+         */
         boost::shared_array<char> buffer;
+        /**
+         * Number of bytes allocated for @ref buffer, or 0 if it is @c NULL.
+         */
         std::size_t bufferSize;
 
         /// Copy a single splat from raw data representation into an output iterator
@@ -140,7 +151,8 @@ public:
          */
         Handle(const ReaderBase &owner, std::size_t bufferSize);
 
-        /** Create with a user-provided buffer
+        /**
+         * Create with a user-provided buffer. This buffer can be shared between handles.
          *
          * @throw std::runtime_error If @a bufferSize < <code>owner.getVertexSize()</code>.
          */
@@ -179,32 +191,11 @@ public:
     /// Number of vertices in the file
     size_type size() const { return vertexCount; }
 
-    /// Return the number of bytes per vertex
+    /// Number of bytes per vertex
     size_type getVertexSize() const { return vertexSize; }
 
     /**
-     * Open the file and return a @ref Handle for reading it.
-     *
-     * The default implementation calls @ref createHandle(std::size_t) with
-     * a default size.
-     *
-     * @see @ref Handle.
-     */
-    virtual Handle *createHandle() const;
-
-    /**
-     * Open the file and return a @ref Handle for reading it. The default
-     * implementation calls @ref createHandle(boost::shared_array<char>, std::Size_t)
-     * with a freshly-allocated buffer.
-     *
-     * @param bufferSize     Size to be used for internally-allocated buffer.
-     *
-     * @pre @a bufferSize >= @ref getVertexSize().
-     */
-    virtual Handle *createHandle(std::size_t bufferSize) const;
-
-    /**
-     * Open the file and return a @ref Handle for reading it. The user
+     * Open the file and return a @ref ReaderBase::Handle for reading it. The user
      * provides a buffer to be used. Handles can share buffers, provided that
      * multiple threads do not try to use them at the same time.
      *
@@ -214,6 +205,27 @@ public:
      * @pre @a bufferSize >= @ref getVertexSize().
      */
     virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const = 0;
+
+    /**
+     * Open the file and return a @ref ReaderBase::Handle for reading it. The default
+     * implementation calls #createHandle(boost::shared_array<char>, std::size_t) const
+     * with a freshly-allocated buffer.
+     *
+     * @param bufferSize     Size to be used for internally-allocated buffer.
+     *
+     * @pre @a bufferSize >= @ref getVertexSize().
+     */
+    virtual Handle *createHandle(std::size_t bufferSize) const;
+
+    /**
+     * Open the file and return a @ref ReaderBase::Handle for reading it.
+     *
+     * The default implementation calls #createHandle(std::size_t) const with
+     * a default size.
+     *
+     * @see @ref ReaderBase::Handle.
+     */
+    virtual Handle *createHandle() const;
 
     virtual ~ReaderBase() {}
 
@@ -255,6 +267,8 @@ protected:
      * This is a more generic constructor that does not require the header
      * to be stored in a file. The subclass @em must call @ref readHeader
      * to load the header.
+     *
+     * @see @ref readHeader
      */
     ReaderBase(float smooth);
 
@@ -369,7 +383,7 @@ private:
 
     public:
         /**
-         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &, boost::shared_array<char>, std::size)
+         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &, boost::shared_array<char>, std::size_t)
          */
         SyscallHandle(const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize);
 

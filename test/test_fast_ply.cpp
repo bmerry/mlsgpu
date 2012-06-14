@@ -100,8 +100,8 @@ public:
      * @{
      */
     void testReadHeader();             ///< Checks that header-related fields are set properly
-    void testRead();                   ///< Tests @ref FastPly::Reader::read with a pointer
-    void testReadIterator();           ///< Tests @ref FastPly::Reader::read with an output iterator
+    void testRead();                   ///< Tests @ref FastPly::ReaderBase::Handle::read with a pointer
+    void testReadIterator();           ///< Tests @ref FastPly::ReaderBase::Handle::read with an output iterator
     /** @} */
 
     /**

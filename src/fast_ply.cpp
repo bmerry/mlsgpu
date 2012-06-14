@@ -70,7 +70,7 @@ static std::vector<std::string> splitLine(const std::string &line)
  *
  * @param t The name of the type from the PLY header.
  * @return The #FieldType value corresponding to @a t.
- * @throw #FormatError if @a t is not recognized.
+ * @throw #FastPly::FormatError if @a t is not recognized.
  */
 static FieldType parseType(const std::string &t) throw(FormatError)
 {
