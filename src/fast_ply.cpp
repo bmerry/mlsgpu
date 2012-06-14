@@ -308,6 +308,10 @@ ReaderBase::ReaderBase(const std::string &filename, float smooth)
         e << boost::errinfo_file_name(filename);
         throw;
     }
+    catch (std::ios::failure &e)
+    {
+        throw boost::enable_error_info(e) << boost::errinfo_file_name(filename);
+    }
 }
 
 ReaderBase::ReaderBase(float smooth) : smooth(smooth)
@@ -365,6 +369,8 @@ MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &f
     try
     {
         mapping.open(filename);
+        if ((mapping.size() - owner.getHeaderSize()) / owner.getVertexSize() < owner.size())
+            throw boost::enable_error_info(std::ios::failure("File is too small to contain all its vertices"));
         vertexPtr = mapping.data() + owner.getHeaderSize();
     }
     catch (boost::exception &e)
@@ -405,47 +411,6 @@ ReaderBase::Handle *MmapReader::createHandle(boost::shared_array<char> buffer, s
 }
 
 
-MemoryReader::MemoryHandle::MemoryHandle(const MemoryReader &owner, const char *data)
-    : ReaderBase::Handle(owner, 0), vertexPtr(data + owner.getHeaderSize())
-{
-}
-
-const char *MemoryReader::MemoryHandle::readRaw(size_type first, size_type last, char *buffer) const
-{
-    (void) buffer; // will be NULL anyway
-    (void) last;
-    return vertexPtr + first * owner.getVertexSize();
-}
-
-MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth)
-    : ReaderBase(smooth), data(data)
-{
-    boost::iostreams::array_source source(data, size);
-    boost::iostreams::stream<boost::iostreams::array_source> in(source);
-    readHeader(in);
-    if ((size - getHeaderSize()) / getVertexSize() < this->size())
-        throw boost::enable_error_info(FormatError("Input source is too small to contain its vertices"));
-}
-
-ReaderBase::Handle *MemoryReader::createHandle() const
-{
-    return new MemoryHandle(*this, data);
-}
-
-ReaderBase::Handle *MemoryReader::createHandle(std::size_t bufferSize) const
-{
-    (void) bufferSize; // no buffer is used
-    return new MemoryHandle(*this, data);
-}
-
-ReaderBase::Handle *MemoryReader::createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const
-{
-    (void) buffer; // no buffer is used
-    (void) bufferSize;
-    return new MemoryHandle(*this, data);
-}
-
-
 SyscallReader::SyscallHandle::SyscallHandle(
     const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
 : Handle(owner, buffer, bufferSize)
@@ -461,33 +426,41 @@ SyscallReader::SyscallHandle::SyscallHandle(
 
 const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
 {
-    std::size_t vertexSize = owner.getVertexSize();
-
-    ssize_t remain = vertexSize * (last - first);
-    char *ptr = buffer;
-    lseek(fd, static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize, SEEK_SET);
-
-    while (remain > 0)
+    try
     {
-        ssize_t bytes = ::read(fd, (void *) ptr, remain);
-        if (bytes < 0)
+        std::size_t vertexSize = owner.getVertexSize();
+
+        ssize_t remain = vertexSize * (last - first);
+        char *ptr = buffer;
+        lseek(fd, static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize, SEEK_SET);
+
+        while (remain > 0)
         {
-            if (errno == EAGAIN || errno == EINTR)
-                continue;
-            throw boost::enable_error_info(std::ios::failure("read failed"))
-                << boost::errinfo_errno(errno);
+            ssize_t bytes = ::read(fd, (void *) ptr, remain);
+            if (bytes < 0)
+            {
+                if (errno == EAGAIN || errno == EINTR)
+                    continue;
+                throw boost::enable_error_info(std::ios::failure("read failed"))
+                    << boost::errinfo_errno(errno);
+            }
+            else if (bytes == 0)
+            {
+                throw boost::enable_error_info(std::ios::failure("unexpected end of file"));
+            }
+            else
+            {
+                ptr += bytes;
+                remain -= bytes;
+            }
         }
-        else if (bytes == 0)
-        {
-            throw boost::enable_error_info(std::ios::failure("unexpected end of file"));
-        }
-        else
-        {
-            ptr += bytes;
-            remain -= bytes;
-        }
+        return buffer;
     }
-    return buffer;
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(static_cast<const SyscallReader &>(owner).filename);
+        throw;
+    }
 }
 
 SyscallReader::SyscallHandle::~SyscallHandle()

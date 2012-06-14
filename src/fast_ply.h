@@ -34,7 +34,7 @@
 #include "splat.h"
 #include "errors.h"
 
-class TestFastPlyReader;
+class TestFastPlyReaderBase;
 
 /**
  * Classes and functions for efficient access to PLY files in a narrow
@@ -102,7 +102,7 @@ public:
  */
 class ReaderBase
 {
-    friend class ::TestFastPlyReader;
+    friend class ::TestFastPlyReaderBase;
 public:
     /// Size capable of holding maximum supported file size
     typedef std::tr1::uint64_t size_type;
@@ -319,53 +319,6 @@ public:
 
 private:
     const std::string filename;
-};
-
-/**
- * A reader that processes a range of existing memory.
- *
- * This is primarily intended for test code.
- * @todo Move it into the test directory
- */
-class MemoryReader : public ReaderBase
-{
-private:
-    class MemoryHandle : public ReaderBase::Handle
-    {
-    private:
-        /// Pointer to the first vertex
-        const char *vertexPtr;
-
-    protected:
-        virtual const char *readRaw(size_type first, size_type last, char *buffer) const;
-
-    public:
-        /**
-         * Constructor.
-         * @param owner     The creating reader.
-         * @param data      Pointer to the start of the file (the header, not the vertices).
-         */
-        explicit MemoryHandle(const MemoryReader &owner, const char *data);
-    };
-
-public:
-    /**
-     * Construct from an existing memory range.
-     * @param data             Start of memory region.
-     * @param size             Bytes in memory region.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @throw FormatError if the file was malformed
-     * @note The memory range must not be deleted or modified until the object
-     * is destroyed.
-     */
-    MemoryReader(const char *data, std::size_t size, float smooth);
-
-    virtual Handle *createHandle() const;
-    virtual Handle *createHandle(std::size_t bufferSize) const;
-    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
-
-private:
-    const char *data;
 };
 
 /**

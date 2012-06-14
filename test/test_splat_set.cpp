@@ -33,6 +33,7 @@
 #include "../src/statistics.h"
 #include "../src/fast_ply.h"
 #include "test_splat_set.h"
+#include "memory_reader.h"
 #include "testmain.h"
 
 using namespace std;
@@ -703,7 +704,7 @@ void TestFileSet::populate(FileSet &set, const std::vector<std::vector<Splat> > 
             data.write((const char *) &splat.radius, sizeof(float));
         }
         store.push_back(data.str());
-        set.addFile(new FastPly::MemoryReader(store.back().data(), store.back().size(), 1.0f));
+        set.addFile(new MemoryReader(store.back().data(), store.back().size(), 1.0f));
     }
 }
 
