@@ -179,6 +179,11 @@ public:
      * sure that a format error is not due to a short file.
      */
     void setContent(const string &header, size_t payloadBytes = 256);
+
+    /**
+     * Retrieves the content stored with @ref setContent.
+     */
+    const std::string &getContent() { return content; }
 };
 
 void TestFastPlyReaderBase::setContent(const string &header, size_t payloadBytes)
@@ -442,7 +447,7 @@ void TestFastPlyReaderBase::testRead()
     setupRead(5);
 
     boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(2 * 7 * sizeof(float)));
 
     Splat out[4] = {};
     h->read(1, 4, out);
@@ -466,7 +471,7 @@ void TestFastPlyReaderBase::testReadIterator()
     setupRead(10000);
 
     boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(67 * 7 * sizeof(float)));
 
     vector<Splat> out;
     h->read(2, 9500, back_inserter(out));
@@ -509,15 +514,44 @@ ReaderBase *TestFastPlyMmapReader::factory(const string &filename,
 class TestFastPlySyscallReader : public TestFastPlyReaderBase
 {
     CPPUNIT_TEST_SUB_SUITE(TestFastPlySyscallReader, TestFastPlyReaderBase);
+    TEST_EXCEPTION_FILENAME(testBufferTooSmall, std::runtime_error, testFilename);
     CPPUNIT_TEST_SUITE_END();
 protected:
+    using TestFastPlyReaderBase::factory;
+
     virtual ReaderBase *factory(const string &filename, float smooth) const;
+
+public:
+    void testBufferTooSmall();         ///< Handle created with too small a buffer for one splat
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlySyscallReader, TestSet::perBuild());
 
 ReaderBase *TestFastPlySyscallReader::factory(const string &filename, float smooth) const
 {
     return new SyscallReader(filename, smooth);
+}
+
+void TestFastPlySyscallReader::testBufferTooSmall()
+{
+    const string header = 
+        "ply\n"
+        "format binary_little_endian 1.0\n"
+        "element vertex 5\n"
+        "property float32 z\n"
+        "property float32 y\n"
+        "property float32 x\n"
+        "property int16 bar\n"
+        "property float32 nx\n"
+        "property float32 ny\n"
+        "property float32 nz\n"
+        "property float32 radius\n"
+        "property uint8 foo\n"
+        "end_header\n";
+    setContent(header);
+    boost::scoped_ptr<ReaderBase> r(factory(getContent()));
+
+    CPPUNIT_ASSERT_EQUAL(31, int(r->getVertexSize()));
+    boost::scoped_ptr<ReaderBase::Handle> handle(r->createHandle(30));
 }
 
 

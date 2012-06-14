@@ -333,7 +333,7 @@ ReaderBase::Handle::Handle(const ReaderBase &owner, boost::shared_array<char> bu
     : owner(owner), buffer(buffer), bufferSize(bufferSize)
 {
     if (owner.getVertexSize() > bufferSize)
-        throw std::runtime_error("The vertices each take too many bytes");
+        throw boost::enable_error_info(std::runtime_error("The vertices each take too many bytes"));
 }
 
 template<>
@@ -366,18 +366,10 @@ ReaderBase::Handle *ReaderBase::createHandle(std::size_t bufferSize) const
 MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &filename)
     : ReaderBase::Handle(owner, 0)
 {
-    try
-    {
-        mapping.open(filename);
-        if ((mapping.size() - owner.getHeaderSize()) / owner.getVertexSize() < owner.size())
-            throw boost::enable_error_info(std::ios::failure("File is too small to contain all its vertices"));
-        vertexPtr = mapping.data() + owner.getHeaderSize();
-    }
-    catch (boost::exception &e)
-    {
-        e << boost::errinfo_file_name(filename);
-        throw;
-    }
+    mapping.open(filename);
+    if ((mapping.size() - owner.getHeaderSize()) / owner.getVertexSize() < owner.size())
+        throw boost::enable_error_info(std::ios::failure("File is too small to contain all its vertices"));
+    vertexPtr = mapping.data() + owner.getHeaderSize();
 }
 
 const char *MmapReader::MmapHandle::readRaw(size_type first, size_type last, char *buffer) const
@@ -394,20 +386,46 @@ MmapReader::MmapReader(const std::string &filename, float smooth = 1.0f)
 
 ReaderBase::Handle *MmapReader::createHandle() const
 {
-    return new MmapHandle(*this, filename);
+    try
+    {
+        return new MmapHandle(*this, filename);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 ReaderBase::Handle *MmapReader::createHandle(std::size_t bufferSize) const
 {
     (void) bufferSize; // no buffer is used
-    return new MmapHandle(*this, filename);
+
+    try
+    {
+        return new MmapHandle(*this, filename);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 ReaderBase::Handle *MmapReader::createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const
 {
     (void) buffer; // no buffer is used
     (void) bufferSize;
-    return new MmapHandle(*this, filename);
+
+    try
+    {
+        return new MmapHandle(*this, filename);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 
@@ -419,8 +437,7 @@ SyscallReader::SyscallHandle::SyscallHandle(
     if (fd < 0)
     {
         throw boost::enable_error_info(std::ios::failure("Could not open file"))
-            << boost::errinfo_errno(errno)
-            << boost::errinfo_file_name(owner.filename);
+            << boost::errinfo_errno(errno);
     }
 }
 
@@ -476,7 +493,15 @@ SyscallReader::SyscallReader(const std::string &filename, float smooth)
 ReaderBase::Handle *SyscallReader::createHandle(
     boost::shared_array<char> buffer, std::size_t bufferSize) const
 {
-    return new SyscallHandle(*this, buffer, bufferSize);
+    try
+    {
+        return new SyscallHandle(*this, buffer, bufferSize);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 
