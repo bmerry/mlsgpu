@@ -18,7 +18,7 @@
 using FastPly::ReaderBase;
 
 MemoryReader::MemoryHandle::MemoryHandle(const MemoryReader &owner, const char *data)
-    : ReaderBase::Handle(owner, 0), vertexPtr(data + owner.getHeaderSize())
+    : ReaderBase::Handle(owner), vertexPtr(data + owner.getHeaderSize())
 {
 }
 

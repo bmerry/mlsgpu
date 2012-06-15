@@ -172,6 +172,7 @@ def configure(conf):
         'boost_iostreams-mt',
         'boost_thread-mt'
     ]
+    conf.env['LIB_BOOST_TEST'] = ['boost_filesystem-mt', 'boost_system-mt']
 
     if conf.env['CXX_NAME'] == 'gcc':
         configure_variant_gcc(conf)
@@ -247,7 +248,7 @@ int main() {
         msg = 'Checking for QueryPerformanceCounter',
         mandatory = False)
 
-    for l in conf.env['LIB_BOOST']:
+    for l in conf.env['LIB_BOOST'] + conf.env['LIB_BOOST_TEST']:
         conf.check_cxx(lib = l)
     conf.find_program('xsltproc', mandatory = False)
 
@@ -322,7 +323,7 @@ def build(bld):
                 features = test_features,
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
-                use = ['CPPUNIT', 'libmls'],
+                use = ['CPPUNIT', 'BOOST_TEST', 'libmls'],
                 install_path = None)
         bld.add_post_fun(print_unit_tests)
 

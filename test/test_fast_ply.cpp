@@ -8,6 +8,10 @@
 # include <config.h>
 #endif
 
+#ifndef BOOST_FILESYSTEM_VERSION
+# define BOOST_FILESYSTEM_VERSION 3
+#endif
+
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <cppunit/extensions/ExceptionTestCaseDecorator.h>
@@ -24,6 +28,7 @@
 #include <boost/bind.hpp>
 #include <boost/ref.hpp>
 #include <boost/exception/all.hpp>
+#include <boost/filesystem.hpp>
 #include "../src/fast_ply.h"
 #include "../src/splat.h"
 #include "memory_reader.h"
@@ -88,7 +93,6 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
     TEST_EXCEPTION_FILENAME(testList, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testNotFloat, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testFormatAscii, FormatError, testFilename);
-    TEST_EXCEPTION_FILENAME(testFileNotFound, std::ios_base::failure, "not_a_real_file.ply");
 
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
@@ -98,10 +102,10 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
 private:
     string content;                    ///< Convenience data store for the file content
 
+protected:
     /// Populates content with some useful data for a read test
     void setupRead(int numVertices);
 
-protected:
     /**
      * Create an instance of a reader for the appropriate subclass. This
      * simply creates the file and then calls
@@ -161,7 +165,6 @@ public:
     void testList();                   ///< Vertex element contains a list
     void testNotFloat();               ///< Vertex property is not a float
     void testFormatAscii();            ///< Ascii format file
-    void testFileNotFound();           ///< PLY file does not exist
     /** @} */
 
     /**
@@ -379,11 +382,6 @@ void TestFastPlyReaderBase::testFormatAscii()
     boost::scoped_ptr<ReaderBase> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testFileNotFound()
-{
-    boost::scoped_ptr<ReaderBase> r(factory("not_a_real_file.ply", 1.0f));
-}
-
 void TestFastPlyReaderBase::testReadHeader()
 {
     const string header = 
@@ -491,11 +489,42 @@ void TestFastPlyReaderBase::testReadIterator()
 }
 
 /**
+ * Tests for @ref FastPly::ReaderBase for subclasses that really use files
+ */
+class TestFastPlyReaderBaseFile : public TestFastPlyReaderBase
+{
+    CPPUNIT_TEST_SUB_SUITE(TestFastPlyReaderBaseFile, TestFastPlyReaderBase);
+    TEST_EXCEPTION_FILENAME(testFileNotFound, std::ios_base::failure, "not_a_real_file.ply");
+    TEST_EXCEPTION_FILENAME(testFileRemoved, std::ios_base::failure, testFilename);
+    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+
+public:
+    void testFileNotFound();           ///< PLY file does not exist
+    void testFileRemoved();            ///< File removed after the header is read
+};
+
+void TestFastPlyReaderBaseFile::testFileNotFound()
+{
+    // Make sure it didn't get created by accident
+    boost::filesystem::remove("not_a_real_file.ply");
+    boost::scoped_ptr<ReaderBase> r(factory("not_a_real_file.ply", 1.0f));
+}
+
+void TestFastPlyReaderBaseFile::testFileRemoved()
+{
+    setupRead(5);
+
+    boost::scoped_ptr<ReaderBase> r(factory(getContent(), testFilename, 2.0f));
+    boost::filesystem::remove(testFilename);
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(2 * 7 * sizeof(float)));
+}
+
+/**
  * Tests for @ref FastPly::MmapReader
  */
-class TestFastPlyMmapReader : public TestFastPlyReaderBase
+class TestFastPlyMmapReader : public TestFastPlyReaderBaseFile
 {
-    CPPUNIT_TEST_SUB_SUITE(TestFastPlyMmapReader, TestFastPlyReaderBase);
+    CPPUNIT_TEST_SUB_SUITE(TestFastPlyMmapReader, TestFastPlyReaderBaseFile);
     CPPUNIT_TEST_SUITE_END();
 protected:
     virtual ReaderBase *factory(const string &filename, float smooth) const;
@@ -511,9 +540,9 @@ ReaderBase *TestFastPlyMmapReader::factory(const string &filename,
 /**
  * Tests for @ref FastPly::SyscallReader
  */
-class TestFastPlySyscallReader : public TestFastPlyReaderBase
+class TestFastPlySyscallReader : public TestFastPlyReaderBaseFile
 {
-    CPPUNIT_TEST_SUB_SUITE(TestFastPlySyscallReader, TestFastPlyReaderBase);
+    CPPUNIT_TEST_SUB_SUITE(TestFastPlySyscallReader, TestFastPlyReaderBaseFile);
     TEST_EXCEPTION_FILENAME(testBufferTooSmall, std::runtime_error, testFilename);
     CPPUNIT_TEST_SUITE_END();
 protected:
@@ -573,19 +602,11 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyMemoryReader, TestSet::perBuild
 ReaderBase *TestFastPlyMemoryReader::factory(const string &filename, float smooth) const
 {
     // Suck the data back into memory
-    try
-    {
-        ifstream in(filename.c_str());
-        in.exceptions(ios::failbit);
-        ostringstream buf;
-        buf << in.rdbuf();
-        fileData = buf.str();
-    }
-    catch (std::ios::failure &e)
-    {
-        throw boost::enable_error_info(e)
-            << boost::errinfo_file_name(filename);
-    }
+    ifstream in(filename.c_str());
+    in.exceptions(ios::failbit);
+    ostringstream buf;
+    buf << in.rdbuf();
+    fileData = buf.str();
 
     try
     {

@@ -62,6 +62,10 @@
                         <listitem><para><systemitem
                                     class="library">boost_thread</systemitem></para></listitem>
                         <listitem><para><systemitem
+                                    class="library">boost_filesystem</systemitem></para></listitem>
+                        <listitem><para><systemitem
+                                    class="library">boost_system</systemitem></para></listitem>
+                        <listitem><para><systemitem
                                     class="library">boost_math_c99</systemitem></para></listitem>
                         <listitem><para><systemitem
                                     class="library">boost_math_c99f</systemitem></para></listitem>
@@ -108,6 +112,8 @@ docbook-xml
 docbook-xsl
 libboost-dev
 libboost-iostreams-dev
+libboost-filesystem-dev
+libboost-system-dev
 libboost-math-dev
 libboost-program-options-dev
 libboost-thread-dev
