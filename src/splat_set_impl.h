@@ -67,7 +67,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     blobs.clear();
     internalBucketSize = bucketSize;
 
-    // Reference point will be 0,0,0. Extents are set after reading all the spla
+    // Reference point will be 0,0,0. Extents are set after reading all the splats
     boundingGrid.setSpacing(spacing);
     boundingGrid.setReference(ref);
 
