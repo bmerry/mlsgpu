@@ -578,7 +578,7 @@ OutputIterator ReaderBase::Handle::read(size_type first, size_type last, OutputI
         blockSize = last - first;
     else
         blockSize = bufferSize / vertexSize;
-    MLSGPU_ASSERT(blockSize > 0, std::length_error);
+    MLSGPU_ASSERT(first == last || blockSize > 0, std::length_error);
 
     for (size_type i = first; i < last; i += blockSize)
     {
