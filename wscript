@@ -133,6 +133,7 @@ def configure_variant_msvc(conf):
     # Autolinked, so no need to detect or link
     conf.env['LIB_BOOST'] = []
     conf.env['LIB_BOOST_MATH'] = []
+    conf.env['LIB_BOOST_TEST'] = []
 
     # Reduces legacy stuff
     conf.env.append_value('DEFINES', 'WIN32_LEAN_AND_MEAN')

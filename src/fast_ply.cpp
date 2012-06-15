@@ -311,7 +311,7 @@ ReaderBase::ReaderBase(const std::string &filename, float smooth)
 {
     try
     {
-        std::ifstream in(filename.c_str());
+        std::ifstream in(filename.c_str(), std::ios::in | std::ios::binary);
         readHeader(in);
     }
     catch (boost::exception &e)

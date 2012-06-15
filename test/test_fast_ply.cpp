@@ -213,7 +213,7 @@ void TestFastPlyReaderBase::setContent(const string &header, size_t payloadBytes
 
 ReaderBase *TestFastPlyReaderBase::factory(const string &content, const string &filename, float smooth) const
 {
-    ofstream out(filename.c_str());
+    ofstream out(filename.c_str(), ios::out | ios::binary);
     out.write(content.data(), content.size());
     out.close();
     CPPUNIT_ASSERT(out);
@@ -666,7 +666,7 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyMemoryReader, TestSet::perBuild
 ReaderBase *TestFastPlyMemoryReader::factory(const string &filename, float smooth) const
 {
     // Suck the data back into memory
-    ifstream in(filename.c_str());
+    ifstream in(filename.c_str(), ios::in | ios::binary);
     in.exceptions(ios::failbit);
     ostringstream buf;
     buf << in.rdbuf();

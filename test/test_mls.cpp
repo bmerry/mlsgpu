@@ -398,7 +398,12 @@ void TestMls::testProcessCorners()
     const float center[3] = {10.0f, 20.0f, 35.0f};
     const float radius = 65.0f;
 
-    const Grid::size_type size[3] = {19, 24, 28};
+    // Not all compilers believe size[0] is a constant expression, so we
+    // need to pull out the terms as constant expressions.
+    const Grid::size_type sizeX = 19;
+    const Grid::size_type sizeY = 24;
+    const Grid::size_type sizeZ = 28;
+    const Grid::size_type size[3] = {sizeX, sizeY, sizeZ};
     const Grid::size_type zFirst = MlsFunctor::wgs[2], zLast = 26;
     const Grid::difference_type offset[3] = { 20, 15, 33 };
 
@@ -453,7 +458,7 @@ void TestMls::testProcessCorners()
     // Read back and verify results
     for (Grid::size_type z = zFirst; z < zLast; z++)
     {
-        cl_float hCorners[size[1]][size[0]];
+        cl_float hCorners[sizeY][sizeX];
         cl::size_t<3> origin, region;
         origin[0] = 0; origin[1] = zStride * (z - zFirst); origin[2] = 0;
         region[0] = size[0]; region[1] = size[1]; region[2] = 1;
