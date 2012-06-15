@@ -11,6 +11,16 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#if HAVE_OPEN && HAVE_CLOSE && HAVE_PREAD
+# define SYSCALL_READER_POSIX 1
+#elif HAVE_CREATEFILE && HAVE_CLOSEHANDLE && HAVE_READFILE
+# define SYSCALL_READER_WIN32 1
+# include <windows.h>
+#else
+# error "Insufficient support for SyscallReader"
+#endif
+
 #include <string>
 #include <cstddef>
 #include <stdexcept>
@@ -328,7 +338,11 @@ private:
     class SyscallHandle : public ReaderBase::Handle
     {
     private:
+#if SYSCALL_READER_POSIX
         int fd;
+#elif SYSCALL_READER_WIN32
+        HANDLE fd;
+#endif
 
     public:
         /**

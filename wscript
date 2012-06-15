@@ -134,6 +134,8 @@ def configure_variant_msvc(conf):
     conf.env['LIB_BOOST'] = []
     conf.env['LIB_BOOST_MATH'] = []
 
+    # Reduces legacy stuff
+    conf.env.append_value('DEFINES', 'WIN32_LEAN_AND_MEAN')
     # windows.h defines macros called min and max by default. EVIL!
     conf.env.append_value('DEFINES', 'NOMINMAX')
 
@@ -247,6 +249,20 @@ int main() {
         uselib_store = 'TIMER',
         msg = 'Checking for QueryPerformanceCounter',
         mandatory = False)
+
+    for f in ['CreateFile', 'ReadFile', 'CloseHandle']:
+        conf.check_cxx(
+            features = ['cxx', 'cxxprogram'],
+            function_name = f, header_name = 'windows.h',
+            msg = 'Checking for ' + f,
+            mandatory = False)
+    for f in ['open', 'pread', 'close']:
+        conf.check_cxx(
+            features = ['cxx', 'cxxprogram'],
+            function_name = f, header_name = ['fcntl.h', 'sys/types.h', 'unistd.h'],
+            defines = ['_POSIX_C_SOURCE=200809L'],
+            msg = 'Checking for ' + f,
+            mandatory = False)
 
     for l in conf.env['LIB_BOOST'] + conf.env['LIB_BOOST_TEST']:
         conf.check_cxx(lib = l)

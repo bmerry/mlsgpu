@@ -7,6 +7,11 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#if HAVE_PREAD && !defined(_POSIX_C_SOURCE)
+# define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <string>
 #include <cstddef>
 #include <string>
@@ -28,10 +33,16 @@
 #include "splat.h"
 #include "errors.h"
 
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <errno.h>
+#if SYSCALL_READER_POSIX
+# include <fcntl.h>
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <errno.h>
+#endif
+
+#if SYSCALL_READER_WIN32
+# include <windows.h>
+#endif
 
 namespace FastPly
 {
@@ -423,6 +434,8 @@ ReaderBase::Handle *MmapReader::createHandle(boost::shared_array<char> buffer, s
 }
 
 
+#if SYSCALL_READER_POSIX
+
 SyscallReader::SyscallHandle::SyscallHandle(
     const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
 : Handle(owner, buffer, bufferSize)
@@ -443,11 +456,11 @@ const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type la
 
         ssize_t remain = vertexSize * (last - first);
         char *ptr = buffer;
-        lseek(fd, static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize, SEEK_SET);
+        off_t offset = static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize;
 
         while (remain > 0)
         {
-            ssize_t bytes = ::read(fd, (void *) ptr, remain);
+            ssize_t bytes = ::pread(fd, (void *) ptr, remain, offset);
             if (bytes < 0)
             {
                 if (errno == EAGAIN || errno == EINTR)
@@ -462,6 +475,7 @@ const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type la
             else
             {
                 ptr += bytes;
+                offset += bytes;
                 remain -= bytes;
             }
         }
@@ -478,6 +492,80 @@ SyscallReader::SyscallHandle::~SyscallHandle()
 {
     close(fd);
 }
+
+#endif // SYSCALL_READER_POSIX
+
+#if SYSCALL_READER_WIN32
+
+SyscallReader::SyscallHandle::SyscallHandle(
+    const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
+: Handle(owner, buffer, bufferSize)
+{
+    fd = CreateFile(owner.filename.c_str(),
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                    NULL,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    NULL);
+    if (fd == INVALID_HANDLE_VALUE)
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not open file"))
+            << boost::errinfo_errno(GetLastError());
+    }
+}
+
+const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    try
+    {
+        std::size_t vertexSize = owner.getVertexSize();
+        std::size_t remain = vertexSize * (last - first);
+        char *ptr = buffer;
+        size_type offset = static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize;
+
+        while (remain > 0)
+        {
+            OVERLAPPED req;
+            DWORD bytes;
+            std::size_t bytesToRead;
+
+            std::memset(&req, 0, sizeof(req));
+            req.Offset = offset & 0xFFFFFFFFu;
+            req.OffsetHigh = offset >> 32;
+
+            bytesToRead = std::min(remain, std::size_t(std::numeric_limits<DWORD>::max()));
+            if (!ReadFile(fd, (void *) ptr, bytesToRead, &bytes, &req))
+            {
+                throw boost::enable_error_info(std::ios::failure("read failed"))
+                    << boost::errinfo_errno(GetLastError());
+            }
+            else if (bytes == 0)
+            {
+                throw boost::enable_error_info(std::ios::failure("unexpected end of file"));
+            }
+            else
+            {
+                ptr += bytes;
+                offset += bytes;
+                remain -= bytes;
+            }
+        }
+        return buffer;
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(static_cast<const SyscallReader &>(owner).filename);
+        throw;
+    }
+}
+
+SyscallReader::SyscallHandle::~SyscallHandle()
+{
+    CloseHandle(fd);
+}
+
+#endif // SYSCALL_READER_WIN32
 
 SyscallReader::SyscallReader(const std::string &filename, float smooth)
     : ReaderBase(filename, smooth), filename(filename)
