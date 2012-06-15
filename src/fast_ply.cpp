@@ -114,7 +114,7 @@ static ReaderBase::size_type fieldSize(const FieldType f)
  * @throw FormatError on EOF
  * @throw std::ios::failure on other I/O error
  */
-static std::string getHeaderLine(std::istream &in) throw(FormatError)
+static std::string getHeaderLine(std::istream &in) throw(FormatError, std::ios::failure)
 {
     try
     {
@@ -318,15 +318,9 @@ ReaderBase::ReaderBase(float smooth) : smooth(smooth)
 {
 }
 
-ReaderBase::Handle::Handle(const ReaderBase &owner, std::size_t bufferSize)
-    : owner(owner), bufferSize(bufferSize)
+ReaderBase::Handle::Handle(const ReaderBase &owner)
+    : owner(owner), bufferSize(0)
 {
-    if (bufferSize != 0)
-    {
-        if (owner.getVertexSize() > bufferSize)
-            throw std::runtime_error("The vertices each take too many bytes");
-        buffer.reset(new char[bufferSize]);
-    }
 }
 
 ReaderBase::Handle::Handle(const ReaderBase &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
@@ -364,7 +358,7 @@ ReaderBase::Handle *ReaderBase::createHandle(std::size_t bufferSize) const
 }
 
 MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &filename)
-    : ReaderBase::Handle(owner, 0)
+    : ReaderBase::Handle(owner)
 {
     mapping.open(filename);
     if ((mapping.size() - owner.getHeaderSize()) / owner.getVertexSize() < owner.size())

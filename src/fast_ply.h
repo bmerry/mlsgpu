@@ -143,13 +143,9 @@ public:
 
     protected:
         /**
-         * Create with an internal buffer of specified size.
-         * It is legal for the size to be 0, in which case the subclass does not require
-         * a buffer (e.g. because of memory mapping).
-         *
-         * @throw std::runtime_error If @a bufferSize < <code>owner.getVertexSize()</code>.
+         * Create without an internal buffer.
          */
-        Handle(const ReaderBase &owner, std::size_t bufferSize);
+        Handle(const ReaderBase &owner);
 
         /**
          * Create with a user-provided buffer. This buffer can be shared between handles.
