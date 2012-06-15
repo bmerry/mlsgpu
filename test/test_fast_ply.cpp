@@ -85,6 +85,7 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
     TEST_EXCEPTION_FILENAME(testBadPropertyListLength, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadPropertyListType, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadPropertyType, FormatError, testFilename);
+    TEST_EXCEPTION_FILENAME(testBadPropertyLine, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadHeaderToken, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testEarlyProperty, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testDuplicateProperty, FormatError, testFilename);
@@ -93,6 +94,7 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
     TEST_EXCEPTION_FILENAME(testList, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testNotFloat, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testFormatAscii, FormatError, testFilename);
+    TEST_EXCEPTION_FILENAME(testFormatMissing, FormatError, testFilename);
 
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
@@ -167,6 +169,7 @@ public:
     void testBadPropertyListLength();  ///< Wrong number of tokens on list property line
     void testBadPropertyListType();    ///< List length type is not valid
     void testBadPropertyType();        ///< Property type is not valid
+    void testBadPropertyLine();        ///< Property line has insufficient tokens
     void testBadHeaderToken();         ///< Unrecognized header line
     void testEarlyProperty();          ///< Property line before any element line
     void testDuplicateProperty();      ///< Two properties with the same name
@@ -175,6 +178,7 @@ public:
     void testList();                   ///< Vertex element contains a list
     void testNotFloat();               ///< Vertex property is not a float
     void testFormatAscii();            ///< Ascii format file
+    void testFormatMissing();          ///< No format line
     /** @} */
 
     /**
@@ -293,6 +297,12 @@ void TestFastPlyReaderBase::testBadPropertyType()
     boost::scoped_ptr<ReaderBase> r(factory(content));
 }
 
+void TestFastPlyReaderBase::testBadPropertyLine()
+{
+    setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int\nend_header\n");
+    boost::scoped_ptr<ReaderBase> r(factory(content));
+}
+
 void TestFastPlyReaderBase::testBadHeaderToken()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nfoo\nend_header\n");
@@ -307,7 +317,7 @@ void TestFastPlyReaderBase::testEarlyProperty()
 
 void TestFastPlyReaderBase::testDuplicateProperty()
 {
-    setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int x\nproperty float x\nend_header\n");
+    setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty float x\nproperty float x\nend_header\n");
     boost::scoped_ptr<ReaderBase> r(factory(content));
 }
 
@@ -380,6 +390,23 @@ void TestFastPlyReaderBase::testFormatAscii()
     setContent(
         "ply\n"
         "format ascii 1.0\n"
+        "element vertex 5\n"
+        "property float32 x\n"
+        "property float32 y\n"
+        "property float32 z\n"
+        "property float32 nx\n"
+        "property float32 ny\n"
+        "property float32 nz\n"
+        "property float32 radius\n"
+        "property uint8 foo\n"
+        "end_header\n");
+    boost::scoped_ptr<ReaderBase> r(factory(content));
+}
+
+void TestFastPlyReaderBase::testFormatMissing()
+{
+    setContent(
+        "ply\n"
         "element vertex 5\n"
         "property float32 x\n"
         "property float32 y\n"
