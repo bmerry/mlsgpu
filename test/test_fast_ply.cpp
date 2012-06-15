@@ -98,6 +98,7 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
 
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
+    CPPUNIT_TEST(testReadZero);
     CPPUNIT_TEST(testReadIterator);
     CPPUNIT_TEST(testReadUserBuffer);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
@@ -187,6 +188,7 @@ public:
      */
     void testReadHeader();             ///< Checks that header-related fields are set properly
     void testRead();                   ///< Tests @ref FastPly::ReaderBase::Handle::read with a pointer
+    void testReadZero();               ///< Tests a zero-splat read
     void testReadIterator();           ///< Tests @ref FastPly::ReaderBase::Handle::read with an output iterator
     void testReadUserBuffer();         ///< Tests reading with an externally-provided buffer
     /** @} */
@@ -507,6 +509,18 @@ void TestFastPlyReaderBase::testRead()
     verify(1, out, out + 3);
 
     CPPUNIT_ASSERT_THROW(h->read(1, 6, out), std::out_of_range);
+}
+
+void TestFastPlyReaderBase::testReadZero()
+{
+    setupRead(5);
+
+    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(2 * 7 * sizeof(float)));
+
+    Splat out[4] = {};
+    h->read(1, 1, out);
+    CPPUNIT_ASSERT_EQUAL(0.0f, out[0].position[0]); // check for overwriting
 }
 
 void TestFastPlyReaderBase::testReadIterator()
