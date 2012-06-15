@@ -97,6 +97,7 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
     CPPUNIT_TEST(testReadIterator);
+    CPPUNIT_TEST(testReadUserBuffer);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 
 private:
@@ -105,6 +106,15 @@ private:
 protected:
     /// Populates content with some useful data for a read test
     void setupRead(int numVertices);
+
+    /**
+     * Check that data read from the output of @ref setupRead is correct.
+     *
+     * @param offset          Index of first vertex in the given range
+     * @param first,last      Contiguous range of splats read from file
+     */
+    template<typename ForwardIterator>
+    void verify(int offset, ForwardIterator first, ForwardIterator last);
 
     /**
      * Create an instance of a reader for the appropriate subclass. This
@@ -174,6 +184,7 @@ public:
     void testReadHeader();             ///< Checks that header-related fields are set properly
     void testRead();                   ///< Tests @ref FastPly::ReaderBase::Handle::read with a pointer
     void testReadIterator();           ///< Tests @ref FastPly::ReaderBase::Handle::read with an output iterator
+    void testReadUserBuffer();         ///< Tests reading with an externally-provided buffer
     /** @} */
 
     /**
@@ -440,6 +451,22 @@ void TestFastPlyReaderBase::setupRead(int numVertices)
          content.begin() + header.size());
 }
 
+template<typename ForwardIterator>
+void TestFastPlyReaderBase::verify(int offset, ForwardIterator first, ForwardIterator last)
+{
+    int pos = offset;
+    for (ForwardIterator i = first; i != last; ++i, ++pos)
+    {
+        CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 2.0f, i->position[0]);
+        CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 0.0f, i->position[1]);
+        CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 1.0f, i->position[2]);
+        CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 3.0f, i->normal[0]);
+        CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 4.0f, i->normal[1]);
+        CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 5.0f, i->normal[2]);
+        CPPUNIT_ASSERT_EQUAL(2.0f * (pos * 100.0f + 6.0f), i->radius);
+    }
+}
+
 void TestFastPlyReaderBase::testRead()
 {
     setupRead(5);
@@ -450,16 +477,7 @@ void TestFastPlyReaderBase::testRead()
     Splat out[4] = {};
     h->read(1, 4, out);
     CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting
-    for (int i = 0; i < 3; i++)
-    {
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 102.0f, out[i].position[0]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 100.0f, out[i].position[1]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 101.0f, out[i].position[2]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 103.0f, out[i].normal[0]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 104.0f, out[i].normal[1]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 105.0f, out[i].normal[2]);
-        CPPUNIT_ASSERT_EQUAL(2.0f * (i * 100.0f + 106.0f), out[i].radius);
-    }
+    verify(1, out, out + 3);
 
     CPPUNIT_ASSERT_THROW(h->read(1, 6, out), std::out_of_range);
 }
@@ -474,18 +492,23 @@ void TestFastPlyReaderBase::testReadIterator()
     vector<Splat> out;
     h->read(2, 9500, back_inserter(out));
     CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
-    for (int i = 2; i < 9500; i++)
-    {
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 2.0f, out[i - 2].position[0]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 0.0f, out[i - 2].position[1]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 1.0f, out[i - 2].position[2]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 3.0f, out[i - 2].normal[0]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 4.0f, out[i - 2].normal[1]);
-        CPPUNIT_ASSERT_EQUAL(i * 100.0f + 5.0f, out[i - 2].normal[2]);
-        CPPUNIT_ASSERT_EQUAL(2.0f * (i * 100.0f + 6.0f), out[i - 2].radius);
-    }
+    verify(2, out.begin(), out.end());
 
     CPPUNIT_ASSERT_THROW(h->read(1, 10001, back_inserter(out)), std::out_of_range);
+}
+
+void TestFastPlyReaderBase::testReadUserBuffer()
+{
+    const std::size_t bufferSize = 12345;
+    boost::shared_array<char> buffer(new char[bufferSize]);
+    setupRead(10000);
+
+    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(buffer, bufferSize));
+    vector<Splat> out;
+    h->read(2, 9500, back_inserter(out));
+    CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
+    verify(2, out.begin(), out.end());
 }
 
 /**
