@@ -22,7 +22,9 @@
 #include <boost/array.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/type_traits/integral_constant.hpp>
+#include <boost/thread/thread.hpp>
 #include "grid.h"
 #include "misc.h"
 #include "splat.h"
@@ -30,6 +32,7 @@
 #include "fast_ply.h"
 #include "statistics.h"
 #include "logging.h"
+#include "work_queue.h"
 #include "progress.h"
 #include "allocator.h"
 
@@ -373,6 +376,50 @@ public:
     SimpleFileSet() : nSplats(0) {}
 
 private:
+    /// Thread class that does reads and provides the data for the stream
+    class ReaderThread : public boost::noncopyable
+    {
+    public:
+        enum
+        {
+            BUFFER_SIZE = 128 * 1024 * 1024 / sizeof(Splat)
+        };
+        struct Request
+        {
+            splat_id first;
+            splat_id last;
+        };
+        struct Item
+        {
+            splat_id first;
+            splat_id last;
+            Statistics::Container::vector<Splat> splats;
+
+            Item() : first(0), last(0), splats("splatstream.item.mem")
+            {
+                splats.reserve(BUFFER_SIZE);
+            }
+        };
+    private:
+        const SimpleFileSet &owner;
+
+        WorkQueue<Request> inQueue;
+        WorkQueue<boost::shared_ptr<Item> > outQueue;
+        Pool<Item> pool;
+
+    public:
+        explicit ReaderThread(const SimpleFileSet &owner);
+
+        void operator()();
+
+        void request(splat_id first, splat_id last);
+        void drain();
+        void stop();
+
+        boost::shared_ptr<Item> pop() { return outQueue.pop(); }
+        void push(boost::shared_ptr<Item> item) { pool.push(item); }
+    };
+
     /// Splat stream implementation
     class MySplatStream : public SplatStreamReset
     {
@@ -380,39 +427,33 @@ private:
         virtual const Splat &operator*() const
         {
             MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return buffer[bufferCur];
+            return buffer->splats[bufferCur];
         }
 
         virtual SplatStream &operator++();
 
         virtual bool empty() const
         {
-            return bufferCur == bufferEnd;
+            return isEmpty;
         }
 
         virtual splat_id currentId() const
         {
-            return cur;
+            return buffer->first + bufferCur;
         }
 
         virtual void reset(splat_id first, splat_id last);
 
         MySplatStream(const SimpleFileSet &owner, splat_id first, splat_id last);
+        virtual ~MySplatStream();
 
     private:
         const SimpleFileSet &owner;     ///< Owning set
-        splat_id last;                  ///< End of range to iterate over
-        splat_id next;                  ///< Next ID to load into the buffer once exhausted
-        splat_id cur;                   ///< Splat ID at the front of the buffer
         std::size_t bufferCur;          ///< First position in @ref buffer with data
-        std::size_t bufferEnd;          ///< Past-the-end position for @ref buffer
-        boost::shared_array<char> rawBuffer; ///< Buffer used by @ref FastPly::ReaderBase::Handle
-        boost::scoped_array<Splat> buffer;   ///< Buffer for splats read from file
-
-        /// Handle for current file being read (can be NULL)
-        boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
-        /// File ID currently corresponding to @ref handle (undefined if @ref handle is NULL)
-        std::size_t handleFile;
+        boost::shared_ptr<ReaderThread::Item> buffer; ///< Current buffer (possibly NULL)
+        bool isEmpty;                   ///< Set to true when hitting the end
+        ReaderThread readerThread;
+        boost::thread thread;
 
         /**
          * Advances over non-finite elements in the buffer. It stops when a

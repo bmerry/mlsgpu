@@ -9,6 +9,8 @@
 #endif
 #include <limits>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
 #include <iosfwd>
 #include "splat_set.h"
 #include "errors.h"
@@ -19,9 +21,6 @@ namespace SplatSet
 
 namespace detail
 {
-
-static const std::size_t RAW_BUFFER_SIZE = 128 * 1024 * 1024;
-static const std::size_t BUFFER_SIZE = RAW_BUFFER_SIZE / sizeof(Splat);
 
 void splatToBuckets(const Splat &splat,
                     const Grid &grid, Grid::size_type bucketSize,
@@ -71,20 +70,112 @@ void SimpleFileSet::addFile(FastPly::ReaderBase *file)
     nSplats += file->size();
 }
 
+SimpleFileSet::ReaderThread::ReaderThread(const SimpleFileSet &owner)
+    : owner(owner), inQueue(1), outQueue(2), pool(2)
+{
+    for (int i = 0; i < 2; i++)
+        pool.push(boost::make_shared<Item>());
+}
+
+void SimpleFileSet::ReaderThread::operator()()
+{
+    // TODO: instrumentation for the memory
+    boost::shared_array<char> rawBuffer(new char[BUFFER_SIZE * sizeof(Splat)]);
+
+    Request req;
+    while (true)
+    {
+        req = inQueue.pop();
+        if (req.first > req.last) // sentinel value
+            break;
+        splat_id first = req.first;
+        splat_id last = req.last;
+
+        boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
+        std::size_t handleId;
+        while (first < last)
+        {
+            std::size_t fileId = first >> scanIdShift;
+
+            FastPly::ReaderBase::size_type fileSize = owner.files[fileId].size();
+            FastPly::ReaderBase::size_type start = first & splatIdMask;
+            FastPly::ReaderBase::size_type end = std::min(start + BUFFER_SIZE, fileSize);
+            if ((last >> scanIdShift) == fileId)
+                end = std::min(end, FastPly::ReaderBase::size_type(last & splatIdMask));
+
+            if (start < end)
+            {
+                if (!handle || handleId != fileId)
+                {
+                    handle.reset(owner.files[fileId].createHandle(rawBuffer, BUFFER_SIZE * sizeof(Splat)));
+                    handleId = fileId;
+                }
+
+                boost::shared_ptr<Item> item = pool.pop();
+                item->splats.resize(end - start);
+                item->first = first;
+                item->last = first + (end - start);
+                handle->read(start, end, &item->splats[0]);
+                outQueue.push(item);
+
+                first += end - start;
+            }
+            if (end == fileSize)
+            {
+                first = (fileId + 1) << scanIdShift;
+            }
+        }
+        // Signal completion
+        outQueue.push(boost::shared_ptr<Item>());
+    }
+}
+
+void SimpleFileSet::ReaderThread::request(splat_id first, splat_id last)
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    Request req;
+    req.first = first;
+    req.last = last;
+    inQueue.push(req);
+}
+
+void SimpleFileSet::ReaderThread::stop()
+{
+    Request req;
+    req.first = 1;
+    req.last = 0;
+    inQueue.push(req);
+}
+
+void SimpleFileSet::ReaderThread::drain()
+{
+    boost::shared_ptr<Item> item;
+    while (!!(item = pop()))
+    {
+        push(item);
+    }
+}
+
 SimpleFileSet::MySplatStream::MySplatStream(
     const SimpleFileSet &owner, splat_id first, splat_id last)
-: owner(owner)
+: owner(owner), readerThread(owner), thread(boost::ref(readerThread))
 {
-    rawBuffer.reset(new char[RAW_BUFFER_SIZE]);
-    buffer.reset(new Splat[BUFFER_SIZE]);
+    isEmpty = true;
     reset(first, last);
+}
+
+SimpleFileSet::MySplatStream::~MySplatStream()
+{
+    if (!isEmpty)
+        readerThread.drain();
+    readerThread.stop();
+    thread.join();
 }
 
 SplatStream &SimpleFileSet::MySplatStream::operator++()
 {
-    MLSGPU_ASSERT(!empty(), std::out_of_range);
+    MLSGPU_ASSERT(!isEmpty, std::out_of_range);
     bufferCur++;
-    cur++;
     refill();
     return *this;
 }
@@ -93,60 +184,43 @@ void SimpleFileSet::MySplatStream::reset(splat_id first, splat_id last)
 {
     MLSGPU_ASSERT(first <= last, std::invalid_argument);
     last = std::min(last, splat_id(owner.files.size()) << scanIdShift);
-    this->last = last;
-    bufferCur = 0;
-    bufferEnd = 0;
-    cur = next = first;
-    handle.reset();
+    if (first > last)
+        first = last;
+
+    if (!isEmpty)
+        readerThread.drain();
+
+    if (buffer)
+    {
+        readerThread.push(buffer);
+        buffer.reset();
+    }
+    readerThread.request(first, last);
+    isEmpty = false;
     refill();
 }
 
 void SimpleFileSet::MySplatStream::skipNonFiniteInBuffer()
 {
-    while (bufferCur < bufferEnd && !buffer[bufferCur].isFinite())
+    while (buffer && bufferCur < buffer->splats.size() && !buffer->splats[bufferCur].isFinite())
     {
         bufferCur++;
-        cur++;
     }
 }
 
 void SimpleFileSet::MySplatStream::refill()
 {
     skipNonFiniteInBuffer();
-    while (bufferCur == bufferEnd)
+    while (!isEmpty && (!buffer || bufferCur == buffer->splats.size()))
     {
-        std::size_t file = next >> scanIdShift;
-        splat_id offset = next & splatIdMask;
-        while (file < owner.files.size() && offset >= owner.files[file].size())
-        {
-            file++;
-            offset = 0;
-        }
-        next = (splat_id(file) << scanIdShift) + offset;
-        if (next >= last)
-        {
-            handle.reset();
-            break;
-        }
-
-        if (file != handleFile || !handle)
-        {
-            handle.reset(owner.files[file].createHandle(rawBuffer, RAW_BUFFER_SIZE));
-            handleFile = file;
-        }
-
+        if (buffer)
+            readerThread.push(buffer);
+        buffer = readerThread.pop();
         bufferCur = 0;
-        bufferEnd = BUFFER_SIZE;
-        if (last - next < bufferEnd)
-            bufferEnd = last - next;
-        if (owner.files[file].size() - offset < bufferEnd)
-            bufferEnd = owner.files[file].size() - offset;
-        assert(bufferEnd > 0);
-        handle->read(offset, offset + bufferEnd, &buffer[0]);
-        cur = next;
-        next += bufferEnd;
-
-        skipNonFiniteInBuffer();
+        if (!buffer)
+            isEmpty = true;
+        else
+            skipNonFiniteInBuffer();
     }
 }
 
