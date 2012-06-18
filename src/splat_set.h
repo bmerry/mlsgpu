@@ -382,7 +382,7 @@ private:
     public:
         enum
         {
-            BUFFER_SIZE = 128 * 1024 * 1024 / sizeof(Splat)
+            BUFFER_SIZE = 128 * 1024 * 1024
         };
         struct Request
         {
@@ -393,11 +393,12 @@ private:
         {
             splat_id first;
             splat_id last;
-            Statistics::Container::vector<Splat> splats;
+            std::size_t nSplats;
+            Statistics::Container::vector<char> buffer;
 
-            Item() : first(0), last(0), splats("splatstream.item.mem")
+            Item() : first(0), last(0), nSplats(0),
+                buffer("mem.SimpleFileSet.ReaderThread.buffer.mem", BUFFER_SIZE)
             {
-                splats.reserve(BUFFER_SIZE);
             }
         };
     private:
@@ -427,7 +428,7 @@ private:
         virtual const Splat &operator*() const
         {
             MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return buffer->splats[bufferCur];
+            return nextSplat;
         }
 
         virtual SplatStream &operator++();
@@ -449,22 +450,16 @@ private:
 
     private:
         const SimpleFileSet &owner;     ///< Owning set
-        std::size_t bufferCur;          ///< First position in @ref buffer with data
+        std::size_t bufferCur;          ///< First position in @ref buffer with data (points at @ref nextSplat)
+        Splat nextSplat;                ///< The splat to return from @ref operator*
         boost::shared_ptr<ReaderThread::Item> buffer; ///< Current buffer (possibly NULL)
         bool isEmpty;                   ///< Set to true when hitting the end
         ReaderThread readerThread;
         boost::thread thread;
 
         /**
-         * Advances over non-finite elements in the buffer. It stops when a
-         * finite splat is reached or the buffer is empty. This should only
-         * be called by @ref refill.
-         */
-        void skipNonFiniteInBuffer();
-
-        /**
-         * Advance the stream until empty or a finite splat is reached. This
-         * will refill the buffer if necessary.
+         * Advance the stream until empty or a finite splat is reached, and
+         * set @ref nextSplat. This will refill the buffer if necessary.
          */
         void refill();
     };

@@ -12,7 +12,6 @@
 #endif
 
 #include <cstddef>
-#include <boost/smart_ptr/shared_array.hpp>
 #include "../src/fast_ply.h"
 
 /**
@@ -29,10 +28,9 @@ private:
         /// Pointer to the first vertex
         const char *vertexPtr;
 
-    protected:
-        virtual const char *readRaw(size_type first, size_type last, char *buffer) const;
-
     public:
+        virtual void readRaw(size_type first, size_type last, char *buffer) const;
+
         /**
          * Constructor.
          * @param owner     The creating reader.
@@ -54,8 +52,6 @@ public:
     MemoryReader(const char *data, std::size_t size, float smooth);
 
     virtual Handle *createHandle() const;
-    virtual Handle *createHandle(std::size_t bufferSize) const;
-    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
 
 private:
     const char *data;

@@ -23,6 +23,7 @@
 #include <cstring>
 #include <algorithm>
 #include <limits>
+#include <cstring>
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
@@ -306,6 +307,23 @@ void ReaderBase::readHeader(std::istream &in)
     headerSize = in.tellg();
 }
 
+Splat ReaderBase::decode(const char *buffer, std::size_t offset) const
+{
+    buffer += offset * getVertexSize();
+
+    Splat ans;
+    std::memcpy(&ans.position[0], buffer + offsets[X], sizeof(float));
+    std::memcpy(&ans.position[1], buffer + offsets[Y], sizeof(float));
+    std::memcpy(&ans.position[2], buffer + offsets[Z], sizeof(float));
+    std::memcpy(&ans.radius,      buffer + offsets[RADIUS], sizeof(float));
+    std::memcpy(&ans.normal[0],   buffer + offsets[NX], sizeof(float));
+    std::memcpy(&ans.normal[1],   buffer + offsets[NY], sizeof(float));
+    std::memcpy(&ans.normal[2],   buffer + offsets[NZ], sizeof(float));
+    ans.radius *= smooth;
+    ans.quality = 1.0 / (ans.radius * ans.radius);
+    return ans;
+}
+
 ReaderBase::ReaderBase(const std::string &filename, float smooth)
     : smooth(smooth)
 {
@@ -330,42 +348,8 @@ ReaderBase::ReaderBase(float smooth) : smooth(smooth)
 }
 
 ReaderBase::Handle::Handle(const ReaderBase &owner)
-    : owner(owner), bufferSize(0)
+    : owner(owner)
 {
-}
-
-ReaderBase::Handle::Handle(const ReaderBase &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
-    : owner(owner), buffer(buffer), bufferSize(bufferSize)
-{
-    if (owner.getVertexSize() > bufferSize)
-        throw boost::enable_error_info(std::runtime_error("The vertices each take too many bytes"));
-}
-
-template<>
-void ReaderBase::Handle::loadSplat<Splat *>(const char *buffer, Splat *out) const
-{
-    float radius;
-    std::memcpy(&out->position[0], buffer + owner.offsets[X], sizeof(float));
-    std::memcpy(&out->position[1], buffer + owner.offsets[Y], sizeof(float));
-    std::memcpy(&out->position[2], buffer + owner.offsets[Z], sizeof(float));
-    std::memcpy(&radius,           buffer + owner.offsets[RADIUS], sizeof(float));
-    std::memcpy(&out->normal[0],   buffer + owner.offsets[NX], sizeof(float));
-    std::memcpy(&out->normal[1],   buffer + owner.offsets[NY], sizeof(float));
-    std::memcpy(&out->normal[2],   buffer + owner.offsets[NZ], sizeof(float));
-    radius *= owner.smooth;
-    out->radius = radius;
-    out->quality = 1.0 / (radius * radius);
-}
-
-ReaderBase::Handle *ReaderBase::createHandle() const
-{
-    return createHandle(128 * 1024 * 1024);
-}
-
-ReaderBase::Handle *ReaderBase::createHandle(std::size_t bufferSize) const
-{
-    boost::shared_array<char> buffer(new char[bufferSize]);
-    return createHandle(buffer, bufferSize);
 }
 
 MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &filename)
@@ -377,11 +361,12 @@ MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &f
     vertexPtr = mapping.data() + owner.getHeaderSize();
 }
 
-const char *MmapReader::MmapHandle::readRaw(size_type first, size_type last, char *buffer) const
+void MmapReader::MmapHandle::readRaw(size_type first, size_type last, char *buffer) const
 {
-    (void) buffer; // will be NULL anyway
-    (void) last;
-    return vertexPtr + first * owner.getVertexSize();
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
+    const std::size_t vertexSize = owner.getVertexSize();
+    std::memcpy(buffer, vertexPtr + first * vertexSize, (last - first) * vertexSize);
 }
 
 MmapReader::MmapReader(const std::string &filename, float smooth = 1.0f)
@@ -402,43 +387,10 @@ ReaderBase::Handle *MmapReader::createHandle() const
     }
 }
 
-ReaderBase::Handle *MmapReader::createHandle(std::size_t bufferSize) const
-{
-    (void) bufferSize; // no buffer is used
-
-    try
-    {
-        return new MmapHandle(*this, filename);
-    }
-    catch (boost::exception &e)
-    {
-        e << boost::errinfo_file_name(filename);
-        throw;
-    }
-}
-
-ReaderBase::Handle *MmapReader::createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const
-{
-    (void) buffer; // no buffer is used
-    (void) bufferSize;
-
-    try
-    {
-        return new MmapHandle(*this, filename);
-    }
-    catch (boost::exception &e)
-    {
-        e << boost::errinfo_file_name(filename);
-        throw;
-    }
-}
-
-
 #if SYSCALL_READER_POSIX
 
-SyscallReader::SyscallHandle::SyscallHandle(
-    const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
-: Handle(owner, buffer, bufferSize)
+SyscallReader::SyscallHandle::SyscallHandle(const SyscallReader &owner)
+: Handle(owner)
 {
     fd = open(owner.filename.c_str(), O_RDONLY);
     if (fd < 0)
@@ -448,8 +400,10 @@ SyscallReader::SyscallHandle::SyscallHandle(
     }
 }
 
-const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
+void SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
 {
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
     try
     {
         std::size_t vertexSize = owner.getVertexSize();
@@ -479,7 +433,6 @@ const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type la
                 remain -= bytes;
             }
         }
-        return buffer;
     }
     catch (boost::exception &e)
     {
@@ -497,9 +450,8 @@ SyscallReader::SyscallHandle::~SyscallHandle()
 
 #if SYSCALL_READER_WIN32
 
-SyscallReader::SyscallHandle::SyscallHandle(
-    const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize)
-: Handle(owner, buffer, bufferSize)
+SyscallReader::SyscallHandle::SyscallHandle(const SyscallReader &owner)
+: Handle(owner)
 {
     fd = CreateFile(owner.filename.c_str(),
                     GENERIC_READ,
@@ -515,8 +467,10 @@ SyscallReader::SyscallHandle::SyscallHandle(
     }
 }
 
-const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
+void SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
 {
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
     try
     {
         std::size_t vertexSize = owner.getVertexSize();
@@ -551,7 +505,6 @@ const char * SyscallReader::SyscallHandle::readRaw(size_type first, size_type la
                 remain -= bytes;
             }
         }
-        return buffer;
     }
     catch (boost::exception &e)
     {
@@ -572,12 +525,11 @@ SyscallReader::SyscallReader(const std::string &filename, float smooth)
 {
 }
 
-ReaderBase::Handle *SyscallReader::createHandle(
-    boost::shared_array<char> buffer, std::size_t bufferSize) const
+ReaderBase::Handle *SyscallReader::createHandle() const
 {
     try
     {
-        return new SyscallHandle(*this, buffer, bufferSize);
+        return new SyscallHandle(*this);
     }
     catch (boost::exception &e)
     {

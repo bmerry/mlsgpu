@@ -79,9 +79,6 @@ SimpleFileSet::ReaderThread::ReaderThread(const SimpleFileSet &owner)
 
 void SimpleFileSet::ReaderThread::operator()()
 {
-    // TODO: instrumentation for the memory
-    boost::shared_array<char> rawBuffer(new char[BUFFER_SIZE * sizeof(Splat)]);
-
     Request req;
     while (true)
     {
@@ -97,9 +94,14 @@ void SimpleFileSet::ReaderThread::operator()()
         {
             std::size_t fileId = first >> scanIdShift;
 
+            FastPly::ReaderBase::size_type maxSplats = BUFFER_SIZE / owner.files[fileId].getVertexSize();
+            if (maxSplats == 0)
+            {
+                throw std::runtime_error("Far too many bytes per vertex");
+            }
             FastPly::ReaderBase::size_type fileSize = owner.files[fileId].size();
             FastPly::ReaderBase::size_type start = first & splatIdMask;
-            FastPly::ReaderBase::size_type end = std::min(start + BUFFER_SIZE, fileSize);
+            FastPly::ReaderBase::size_type end = std::min(start + maxSplats, fileSize);
             if ((last >> scanIdShift) == fileId)
                 end = std::min(end, FastPly::ReaderBase::size_type(last & splatIdMask));
 
@@ -107,15 +109,16 @@ void SimpleFileSet::ReaderThread::operator()()
             {
                 if (!handle || handleId != fileId)
                 {
-                    handle.reset(owner.files[fileId].createHandle(rawBuffer, BUFFER_SIZE * sizeof(Splat)));
+                    handle.reset(); // close the old handle first
+                    handle.reset(owner.files[fileId].createHandle());
                     handleId = fileId;
                 }
 
                 boost::shared_ptr<Item> item = pool.pop();
-                item->splats.resize(end - start);
                 item->first = first;
                 item->last = first + (end - start);
-                handle->read(start, end, &item->splats[0]);
+                item->nSplats = end - start;
+                handle->readRaw(start, end, &item->buffer[0]);
                 outQueue.push(item);
 
                 first += end - start;
@@ -197,30 +200,31 @@ void SimpleFileSet::MySplatStream::reset(splat_id first, splat_id last)
     }
     readerThread.request(first, last);
     isEmpty = false;
+    bufferCur = 0;
     refill();
-}
-
-void SimpleFileSet::MySplatStream::skipNonFiniteInBuffer()
-{
-    while (buffer && bufferCur < buffer->splats.size() && !buffer->splats[bufferCur].isFinite())
-    {
-        bufferCur++;
-    }
 }
 
 void SimpleFileSet::MySplatStream::refill()
 {
-    skipNonFiniteInBuffer();
-    while (!isEmpty && (!buffer || bufferCur == buffer->splats.size()))
+    while (true)
     {
-        if (buffer)
-            readerThread.push(buffer);
-        buffer = readerThread.pop();
-        bufferCur = 0;
-        if (!buffer)
-            isEmpty = true;
-        else
-            skipNonFiniteInBuffer();
+        while (!buffer || bufferCur == buffer->nSplats)
+        {
+            if (buffer)
+                readerThread.push(buffer);
+            buffer = readerThread.pop();
+            bufferCur = 0;
+            if (!buffer)
+            {
+                isEmpty = true;
+                return;
+            }
+        }
+        const std::size_t fileId = buffer->first >> scanIdShift;
+        nextSplat = owner.files[fileId].decode(&buffer->buffer[0], bufferCur);
+        if (nextSplat.isFinite())
+            return;
+        bufferCur++;
     }
 }
 

@@ -100,7 +100,6 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
     CPPUNIT_TEST(testRead);
     CPPUNIT_TEST(testReadZero);
     CPPUNIT_TEST(testReadIterator);
-    CPPUNIT_TEST(testReadUserBuffer);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 
 private:
@@ -190,7 +189,6 @@ public:
     void testRead();                   ///< Tests @ref FastPly::ReaderBase::Handle::read with a pointer
     void testReadZero();               ///< Tests a zero-splat read
     void testReadIterator();           ///< Tests @ref FastPly::ReaderBase::Handle::read with an output iterator
-    void testReadUserBuffer();         ///< Tests reading with an externally-provided buffer
     /** @} */
 
     /**
@@ -501,7 +499,7 @@ void TestFastPlyReaderBase::testRead()
     setupRead(5);
 
     boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(2 * 7 * sizeof(float)));
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 
     Splat out[4] = {};
     h->read(1, 4, out);
@@ -516,7 +514,7 @@ void TestFastPlyReaderBase::testReadZero()
     setupRead(5);
 
     boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(2 * 7 * sizeof(float)));
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 
     Splat out[4] = {};
     h->read(1, 1, out);
@@ -528,7 +526,7 @@ void TestFastPlyReaderBase::testReadIterator()
     setupRead(10000);
 
     boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(67 * 7 * sizeof(float)));
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 
     vector<Splat> out;
     h->read(2, 9500, back_inserter(out));
@@ -536,20 +534,6 @@ void TestFastPlyReaderBase::testReadIterator()
     verify(2, out.begin(), out.end());
 
     CPPUNIT_ASSERT_THROW(h->read(1, 10001, back_inserter(out)), std::out_of_range);
-}
-
-void TestFastPlyReaderBase::testReadUserBuffer()
-{
-    const std::size_t bufferSize = 12345;
-    boost::shared_array<char> buffer(new char[bufferSize]);
-    setupRead(10000);
-
-    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(buffer, bufferSize));
-    vector<Splat> out;
-    h->read(2, 9500, back_inserter(out));
-    CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
-    verify(2, out.begin(), out.end());
 }
 
 /**
@@ -580,7 +564,7 @@ void TestFastPlyReaderBaseFile::testFileRemoved()
 
     boost::scoped_ptr<ReaderBase> r(factory(getContent(), testFilename, 2.0f));
     boost::filesystem::remove(testFilename);
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle(2 * 7 * sizeof(float)));
+    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 }
 
 /**
@@ -607,7 +591,6 @@ ReaderBase *TestFastPlyMmapReader::factory(const string &filename,
 class TestFastPlySyscallReader : public TestFastPlyReaderBaseFile
 {
     CPPUNIT_TEST_SUB_SUITE(TestFastPlySyscallReader, TestFastPlyReaderBaseFile);
-    TEST_EXCEPTION_FILENAME(testBufferTooSmall, std::runtime_error, testFilename);
     CPPUNIT_TEST_SUITE_END();
 protected:
     using TestFastPlyReaderBase::factory;
@@ -622,29 +605,6 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlySyscallReader, TestSet::perBuil
 ReaderBase *TestFastPlySyscallReader::factory(const string &filename, float smooth) const
 {
     return new SyscallReader(filename, smooth);
-}
-
-void TestFastPlySyscallReader::testBufferTooSmall()
-{
-    const string header = 
-        "ply\n"
-        "format binary_little_endian 1.0\n"
-        "element vertex 5\n"
-        "property float32 z\n"
-        "property float32 y\n"
-        "property float32 x\n"
-        "property int16 bar\n"
-        "property float32 nx\n"
-        "property float32 ny\n"
-        "property float32 nz\n"
-        "property float32 radius\n"
-        "property uint8 foo\n"
-        "end_header\n";
-    setContent(header);
-    boost::scoped_ptr<ReaderBase> r(factory(getContent()));
-
-    CPPUNIT_ASSERT_EQUAL(31, int(r->getVertexSize()));
-    boost::scoped_ptr<ReaderBase::Handle> handle(r->createHandle(30));
 }
 
 

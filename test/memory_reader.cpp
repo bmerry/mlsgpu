@@ -9,7 +9,7 @@
 #endif
 
 #include <cstddef>
-#include <boost/smart_ptr/shared_array.hpp>
+#include <cstring>
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
 #include "../src/fast_ply.h"
@@ -22,11 +22,13 @@ MemoryReader::MemoryHandle::MemoryHandle(const MemoryReader &owner, const char *
 {
 }
 
-const char *MemoryReader::MemoryHandle::readRaw(size_type first, size_type last, char *buffer) const
+void MemoryReader::MemoryHandle::readRaw(size_type first, size_type last, char *buffer) const
 {
-    (void) buffer; // will be NULL anyway
-    (void) last;
-    return vertexPtr + first * owner.getVertexSize();
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
+
+    const std::size_t vertexSize = owner.getVertexSize();
+    std::memcpy(buffer, vertexPtr + first * vertexSize, (last - first) * vertexSize);
 }
 
 MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth)
@@ -41,18 +43,5 @@ MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth)
 
 ReaderBase::Handle *MemoryReader::createHandle() const
 {
-    return new MemoryHandle(*this, data);
-}
-
-ReaderBase::Handle *MemoryReader::createHandle(std::size_t bufferSize) const
-{
-    (void) bufferSize; // no buffer is used
-    return new MemoryHandle(*this, data);
-}
-
-ReaderBase::Handle *MemoryReader::createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const
-{
-    (void) buffer; // no buffer is used
-    (void) bufferSize;
     return new MemoryHandle(*this, data);
 }

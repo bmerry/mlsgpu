@@ -37,7 +37,6 @@
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
-#include <boost/smart_ptr/shared_array.hpp>
 #include <boost/type_traits/is_pointer.hpp>
 #include <boost/ref.hpp>
 #include <boost/noncopyable.hpp>
@@ -126,8 +125,7 @@ public:
      * A word about thread safety. Two threads must not simultaneously access the
      * same handle, because it is possible that handles encode an OS-level file
      * position. It is safe to simultaneously access two handles that reference
-     * the same underlying file. However, if two handles share a buffer, it is
-     * not safe to simultaneously access both.
+     * the same underlying file.
      */
     class Handle : public boost::noncopyable
     {
@@ -135,54 +133,43 @@ public:
         /// The reader whose file we're reading
         const ReaderBase &owner;
 
-    private:
-        /**
-         * A buffer used as a target for reads. This can be @c NULL if the subclass
-         * doesn't require a buffer.
-         * @see @ref readRaw
-         */
-        boost::shared_array<char> buffer;
-        /**
-         * Number of bytes allocated for @ref buffer, or 0 if it is @c NULL.
-         */
-        std::size_t bufferSize;
-
-        /// Copy a single splat from raw data representation into an output iterator
-        template<typename OutputIterator>
-        void loadSplat(const char *buffer, OutputIterator out) const;
-
     protected:
-        /**
-         * Create without an internal buffer.
-         */
+        /// Constructor
         Handle(const ReaderBase &owner);
 
-        /**
-         * Create with a user-provided buffer. This buffer can be shared between handles.
-         *
-         * @throw std::runtime_error If @a bufferSize < <code>owner.getVertexSize()</code>.
-         */
-        Handle(const ReaderBase &owner, boost::shared_array<char> buffer, std::size_t bufferSize);
-
+    public:
         /**
          * Method implemented in subclasses to back the read. It must copy the specified
-         * vertices to the buffer, in exactly the form they exist in the file i.e. just
+         * vertices to @a buffer, in exactly the form they exist in the file i.e. just
          * a byte-level copy of the relevant data, without selecting the required fields.
-         *
-         * If the handle was created with no buffer, then @a buffer will be @c NULL.
          *
          * @param first,last      %Range of vertices to read.
          * @param buffer          Output buffer, or @c NULL if no buffer created.
          * @return A pointer to the data.
          *
          * @pre @a first &lt;= @a last &lt;= @ref size().
-         * @post If @a buffer is non-NULL then it is also the return value.
+         * @pre @a buffer is not @c NULL and has at least <code>(last - first) * owner.getVertexSize() bytes</code>.
          */
-        virtual const char *readRaw(size_type first, size_type last, char *buffer) const = 0;
+        virtual void readRaw(size_type first, size_type last, char *buffer) const = 0;
 
-    public:
+        /**
+         * Convenience wrapper around @ref Reader::decode.
+         *
+         * @see @ref Reader::decode.
+         */
+        Splat decode(const char *buffer, std::size_t offset) const
+        {
+            return owner.decode(buffer, offset);
+        }
+
         /**
          * Copy out a contiguous selection of the vertices.
+         *
+         * @warning This is a low-performance function intended only for testing.
+         * High-performance code should directly use @ref readRaw and @ref decode
+         * in order to manage the buffer and be able to control overlap of
+         * I/O and decoding.
+         *
          * @param first,last      %Range of vertices to copy.
          * @param out             Target of copy.
          * @return The output iterator after the copy.
@@ -194,6 +181,15 @@ public:
         virtual ~Handle() {}
     };
 
+    /**
+     * Extract a single splat from the raw buffer representation.
+     *
+     * @param buffer     A buffer returned by @ref Handle::readRaw
+     * @param offset     The number of the splat within the buffer
+     * @return The splat at the specified offset, with a computed quality
+     */
+    Splat decode(const char *buffer, std::size_t offset) const;
+
     /// Number of vertices in the file
     size_type size() const { return vertexCount; }
 
@@ -201,37 +197,9 @@ public:
     size_type getVertexSize() const { return vertexSize; }
 
     /**
-     * Open the file and return a @ref ReaderBase::Handle for reading it. The user
-     * provides a buffer to be used. Handles can share buffers, provided that
-     * multiple threads do not try to use them at the same time.
-     *
-     * @param buffer         Shared buffer to be used.
-     * @param bufferSize     Number of bytes in @a buffer.
-     *
-     * @pre @a bufferSize >= @ref getVertexSize().
-     */
-    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const = 0;
-
-    /**
-     * Open the file and return a @ref ReaderBase::Handle for reading it. The default
-     * implementation calls #createHandle(boost::shared_array<char>, std::size_t) const
-     * with a freshly-allocated buffer.
-     *
-     * @param bufferSize     Size to be used for internally-allocated buffer.
-     *
-     * @pre @a bufferSize >= @ref getVertexSize().
-     */
-    virtual Handle *createHandle(std::size_t bufferSize) const;
-
-    /**
      * Open the file and return a @ref ReaderBase::Handle for reading it.
-     *
-     * The default implementation calls #createHandle(std::size_t) const with
-     * a default size.
-     *
-     * @see @ref ReaderBase::Handle.
      */
-    virtual Handle *createHandle() const;
+    virtual Handle *createHandle() const = 0;
 
     virtual ~ReaderBase() {}
 
@@ -306,10 +274,9 @@ private:
         /// Pointer to the first vertex.
         const char *vertexPtr;
 
-    protected:
-        virtual const char *readRaw(size_type first, size_type last, char *buffer) const;
-
     public:
+        virtual void readRaw(size_type first, size_type last, char *buffer) const;
+
         explicit MmapHandle(const MmapReader &owner, const std::string &filename);
     };
 
@@ -320,8 +287,6 @@ public:
     explicit MmapReader(const std::string &filename, float smooth);
 
     virtual Handle *createHandle() const;
-    virtual Handle *createHandle(std::size_t bufferSize) const;
-    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
 
 private:
     const std::string filename;
@@ -346,11 +311,11 @@ private:
 
     public:
         /**
-         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &, boost::shared_array<char>, std::size_t)
+         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &)
          */
-        SyscallHandle(const SyscallReader &owner, boost::shared_array<char> buffer, std::size_t bufferSize);
+        SyscallHandle(const SyscallReader &owner);
 
-        virtual const char * readRaw(size_type first, size_type last, char *buffer) const;
+        virtual void readRaw(size_type first, size_type last, char *buffer) const;
 
         virtual ~SyscallHandle();
     };
@@ -363,7 +328,7 @@ public:
      */
     SyscallReader(const std::string &filename, float smooth);
 
-    virtual Handle *createHandle(boost::shared_array<char> buffer, std::size_t bufferSize) const;
+    virtual Handle *createHandle() const;
 };
 
 /// Common code shared by @ref MmapWriter and @ref StreamWriter
@@ -569,40 +534,23 @@ ReaderBase *createReader(ReaderType type, const std::string &filename, float smo
  */
 WriterBase *createWriter(WriterType type);
 
-
-template<typename OutputIterator>
-void ReaderBase::Handle::loadSplat(const char *buffer, OutputIterator out) const
-{
-    Splat tmp;
-    loadSplat(buffer, &tmp);
-    *out = tmp;
-}
-
-template<>
-void ReaderBase::Handle::loadSplat<Splat *>(const char *buffer, Splat *out) const;
-
 template<typename OutputIterator>
 OutputIterator ReaderBase::Handle::read(size_type first, size_type last, OutputIterator out) const
 {
     MLSGPU_ASSERT(first <= last && last <= owner.size(), std::out_of_range);
 
-    const size_type vertexSize = owner.getVertexSize();
-    size_type blockSize;
-    if (bufferSize == 0)
-        blockSize = last - first;
-    else
-        blockSize = bufferSize / vertexSize;
-    MLSGPU_ASSERT(first == last || blockSize > 0, std::length_error);
+    const std::size_t vertexSize = owner.getVertexSize();
+    const std::size_t bufferSize = std::max(vertexSize, std::size_t(4096));
+    const std::size_t blockSize = bufferSize / vertexSize;
+    boost::scoped_array<char> buffer(new char[bufferSize]);
 
     for (size_type i = first; i < last; i += blockSize)
     {
         size_type blockEnd = std::min(last, i + blockSize);
-        const char *data = readRaw(i, blockEnd, buffer.get());
+        readRaw(i, blockEnd, buffer.get());
         for (size_type j = i; j < blockEnd; j++)
         {
-            loadSplat(data, out);
-            data += vertexSize;
-            ++out;
+            *out++ = decode(buffer.get(), j - i);
         }
     }
     return out;
