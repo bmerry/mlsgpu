@@ -10,6 +10,7 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+#include <omp.h>
 #include "splat_set.h"
 
 namespace SplatSet
@@ -55,6 +56,42 @@ BlobStream *FastBlobSet<Base, BlobVector>::makeBlobStream(
         return Base::makeBlobStream(grid, bucketSize);
 }
 
+namespace detail
+{
+
+struct Bbox
+{
+    boost::array<float, 3> bboxMin, bboxMax;
+
+    Bbox()
+    {
+        std::fill(bboxMin.begin(), bboxMin.end(), std::numeric_limits<float>::infinity());
+        std::fill(bboxMax.begin(), bboxMax.end(), -std::numeric_limits<float>::infinity());
+    }
+
+    Bbox &operator+=(const Bbox &b)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            bboxMin[j] = std::min(bboxMin[j], b.bboxMin[j]);
+            bboxMax[j] = std::max(bboxMax[j], b.bboxMax[j]);
+        }
+        return *this;
+    }
+
+    Bbox &operator+=(const Splat &splat)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            bboxMin[j] = std::min(bboxMin[j], splat.position[j] - splat.radius);
+            bboxMax[j] = std::max(bboxMax[j], splat.position[j] + splat.radius);
+        }
+        return *this;
+    }
+};
+
+}
+
 template<typename Base, typename BlobVector>
 void FastBlobSet<Base, BlobVector>::computeBlobs(
     float spacing, Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
@@ -78,10 +115,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
         progress.reset(new ProgressDisplay(Base::maxSplats(), *progressStream));
     }
 
-    boost::array<float, 3> bboxMin, bboxMax;
-    // Set sentinel values
-    std::fill(bboxMin.begin(), bboxMin.end(), std::numeric_limits<float>::infinity());
-    std::fill(bboxMax.begin(), bboxMax.end(), -std::numeric_limits<float>::infinity());
+    detail::Bbox bbox;
 
     boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
     nSplats = 0;
@@ -100,13 +134,33 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
         }
         while (nBuffer < BUFFER_SIZE && !splats->empty());
 
-#pragma omp parallel for schedule(dynamic,8192)
-        for (std::size_t i = 0; i < nBuffer; i++)
+        /* OpenMP doesn't allow for custom reduce operations, so we have to
+         * do it manually by having a separate bbox location for each thread.
+         */
+        std::vector<detail::Bbox> bboxes;
+#pragma omp parallel shared(bboxes, buffer, nBuffer)
         {
-            const Splat &splat = buffer[i].first;
-            BlobData &blob = buffer[i].second;
-            detail::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
-            blob.lastSplat = blob.firstSplat + 1;
+#pragma omp master
+            {
+                bboxes.resize(omp_get_num_threads());
+            }
+#pragma omp barrier
+            int tid = omp_get_thread_num();
+#pragma omp for schedule(dynamic, 8192)
+            for (std::size_t i = 0; i < nBuffer; i++)
+            {
+                const Splat &splat = buffer[i].first;
+                BlobData &blob = buffer[i].second;
+                detail::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
+                blob.lastSplat = blob.firstSplat + 1;
+                bboxes[tid] += buffer[i].first;
+            }
+
+#pragma omp master
+            {
+                for (int i = 0; i < omp_get_num_threads(); i++)
+                    bbox += bboxes[i];
+            }
         }
 
         for (std::size_t i = 0; i < nBuffer; i++)
@@ -124,12 +178,6 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 blobs.back().lastSplat++;
             }
 
-            for (unsigned int j = 0; j < 3; j++)
-            {
-                const Splat &splat = buffer[i].first;
-                bboxMin[j] = std::min(bboxMin[j], splat.position[j] - splat.radius);
-                bboxMax[j] = std::max(bboxMax[j], splat.position[j] + splat.radius);
-            }
         }
 
         nSplats += nBuffer;
@@ -149,13 +197,13 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     }
     registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
 
-    if (bboxMin[0] > bboxMax[0])
+    if (bbox.bboxMin[0] > bbox.bboxMax[0])
         throw std::runtime_error("Must be at least one splat");
 
     for (unsigned int i = 0; i < 3; i++)
     {
-        float l = bboxMin[i] / spacing;
-        float h = bboxMax[i] / spacing;
+        float l = bbox.bboxMin[i] / spacing;
+        float h = bbox.bboxMax[i] / spacing;
         Grid::difference_type lo = Grid::RoundDown::convert(l);
         Grid::difference_type hi = Grid::RoundUp::convert(h);
         /* The lower extent must be a multiple of the bucket size, to
