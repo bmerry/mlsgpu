@@ -10,7 +10,16 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
-#include <omp.h>
+#if HAVE_OMP_H
+# include <omp.h>
+#else
+# ifndef omp_get_num_threads
+#  define omp_get_num_threads() (1)
+# endif
+# ifndef omp_get_thread_num
+#  define omp_get_thread_num() (0)
+# endif
+#endif
 #include "splat_set.h"
 
 namespace SplatSet
