@@ -79,8 +79,8 @@ def configure_variant(conf):
         conf.define('UNIT_TESTS', 1, quote = False)
 
 def configure_variant_gcc(conf):
-    ccflags = ['-Wall', '-W', '-pthread']
-    conf.env.append_value('LINKFLAGS', '-pthread')
+    ccflags = ['-Wall', '-W', '-pthread', '-fopenmp']
+    conf.env.append_value('LINKFLAGS', ['-pthread', '-fopenmp'])
     if conf.env['optimize']:
         ccflags.append('-O2')
     else:
