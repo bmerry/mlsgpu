@@ -197,7 +197,7 @@ public:
     size_type getVertexSize() const { return vertexSize; }
 
     /**
-     * Open the file and return a @ref ReaderBase::Handle for reading it.
+     * Open the file and return a @ref FastPly::ReaderBase::Handle for reading it.
      */
     virtual Handle *createHandle() const = 0;
 

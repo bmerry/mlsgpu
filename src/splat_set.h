@@ -451,7 +451,7 @@ private:
     private:
         const SimpleFileSet &owner;     ///< Owning set
         std::size_t bufferCur;          ///< First position in @ref buffer with data (points at @ref nextSplat)
-        Splat nextSplat;                ///< The splat to return from @ref operator*
+        Splat nextSplat;                ///< The splat to return from #operator*
         boost::shared_ptr<ReaderThread::Item> buffer; ///< Current buffer (possibly NULL)
         bool isEmpty;                   ///< Set to true when hitting the end
         ReaderThread readerThread;

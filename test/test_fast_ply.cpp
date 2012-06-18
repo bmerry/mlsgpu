@@ -69,6 +69,9 @@ private:
 
 static const string testFilename = "test_fast_ply.ply";
 
+/**
+ * Abstract base class for testing subclasses of @ref FastPly::ReaderBase.
+ */
 class TestFastPlyReaderBase : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestFastPlyReaderBase);
@@ -121,7 +124,7 @@ protected:
     /**
      * Create an instance of a reader for the appropriate subclass. This
      * simply creates the file and then calls
-     * @ref factory(const string &, const string &, float) const.
+     * #factory(const string &, float) const.
      *
      * @param fileContent     Data to place in the file
      * @param filename        Filename to be used for the file, if a file is written
@@ -609,7 +612,7 @@ ReaderBase *TestFastPlySyscallReader::factory(const string &filename, float smoo
 
 
 /**
- * Tests for @ref FastPly::MemoryReader
+ * Tests for @ref MemoryReader
  */
 class TestFastPlyMemoryReader : public TestFastPlyReaderBase
 {
