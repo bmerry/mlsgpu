@@ -86,31 +86,32 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
     nSplats = 0;
 
-    static const std::size_t BUFFER_SIZE = 65536;
-    Splat bsplats[BUFFER_SIZE];
-    BlobData bblobs[BUFFER_SIZE];
+    static const std::size_t BUFFER_SIZE = 1024 * 1024;
+    Statistics::Container::vector<std::pair<Splat, BlobData> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
     while (!splats->empty())
     {
         std::size_t nBuffer = 0;
         do
         {
-            bsplats[nBuffer] = **splats;
-            bblobs[nBuffer].firstSplat = splats->currentId();
+            buffer[nBuffer].first = **splats;
+            buffer[nBuffer].second.firstSplat = splats->currentId();
             nBuffer++;
             ++*splats;
         }
         while (nBuffer < BUFFER_SIZE && !splats->empty());
 
-#pragma omp parallel for schedule(dynamic,1024)
+#pragma omp parallel for schedule(dynamic,8192)
         for (std::size_t i = 0; i < nBuffer; i++)
         {
-            detail::splatToBuckets(bsplats[i], boundingGrid, bucketSize, bblobs[i].lower, bblobs[i].upper);
-            bblobs[i].lastSplat = bblobs[i].firstSplat + 1;
+            const Splat &splat = buffer[i].first;
+            BlobData &blob = buffer[i].second;
+            detail::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
+            blob.lastSplat = blob.firstSplat + 1;
         }
 
         for (std::size_t i = 0; i < nBuffer; i++)
         {
-            const BlobData &blob = bblobs[i];
+            const BlobData &blob = buffer[i].second;
             if (blobs.empty()
                 || blobs.back().lower != blob.lower
                 || blobs.back().upper != blob.upper
@@ -125,7 +126,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 
             for (unsigned int j = 0; j < 3; j++)
             {
-                const Splat &splat = bsplats[i];
+                const Splat &splat = buffer[i].first;
                 bboxMin[j] = std::min(bboxMin[j], splat.position[j] - splat.radius);
                 bboxMax[j] = std::max(bboxMax[j], splat.position[j] + splat.radius);
             }
