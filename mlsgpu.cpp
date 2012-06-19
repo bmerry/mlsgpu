@@ -526,6 +526,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
             try
             {
+                Statistics::Timer bucketTimer("host.block.exec");
                 Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
                                boost::ref(hostBlock), &progress);
             }
