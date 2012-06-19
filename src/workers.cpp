@@ -42,6 +42,7 @@ MesherGroup::MesherGroup(std::size_t spare)
     : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>(
         1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
+        Statistics::getStatistic<Statistics::Variable>("mesher.pop.first"),
         Statistics::getStatistic<Statistics::Variable>("mesher.pop"),
         Statistics::getStatistic<Statistics::Variable>("mesher.get"))
 {
@@ -87,6 +88,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     Base(
         devices.size(), numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
+        Statistics::getStatistic<Statistics::Variable>("device.worker.pop.first"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
     progress(NULL), outGroup(outGroup),
@@ -235,6 +237,7 @@ FineBucketGroup::FineBucketGroup(
     WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker, FineBucketGroup>(
         numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
+        Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop.first"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.get")),
     outGroup(outGroup),

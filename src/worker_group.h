@@ -141,16 +141,19 @@ protected:
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
-     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param firstPopStat   Statistic for time blocked in the first call to @ref WorkQueue::pop.
+     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop after the first time.
      * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroupPool(std::size_t numWorkers, std::size_t spare,
                     Statistics::Variable &pushStat,
+                    Statistics::Variable &firstPopStat,
                     Statistics::Variable &popStat,
                     Statistics::Variable &getStat)
-        : itemPool(numWorkers + spare), pushStat(pushStat), popStat(popStat), getStat(getStat)
+        : itemPool(numWorkers + spare),
+        pushStat(pushStat), firstPopStat(firstPopStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         workers.reserve(numWorkers);
@@ -171,6 +174,7 @@ private:
         {
             try
             {
+                bool firstPop = true;
                 while (true)
                 {
                     Timer timer;
@@ -178,7 +182,13 @@ private:
                     boost::shared_ptr<WorkItem> item = owner.popImpl(worker, gen);
                     if (!item.get())
                         break; // we have been asked to shut down
-                    owner.popStat.add(timer.getElapsed());
+                    if (firstPop)
+                    {
+                        firstPop = false;
+                        owner.firstPopStat.add(timer.getElapsed());
+                    }
+                    else
+                        owner.popStat.add(timer.getElapsed());
                     worker(gen, *item);
                     owner.itemPool.push(item);
                 }
@@ -207,6 +217,7 @@ private:
     boost::ptr_vector<Worker> workers;
 
     Statistics::Variable &pushStat;
+    Statistics::Variable &firstPopStat;
     Statistics::Variable &popStat;
     Statistics::Variable &getStat;
 };
@@ -284,16 +295,18 @@ public:
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
-     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param firstPopStat   Statistic for time blocked in first call to @ref WorkQueue::pop.
+     * @param popStat        Statistic for time blocked in subsequent calls to @ref WorkQueue::pop.
      * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroup(std::size_t numWorkers, std::size_t spare,
                 Statistics::Variable &pushStat,
+                Statistics::Variable &firstPopStat,
                 Statistics::Variable &popStat,
                 Statistics::Variable &getStat)
-        : BaseType(numWorkers, spare, pushStat, popStat, getStat),
+        : BaseType(numWorkers, spare, pushStat, firstPopStat, popStat, getStat),
           workQueue(numWorkers + spare)
     {
     }
@@ -402,7 +415,8 @@ public:
      * @param numWorkers     Number of worker threads to use <em>per set</em>.
      * @param spare          Number of work items to have available in the pool when all workers are busy, <em>per set</em>.
      * @param pushStat       Statistic for time blocked in @ref push.
-     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop.
+     * @param firstPopStat   Statistic for time blocked in first call to @ref WorkQueue::pop.
+     * @param popStat        Statistic for time blocked in subsequent calls to @ref WorkQueue::pop.
      * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numSets &gt; 0.
@@ -411,9 +425,10 @@ public:
     WorkerGroupMulti(
         std::size_t numSets, std::size_t numWorkers, std::size_t spare,
         Statistics::Variable &pushStat,
+        Statistics::Variable &firstPopStat,
         Statistics::Variable &popStat,
         Statistics::Variable &getStat)
-        : BaseType(numWorkers * numSets, spare * numSets, pushStat, popStat, getStat),
+        : BaseType(numWorkers * numSets, spare * numSets, pushStat, firstPopStat, popStat, getStat),
         workQueueCapacity(numWorkers + spare)
     {
         MLSGPU_ASSERT(numSets > 0, std::invalid_argument);
