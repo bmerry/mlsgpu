@@ -42,79 +42,85 @@ public:
 
     SplatStream *makeSplatStream() const
     {
-        return new MySplatStream(*this, 0, splat_id(size()) << scanIdShift);
+        return makeSplatStream(&rangeAll, &rangeAll + 1);
     }
 
-    SplatStreamReset *makeSplatStreamReset() const
+    template<typename RangeIterator>
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
     {
-        return new MySplatStream(*this, 0, 0);
+        return new MySplatStream<RangeIterator>(*this, firstRange, lastRange);
     }
 
 private:
-    class MySplatStream : public SplatStreamReset
+    template<typename RangeIterator>
+    class MySplatStream : public SplatStream
     {
     public:
         virtual const Splat &operator*() const
         {
-            return owner.at(scan).at(offset);
+            return owner.at(cur >> scanIdShift).at(cur & splatIdMask);
         }
 
         virtual SplatStream &operator++()
         {
             MLSGPU_ASSERT(!empty(), std::length_error);
-            offset++;
+            cur++;
             refill();
             return *this;
         }
 
         virtual bool empty() const
         {
-            return ((scan << scanIdShift) | offset) >= last;
-        }
-
-        virtual void reset(splat_id first, splat_id last)
-        {
-            MLSGPU_ASSERT(first <= last, std::invalid_argument);
-            last = std::min(last, splat_id(owner.size()) << scanIdShift);
-            first = std::min(first, last);
-            scan = first >> scanIdShift;
-            offset = first & splatIdMask;
-            this->last = last;
-            refill();
+            return curRange == lastRange;
         }
 
         virtual splat_id currentId() const
         {
-            return (scan << scanIdShift) | offset;
+            return cur;
         }
 
-        MySplatStream(const SimpleVectorsSet &owner, splat_id first, splat_id last)
-            : owner(owner)
+        MySplatStream(const SimpleVectorsSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+            : owner(owner), curRange(firstRange), lastRange(lastRange)
         {
-            reset(first, last);
+            if (curRange != lastRange)
+                cur = curRange->first;
+            refill();
         }
 
     private:
         const SimpleVectorsSet &owner;
-        splat_id scan, offset;
-        SplatSet::splat_id last;
-
-        void skipNonFiniteInScan()
-        {
-            while (scan < owner.size()
-                   && offset < owner.at(scan).size()
-                   && !owner.at(scan)[offset].isFinite())
-                offset++;
-        }
+        splat_id cur;
+        RangeIterator curRange, lastRange;
 
         void refill()
         {
-            skipNonFiniteInScan();
-            while (!MySplatStream::empty() && offset == owner.at(scan).size())
+            if (curRange != lastRange)
             {
-                scan++;
-                offset = 0;
-                skipNonFiniteInScan();
+                while (true)
+                {
+                    std::size_t scan = cur >> scanIdShift;
+                    splat_id scanEnd = owner.at(scan).size();
+                    if (curRange->second < scanEnd)
+                        scanEnd = curRange->second;
+                    while (cur < scanEnd && !owner.at(scan).at(cur & splatIdMask).isFinite())
+                        cur++;
+
+                    if (cur < scanEnd)
+                        return; // found one
+                    else if (cur == curRange->second)
+                    {
+                        // end of current range
+                        ++curRange;
+                        if (curRange == lastRange)
+                            return; // empty
+                        cur = curRange->first;
+                    }
+                    else
+                    {
+                        // reached end of a scan
+                        cur = (scan + 1) << scanIdShift;
+                    }
+                }
             }
         }
     };

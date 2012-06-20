@@ -20,10 +20,102 @@
 #  define omp_get_thread_num() (0)
 # endif
 #endif
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
 #include "splat_set.h"
 
 namespace SplatSet
 {
+
+namespace detail
+{
+
+template<typename RangeIterator>
+void SimpleVectorSet::MySplatStream<RangeIterator>::refill()
+{
+    if (curRange != lastRange)
+    {
+        while (true)
+        {
+            splat_id end = curRange->second;
+            if (owner.size() < end)
+                end = owner.size();
+            while (cur < end && !owner[cur].isFinite())
+                cur++;
+            if (cur < end)
+                return;
+
+            ++curRange;
+            if (curRange != lastRange)
+                cur = curRange->first;
+            else
+                return;
+        }
+    }
+}
+
+template<typename RangeIterator>
+SimpleFileSet::ReaderThread<RangeIterator>::ReaderThread(const SimpleFileSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+    : SimpleFileSet::ReaderThreadBase(owner), firstRange(firstRange), lastRange(lastRange)
+{
+}
+
+template<typename RangeIterator>
+void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
+{
+    for (RangeIterator r = firstRange; r != lastRange; ++r)
+    {
+        splat_id first = r->first;
+        splat_id last = r->second;
+
+        boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
+        std::size_t handleId;
+        while (first < last)
+        {
+            std::size_t fileId = first >> scanIdShift;
+            if (fileId >= owner.files.size())
+                break;
+
+            FastPly::ReaderBase::size_type maxSplats = BUFFER_SIZE / owner.files[fileId].getVertexSize();
+            if (maxSplats == 0)
+            {
+                throw std::runtime_error("Far too many bytes per vertex");
+            }
+            FastPly::ReaderBase::size_type fileSize = owner.files[fileId].size();
+            FastPly::ReaderBase::size_type start = first & splatIdMask;
+            FastPly::ReaderBase::size_type end = std::min(start + maxSplats, fileSize);
+            if ((last >> scanIdShift) == fileId)
+                end = std::min(end, FastPly::ReaderBase::size_type(last & splatIdMask));
+
+            if (start < end)
+            {
+                if (!handle || handleId != fileId)
+                {
+                    handle.reset(); // close the old handle first
+                    handle.reset(owner.files[fileId].createHandle());
+                    handleId = fileId;
+                }
+
+                boost::shared_ptr<Item> item = pool.pop();
+                item->first = first;
+                item->last = first + (end - start);
+                item->nSplats = end - start;
+                handle->readRaw(start, end, &item->buffer[0]);
+                outQueue.push(item);
+
+                first += end - start;
+            }
+            if (end == fileSize)
+            {
+                first = (fileId + 1) << scanIdShift;
+            }
+        }
+        // Signal completion
+        outQueue.push(boost::shared_ptr<Item>());
+    }
+}
+
+} // namespace detail
 
 template<typename Base, typename BlobVector>
 BlobInfo FastBlobSet<Base, BlobVector>::MyBlobStream::operator*() const
@@ -250,17 +342,6 @@ BlobStream *Subset<Super>::makeBlobStream(const Grid &grid, Grid::size_type buck
 {
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     return new detail::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
-}
-
-template<typename Super>
-void Subset<Super>::MySplatStream::refill()
-{
-    while (child->empty() && splatRange < owner.splatRanges.size())
-    {
-        const std::pair<splat_id, splat_id> &range = owner.splatRanges[splatRange];
-        child->reset(range.first, range.second);
-        splatRange++;
-    }
 }
 
 } // namespace SplatSet
