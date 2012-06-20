@@ -719,13 +719,8 @@ protected:
  * subsetting the superset. @ref Traits can be used to handle this distinction
  * transparently.
  *
- * The members of the subset are specified using blobs of the superset. Thus,
- * the subset is specialized with a specific grid and bucket size which give
- * the blob view on the superset. Blob iteration over the subset using the
- * same grid and bucket size will be efficient since it will just iterate over
- * blobs from the superset (which may be particularly efficient if the
- * superset is a @ref FastBlobSet). Blob iteration using a different grid or
- * bucket size will simply iterate over all the splats.
+ * Blob iteration is currently not very efficient: it iterates one splat at a time,
+ * even if the superset is a @ref FastBlobSet.
  *
  * @param Super a model of @ref SubsettableConcept
  */
