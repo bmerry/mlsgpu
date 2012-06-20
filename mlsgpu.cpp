@@ -202,6 +202,9 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
         boost::io::ios_exception_saver saver(*out);
         out->exceptions(ios::failbit | ios::badbit);
+        *out << "mlsgpu version: " << provenanceVersion() << '\n';
+        *out << "mlsgpu variant: " << provenanceVariant() << '\n';
+        *out << "mlsgpu options:" << makeOptions(vm) << '\n';
         *out << Statistics::Registry::getInstance();
         *out << *stxxl::stats::get_instance();
     }
