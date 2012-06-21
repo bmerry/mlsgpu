@@ -27,6 +27,9 @@
  * one thread that frees. It is @em not safe for multi-producer or
  * multi-consumer use, because memory must be freed in the same order it is
  * allocated.
+ *
+ * It is also @em not safe for use with non-POD types, as memory will be
+ * uninitialized.
  */
 class CircularBuffer : public boost::noncopyable
 {
@@ -41,15 +44,19 @@ private:
      */
     boost::condition_variable spaceCondition;
 
+    /// Allocate used to allocate and free @ref buffer
+    Statistics::Allocator<Statistics::Allocator<std::allocator<char> > > allocator;
+
     /**
      * Circular buffer for passing splats to the stream thread. The range
      * [@ref bufferHead, @ref bufferTail) potentially contains data, while the rest
      * is empty. The occupied range may wrap around. If @ref bufferHead ==
      * @ref bufferTail then the buffer is empty; thus it can never be completely full.
      */
-    Statistics::Container::vector<char> buffer;
+    char *buffer;
     std::size_t bufferHead;    ///< First data element in @ref buffer
     std::size_t bufferTail;    ///< First empty element in @ref buffer
+    std::size_t bufferSize;    ///< Bytes allocated for @ref buffer
 
 public:
     /**
@@ -87,7 +94,7 @@ public:
     void free(void *ptr, std::size_t bytes);
 
     /// Returns the number of bytes allocated to the buffer.
-    std::size_t size() const { return buffer.size(); }
+    std::size_t size() const { return bufferSize; }
 
     /**
      * Constructor.
@@ -98,6 +105,9 @@ public:
      * @pre @a size &gt;= 2
      */
     CircularBuffer(const std::string &name, std::size_t size);
+
+    /// Destructor
+    ~CircularBuffer();
 };
 
 #endif /* !CIRCULAR_BUFFER_H */

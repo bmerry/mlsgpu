@@ -23,7 +23,7 @@
 std::pair<void *, std::size_t> CircularBuffer::allocate(
     std::size_t elementSize, std::tr1::uintmax_t maxElements)
 {
-    MLSGPU_ASSERT(elementSize < buffer.size() / 2, std::invalid_argument);
+    MLSGPU_ASSERT(elementSize < bufferSize / 2, std::invalid_argument);
     MLSGPU_ASSERT(maxElements > 0, std::invalid_argument);
 
     boost::unique_lock<boost::mutex> lock(mutex);
@@ -31,7 +31,7 @@ std::pair<void *, std::size_t> CircularBuffer::allocate(
     while (bufferHead > bufferTail && bufferHead - bufferTail <= elementSize)
         spaceCondition.wait(lock);
     // At this point we either have enough space, or the free space wraps around
-    if (buffer.size() - bufferTail < elementSize)
+    if (bufferSize - bufferTail < elementSize)
     {
         // Not enough space, so we can be sure the free space wraps around
         bufferTail = 0; // no room at end, so waste that region and start at the beginning
@@ -43,8 +43,8 @@ std::pair<void *, std::size_t> CircularBuffer::allocate(
     if (bufferHead > bufferTail)
         bytes = bufferHead - bufferTail - 1;
     else
-        bytes = buffer.size() - bufferTail;
-    bytes = std::min(bytes, buffer.size() / 2);
+        bytes = bufferSize - bufferTail;
+    bytes = std::min(bytes, bufferSize / 2);
 
     std::size_t elements = bytes / elementSize;
     if (elements > maxElements)
@@ -53,11 +53,11 @@ std::pair<void *, std::size_t> CircularBuffer::allocate(
 
     assert(bytes >= elementSize);
 
-    std::pair<void *, std::size_t> ans(&buffer[bufferTail], elements);
+    std::pair<void *, std::size_t> ans(buffer + bufferTail, elements);
     bufferTail += bytes;
-    if (bufferTail == buffer.size())
+    if (bufferTail == bufferSize)
         bufferTail = 0;
-    assert(bufferTail <= buffer.size());
+    assert(bufferTail <= bufferSize);
     return ans;
 }
 
@@ -73,15 +73,22 @@ void CircularBuffer::free(void *ptr, std::size_t bytes)
     MLSGPU_ASSERT(bytes > 0, std::invalid_argument);
 
     boost::lock_guard<boost::mutex> lock(mutex);
-    bufferHead = ((char *) ptr - &buffer[0]) + bytes;
-    if (bufferHead == buffer.size())
+    bufferHead = ((char *) ptr - buffer) + bytes;
+    if (bufferHead == bufferSize)
         bufferHead = 0;
     spaceCondition.notify_one();
-    assert(bufferHead < buffer.size());
+    assert(bufferHead < bufferSize);
 }
 
 CircularBuffer::CircularBuffer(const std::string &name, std::size_t size)
-    : buffer(name, size), bufferHead(0), bufferTail(0)
+    : allocator(Statistics::makeAllocator<Statistics::Allocator<Statistics::Allocator<std::allocator<char> > > >(name)),
+    buffer(NULL), bufferHead(0), bufferTail(0), bufferSize(size)
 {
     MLSGPU_ASSERT(size >= 2, std::length_error);
+    buffer = allocator.allocate(size);
+}
+
+CircularBuffer::~CircularBuffer()
+{
+    allocator.deallocate(buffer, bufferSize);
 }
