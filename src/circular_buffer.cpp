@@ -76,6 +76,11 @@ void CircularBuffer::free(void *ptr, std::size_t bytes)
     bufferHead = ((char *) ptr - buffer) + bytes;
     if (bufferHead == bufferSize)
         bufferHead = 0;
+    // If the buffer is empty, we can continue wherever we like, and
+    // going back to the beginning will minimize fragmentation and hopefully
+    // also cache pollution.
+    if (bufferHead == bufferTail)
+        bufferHead = bufferTail = 0;
     spaceCondition.notify_one();
     assert(bufferHead < bufferSize);
 }
