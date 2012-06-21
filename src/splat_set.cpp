@@ -67,18 +67,21 @@ void SimpleFileSet::addFile(FastPly::ReaderBase *file)
 }
 
 SimpleFileSet::ReaderThreadBase::ReaderThreadBase(const SimpleFileSet &owner) :
-    owner(owner), outQueue(2), pool(2)
+    owner(owner), outQueue(256), buffer("mem.SimpleFileSet.ReaderThread.buffer", BUFFER_SIZE)
 {
-    for (int i = 0; i < 2; i++)
-        pool.push(boost::make_shared<Item>());
+}
+
+void SimpleFileSet::ReaderThreadBase::free(const Item &item)
+{
+    buffer.free(item.ptr, item.bytes);
 }
 
 void SimpleFileSet::ReaderThreadBase::drain()
 {
-    boost::shared_ptr<Item> item;
-    while (!!(item = pop()))
+    Item item;
+    while ((item = pop()).ptr != NULL)
     {
-        push(item);
+        free(item);
     }
 }
 
@@ -93,6 +96,8 @@ SimpleFileSet::MySplatStream::MySplatStream(
 
 SimpleFileSet::MySplatStream::~MySplatStream()
 {
+    if (buffer.ptr)
+        readerThread->free(buffer);
     if (!isEmpty)
         readerThread->drain();
     thread.join();
@@ -110,20 +115,20 @@ void SimpleFileSet::MySplatStream::refill()
 {
     while (true)
     {
-        while (!buffer || bufferCur == buffer->nSplats)
+        while (!buffer.ptr || bufferCur == buffer.numSplats())
         {
-            if (buffer)
-                readerThread->push(buffer);
+            if (buffer.ptr)
+                readerThread->free(buffer);
             buffer = readerThread->pop();
             bufferCur = 0;
-            if (!buffer)
+            if (!buffer.ptr)
             {
                 isEmpty = true;
                 return;
             }
         }
-        const std::size_t fileId = buffer->first >> scanIdShift;
-        nextSplat = owner.files[fileId].decode(&buffer->buffer[0], bufferCur);
+        const std::size_t fileId = buffer.first >> scanIdShift;
+        nextSplat = owner.files[fileId].decode(buffer.ptr, bufferCur);
         if (nextSplat.isFinite())
             return;
         bufferCur++;

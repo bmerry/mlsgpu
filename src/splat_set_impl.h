@@ -68,51 +68,52 @@ void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
         splat_id first = r->first;
         splat_id last = r->second;
 
-        boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
-        std::size_t handleId;
         while (first < last)
         {
             std::size_t fileId = first >> scanIdShift;
             if (fileId >= owner.files.size())
                 break;
 
-            FastPly::ReaderBase::size_type maxSplats = BUFFER_SIZE / owner.files[fileId].getVertexSize();
-            if (maxSplats == 0)
-            {
-                throw std::runtime_error("Far too many bytes per vertex");
-            }
-            FastPly::ReaderBase::size_type fileSize = owner.files[fileId].size();
             FastPly::ReaderBase::size_type start = first & splatIdMask;
-            FastPly::ReaderBase::size_type end = std::min(start + maxSplats, fileSize);
+            FastPly::ReaderBase::size_type end = owner.files[fileId].size();
             if ((last >> scanIdShift) == fileId)
                 end = std::min(end, FastPly::ReaderBase::size_type(last & splatIdMask));
 
             if (start < end)
             {
-                if (!handle || handleId != fileId)
+                std::size_t vertexSize = owner.files[fileId].getVertexSize();
+                if (vertexSize > BUFFER_SIZE / 2)
                 {
-                    handle.reset(); // close the old handle first
-                    handle.reset(owner.files[fileId].createHandle());
-                    handleId = fileId;
+                    // TODO: associate the filename with it? Might be too late.
+                    throw std::runtime_error("Far too many bytes per vertex");
                 }
 
-                boost::shared_ptr<Item> item = pool.pop();
-                item->first = first;
-                item->last = first + (end - start);
-                item->nSplats = end - start;
-                handle->readRaw(start, end, &item->buffer[0]);
-                outQueue.push(item);
+                boost::scoped_ptr<FastPly::ReaderBase::Handle> handle(
+                    owner.files[fileId].createHandle());
 
-                first += end - start;
+                while (start < end)
+                {
+                    std::pair<void *, std::size_t> chunk = buffer.allocate(vertexSize, end - start);
+                    std::size_t nSplats = chunk.second;
+
+                    Item item;
+                    item.first = first;
+                    item.last = first + nSplats;
+                    item.ptr = (char *) chunk.first;
+                    item.bytes = chunk.second;
+                    handle->readRaw(start, start + nSplats, item.ptr);
+                    outQueue.push(item);
+
+                    start += nSplats;
+                    first += nSplats;
+                }
             }
-            if (end == fileSize)
-            {
-                first = (fileId + 1) << scanIdShift;
-            }
+
+            first = (fileId + 1) << scanIdShift;
         }
     }
     // Signal completion
-    outQueue.push(boost::shared_ptr<Item>());
+    outQueue.push(Item());
 }
 
 } // namespace detail

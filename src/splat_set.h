@@ -26,6 +26,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/type_traits/integral_constant.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/thread/locks.hpp>
 #include "grid.h"
 #include "misc.h"
 #include "splat.h"
@@ -36,6 +37,7 @@
 #include "work_queue.h"
 #include "progress.h"
 #include "allocator.h"
+#include "circular_buffer.h"
 
 /**
  * Data structures for iteration over sets of splats.
@@ -367,34 +369,63 @@ public:
 
 private:
     /**
-     * Base class for @ref ReaderBase that is agnostic to the range iterator
+     * Base class for @ref ReaderThread that is agnostic to the range iterator
      * type. It provides the management of the queues but not the actual thread
      * function.
      */
     class ReaderThreadBase : public boost::noncopyable
     {
     public:
-
         enum
         {
-            BUFFER_SIZE = 128 * 1024 * 1024
+            /**
+             * Size of internal buffer for reading file data.
+             *
+             * This is the total buffer size, but only a fixed fraction of it
+             * is used in any one read, so that reads can be pipelined.
+             */
+            BUFFER_SIZE = 256 * 1024 * 1024
         };
+
+        /**
+         * Describes a contiguous range of splats. It can also be a sentinel
+         * value (marked with @ref ptr of @c NULL), which marks the end out
+         * the splat stream.
+         */
         struct Item
         {
-            splat_id first;
-            splat_id last;
-            std::size_t nSplats;
-            Statistics::Container::vector<char> buffer;
+            splat_id first;      ///< ID of first splat in the range
+            splat_id last;       ///< One more than the ID of the last splat in the range
 
-            Item() : first(0), last(0), nSplats(0),
-                buffer("mem.SimpleFileSet.ReaderThread.buffer.mem", BUFFER_SIZE)
+            /**
+             * A pointer to the raw splat data. This can be decoded with @ref decode,
+             * extracting the file ID from @ref first. It is guaranteed that all splats
+             * in the range have the same layout.
+             */
+            char *ptr;
+
+            /**
+             * Total bytes allocated in the buffer (including any padding). This is
+             * not intended to be used externally, just by @ref free.
+             */
+            std::size_t bytes;
+
+            Item() : first(0), last(0), ptr(NULL), bytes(0)
             {
             }
+
+            std::size_t numSplats() const { return last - first; }
         };
     protected:
-        const SimpleFileSet &owner;
-        WorkQueue<boost::shared_ptr<Item> > outQueue;
-        Pool<Item> pool;
+        const SimpleFileSet &owner;   ///< Owning splat stream
+        /**
+         * Queue of splat ranges as they're read. This will produce a stream of
+         * real ranges (non-NULL pointer), followed by exactly one default-constructed
+         * item.
+         */
+        WorkQueue<Item> outQueue;
+
+        CircularBuffer buffer;
 
     public:
         explicit ReaderThreadBase(const SimpleFileSet &owner);
@@ -407,14 +438,24 @@ private:
 
         /**
          * Remove all remaining items from the out queue, immediately
-         * restoring them to the pool.
+         * restoring them to the pool. This is called by the stream thread.
          *
          * @pre The end-of-stream marker has not yet been seen (otherwise this will deadlock)
          */
         void drain();
 
-        boost::shared_ptr<Item> pop() { return outQueue.pop(); }
-        void push(boost::shared_ptr<Item> item) { pool.push(item); }
+        /**
+         * Retrieve the next range of splats from the reader.
+         * This is called by the stream thread, and is thread-safe.
+         */
+        Item pop() { return outQueue.pop(); }
+
+        /**
+         * Return memory retrieved by @ref pop. The stream thread must
+         * eventually call this for every non-sentinel value returned by
+         * @ref pop, and it must do so in the same order.
+         */
+        void free(const Item &item);
     };
 
     /**
@@ -456,7 +497,7 @@ private:
 
         virtual splat_id currentId() const
         {
-            return buffer->first + bufferCur;
+            return buffer.first + bufferCur;
         }
 
         MySplatStream(const SimpleFileSet &owner, ReaderThreadBase *reader);
@@ -466,7 +507,7 @@ private:
         const SimpleFileSet &owner;     ///< Owning set
         std::size_t bufferCur;          ///< First position in @ref buffer with data (points at @ref nextSplat)
         Splat nextSplat;                ///< The splat to return from #operator*
-        boost::shared_ptr<ReaderThreadBase::Item> buffer; ///< Current buffer (possibly NULL)
+        ReaderThreadBase::Item buffer;  ///< Current buffer (possibly NULL)
         bool isEmpty;                   ///< Set to true when hitting the end
         boost::scoped_ptr<ReaderThreadBase> readerThread;
         boost::thread thread;
