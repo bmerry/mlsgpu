@@ -110,9 +110,9 @@ void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
                 first = (fileId + 1) << scanIdShift;
             }
         }
-        // Signal completion
-        outQueue.push(boost::shared_ptr<Item>());
     }
+    // Signal completion
+    outQueue.push(boost::shared_ptr<Item>());
 }
 
 } // namespace detail

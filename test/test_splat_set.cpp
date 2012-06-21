@@ -285,21 +285,24 @@ template<typename SetType>
 class TestSplatSubsettable : public TestSplatSet<SetType>
 {
     CPPUNIT_TEST_SUB_SUITE(TestSplatSubsettable<SetType>, TestSplatSet<SetType>);
-    CPPUNIT_TEST(testSplatStreamReset);
-    CPPUNIT_TEST(testSplatStreamResetEmptyRange);
-    CPPUNIT_TEST(testSplatStreamResetNegativeRange);
+    CPPUNIT_TEST(testSplatStreamSeek);
+    CPPUNIT_TEST(testSplatStreamSeekZeroRanges);
+    CPPUNIT_TEST(testSplatStreamSeekEmptyRange);
+    CPPUNIT_TEST(testSplatStreamSeekNegativeRange);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 
 protected:
-    /// Resets a splat stream to a given range and tests iteration over it
-    void testSplatStreamResetHelper(splat_id first, splat_id last);
+    /// Tests that iteration over a list of ranges gives the expected results
+    template<typename RangeIterator>
+    void testSplatStreamSeekHelper(RangeIterator first, RangeIterator last);
 
 public:
     typedef SetType Set;
 
-    void testSplatStreamReset();               ///< Tests basic reset operation
-    void testSplatStreamResetEmptyRange();     ///< Tests iteration over an empty range
-    void testSplatStreamResetNegativeRange();  ///< Tests error check for a negative range
+    void testSplatStreamSeek();               ///< Tests basic operation
+    void testSplatStreamSeekZeroRanges();     ///< Tests an empty list of ranges
+    void testSplatStreamSeekEmptyRange();     ///< Tests iteration over an empty range
+    void testSplatStreamSeekNegativeRange();  ///< Tests handling of first > last
 };
 
 /// Tests for @ref SplatSet::FileSet
@@ -602,7 +605,8 @@ void TestSplatSet<SetType>::testMaxSplats()
 
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, splat_id last)
+template<typename RangeIterator>
+void TestSplatSubsettable<SetType>::testSplatStreamSeekHelper(RangeIterator firstRange, RangeIterator lastRange)
 {
     vector<Splat> expected, actual;
     vector<splat_id> expectedIds, actualIds;
@@ -610,12 +614,13 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
     const unsigned int bucketSize = 5;
     boost::scoped_ptr<Set> set(this->setFactory(this->splatData, this->grid.getSpacing(), bucketSize));
 
+    for (RangeIterator curRange = firstRange; curRange != lastRange; ++curRange)
     {
         boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream());
         while (!splatStream->empty())
         {
             splat_id id = splatStream->currentId();
-            if (id >= first && id < last)
+            if (id >= curRange->first && id < curRange->second)
             {
                 expected.push_back(**splatStream);
                 expectedIds.push_back(id);
@@ -625,16 +630,15 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
     }
 
     {
-        boost::scoped_ptr<SplatStreamReset> splatStreamReset(set->makeSplatStreamReset());
-        splatStreamReset->reset(first, last);
-        while (!splatStreamReset->empty())
+        boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream(firstRange, lastRange));
+        while (!splatStream->empty())
         {
-            actual.push_back(**splatStreamReset);
-            actualIds.push_back(splatStreamReset->currentId());
-            ++*splatStreamReset;
+            actual.push_back(**splatStream);
+            actualIds.push_back(splatStream->currentId());
+            ++*splatStream;
         }
-        CPPUNIT_ASSERT_THROW(**splatStreamReset, std::out_of_range);
-        CPPUNIT_ASSERT_THROW(++*splatStreamReset, std::out_of_range);
+        CPPUNIT_ASSERT_THROW(**splatStream, std::out_of_range);
+        CPPUNIT_ASSERT_THROW(++*splatStream, std::out_of_range);
     }
 
     CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
@@ -649,32 +653,50 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
 }
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamReset()
+void TestSplatSubsettable<SetType>::testSplatStreamSeek()
 {
-    testSplatStreamResetHelper(0, 1000000);
-    testSplatStreamResetHelper(3, splat_id(3) << 40);
-    testSplatStreamResetHelper(2, (splat_id(3) << 40) - 1);
-    testSplatStreamResetHelper((splat_id(1) << 40) + 100, (splat_id(6) << 40) - 1);
-    testSplatStreamResetHelper((splat_id(5) << 40), (splat_id(5) << 40) + 20000);
-    testSplatStreamResetHelper((splat_id(4) << 40), (splat_id(50) << 40) - 1);
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
+
+    ranges.push_back(Range(0, 1000000));
+    ranges.push_back(Range(3, splat_id(3) << 40));
+    ranges.push_back(Range(2, (splat_id(3) << 40) - 1));
+    ranges.push_back(Range((splat_id(1) << 40) + 100, (splat_id(6) << 40) - 1));
+    ranges.push_back(Range((splat_id(5) << 40), (splat_id(5) << 40) + 20000));
+    ranges.push_back(Range((splat_id(4) << 40), (splat_id(50) << 40) - 1));
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
 }
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamResetEmptyRange()
+void TestSplatSubsettable<SetType>::testSplatStreamSeekZeroRanges()
 {
-    testSplatStreamResetHelper(0, 0);
-    testSplatStreamResetHelper(3, 3);
-    testSplatStreamResetHelper(1000000000, 1000000000);
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
+
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
 }
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamResetNegativeRange()
+void TestSplatSubsettable<SetType>::testSplatStreamSeekEmptyRange()
 {
-    boost::scoped_ptr<Set> set(this->setFactory(this->splatData, this->grid.getSpacing(), 5));
-    boost::scoped_ptr<SplatStreamReset> splatStream(set->makeSplatStreamReset());
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
 
-    CPPUNIT_ASSERT_THROW(splatStream->reset(1, 0), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(splatStream->reset(splat_id(1) << 33, 1), std::invalid_argument);
+    ranges.push_back(Range(0, 0));
+    ranges.push_back(Range(3, 3));
+    ranges.push_back(Range(1000000000, 1000000000));
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
+}
+
+template<typename SetType>
+void TestSplatSubsettable<SetType>::testSplatStreamSeekNegativeRange()
+{
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
+
+    ranges.push_back(Range(1, 0));
+    ranges.push_back(Range(splat_id(1) << 33, 1));
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
 }
 
 

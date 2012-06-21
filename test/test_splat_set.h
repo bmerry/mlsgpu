@@ -92,35 +92,36 @@ private:
         splat_id cur;
         RangeIterator curRange, lastRange;
 
+        /// Find the next usable element from the current range, if any
+        bool refillRange()
+        {
+            std::size_t scan = cur >> scanIdShift;
+            while (cur < curRange->second && scan < owner.size())
+            {
+                splat_id scanEnd = (scan << scanIdShift) + owner.at(scan).size();
+                if (curRange->second < scanEnd)
+                    scanEnd = curRange->second;
+                while (cur < scanEnd)
+                {
+                    if (owner.at(scan).at(cur & splatIdMask).isFinite())
+                        return true;
+                    cur++;
+                }
+                scan++;
+                cur = scan << scanIdShift;
+            }
+            return false;
+        }
+
         void refill()
         {
-            if (curRange != lastRange)
+            while (curRange != lastRange)
             {
-                while (true)
-                {
-                    std::size_t scan = cur >> scanIdShift;
-                    splat_id scanEnd = owner.at(scan).size();
-                    if (curRange->second < scanEnd)
-                        scanEnd = curRange->second;
-                    while (cur < scanEnd && !owner.at(scan).at(cur & splatIdMask).isFinite())
-                        cur++;
-
-                    if (cur < scanEnd)
-                        return; // found one
-                    else if (cur == curRange->second)
-                    {
-                        // end of current range
-                        ++curRange;
-                        if (curRange == lastRange)
-                            return; // empty
-                        cur = curRange->first;
-                    }
-                    else
-                    {
-                        // reached end of a scan
-                        cur = (scan + 1) << scanIdShift;
-                    }
-                }
+                if (refillRange())
+                    return;
+                ++curRange;
+                if (curRange != lastRange)
+                    cur = curRange->first;
             }
         }
     };
