@@ -16,7 +16,6 @@
 #include <queue>
 #include <boost/foreach.hpp>
 #include <boost/thread/locks.hpp>
-#include <CL/cl.hpp>
 #include "statistics.h"
 
 namespace Statistics
