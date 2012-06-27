@@ -1,8 +1,7 @@
 /**
  * @file
  *
- * Artificial benchmark that sorts input PLY files by one coordinate and
- * measures the maximum active set.
+ * Artificial benchmark to measure bucketing performance.
  */
 
 #if HAVE_CONFIG_H
@@ -11,8 +10,6 @@
 
 #include <iostream>
 #include <cstdlib>
-#include <limits>
-#include <deque>
 #include <algorithm>
 #include <memory>
 #include <boost/program_options.hpp>
@@ -20,7 +17,9 @@
 #include <boost/exception/all.hpp>
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/ref.hpp>
 #include <stxxl.h>
+#include "src/bucket.h"
 #include "src/statistics.h"
 #include "src/splat_set.h"
 #include "src/fast_ply.h"
@@ -37,9 +36,14 @@ namespace Option
     const char * const quiet = "quiet";
     const char * const debug = "debug";
 
-    const char * const window = "window";
-
     const char * const inputFile = "input-file";
+
+    const char * const fitSmooth = "fit-smooth";
+    const char * const fitGrid = "fit-grid";
+
+    const char * const maxHostSplats = "max-host-splats";
+    const char * const maxSplit = "max-split";
+    const char * const leafSize = "leaf-size";
 
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
@@ -52,8 +56,14 @@ static void addCommonOptions(po::options_description &opts)
     opts.add_options()
         ("help,h",                "Show help")
         ("quiet,q",               "Do not show informational messages")
-        (Option::window, po::value<double>()->default_value(0.1f), "Window thickness")
         (Option::debug,           "Show debug messages");
+}
+
+static void addFitOptions(po::options_description &opts)
+{
+    opts.add_options()
+        (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
+        (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells");
 }
 
 static void addStatisticsOptions(po::options_description &opts)
@@ -69,6 +79,9 @@ static void addAdvancedOptions(po::options_description &opts)
 {
     po::options_description advanced("Advanced options");
     advanced.add_options()
+        (Option::maxHostSplats, po::value<std::size_t>()->default_value(8000000), "Maximum splats per block on the CPU")
+        (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
+        (Option::leafSize,     po::value<int>()->default_value(256), "Size of top-level octree leaves, in cells")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)");
     opts.add(advanced);
 }
@@ -133,9 +146,9 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
         boost::io::ios_exception_saver saver(*out);
         out->exceptions(std::ios::failbit | std::ios::badbit);
-        *out << "sorttest version: " << provenanceVersion() << '\n';
-        *out << "sorttest variant: " << provenanceVariant() << '\n';
-        *out << "sorttest options:" << makeOptions(vm) << '\n';
+        *out << "buckettest version: " << provenanceVersion() << '\n';
+        *out << "buckettest variant: " << provenanceVariant() << '\n';
+        *out << "buckettest options:" << makeOptions(vm) << '\n';
         *out << Statistics::Registry::getInstance();
         *out << *stxxl::stats::get_instance();
     }
@@ -143,7 +156,7 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
 static void usage(std::ostream &o, const po::options_description desc)
 {
-    o << "Usage: sorttest [options] input.ply [input.ply...]\n\n";
+    o << "Usage: buckettest [options] input.ply [input.ply...]\n\n";
     o << desc;
 }
 
@@ -154,6 +167,7 @@ static po::variables_map processOptions(int argc, char **argv)
 
     po::options_description desc("General options");
     addCommonOptions(desc);
+    addFitOptions(desc);
     addStatisticsOptions(desc);
     addAdvancedOptions(desc);
 
@@ -199,69 +213,63 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
-struct CompareSplats
+template<typename Splats>
+class BinProcessor
 {
-    bool operator()(const Splat &a, const Splat &b) const
-    {
-        return a.position[2] < b.position[2];
-    }
+private:
+    ProgressDisplay *progress;
 
-    Splat min_value() const
-    {
-        Splat ans;
-        ans.position[2] = -std::numeric_limits<float>::max();
-        return ans;
-    }
+public:
+    explicit BinProcessor(ProgressDisplay *progress = NULL)
+        : progress(progress) {}
 
-    Splat max_value() const
+    void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
+                    const Grid &binGrid, const Bucket::Recursion &recursionState)
     {
-        Splat ans;
-        ans.position[2] = std::numeric_limits<float>::max();
-        return ans;
+        if (progress != NULL)
+            *progress += binGrid.numCells();
+        Log::log[Log::info] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
     }
 };
 
 static void run(const po::variables_map &vm)
 {
-    SplatSet::FileSet splats;
-    Timer total;
-    Timer latency;
-    long long nSplats = 0;
-    std::size_t maxActive = 0;
-
+    const float spacing = vm[Option::fitGrid].as<double>();
+    const float smooth = vm[Option::fitSmooth].as<double>();
+    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const int leafSize = vm[Option::leafSize].as<int>();
     const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
-    const float window = vm[Option::window].as<double>();
+
+    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+    Splats splats;
 
     BOOST_FOREACH(const std::string &name, names)
     {
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
         splats.addFile(reader.get());
         reader.release();
     }
 
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-    stxxl::stream::sort<SplatSet::SplatStream, CompareSplats> sortStream(*splatStream, CompareSplats(), 1024 * 1024 * 1024);
-    std::deque<Splat> active;
-
-    while (!sortStream.empty())
+    try
     {
-        Splat s = *sortStream;
-
-        active.push_back(s);
-        while (active.front().position[2] < s.position[2] - window)
-            active.pop_front();
-        maxActive = std::max(maxActive, active.size());
-
-        if (nSplats == 0)
-            Statistics::getStatistic<Statistics::Variable>("latency").add(latency.getElapsed());
-        ++nSplats;
-        ++sortStream;
+        Statistics::Timer timer("bbox.time");
+        splats.computeBlobs(spacing, leafSize, &Log::log[Log::info]);
+    }
+    catch (std::length_error &e) // TODO: should be a subclass of runtime_error
+    {
+        std::cerr << "At least one input point is required.\n";
+        std::exit(1);
     }
 
-    Statistics::getStatistic<Statistics::Variable>("time").add(total.getElapsed());
-    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
-    Statistics::getStatistic<Statistics::Counter>("active.max").add(maxActive);
+    Grid grid = splats.getBoundingGrid();
+    // ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+
+    BinProcessor<Splats> binProcessor(NULL);
+    Bucket::bucket(splats, grid, maxHostSplats, leafSize, 0, true, maxSplit,
+                   boost::ref(binProcessor), NULL);
+
     writeStatistics(vm);
 }
 

@@ -356,6 +356,11 @@ def build(bld):
             target = 'sorttest',
             use = 'STXXL BOOST provenance libmls_core',
             install_path = None)
+    bld.program(
+            source = 'buckettest.cpp',
+            target = 'buckettest',
+            use = 'STXXL BOOST provenance libmls_core',
+            install_path = None)
 
     if bld.env['XSLTPROC']:
         bld(
