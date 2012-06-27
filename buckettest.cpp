@@ -226,9 +226,20 @@ public:
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
                     const Grid &binGrid, const Bucket::Recursion &recursionState)
     {
+        (void) recursionState;
+        Log::log[Log::info] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
+
+        std::vector<Splat> splats;
+        splats.reserve(subset.maxSplats());
+        boost::scoped_ptr<SplatSet::SplatStream> stream(subset.makeSplatStream());
+        while (!stream->empty())
+        {
+            splats.push_back(**stream);
+            ++*stream;
+        }
+
         if (progress != NULL)
             *progress += binGrid.numCells();
-        Log::log[Log::info] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
     }
 };
 
