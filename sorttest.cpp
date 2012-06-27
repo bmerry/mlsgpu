@@ -11,9 +11,12 @@
 
 #include <iostream>
 #include <cstdlib>
+#include <limits>
 #include <boost/program_options.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
+#include <boost/foreach.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include <stxxl.h>
 #include "src/statistics.h"
 #include "src/splat_set.h"
@@ -69,6 +72,8 @@ std::string makeOptions(const po::variables_map &vm)
     std::ostringstream opts;
     for (po::variables_map::const_iterator i = vm.begin(); i != vm.end(); ++i)
     {
+        if (i->first == Option::inputFile)
+            continue; // these are not output because some programs choke
         const po::variable_value &param = i->second;
         const boost::any &value = param.value();
         if (param.empty()
@@ -188,8 +193,58 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
+struct CompareSplats
+{
+    bool operator()(const Splat &a, const Splat &b) const
+    {
+        return a.position[2] < b.position[2];
+    }
+
+    Splat min_value() const
+    {
+        Splat ans;
+        ans.position[2] = -std::numeric_limits<float>::max();
+        return ans;
+    }
+
+    Splat max_value() const
+    {
+        Splat ans;
+        ans.position[2] = std::numeric_limits<float>::max();
+        return ans;
+    }
+};
+
 static void run(const po::variables_map &vm)
 {
+    SplatSet::FileSet splats;
+    Timer total;
+    Timer latency;
+    uint64_t nSplats = 0;
+
+    const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
+    const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
+    BOOST_FOREACH(const std::string &name, names)
+    {
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
+        splats.addFile(reader.get());
+        reader.release();
+    }
+
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
+    stxxl::stream::sort<SplatSet::SplatStream, CompareSplats> sortStream(*splatStream, CompareSplats(), 1024 * 1024 * 1024);
+    while (!sortStream.empty())
+    {
+        (void) *sortStream;
+        ++sortStream;
+        if (nSplats == 0)
+            Statistics::getStatistic<Statistics::Variable>("latency").add(latency.getElapsed());
+        ++nSplats;
+    }
+
+    Statistics::getStatistic<Statistics::Variable>("time").add(total.getElapsed());
+    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
+    writeStatistics(vm);
 }
 
 static void reportException(std::exception &e)
