@@ -12,6 +12,8 @@
 #include <iostream>
 #include <cstdlib>
 #include <limits>
+#include <deque>
+#include <algorithm>
 #include <boost/program_options.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
@@ -34,6 +36,8 @@ namespace Option
     const char * const quiet = "quiet";
     const char * const debug = "debug";
 
+    const char * const window = "window";
+
     const char * const inputFile = "input-file";
 
     const char * const statistics = "statistics";
@@ -47,6 +51,7 @@ static void addCommonOptions(po::options_description &opts)
     opts.add_options()
         ("help,h",                "Show help")
         ("quiet,q",               "Do not show informational messages")
+        (Option::window, po::value<double>()->default_value(0.1f), "Window thickness")
         (Option::debug,           "Show debug messages");
 }
 
@@ -220,10 +225,13 @@ static void run(const po::variables_map &vm)
     SplatSet::FileSet splats;
     Timer total;
     Timer latency;
-    uint64_t nSplats = 0;
+    long long nSplats = 0;
+    std::size_t maxActive = 0;
 
     const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
+    const float window = vm[Option::window].as<double>();
+
     BOOST_FOREACH(const std::string &name, names)
     {
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
@@ -233,17 +241,26 @@ static void run(const po::variables_map &vm)
 
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
     stxxl::stream::sort<SplatSet::SplatStream, CompareSplats> sortStream(*splatStream, CompareSplats(), 1024 * 1024 * 1024);
+    std::deque<Splat> active;
+
     while (!sortStream.empty())
     {
-        (void) *sortStream;
-        ++sortStream;
+        Splat s = *sortStream;
+
+        active.push_back(s);
+        while (active.front().position[2] < s.position[2] - window)
+            active.pop_front();
+        maxActive = std::max(maxActive, active.size());
+
         if (nSplats == 0)
             Statistics::getStatistic<Statistics::Variable>("latency").add(latency.getElapsed());
         ++nSplats;
+        ++sortStream;
     }
 
     Statistics::getStatistic<Statistics::Variable>("time").add(total.getElapsed());
     Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
+    Statistics::getStatistic<Statistics::Counter>("active.max").add(maxActive);
     writeStatistics(vm);
 }
 
