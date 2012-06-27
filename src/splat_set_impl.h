@@ -63,6 +63,8 @@ SimpleFileSet::ReaderThread<RangeIterator>::ReaderThread(const SimpleFileSet &ow
 template<typename RangeIterator>
 void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
 {
+    boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
+    std::size_t handleId;
     for (RangeIterator r = firstRange; r != lastRange; ++r)
     {
         splat_id first = r->first;
@@ -88,8 +90,12 @@ void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
                     throw std::runtime_error("Far too many bytes per vertex");
                 }
 
-                boost::scoped_ptr<FastPly::ReaderBase::Handle> handle(
-                    owner.files[fileId].createHandle());
+                if (!handle || fileId != handleId)
+                {
+                    handle.reset(); // close the old handle
+                    handle.reset(owner.files[fileId].createHandle());
+                    handleId = fileId;
+                }
 
                 while (start < end)
                 {
