@@ -44,6 +44,7 @@
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"
+#include "src/statistics_cl.h"
 #include "src/work_queue.h"
 #include "src/workers.h"
 #include "src/progress.h"
@@ -700,7 +701,7 @@ static void reportException(std::exception &e)
 
 int main(int argc, char **argv)
 {
-    Log::log.setLevel(Log::debug);
+    Log::log.setLevel(Log::info);
 
     po::variables_map vm = processOptions(argc, argv);
     if (vm.count(Option::quiet))
