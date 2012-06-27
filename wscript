@@ -319,6 +319,19 @@ def build(bld):
             target = 'plymanifold',
             use = 'BOOST_MATH',
             install_path = None)
+    bld.program(
+            source = [
+                'sorttest.cpp',
+                'src/fast_ply.cpp',
+                'src/grid.cpp',
+                'src/statistics.cpp',
+                'src/splat_set.cpp',
+                'src/logging.cpp',
+                'src/progress.cpp',
+                'src/stxxl_log.cpp',
+                'src/timer.cpp'],
+            target = 'sorttest',
+            use = ['BOOST', 'STXXL', 'provenance'])
 
     if bld.env['XSLTPROC']:
         bld(
