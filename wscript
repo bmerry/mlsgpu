@@ -331,7 +331,8 @@ def build(bld):
                 'src/stxxl_log.cpp',
                 'src/timer.cpp'],
             target = 'sorttest',
-            use = ['BOOST', 'STXXL', 'provenance'])
+            use = 'STXXL TIMER BOOST provenance',
+            install_path = None)
 
     if bld.env['XSLTPROC']:
         bld(
