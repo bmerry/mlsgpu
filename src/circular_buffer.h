@@ -44,7 +44,7 @@ private:
      */
     boost::condition_variable spaceCondition;
 
-    /// Allocate used to allocate and free @ref buffer
+    /// Allocator used to allocate and free @ref buffer
     Statistics::Allocator<Statistics::Allocator<std::allocator<char> > > allocator;
 
     /**
@@ -69,12 +69,18 @@ public:
      *
      * It is thread-safe to call this function at the same time as @a free.
      *
+     * @warning The returned data is not necessarily aligned, and one should
+     * not cast the pointer to a type that requires alignment. As an exception,
+     * if @em all calls to @c allocate use the same @a elementSize then the
+     * result is guaranteed to be an allocator-returned pointer plus a multiple
+     * of @a elementSize.
+     *
      * @param elementSize     Size of a single element.
      * @param maxElements     Maximum number of elements to allocate.
      * @return A pointer to the allocated data and the number of elements allocated.
      *
      * @pre
-     * - @a min &lt;= @ref size() / 2
+     * - @a elementSize &lt;= @ref size() / 2
      * - @a maxElements > 0
      */
     std::pair<void *, std::size_t> allocate(std::size_t elementSize, std::tr1::uintmax_t maxElements);

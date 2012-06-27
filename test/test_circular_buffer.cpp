@@ -19,6 +19,87 @@
 #include "../src/circular_buffer.h"
 #include "../src/work_queue.h"
 #include "../src/tr1_cstdint.h"
+#include "../src/statistics.h"
+
+/**
+ * Functionality tests for @ref CircularBuffer. These tests do not exercise
+ * any blocking-related behavior, as that is covered in @ref
+ * TestCircularBufferStress.
+ */
+class TestCircularBuffer : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestCircularBuffer);
+    CPPUNIT_TEST(testAllocateFree);
+    CPPUNIT_TEST(testSize);
+    CPPUNIT_TEST(testStatistics);
+    CPPUNIT_TEST(testBigMax);
+    CPPUNIT_TEST(testElementTooLarge);
+    CPPUNIT_TEST(testMaxZero);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    void testAllocateFree();    ///< Smoke test for @ref CircularBuffer::allocate and @ref CircularBuffer::free
+    void testSize();            ///< Test @ref CircularBuffer::size
+    void testStatistics();      ///< Test that memory allocation is accounted for
+    void testBigMax();          ///< Test that no overflow occurs when @a maxElements is huge
+    void testElementTooLarge(); ///< Test that an exception is thrown for a huge element size
+    void testMaxZero();         ///< Test that an exception is thrown when asking for zero elements
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBuffer, TestSet::perBuild());
+
+void TestCircularBuffer::testAllocateFree()
+{
+    CircularBuffer buffer("test", 10);
+    std::pair<void *, std::size_t> item = buffer.allocate(sizeof(short), 2);
+    CPPUNIT_ASSERT(item.first != NULL);
+    CPPUNIT_ASSERT(item.second >= 1 && item.second <= 2);
+
+    // Check that the memory can be safely written
+    short *values = reinterpret_cast<short *>(item.first);
+    values[0] = 123;
+    values[1] = 456;
+
+    buffer.free(item.first, sizeof(short), item.second);
+}
+
+void TestCircularBuffer::testSize()
+{
+    CircularBuffer buffer("test", 1000);
+    CPPUNIT_ASSERT_EQUAL(std::size_t(1000), buffer.size());
+}
+
+void TestCircularBuffer::testStatistics()
+{
+    typedef Statistics::Peak<std::size_t> Peak;
+    Peak &allStat = Statistics::getStatistic<Peak>("mem.all");
+    std::size_t oldMem = allStat.get();
+
+    CircularBuffer buffer("test", 1000);
+
+    std::size_t newMem = allStat.get();
+    CPPUNIT_ASSERT_EQUAL(oldMem + 1000, newMem);
+}
+
+void TestCircularBuffer::testBigMax()
+{
+    CircularBuffer buffer("test", 1000);
+    std::pair<void *, std::size_t> item = buffer.allocate(4, 0x1000000000000);
+    CPPUNIT_ASSERT(item.first != NULL);
+    CPPUNIT_ASSERT(item.second > 0);
+    CPPUNIT_ASSERT(item.second <= 1000);
+}
+
+void TestCircularBuffer::testElementTooLarge()
+{
+    CircularBuffer buffer("test", 16);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(12, 4), std::invalid_argument);
+}
+
+void TestCircularBuffer::testMaxZero()
+{
+    CircularBuffer buffer("test", 16);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(4, 0), std::invalid_argument);
+}
 
 /// Stress tests for @ref CircularBuffer
 class TestCircularBufferStress : public CppUnit::TestFixture
