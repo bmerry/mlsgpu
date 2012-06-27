@@ -23,6 +23,7 @@
 #include "clh.h"
 #include "logging.h"
 #include "statistics.h"
+#include "statistics_cl.h"
 
 namespace po = boost::program_options;
 

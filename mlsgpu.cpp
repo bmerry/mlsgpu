@@ -44,6 +44,7 @@
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"
+#include "src/statistics_cl.h"
 #include "src/work_queue.h"
 #include "src/workers.h"
 #include "src/progress.h"
