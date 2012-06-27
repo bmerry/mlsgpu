@@ -299,40 +299,62 @@ def build(bld):
             rule = 'python ${SRC} ${TGT}',
             source = ['utils/clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
             target = 'src/kernels.cpp')
-    sources = bld.path.ant_glob('src/*.cpp', excl = 'src/provenance.cpp') + ['src/kernels.cpp']
+    core_sources = [
+            'src/bucket.cpp',
+            'src/circular_buffer.cpp',
+            'src/fast_ply.cpp',
+            'src/grid.cpp',
+            'src/logging.cpp',
+            'src/ply.cpp',
+            'src/progress.cpp',
+            'src/statistics.cpp',
+            'src/splat.cpp',
+            'src/splat_set.cpp',
+            'src/stxxl_log.cpp',
+            'src/timer.cpp']
+    cl_sources = [
+            'src/clh.cpp',
+            'src/clip.cpp',
+            'src/kernels.cpp',
+            'src/marching.cpp',
+            'src/mesh.cpp',
+            'src/mesh_filter.cpp',
+            'src/mesher.cpp',
+            'src/mls.cpp',
+            'src/splat_tree.cpp',
+            'src/splat_tree_host.cpp',
+            'src/splat_tree_cl.cpp',
+            'src/statistics_cl.cpp',
+            'src/workers.cpp']
     bld(
             features = ['cxx', 'provenance'],
             source = 'src/provenance.cpp',
             name = 'provenance')
     bld(
             features = ['cxx', 'cxxstlib'],
-            source = sources,
-            target = 'mls',
-            use = 'OPENCL CLOGS STXXL TIMER BOOST',
-            name = 'libmls')
+            source = core_sources,
+            target = 'mls_core',
+            use = 'STXXL TIMER BOOST',
+            name = 'libmls_core')
+    bld(
+            features = ['cxx', 'cxxstlib'],
+            source = cl_sources,
+            target = 'mls_cl',
+            use = 'OPENCL CLOGS STXXL BOOST libmls_core',
+            name = 'libmls_cl')
     bld.program(
             source = ['mlsgpu.cpp'],
             target = 'mlsgpu',
-            use = ['libmls', 'provenance'])
+            use = ['libmls_cl', 'libmls_core', 'provenance'])
     bld.program(
-            source = ['plymanifold.cpp', 'src/ply.cpp', 'test/manifold.cpp'],
+            source = ['plymanifold.cpp', 'test/manifold.cpp'],
             target = 'plymanifold',
-            use = 'BOOST_MATH',
+            use = 'BOOST_MATH libmls_core',
             install_path = None)
     bld.program(
-            source = [
-                'sorttest.cpp',
-                'src/circular_buffer.cpp',
-                'src/fast_ply.cpp',
-                'src/grid.cpp',
-                'src/statistics.cpp',
-                'src/splat_set.cpp',
-                'src/logging.cpp',
-                'src/progress.cpp',
-                'src/stxxl_log.cpp',
-                'src/timer.cpp'],
+            source = 'sorttest.cpp',
             target = 'sorttest',
-            use = 'STXXL TIMER BOOST provenance',
+            use = 'STXXL BOOST provenance libmls_core',
             install_path = None)
 
     if bld.env['XSLTPROC']:
@@ -356,7 +378,7 @@ def build(bld):
                 features = test_features,
                 source = bld.path.ant_glob('test/*.cpp'),
                 target = 'testmain',
-                use = ['CPPUNIT', 'BOOST_TEST', 'libmls'],
+                use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl'],
                 install_path = None)
         bld.add_post_fun(print_unit_tests)
 
