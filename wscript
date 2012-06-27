@@ -322,6 +322,7 @@ def build(bld):
     bld.program(
             source = [
                 'sorttest.cpp',
+                'src/circular_buffer.cpp',
                 'src/fast_ply.cpp',
                 'src/grid.cpp',
                 'src/statistics.cpp',
