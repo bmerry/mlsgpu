@@ -53,7 +53,7 @@ static void addCommonOptions(po::options_description &opts)
     opts.add_options()
         ("help,h",                "Show help")
         ("quiet,q",               "Do not show informational messages")
-        (Option::window, po::value<double>()->default_value(0.1f), "Window thickness")
+        (Option::window, po::value<double>()->default_value(0.1), "Window thickness")
         (Option::debug,           "Show debug messages");
 }
 
