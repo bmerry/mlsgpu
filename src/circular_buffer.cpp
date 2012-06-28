@@ -43,7 +43,11 @@ std::pair<void *, std::size_t> CircularBuffer::allocate(
     if (bufferHead > bufferTail)
         bytes = bufferHead - bufferTail - 1;
     else
+    {
         bytes = bufferSize - bufferTail;
+        if (bufferHead == 0)
+            bytes--; // must not completely fill the buffer
+    }
     bytes = std::min(bytes, bufferSize / 2);
 
     std::size_t elements = bytes / elementSize;
