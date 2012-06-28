@@ -27,6 +27,7 @@
 #include "src/progress.h"
 #include "src/options.h"
 #include "src/provenance.h"
+#include "src/decache.h"
 
 namespace po = boost::program_options;
 
@@ -258,6 +259,7 @@ static void run(const po::variables_map &vm)
 
     BOOST_FOREACH(const std::string &name, names)
     {
+        decache(name);
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
         splats.addFile(reader.get());
         reader.release();
@@ -307,7 +309,6 @@ int main(int argc, char **argv)
     try
     {
         run(vm);
-        // TODO: report sorting rate
     }
     catch (std::ios::failure &e)
     {

@@ -258,7 +258,7 @@ int main() {
             function_name = f, header_name = 'windows.h',
             msg = 'Checking for ' + f,
             mandatory = False)
-    for f in ['open', 'pread', 'close']:
+    for f in ['open', 'pread', 'close', 'posix_fadvise']:
         conf.check_cxx(
             features = ['cxx', 'cxxprogram'],
             function_name = f, header_name = ['fcntl.h', 'sys/types.h', 'unistd.h'],
@@ -302,6 +302,7 @@ def build(bld):
     core_sources = [
             'src/bucket.cpp',
             'src/circular_buffer.cpp',
+            'src/decache.cpp',
             'src/fast_ply.cpp',
             'src/grid.cpp',
             'src/logging.cpp',

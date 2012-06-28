@@ -28,6 +28,7 @@
 #include "src/progress.h"
 #include "src/options.h"
 #include "src/provenance.h"
+#include "src/decache.h"
 
 namespace po = boost::program_options;
 
@@ -235,6 +236,7 @@ static void run(const po::variables_map &vm)
 
     BOOST_FOREACH(const std::string &name, names)
     {
+        decache(name);
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
         splats.addFile(reader.get());
         reader.release();
