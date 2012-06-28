@@ -26,7 +26,6 @@
 #include <CGAL/Search_traits_3.h>
 #include <CGAL/Fuzzy_sphere.h>
 #include <CGAL/Orthogonal_k_neighbor_search.h>
-#include <CGAL/linear_least_squares_fitting_3.h>
 #include <Eigen/Core>
 #include <Eigen/Eigenvalues>
 #include "src/bucket.h"
@@ -376,28 +375,44 @@ public:
                 // + 1 because we will find the point itself
                 Search search(tree, p, numNeighbors + 1);
 
+                float maxN2 = 0.0f;
                 for (Search::iterator j = search.begin(); j != search.end(); ++j)
                     if (j->second != 0.0f && j->second <= maxDistance2)
+                    {
                         neighbors.push_back(j->first);
+                        maxN2 = std::max(maxN2, j->second);
+                    }
                 neighborStat.add(neighbors.size());
 
                 if (neighbors.size() == std::size_t(numNeighbors))
                 {
-                    Kernel::Plane_3 plane;
-                    float quality = CGAL::linear_least_squares_fitting_3(neighbors.begin(), neighbors.end(),
-                                                                         plane, p, CGAL::Dimension_tag<0>());
-                    Kernel::Vector_3 oldNormal(s.normal[0], s.normal[1], s.normal[2]);
-                    if (CGAL::orientation(plane.base1(), plane.base2(), oldNormal) != CGAL::POSITIVE)
-                        plane = plane.opposite();
+                    Eigen::Vector3f oldNormal(s.normal[0], s.normal[1], s.normal[2]);
+                    oldNormal.normalize();
 
-                    Kernel::Vector_3 normal = plane.orthogonal_vector();
-                    float dot = normal * oldNormal / std::sqrt(oldNormal.squared_length() * normal.squared_length());
-                    float ang = std::acos(std::min(dot, 1.0f));
-                    if (!std::isfinite(ang))
+                    Eigen::Matrix3f cov;
+                    cov.setZero();
+                    BOOST_FOREACH(const Point &n, neighbors)
                     {
-                        std::cout << "";
+                        Kernel::Vector_3 delta = n - p;
+                        float w = 1.0 - delta.squared_length() / maxN2;
+                        w *= w;
+                        w *= w;
+                        for (int i = 0; i < 3; i++)
+                            for (int j = 0; j <= i; j++)
+                                cov(i, j) += delta[i] * delta[j];
                     }
-                    angleStat.add(ang);
+                    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(cov);
+                    Eigen::Vector3f normal = solver.eigenvectors().col(0);
+                    float quality = 1.0f - solver.eigenvalues()[0] / solver.eigenvalues()[1];
+                    float dot = normal.dot(oldNormal);
+                    if (dot < 0.0f)
+                    {
+                        normal = -normal;
+                        dot = -dot;
+                    }
+
+                    float ang = std::acos(std::min(dot, 1.0f));
+                    angleStat.add(ang * 57.2957795130823f);
                     qualityStat.add(quality);
                 }
             }
