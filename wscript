@@ -222,7 +222,9 @@ def configure(conf):
         header_name = 'CGAL/basic.h',
         lib = 'CGAL',
         cxxflags = cgal_cxxflags,
-        uselib_store = 'CGAL')
+        uselib_store = 'CGAL',
+        msg = 'Checking for CGAL')
+    conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
 
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
@@ -374,7 +376,7 @@ def build(bld):
     bld.program(
             source = 'buckettest.cpp',
             target = 'buckettest',
-            use = 'STXXL BOOST CGAL provenance libmls_core',
+            use = 'STXXL BOOST CGAL EIGEN provenance libmls_core',
             install_path = None)
 
     if bld.env['XSLTPROC']:

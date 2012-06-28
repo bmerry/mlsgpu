@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <memory>
 #include <iterator>
+#include <cmath>
 #include <boost/program_options.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
@@ -25,6 +26,9 @@
 #include <CGAL/Search_traits_3.h>
 #include <CGAL/Fuzzy_sphere.h>
 #include <CGAL/Orthogonal_k_neighbor_search.h>
+#include <CGAL/linear_least_squares_fitting_3.h>
+#include <Eigen/Core>
+#include <Eigen/Eigenvalues>
 #include "src/bucket.h"
 #include "src/statistics.h"
 #include "src/splat_set.h"
@@ -309,26 +313,32 @@ class BinProcessor
 {
 private:
     int numNeighbors;
+    float maxDistance2;
 
     ProgressDisplay *progress;
 
     Statistics::Variable &neighborStat;
     Statistics::Variable &loadStat;
     Statistics::Variable &computeStat;
+    Statistics::Variable &qualityStat;
+    Statistics::Variable &angleStat;
 
 public:
-    explicit BinProcessor(int numNeighbors, ProgressDisplay *progress = NULL)
-        : numNeighbors(numNeighbors), progress(progress),
+    BinProcessor(int numNeighbors, float maxDistance, ProgressDisplay *progress = NULL)
+        : numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
+        progress(progress),
         neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
-        computeStat(Statistics::getStatistic<Statistics::Variable>("compute.time"))
+        computeStat(Statistics::getStatistic<Statistics::Variable>("compute.time")),
+        qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
+        angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))
     {}
 
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
                     const Grid &binGrid, const Bucket::Recursion &recursionState)
     {
         (void) recursionState;
-        Log::log[Log::info] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
+        Log::log[Log::debug] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
 
         typedef CGAL::Simple_cartesian<float> Kernel;
         typedef Kernel::Point_3 Point;
@@ -362,11 +372,34 @@ public:
             if (inside)
             {
                 neighbors.clear();
-                Search search(tree, Point(s.position[0], s.position[1], s.position[2]), numNeighbors);
+                Point p(s.position[0], s.position[1], s.position[2]);
+                // + 1 because we will find the point itself
+                Search search(tree, p, numNeighbors + 1);
 
                 for (Search::iterator j = search.begin(); j != search.end(); ++j)
-                    neighbors.push_back(j->first);
+                    if (j->second != 0.0f && j->second <= maxDistance2)
+                        neighbors.push_back(j->first);
                 neighborStat.add(neighbors.size());
+
+                if (neighbors.size() == std::size_t(numNeighbors))
+                {
+                    Kernel::Plane_3 plane;
+                    float quality = CGAL::linear_least_squares_fitting_3(neighbors.begin(), neighbors.end(),
+                                                                         plane, p, CGAL::Dimension_tag<0>());
+                    Kernel::Vector_3 oldNormal(s.normal[0], s.normal[1], s.normal[2]);
+                    if (CGAL::orientation(plane.base1(), plane.base2(), oldNormal) != CGAL::POSITIVE)
+                        plane = plane.opposite();
+
+                    Kernel::Vector_3 normal = plane.orthogonal_vector();
+                    float dot = normal * oldNormal / std::sqrt(oldNormal.squared_length() * normal.squared_length());
+                    float ang = std::acos(std::min(dot, 1.0f));
+                    if (!std::isfinite(ang))
+                    {
+                        std::cout << "";
+                    }
+                    angleStat.add(ang);
+                    qualityStat.add(quality);
+                }
             }
         }
 
@@ -406,18 +439,18 @@ static void run(const po::variables_map &vm)
         Statistics::Timer timer("bbox.time");
         splats.computeBlobs(spacing, leafSize, &Log::log[Log::info]);
     }
-    catch (std::length_error &e) // TODO: should be a subclass of runtime_error
+    catch (std::length_error &e)
     {
         std::cerr << "At least one input point is required.\n";
         std::exit(1);
     }
 
     Grid grid = splats.getBoundingGrid();
-    // ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+    ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-    BinProcessor<Splats> binProcessor(numNeighbors, NULL);
+    BinProcessor<Splats> binProcessor(numNeighbors, radius, &progress);
     Bucket::bucket(splats, grid, maxHostSplats, leafSize, 0, true, maxSplit,
-                   boost::ref(binProcessor), NULL);
+                   boost::ref(binProcessor), &progress);
 
     writeStatistics(vm);
 }
