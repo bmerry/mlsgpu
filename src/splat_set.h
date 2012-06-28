@@ -107,7 +107,7 @@ public:
      * Return the currently pointed-to splat.
      * @pre <code>!empty()</code>
      */
-    virtual const Splat &operator*() const = 0;
+    virtual Splat operator*() const = 0;
 
     /**
      * Determines whether there are any more splats to advance over.
@@ -286,7 +286,7 @@ private:
     class MySplatStream : public SplatStream
     {
     public:
-        virtual const Splat &operator*() const
+        virtual Splat operator*() const
         {
             MLSGPU_ASSERT(!empty(), std::out_of_range);
             return owner[cur];
@@ -482,7 +482,7 @@ private:
     class MySplatStream : public SplatStream
     {
     public:
-        virtual const Splat &operator*() const
+        virtual Splat operator*() const
         {
             MLSGPU_ASSERT(!empty(), std::out_of_range);
             return nextSplat;

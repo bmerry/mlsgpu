@@ -56,7 +56,7 @@ private:
     class MySplatStream : public SplatStream
     {
     public:
-        virtual const Splat &operator*() const
+        virtual Splat operator*() const
         {
             return owner.at(cur >> scanIdShift).at(cur & splatIdMask);
         }

@@ -47,6 +47,8 @@ namespace Option
 
     const char * const fitSmooth = "fit-smooth";
     const char * const fitGrid = "fit-grid";
+    const char * const radius = "radius";
+    const char * const neighbors = "neighbors";
 
     const char * const maxHostSplats = "max-host-splats";
     const char * const maxSplit = "max-split";
@@ -70,7 +72,9 @@ static void addFitOptions(po::options_description &opts)
 {
     opts.add_options()
         (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
-        (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells");
+        (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
+        (Option::radius,          po::value<double>()->default_value(0.1),  "Maximum radius to search")
+        (Option::neighbors,       po::value<int>()->default_value(16),      "Neighbors to find");
 }
 
 static void addStatisticsOptions(po::options_description &opts)
@@ -220,10 +224,92 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
+template<typename S, typename T>
+class SimpleTransformSplatSet : public S
+{
+public:
+    typedef T Transform;
+    typedef SplatSet::detail::BlobbedSet<SimpleTransformSplatSet<S, T> > BlobbedSet;
+
+    SplatSet::SplatStream *makeSplatStream() const
+    {
+        std::auto_ptr<SplatSet::SplatStream> child(S::makeSplatStream());
+        SplatSet::SplatStream *stream = new MySplatStream(child.get(), transform);
+        child.release();
+        return stream;
+    }
+
+    template<typename RangeIterator>
+    SplatSet::SplatStream *makeSplatStream(RangeIterator first, RangeIterator last) const
+    {
+        std::auto_ptr<SplatSet::SplatStream> child(S::makeSplatStream(first, last));
+        SplatSet::SplatStream *stream = new MySplatStream(child.get(), transform);
+        child.release();
+        return stream;
+    }
+
+    void setTransform(const Transform &transform)
+    {
+        this->transform = transform;
+    }
+
+private:
+    Transform transform;
+
+    class MySplatStream : public SplatSet::SplatStream
+    {
+    private:
+        boost::scoped_ptr<SplatSet::SplatStream> child;
+        Transform transform;
+
+    public:
+        MySplatStream(SplatSet::SplatStream *child, const Transform &transform)
+            : child(child), transform(transform) {}
+
+        virtual SplatStream &operator++()
+        {
+            ++*child;
+            return *this;
+        }
+
+        virtual Splat operator*() const
+        {
+            return boost::unwrap_ref(transform)(**child);
+        }
+
+        virtual bool empty() const
+        {
+            return child->empty();
+        }
+
+        virtual SplatSet::splat_id currentId() const
+        {
+            return child->currentId();
+        }
+    };
+};
+
+class TransformSetRadius
+{
+private:
+    float radius;
+
+public:
+    explicit TransformSetRadius(float radius = 0.0) : radius(radius) {}
+
+    Splat operator()(Splat s) const
+    {
+        s.radius = radius;
+        return s;
+    }
+};
+
 template<typename Splats>
 class BinProcessor
 {
 private:
+    int numNeighbors;
+
     ProgressDisplay *progress;
 
     Statistics::Variable &neighborStat;
@@ -231,8 +317,8 @@ private:
     Statistics::Variable &computeStat;
 
 public:
-    explicit BinProcessor(ProgressDisplay *progress = NULL)
-        : progress(progress),
+    explicit BinProcessor(int numNeighbors, ProgressDisplay *progress = NULL)
+        : numNeighbors(numNeighbors), progress(progress),
         neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
         computeStat(Statistics::getStatistic<Statistics::Variable>("compute.time"))
@@ -263,6 +349,8 @@ public:
             ++*stream;
         }
 
+        std::vector<Point> neighbors;
+        neighbors.reserve(numNeighbors);
         for (std::size_t i = 0; i < splats.size(); i++)
         {
             const Splat &s = splats[i];
@@ -273,14 +361,12 @@ public:
                 inside &= vertexCoords[j] >= 0.0f && vertexCoords[j] < binGrid.numVertices(j);
             if (inside)
             {
-#if 0
-                CGAL::Fuzzy_sphere<SearchTraits> query(
-                    Point(s.position[0], s.position[1], s.position[2]),
-                    s.radius);
-                std::vector<Point> neighbors;
-                tree.search(std::back_inserter(neighbors), query);
+                neighbors.clear();
+                Search search(tree, Point(s.position[0], s.position[1], s.position[2]), numNeighbors);
+
+                for (Search::iterator j = search.begin(); j != search.end(); ++j)
+                    neighbors.push_back(j->first);
                 neighborStat.add(neighbors.size());
-#endif
             }
         }
 
@@ -293,14 +379,19 @@ static void run(const po::variables_map &vm)
 {
     const float spacing = vm[Option::fitGrid].as<double>();
     const float smooth = vm[Option::fitSmooth].as<double>();
+    const float radius = vm[Option::radius].as<double>();
+    const int numNeighbors = vm[Option::neighbors].as<int>();
+
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const int leafSize = vm[Option::leafSize].as<int>();
     const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
 
-    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+    typedef SimpleTransformSplatSet<SplatSet::FileSet, TransformSetRadius>::BlobbedSet Set0;
+    typedef SplatSet::FastBlobSet<Set0, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
     Splats splats;
+    splats.setTransform(TransformSetRadius(radius));
 
     BOOST_FOREACH(const std::string &name, names)
     {
@@ -324,7 +415,7 @@ static void run(const po::variables_map &vm)
     Grid grid = splats.getBoundingGrid();
     // ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-    BinProcessor<Splats> binProcessor(NULL);
+    BinProcessor<Splats> binProcessor(numNeighbors, NULL);
     Bucket::bucket(splats, grid, maxHostSplats, leafSize, 0, true, maxSplit,
                    boost::ref(binProcessor), NULL);
 
