@@ -48,35 +48,37 @@ void splatToBuckets(const Splat &splat,
     }
 }
 
+} // namespace detail
+
 BlobInfo SimpleBlobStream::operator*() const
 {
     BlobInfo ans;
     ans.firstSplat = splatStream->currentId();
     ans.lastSplat = ans.firstSplat + 1;
-    splatToBuckets(**splatStream, grid, bucketSize, ans.lower, ans.upper);
+    detail::splatToBuckets(**splatStream, grid, bucketSize, ans.lower, ans.upper);
     return ans;
 }
 
-const unsigned int SimpleFileSet::scanIdShift = 40;
-const splat_id SimpleFileSet::splatIdMask = (splat_id(1) << scanIdShift) - 1;
+const unsigned int FileSet::scanIdShift = 40;
+const splat_id FileSet::splatIdMask = (splat_id(1) << scanIdShift) - 1;
 
-void SimpleFileSet::addFile(FastPly::ReaderBase *file)
+void FileSet::addFile(FastPly::ReaderBase *file)
 {
     files.push_back(file);
     nSplats += file->size();
 }
 
-SimpleFileSet::ReaderThreadBase::ReaderThreadBase(const SimpleFileSet &owner) :
-    owner(owner), outQueue(256), buffer("mem.SimpleFileSet.ReaderThread.buffer", BUFFER_SIZE)
+FileSet::ReaderThreadBase::ReaderThreadBase(const FileSet &owner) :
+    owner(owner), outQueue(256), buffer("mem.FileSet.ReaderThread.buffer", BUFFER_SIZE)
 {
 }
 
-void SimpleFileSet::ReaderThreadBase::free(const Item &item)
+void FileSet::ReaderThreadBase::free(const Item &item)
 {
     buffer.free(item.ptr, item.bytes);
 }
 
-void SimpleFileSet::ReaderThreadBase::drain()
+void FileSet::ReaderThreadBase::drain()
 {
     Item item;
     while ((item = pop()).ptr != NULL)
@@ -85,8 +87,8 @@ void SimpleFileSet::ReaderThreadBase::drain()
     }
 }
 
-SimpleFileSet::MySplatStream::MySplatStream(
-    const SimpleFileSet &owner, ReaderThreadBase *reader)
+FileSet::MySplatStream::MySplatStream(
+    const FileSet &owner, ReaderThreadBase *reader)
 : owner(owner), readerThread(reader), thread(boost::ref(*readerThread))
 {
     isEmpty = false;
@@ -94,7 +96,7 @@ SimpleFileSet::MySplatStream::MySplatStream(
     refill();
 }
 
-SimpleFileSet::MySplatStream::~MySplatStream()
+FileSet::MySplatStream::~MySplatStream()
 {
     if (buffer.ptr)
         readerThread->free(buffer);
@@ -103,7 +105,7 @@ SimpleFileSet::MySplatStream::~MySplatStream()
     thread.join();
 }
 
-SplatStream &SimpleFileSet::MySplatStream::operator++()
+SplatStream &FileSet::MySplatStream::operator++()
 {
     MLSGPU_ASSERT(!isEmpty, std::out_of_range);
     bufferCur++;
@@ -111,7 +113,7 @@ SplatStream &SimpleFileSet::MySplatStream::operator++()
     return *this;
 }
 
-void SimpleFileSet::MySplatStream::refill()
+void FileSet::MySplatStream::refill()
 {
     while (true)
     {
@@ -134,8 +136,6 @@ void SimpleFileSet::MySplatStream::refill()
         bufferCur++;
     }
 }
-
-} // namespace detail
 
 
 void SubsetBase::addBlob(const BlobInfo &blob)

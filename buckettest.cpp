@@ -228,11 +228,10 @@ static po::variables_map processOptions(int argc, char **argv)
 }
 
 template<typename S, typename T>
-class SimpleTransformSplatSet : public S
+class TransformSplatSet : public S
 {
 public:
     typedef T Transform;
-    typedef SplatSet::detail::BlobbedSet<SimpleTransformSplatSet<S, T> > BlobbedSet;
 
     SplatSet::SplatStream *makeSplatStream() const
     {
@@ -249,6 +248,11 @@ public:
         SplatSet::SplatStream *stream = new MySplatStream(child.get(), transform);
         child.release();
         return stream;
+    }
+
+    SplatSet::BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new SplatSet::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
     }
 
     void setTransform(const Transform &transform)
@@ -436,7 +440,7 @@ static void run(const po::variables_map &vm)
     const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
 
-    typedef SimpleTransformSplatSet<SplatSet::FileSet, TransformSetRadius>::BlobbedSet Set0;
+    typedef TransformSplatSet<SplatSet::FileSet, TransformSetRadius> Set0;
     typedef SplatSet::FastBlobSet<Set0, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
     Splats splats;
     splats.setTransform(TransformSetRadius(radius));

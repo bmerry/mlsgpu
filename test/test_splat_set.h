@@ -18,13 +18,12 @@
 namespace SplatSet
 {
 
-namespace detail
-{
-
 /**
- * Splat-only part of @ref SplatSet::VectorsSet.
+ * Implementation of the @ref SplatSet::SubsettableConcept that uses a
+ * vector of vectors as the backing store, and assigns splat IDs in a similar
+ * way to @ref SplatSet::FileSet.
  */
-class SimpleVectorsSet : public std::vector<std::vector<Splat> >
+class VectorsSet : public std::vector<std::vector<Splat> >
 {
 public:
     static const unsigned int scanIdShift = 40;
@@ -42,7 +41,12 @@ public:
 
     SplatStream *makeSplatStream() const
     {
-        return makeSplatStream(&rangeAll, &rangeAll + 1);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+    }
+
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
     }
 
     template<typename RangeIterator>
@@ -79,7 +83,7 @@ private:
             return cur;
         }
 
-        MySplatStream(const SimpleVectorsSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+        MySplatStream(const VectorsSet &owner, RangeIterator firstRange, RangeIterator lastRange)
             : owner(owner), curRange(firstRange), lastRange(lastRange)
         {
             if (curRange != lastRange)
@@ -88,7 +92,7 @@ private:
         }
 
     private:
-        const SimpleVectorsSet &owner;
+        const VectorsSet &owner;
         splat_id cur;
         RangeIterator curRange, lastRange;
 
@@ -126,15 +130,6 @@ private:
         }
     };
 };
-
-} // namespace detail
-
-/**
- * Implementation of the @ref SplatSet::SubsettableConcept that uses a
- * vector of vectors as the backing store, and assigns splat IDs in a similar
- * way to @ref SplatSet::FileSet.
- */
-typedef detail::BlobbedSet<detail::SimpleVectorsSet> VectorsSet;
 
 } // namespace SplatSet
 

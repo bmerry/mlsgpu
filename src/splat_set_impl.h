@@ -27,11 +27,8 @@
 namespace SplatSet
 {
 
-namespace detail
-{
-
 template<typename RangeIterator>
-void SimpleVectorSet::MySplatStream<RangeIterator>::refill()
+void VectorSet::MySplatStream<RangeIterator>::refill()
 {
     if (curRange != lastRange)
     {
@@ -55,13 +52,13 @@ void SimpleVectorSet::MySplatStream<RangeIterator>::refill()
 }
 
 template<typename RangeIterator>
-SimpleFileSet::ReaderThread<RangeIterator>::ReaderThread(const SimpleFileSet &owner, RangeIterator firstRange, RangeIterator lastRange)
-    : SimpleFileSet::ReaderThreadBase(owner), firstRange(firstRange), lastRange(lastRange)
+FileSet::ReaderThread<RangeIterator>::ReaderThread(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+    : FileSet::ReaderThreadBase(owner), firstRange(firstRange), lastRange(lastRange)
 {
 }
 
 template<typename RangeIterator>
-void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
+void FileSet::ReaderThread<RangeIterator>::operator()()
 {
     boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
     std::size_t handleId;
@@ -121,8 +118,6 @@ void SimpleFileSet::ReaderThread<RangeIterator>::operator()()
     // Signal completion
     outQueue.push(Item());
 }
-
-} // namespace detail
 
 template<typename Base, typename BlobVector>
 BlobInfo FastBlobSet<Base, BlobVector>::MyBlobStream::operator*() const
@@ -348,7 +343,7 @@ template<typename Super>
 BlobStream *Subset<Super>::makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
 {
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-    return new detail::SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
 }
 
 } // namespace SplatSet

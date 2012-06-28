@@ -252,24 +252,57 @@ void splatToBuckets(const Splat &splat,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper);
 
+} // namespace detail
+
 /**
- * Partial splat set interface for a simple vector of splats. This is turned
- * into a model of @ref SetConcept using @ref BlobbedSet. The splat IDs are
+ * Implementation of @ref BlobStream that just has one blob for each splat. It
+ * is created by passing the underlying splat stream to the constructor.
+ */
+class SimpleBlobStream : public BlobStream
+{
+public:
+    virtual BlobInfo operator*() const;
+
+    virtual BlobStream &operator++()
+    {
+        ++*splatStream;
+        return *this;
+    }
+
+    virtual bool empty() const
+    {
+        return splatStream->empty();
+    }
+
+    SimpleBlobStream(SplatStream *splatStream, const Grid &grid, Grid::size_type bucketSize)
+        : splatStream(splatStream), grid(grid), bucketSize(bucketSize)
+    {
+        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+    }
+
+private:
+    boost::scoped_ptr<SplatStream> splatStream;
+    const Grid grid;
+    Grid::size_type bucketSize;
+};
+
+/**
+ * Splat set interface for a simple vector of splats. The splat IDs are
  * simply the positions in the vector. It is legal to store non-finite splats;
- * they will be skipped over by the stream.
+ * they will be skipped over by the stream. Blobs just contain one splat each.
  *
  * All the public methods of @ref Statistics::Container::vector&lt;Splat&gt;
  * are available, but modifying the data while a stream exists yields undefined
  * behavior.
  */
-class SimpleVectorSet : public Statistics::Container::vector<Splat>
+class VectorSet : public Statistics::Container::vector<Splat>
 {
 public:
     splat_id maxSplats() const { return size(); }
 
     SplatStream *makeSplatStream() const
     {
-        return makeSplatStream(&rangeAll, &rangeAll + 1);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
     }
 
     template<typename RangeIterator>
@@ -278,7 +311,12 @@ public:
         return new MySplatStream<RangeIterator>(*this, firstRange, lastRange);
     }
 
-    SimpleVectorSet() : Statistics::Container::vector<Splat>("mem.SimpleVectorSet") {}
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    }
+
+    VectorSet() : Statistics::Container::vector<Splat>("mem.VectorSet") {}
 
 private:
     /// Splat stream implementation
@@ -310,7 +348,7 @@ private:
             return cur;
         }
 
-        MySplatStream(const SimpleVectorSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+        MySplatStream(const VectorSet &owner, RangeIterator firstRange, RangeIterator lastRange)
             : owner(owner), curRange(firstRange), lastRange(lastRange)
         {
             if (curRange != lastRange)
@@ -319,7 +357,7 @@ private:
         }
 
     private:
-        const SimpleVectorSet &owner;
+        const VectorSet &owner;
         RangeIterator curRange, lastRange;
         splat_id cur; ///< Index of current splat in owner (undefined if stream is empty)
 
@@ -329,12 +367,12 @@ private:
 };
 
 /**
- * Splat-set core interface for a collection of on-disk PLY files.
+ * Splat-set interface for a collection of on-disk PLY files.
  *
  * The splat IDs use the upper bits to store the file ID and the remaining
  * bits to store the splat index within the file.
  */
-class SimpleFileSet
+class FileSet
 {
 public:
     /// Number of bits used to store the within-file splat ID
@@ -350,7 +388,12 @@ public:
 
     SplatStream *makeSplatStream() const
     {
-        return makeSplatStream(&rangeAll, &rangeAll + 1);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+    }
+
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
     }
 
     template<typename RangeIterator>
@@ -365,7 +408,7 @@ public:
 
     splat_id maxSplats() const { return nSplats; }
 
-    SimpleFileSet() : nSplats(0) {}
+    FileSet() : nSplats(0) {}
 
 private:
     /**
@@ -417,7 +460,7 @@ private:
             std::size_t numSplats() const { return last - first; }
         };
     protected:
-        const SimpleFileSet &owner;   ///< Owning splat stream
+        const FileSet &owner;   ///< Owning splat stream
         /**
          * Queue of splat ranges as they're read. This will produce a stream of
          * real ranges (non-NULL pointer), followed by exactly one default-constructed
@@ -428,7 +471,7 @@ private:
         CircularBuffer buffer;
 
     public:
-        explicit ReaderThreadBase(const SimpleFileSet &owner);
+        explicit ReaderThreadBase(const FileSet &owner);
 
         /// Virtual destructor to allow dynamic storage management
         virtual ~ReaderThreadBase() {}
@@ -471,7 +514,7 @@ private:
         RangeIterator firstRange, lastRange;
 
     public:
-        ReaderThread(const SimpleFileSet &owner, RangeIterator firstRange, RangeIterator lastRange);
+        ReaderThread(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange);
 
         virtual void operator()();
     };
@@ -500,11 +543,11 @@ private:
             return buffer.first + bufferCur;
         }
 
-        MySplatStream(const SimpleFileSet &owner, ReaderThreadBase *reader);
+        MySplatStream(const FileSet &owner, ReaderThreadBase *reader);
         virtual ~MySplatStream();
 
     private:
-        const SimpleFileSet &owner;     ///< Owning set
+        const FileSet &owner;           ///< Owning set
         std::size_t bufferCur;          ///< First position in @ref buffer with data (points at @ref nextSplat)
         Splat nextSplat;                ///< The splat to return from #operator*
         ReaderThreadBase::Item buffer;  ///< Current buffer (possibly NULL)
@@ -525,70 +568,6 @@ private:
     /// Number of splats stored in the files (including non-finites)
     splat_id nSplats;
 };
-
-/**
- * Implementation of @ref BlobStream that just has one blob for each splat.
- */
-class SimpleBlobStream : public BlobStream
-{
-public:
-    virtual BlobInfo operator*() const;
-
-    virtual BlobStream &operator++()
-    {
-        ++*splatStream;
-        return *this;
-    }
-
-    virtual bool empty() const
-    {
-        return splatStream->empty();
-    }
-
-    SimpleBlobStream(SplatStream *splatStream, const Grid &grid, Grid::size_type bucketSize)
-        : splatStream(splatStream), grid(grid), bucketSize(bucketSize)
-    {
-        MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-    }
-
-private:
-    boost::scoped_ptr<SplatStream> splatStream;
-    const Grid grid;
-    Grid::size_type bucketSize;
-};
-
-/**
- * Adds the blob interface to a base class that does not have it, with blob
- * IDs simply equaling splat IDs.
- *
- * @param CoreSet A model of @ref SubsettableConcept that is missing the blob functions.
- */
-template<typename CoreSet>
-class BlobbedSet : public CoreSet
-#ifdef DOXYGEN_FAKE_CODE
-, public SubsettableConcept
-#endif
-{
-public:
-    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        return new detail::SimpleBlobStream(CoreSet::makeSplatStream(), grid, bucketSize);
-    }
-};
-
-} // namespace detail
-
-/**
- * An implementation of @ref SubsettableConcept with data stored in multiple
- * PLY files.
- */
-typedef detail::BlobbedSet<detail::SimpleFileSet> FileSet;
-
-/**
- * An implementation of @ref SubsettableConcept with data stored in a single
- * vector.
- */
-typedef detail::BlobbedSet<detail::SimpleVectorSet> VectorSet;
 
 /**
  * Internal data stored in @ref FastBlobSet. This class is not accessed
