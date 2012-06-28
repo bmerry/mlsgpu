@@ -226,7 +226,9 @@ private:
  * A collection of threads operating on work-items, fed by a queue.
  *
  * @param WorkItem     A POD type describing an item of work.
+ * @param GenType      Key type used to represent generations of work.
  * @param Worker       Function object class that is called to process elements.
+ * @param Derived      The class that is being derived from the template.
  *
  * The @a Worker class must have an @c operator() that accepts a reference to a
  * @a WorkItem. The operator does not need to be @c const.  The worker class

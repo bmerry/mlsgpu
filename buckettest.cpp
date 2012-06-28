@@ -19,6 +19,8 @@
 #include <boost/exception/all.hpp>
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
 #include <boost/ref.hpp>
 #include <stxxl.h>
 #include <CGAL/Simple_cartesian.h>
@@ -37,6 +39,8 @@
 #include "src/options.h"
 #include "src/provenance.h"
 #include "src/decache.h"
+#include "src/worker_group.h"
+#include "src/tr1_cstdint.h"
 
 namespace po = boost::program_options;
 
@@ -311,37 +315,43 @@ public:
     }
 };
 
-template<typename Splats>
-class BinProcessor
+
+struct NormalItem
 {
-private:
+    Grid binGrid;
     int numNeighbors;
     float maxDistance2;
-
     ProgressDisplay *progress;
 
+    Statistics::Container::vector<Splat> splats;
+
+    NormalItem() : splats("mem.splats") {}
+};
+
+class NormalWorker
+{
+private:
     Statistics::Variable &neighborStat;
-    Statistics::Variable &loadStat;
     Statistics::Variable &computeStat;
     Statistics::Variable &qualityStat;
     Statistics::Variable &angleStat;
 
 public:
-    BinProcessor(int numNeighbors, float maxDistance, ProgressDisplay *progress = NULL)
-        : numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
-        progress(progress),
+    NormalWorker()
+    :
         neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
-        loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
-        computeStat(Statistics::getStatistic<Statistics::Variable>("compute.time")),
+        computeStat(Statistics::getStatistic<Statistics::Variable>("normal.worker.time")),
         qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
         angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))
     {}
 
-    void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
-                    const Grid &binGrid, const Bucket::Recursion &recursionState)
+    void start() {}
+    void stop() {}
+
+    void operator()(int gen, NormalItem &item)
     {
-        (void) recursionState;
-        Log::log[Log::debug] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
+        Statistics::Timer timer(computeStat);
+        (void) gen;
 
         typedef CGAL::Simple_cartesian<float> Kernel;
         typedef Kernel::Point_3 Point;
@@ -350,45 +360,38 @@ public:
         typedef Search::Tree Tree;
 
         Tree tree;
-        std::vector<Splat> splats;
-        splats.reserve(subset.maxSplats());
-        boost::scoped_ptr<SplatSet::SplatStream> stream(subset.makeSplatStream());
-        while (!stream->empty())
+        BOOST_FOREACH(const Splat &s, item.splats)
         {
-            Splat s = **stream;
             Point p(s.position[0], s.position[1], s.position[2]);
             tree.insert(p);
-            splats.push_back(s);
-            ++*stream;
         }
 
         std::vector<Point> neighbors;
-        neighbors.reserve(numNeighbors);
-        for (std::size_t i = 0; i < splats.size(); i++)
+        neighbors.reserve(item.numNeighbors);
+        BOOST_FOREACH(const Splat &s, item.splats)
         {
-            const Splat &s = splats[i];
             float vertexCoords[3];
-            binGrid.worldToVertex(s.position, vertexCoords);
+            item.binGrid.worldToVertex(s.position, vertexCoords);
             bool inside = true;
             for (int j = 0; j < 3; j++)
-                inside &= vertexCoords[j] >= 0.0f && vertexCoords[j] < binGrid.numVertices(j);
+                inside &= vertexCoords[j] >= 0.0f && vertexCoords[j] < item.binGrid.numVertices(j);
             if (inside)
             {
                 neighbors.clear();
                 Point p(s.position[0], s.position[1], s.position[2]);
                 // + 1 because we will find the point itself
-                Search search(tree, p, numNeighbors + 1);
+                Search search(tree, p, item.numNeighbors + 1);
 
                 float maxN2 = 0.0f;
                 for (Search::iterator j = search.begin(); j != search.end(); ++j)
-                    if (j->second != 0.0f && j->second <= maxDistance2)
+                    if (j->second != 0.0f && j->second <= item.maxDistance2)
                     {
                         neighbors.push_back(j->first);
                         maxN2 = std::max(maxN2, j->second);
                     }
                 neighborStat.add(neighbors.size());
 
-                if (neighbors.size() == std::size_t(numNeighbors))
+                if (neighbors.size() == std::size_t(item.numNeighbors))
                 {
                     Eigen::Vector3f oldNormal(s.normal[0], s.normal[1], s.normal[2]);
                     oldNormal.normalize();
@@ -421,9 +424,80 @@ public:
                 }
             }
         }
+        if (item.progress != NULL)
+            *item.progress += item.binGrid.numCells();
+    }
+};
 
-        if (progress != NULL)
-            *progress += binGrid.numCells();
+class NormalWorkerGroup : public WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>
+{
+public:
+    NormalWorkerGroup(std::size_t numWorkers, std::size_t spare)
+        : WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>(
+            numWorkers, spare,
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop.first"),
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop"),
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.get"))
+    {
+        for (std::size_t i = 0; i < numWorkers; i++)
+            addWorker(new NormalWorker());
+        for (std::size_t i = 0; i < numWorkers + spare; i++)
+            addPoolItem(boost::make_shared<NormalItem>());
+    }
+};
+
+template<typename Splats>
+class BinProcessor
+{
+private:
+    NormalWorkerGroup &outGroup;
+
+    int numNeighbors;
+    float maxDistance2;
+
+    ProgressDisplay *progress;
+
+    Statistics::Variable &loadStat;
+
+public:
+    BinProcessor(
+        NormalWorkerGroup &outGroup,
+        int numNeighbors,
+        float maxDistance,
+        ProgressDisplay *progress = NULL)
+    :
+        outGroup(outGroup),
+        numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
+        progress(progress),
+        loadStat(Statistics::getStatistic<Statistics::Variable>("load.time"))
+    {}
+
+    void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
+                    const Grid &binGrid, const Bucket::Recursion &recursionState)
+    {
+        (void) recursionState;
+        Log::log[Log::debug] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
+
+        boost::shared_ptr<NormalItem> item = outGroup.get();
+
+        {
+            Statistics::Timer timer(loadStat);
+            item->splats.reserve(subset.maxSplats());
+            boost::scoped_ptr<SplatSet::SplatStream> stream(subset.makeSplatStream());
+            item->splats.clear();
+            while (!stream->empty())
+            {
+                Splat s = **stream;
+                item->splats.push_back(s);
+                ++*stream;
+            }
+            item->binGrid = binGrid;
+            item->numNeighbors = numNeighbors;
+            item->maxDistance2 = maxDistance2;
+            item->progress = progress;
+        }
+        outGroup.push(0, item);
     }
 };
 
@@ -467,9 +541,15 @@ static void run(const po::variables_map &vm)
     Grid grid = splats.getBoundingGrid();
     ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-    BinProcessor<Splats> binProcessor(numNeighbors, radius, &progress);
+    NormalWorkerGroup normalGroup(8, 4);
+    BinProcessor<Splats> binProcessor(normalGroup, numNeighbors, radius, &progress);
+
+    normalGroup.producerStart(0);
+    normalGroup.start();
     Bucket::bucket(splats, grid, maxHostSplats, leafSize, 0, true, maxSplit,
                    boost::ref(binProcessor), &progress);
+    normalGroup.producerStop(0);
+    normalGroup.stop();
 
     writeStatistics(vm);
 }
