@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <memory>
+#include <iterator>
 #include <boost/program_options.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
@@ -19,6 +20,11 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/ref.hpp>
 #include <stxxl.h>
+#include <CGAL/Simple_cartesian.h>
+#include <CGAL/Kd_tree.h>
+#include <CGAL/Search_traits_3.h>
+#include <CGAL/Fuzzy_sphere.h>
+#include <CGAL/Orthogonal_k_neighbor_search.h>
 #include "src/bucket.h"
 #include "src/statistics.h"
 #include "src/splat_set.h"
@@ -220,9 +226,17 @@ class BinProcessor
 private:
     ProgressDisplay *progress;
 
+    Statistics::Variable &neighborStat;
+    Statistics::Variable &loadStat;
+    Statistics::Variable &computeStat;
+
 public:
     explicit BinProcessor(ProgressDisplay *progress = NULL)
-        : progress(progress) {}
+        : progress(progress),
+        neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
+        loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
+        computeStat(Statistics::getStatistic<Statistics::Variable>("compute.time"))
+    {}
 
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
                     const Grid &binGrid, const Bucket::Recursion &recursionState)
@@ -230,13 +244,44 @@ public:
         (void) recursionState;
         Log::log[Log::info] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
 
+        typedef CGAL::Simple_cartesian<float> Kernel;
+        typedef Kernel::Point_3 Point;
+        typedef CGAL::Search_traits_3<Kernel> SearchTraits;
+        typedef CGAL::Orthogonal_k_neighbor_search<SearchTraits> Search;
+        typedef Search::Tree Tree;
+
+        Tree tree;
         std::vector<Splat> splats;
         splats.reserve(subset.maxSplats());
         boost::scoped_ptr<SplatSet::SplatStream> stream(subset.makeSplatStream());
         while (!stream->empty())
         {
-            splats.push_back(**stream);
+            Splat s = **stream;
+            Point p(s.position[0], s.position[1], s.position[2]);
+            tree.insert(p);
+            splats.push_back(s);
             ++*stream;
+        }
+
+        for (std::size_t i = 0; i < splats.size(); i++)
+        {
+            const Splat &s = splats[i];
+            float vertexCoords[3];
+            binGrid.worldToVertex(s.position, vertexCoords);
+            bool inside = true;
+            for (int j = 0; j < 3; j++)
+                inside &= vertexCoords[j] >= 0.0f && vertexCoords[j] < binGrid.numVertices(j);
+            if (inside)
+            {
+#if 0
+                CGAL::Fuzzy_sphere<SearchTraits> query(
+                    Point(s.position[0], s.position[1], s.position[2]),
+                    s.radius);
+                std::vector<Point> neighbors;
+                tree.search(std::back_inserter(neighbors), query);
+                neighborStat.add(neighbors.size());
+#endif
+            }
         }
 
         if (progress != NULL)

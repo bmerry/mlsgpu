@@ -77,6 +77,8 @@ def configure_variant(conf):
         conf.define('BOOST_DISABLE_ASSERTS', '1', quote = False)
     if conf.env['unit_tests']:
         conf.define('UNIT_TESTS', 1, quote = False)
+    if conf.env['expensive_assertions']:
+        conf.define('CGAL_KERNEL_CHECK_EXPENSIVE', 1, quote = False)
 
 def configure_variant_gcc(conf):
     ccflags = ['-Wall', '-W', '-pthread', '-fopenmp']
@@ -210,6 +212,18 @@ def configure(conf):
         header_name = 'stxxl.h',
         use = 'STXXL',
         msg = 'Checking for STXXL')
+
+    cgal_cxxflags = []
+    if conf.env['CXX_NAME'] == 'gcc':
+        configure_variant_gcc(conf)
+        cgal_cxxflags += ['-frounding-math']
+    conf.check_cxx(
+        features = ['cxx', 'cxxprogram'],
+        header_name = 'CGAL/basic.h',
+        lib = 'CGAL',
+        cxxflags = cgal_cxxflags,
+        uselib_store = 'CGAL')
+
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
@@ -344,7 +358,7 @@ def build(bld):
             use = 'OPENCL CLOGS STXXL BOOST libmls_core',
             name = 'libmls_cl')
     bld.program(
-            source = ['mlsgpu.cpp'],
+            source = 'mlsgpu.cpp',
             target = 'mlsgpu',
             use = ['libmls_cl', 'libmls_core', 'provenance'])
     bld.program(
@@ -360,7 +374,7 @@ def build(bld):
     bld.program(
             source = 'buckettest.cpp',
             target = 'buckettest',
-            use = 'STXXL BOOST provenance libmls_core',
+            use = 'STXXL BOOST CGAL provenance libmls_core',
             install_path = None)
 
     if bld.env['XSLTPROC']:
