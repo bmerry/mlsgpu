@@ -241,7 +241,7 @@ static void run(const po::variables_map &vm)
     }
 
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-    stxxl::stream::sort<SplatSet::SplatStream, CompareSplats> sortStream(*splatStream, CompareSplats(), 1024 * 1024 * 1024);
+    stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> sortStream(*splatStream, CompareSplats(), 1024 * 1024 * 1024);
     std::deque<Splat> active;
 
     while (!sortStream.empty())
