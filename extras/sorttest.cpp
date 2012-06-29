@@ -21,14 +21,14 @@
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <stxxl.h>
-#include "src/statistics.h"
-#include "src/splat_set.h"
-#include "src/fast_ply.h"
-#include "src/logging.h"
-#include "src/progress.h"
-#include "src/options.h"
-#include "src/provenance.h"
-#include "src/decache.h"
+#include "../src/statistics.h"
+#include "../src/splat_set.h"
+#include "../src/fast_ply.h"
+#include "../src/logging.h"
+#include "../src/progress.h"
+#include "../src/options.h"
+#include "../src/provenance.h"
+#include "../src/decache.h"
 
 namespace po = boost::program_options;
 

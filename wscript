@@ -67,6 +67,7 @@ def options(opt):
     opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'release', action = 'store', help = 'build variant', choices = list(variants.keys()))
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
+    opt.add_option('--enable-extras', action = 'store_true', default = False, help = 'Build extra internal tools')
     opt.add_option('--no-tests', action = 'store_true', default = False, help = 'Do not run unit tests')
 
 def configure_variant(conf):
@@ -77,7 +78,7 @@ def configure_variant(conf):
         conf.define('BOOST_DISABLE_ASSERTS', '1', quote = False)
     if conf.env['unit_tests']:
         conf.define('UNIT_TESTS', 1, quote = False)
-    if conf.env['expensive_assertions']:
+    if conf.options.enable_extras and conf.env['expensive_assertions']:
         conf.define('CGAL_KERNEL_CHECK_EXPENSIVE', 1, quote = False)
 
 def configure_variant_gcc(conf):
@@ -217,14 +218,17 @@ def configure(conf):
     if conf.env['CXX_NAME'] == 'gcc':
         configure_variant_gcc(conf)
         cgal_cxxflags += ['-frounding-math']
-    conf.check_cxx(
-        features = ['cxx', 'cxxprogram'],
-        header_name = 'CGAL/basic.h',
-        lib = 'CGAL',
-        cxxflags = cgal_cxxflags,
-        uselib_store = 'CGAL',
-        msg = 'Checking for CGAL')
-    conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
+
+    if conf.options.enable_extras:
+        conf.check_cxx(
+                features = ['cxx', 'cxxprogram'],
+                header_name = 'CGAL/basic.h',
+                lib = 'CGAL',
+                cxxflags = cgal_cxxflags,
+                uselib_store = 'CGAL',
+                msg = 'Checking for CGAL')
+        conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
+    conf.env['extras'] = conf.options.enable_extras
 
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
@@ -247,7 +251,7 @@ int main() {
 }'''
     try:
         conf.check_cxx(
-            # features = ['cxx', 'cxxprogram'],
+            features = ['cxx', 'cxxprogram'],
             fragment = timer_test,
             function_name = 'clock_gettime',
             uselib_store = 'TIMER',
@@ -363,21 +367,23 @@ def build(bld):
             source = 'mlsgpu.cpp',
             target = 'mlsgpu',
             use = ['libmls_cl', 'libmls_core', 'provenance'])
-    bld.program(
-            source = ['plymanifold.cpp', 'test/manifold.cpp'],
-            target = 'plymanifold',
-            use = 'BOOST_MATH libmls_core',
-            install_path = None)
-    bld.program(
-            source = 'sorttest.cpp',
-            target = 'sorttest',
-            use = 'STXXL BOOST provenance libmls_core',
-            install_path = None)
-    bld.program(
-            source = 'buckettest.cpp',
-            target = 'buckettest',
-            use = 'STXXL BOOST CGAL EIGEN provenance libmls_core',
-            install_path = None)
+
+    if bld.env['extras']:
+        bld.program(
+                source = ['extras/plymanifold.cpp', 'test/manifold.cpp'],
+                target = 'plymanifold',
+                use = 'BOOST_MATH libmls_core',
+                install_path = None)
+        bld.program(
+                source = 'extras/sorttest.cpp',
+                target = 'sorttest',
+                use = 'STXXL BOOST provenance libmls_core',
+                install_path = None)
+        bld.program(
+                source = 'extras/buckettest.cpp',
+                target = 'buckettest',
+                use = 'STXXL BOOST CGAL EIGEN provenance libmls_core',
+                install_path = None)
 
     if bld.env['XSLTPROC']:
         bld(
@@ -403,5 +409,3 @@ def build(bld):
                 use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl'],
                 install_path = None)
         bld.add_post_fun(print_unit_tests)
-
-

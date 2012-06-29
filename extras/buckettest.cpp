@@ -30,17 +30,17 @@
 #include <CGAL/Orthogonal_k_neighbor_search.h>
 #include <Eigen/Core>
 #include <Eigen/Eigenvalues>
-#include "src/bucket.h"
-#include "src/statistics.h"
-#include "src/splat_set.h"
-#include "src/fast_ply.h"
-#include "src/logging.h"
-#include "src/progress.h"
-#include "src/options.h"
-#include "src/provenance.h"
-#include "src/decache.h"
-#include "src/worker_group.h"
-#include "src/tr1_cstdint.h"
+#include "../src/bucket.h"
+#include "../src/statistics.h"
+#include "../src/splat_set.h"
+#include "../src/fast_ply.h"
+#include "../src/logging.h"
+#include "../src/progress.h"
+#include "../src/options.h"
+#include "../src/provenance.h"
+#include "../src/decache.h"
+#include "../src/worker_group.h"
+#include "../src/tr1_cstdint.h"
 
 namespace po = boost::program_options;
 
