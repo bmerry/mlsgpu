@@ -1,8 +1,7 @@
 /**
  * @file
  *
- * Artificial benchmark that sorts input PLY files by one coordinate and
- * measures the maximum active set.
+ * Computes improved normals for samples based on either bucketing or a sweep plane.
  */
 
 #if HAVE_CONFIG_H
@@ -11,67 +10,76 @@
 
 #include <iostream>
 #include <cstdlib>
-#include <limits>
-#include <deque>
 #include <algorithm>
 #include <memory>
+#include <iterator>
+#include <cmath>
 #include <boost/program_options.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
+#include <boost/ref.hpp>
 #include <stxxl.h>
+#include <Eigen/Core>
+#include <Eigen/Eigenvalues>
 #include "../src/statistics.h"
-#include "../src/splat_set.h"
 #include "../src/fast_ply.h"
 #include "../src/logging.h"
-#include "../src/progress.h"
 #include "../src/options.h"
 #include "../src/provenance.h"
 #include "../src/decache.h"
+#include "normals.h"
+#include "normals_bucket.h"
+#include "normals_sweep.h"
 
 namespace po = boost::program_options;
 
-namespace Option
+enum Mode
 {
-    const char * const help = "help";
-    const char * const quiet = "quiet";
-    const char * const debug = "debug";
+    MODE_BUCKET,
+    MODE_SWEEP
+};
 
-    const char * const window = "window";
-
-    const char * const inputFile = "input-file";
-
-    const char * const statistics = "statistics";
-    const char * const statisticsFile = "statistics-file";
-
-    const char * const reader = "reader";
+class ModeWrapper
+{
+public:
+    typedef Mode type;
+    static std::map<std::string, Mode> getNameMap()
+    {
+        std::map<std::string, Mode> nameMap;
+        nameMap["bucket"] = MODE_BUCKET;
+        nameMap["sweep"] = MODE_SWEEP;
+        return nameMap;
+    }
 };
 
 static void addCommonOptions(po::options_description &opts)
 {
     opts.add_options()
-        ("help,h",                "Show help")
-        ("quiet,q",               "Do not show informational messages")
-        (Option::window, po::value<double>()->default_value(0.1), "Window thickness")
-        (Option::debug,           "Show debug messages");
+        ("help,h",                  "Show help")
+        ("quiet,q",                 "Do not show informational messages")
+        (Option::reader(),          po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)");
+        (Option::debug(),           "Show debug messages");
+}
+
+static void addSolveOptions(po::options_description &opts)
+{
+    opts.add_options()
+        (Option::radius(),          po::value<double>()->default_value(0.1),  "Maximum radius to search")
+        (Option::neighbors(),       po::value<int>()->default_value(16),      "Neighbors to find")
+        (Option::mode(),            po::value<Choice<ModeWrapper> >()->default_value(MODE_BUCKET), "Out-of-core mode (bucket | sweep)");
 }
 
 static void addStatisticsOptions(po::options_description &opts)
 {
     po::options_description statistics("Statistics options");
     statistics.add_options()
-        (Option::statistics,                          "Print information about internal statistics")
-        (Option::statisticsFile, po::value<std::string>(), "Direct statistics to file instead of stdout (implies --statistics)");
+        (Option::statistics(),     "Print information about internal statistics")
+        (Option::statisticsFile(), po::value<std::string>(), "Direct statistics to file instead of stdout (implies --statistics)");
     opts.add(statistics);
-}
-
-static void addAdvancedOptions(po::options_description &opts)
-{
-    po::options_description advanced("Advanced options");
-    advanced.add_options()
-        (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)");
-    opts.add(advanced);
 }
 
 std::string makeOptions(const po::variables_map &vm)
@@ -79,7 +87,7 @@ std::string makeOptions(const po::variables_map &vm)
     std::ostringstream opts;
     for (po::variables_map::const_iterator i = vm.begin(); i != vm.end(); ++i)
     {
-        if (i->first == Option::inputFile)
+        if (i->first == Option::inputFile())
             continue; // these are not output because some programs choke
         const po::variable_value &param = i->second;
         const boost::any &value = param.value();
@@ -108,6 +116,8 @@ std::string makeOptions(const po::variables_map &vm)
                 opts << param.as<std::size_t>();
             else if (value.type() == typeid(Choice<FastPly::ReaderTypeWrapper>))
                 opts << param.as<Choice<FastPly::ReaderTypeWrapper> >();
+            else if (value.type() == typeid(Choice<ModeWrapper>))
+                opts << param.as<Choice<ModeWrapper> >();
             else
                 assert(!"Unhandled parameter type");
         }
@@ -117,13 +127,13 @@ std::string makeOptions(const po::variables_map &vm)
 
 void writeStatistics(const boost::program_options::variables_map &vm, bool force = false)
 {
-    if (force || vm.count(Option::statistics) || vm.count(Option::statisticsFile))
+    if (force || vm.count(Option::statistics()) || vm.count(Option::statisticsFile()))
     {
         std::ostream *out;
         std::ofstream outf;
-        if (vm.count(Option::statisticsFile))
+        if (vm.count(Option::statisticsFile()))
         {
-            const std::string &name = vm[Option::statisticsFile].as<std::string>();
+            const std::string &name = vm[Option::statisticsFile()].as<std::string>();
             outf.open(name.c_str());
             out = &outf;
         }
@@ -134,9 +144,9 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
         boost::io::ios_exception_saver saver(*out);
         out->exceptions(std::ios::failbit | std::ios::badbit);
-        *out << "sorttest version: " << provenanceVersion() << '\n';
-        *out << "sorttest variant: " << provenanceVariant() << '\n';
-        *out << "sorttest options:" << makeOptions(vm) << '\n';
+        *out << "normals version: " << provenanceVersion() << '\n';
+        *out << "normals variant: " << provenanceVariant() << '\n';
+        *out << "normals options:" << makeOptions(vm) << '\n';
         *out << Statistics::Registry::getInstance();
         *out << *stxxl::stats::get_instance();
     }
@@ -144,23 +154,24 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
 static void usage(std::ostream &o, const po::options_description desc)
 {
-    o << "Usage: sorttest [options] input.ply [input.ply...]\n\n";
+    o << "Usage: normals [options] input.ply [input.ply...]\n\n";
     o << desc;
 }
 
 static po::variables_map processOptions(int argc, char **argv)
 {
     po::positional_options_description positional;
-    positional.add(Option::inputFile, -1);
+    positional.add(Option::inputFile(), -1);
 
     po::options_description desc("General options");
     addCommonOptions(desc);
+    addSolveOptions(desc);
+    addBucketOptions(desc);
     addStatisticsOptions(desc);
-    addAdvancedOptions(desc);
 
     po::options_description hidden("Hidden options");
     hidden.add_options()
-        (Option::inputFile, po::value<std::vector<std::string> >()->composing(), "input files");
+        (Option::inputFile(), po::value<std::vector<std::string> >()->composing(), "input files");
 
     po::options_description all("All options");
     all.add(desc);
@@ -177,13 +188,13 @@ static po::variables_map processOptions(int argc, char **argv)
 
         po::notify(vm);
 
-        if (vm.count(Option::help))
+        if (vm.count(Option::help()))
         {
             usage(std::cout, desc);
             std::exit(0);
         }
         /* Using ->required() on the option gives an unhelpful message */
-        if (!vm.count(Option::inputFile))
+        if (!vm.count(Option::inputFile()))
         {
             std::cerr << "At least one input file must be specified.\n\n";
             usage(std::cerr, desc);
@@ -200,71 +211,65 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
-struct CompareSplats
+Eigen::Vector3f computeNormal(
+    const Splat &s,
+    const std::vector<Eigen::Vector3f> &neighbors,
+    float &angle,
+    float &quality)
 {
-    bool operator()(const Splat &a, const Splat &b) const
-    {
-        return a.position[2] < b.position[2];
-    }
+    Eigen::Vector3f oldNormal(s.normal[0], s.normal[1], s.normal[2]);
+    oldNormal.normalize();
 
-    Splat min_value() const
+    Eigen::Vector3f centroid;
+    centroid.setZero();
+    for (std::size_t k = 0; k < neighbors.size(); k++)
     {
-        Splat ans;
-        ans.position[2] = -std::numeric_limits<float>::max();
-        return ans;
+        centroid += neighbors[k];
     }
+    centroid /= neighbors.size();
 
-    Splat max_value() const
+    Eigen::Matrix3f cov;
+    cov.setZero();
+    for (std::size_t k = 0; k < neighbors.size(); k++)
     {
-        Splat ans;
-        ans.position[2] = std::numeric_limits<float>::max();
-        return ans;
+        Eigen::Vector3f delta;
+        for (int j = 0; j < 3; j++)
+            delta(j) = s.position[j] - centroid(j);
+        cov += delta * delta.transpose();
     }
-};
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(cov);
+    Eigen::Vector3f normal = solver.eigenvectors().col(0);
+    quality = 1.0f - solver.eigenvalues()[0] / solver.eigenvalues()[1];
+    float dot = normal.dot(oldNormal);
+    if (dot < 0.0f)
+    {
+        normal = -normal;
+        dot = -dot;
+    }
+    angle = std::acos(std::min(dot, 1.0f)) * 57.2957795130823f;
+    return normal;
+}
 
 static void run(const po::variables_map &vm)
 {
-    SplatSet::FileSet splats;
-    Timer total;
-    Timer latency;
-    long long nSplats = 0;
-    std::size_t maxActive = 0;
-
-    const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
-    const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
-    const float window = vm[Option::window].as<double>();
-
+    const std::vector<std::string> &names = vm[Option::inputFile()].as<std::vector<std::string> >();
     BOOST_FOREACH(const std::string &name, names)
     {
         decache(name);
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
-        splats.addFile(reader.get());
-        reader.release();
     }
 
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-    stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> sortStream(*splatStream, CompareSplats(), 1024 * 1024 * 1024);
-    std::deque<Splat> active;
+    Statistics::Timer timer("run.time");
 
-    while (!sortStream.empty())
+    Mode mode = vm[Option::mode()].as<Choice<ModeWrapper> >();
+    switch (mode)
     {
-        Splat s = *sortStream;
-
-        active.push_back(s);
-        while (active.front().position[2] < s.position[2] - window)
-            active.pop_front();
-        maxActive = std::max(maxActive, active.size());
-
-        if (nSplats == 0)
-            Statistics::getStatistic<Statistics::Variable>("latency").add(latency.getElapsed());
-        ++nSplats;
-        ++sortStream;
+    case MODE_BUCKET:
+        runBucket(vm);
+        break;
+    case MODE_SWEEP:
+        runSweep(vm);
+        break;
     }
-
-    Statistics::getStatistic<Statistics::Variable>("time").add(total.getElapsed());
-    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
-    Statistics::getStatistic<Statistics::Counter>("active.max").add(maxActive);
-    writeStatistics(vm);
 }
 
 static void reportException(std::exception &e)
@@ -282,15 +287,15 @@ int main(int argc, char **argv)
     Log::log.setLevel(Log::info);
 
     po::variables_map vm = processOptions(argc, argv);
-    if (vm.count(Option::quiet))
+    if (vm.count(Option::quiet()))
         Log::log.setLevel(Log::warn);
-    else if (vm.count(Option::debug))
+    else if (vm.count(Option::debug()))
         Log::log.setLevel(Log::debug);
 
     try
     {
         run(vm);
-        // TODO: report sorting rate
+        writeStatistics(vm);
     }
     catch (std::ios::failure &e)
     {

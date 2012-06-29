@@ -375,13 +375,11 @@ def build(bld):
                 use = 'BOOST_MATH libmls_core',
                 install_path = None)
         bld.program(
-                source = 'extras/sorttest.cpp',
-                target = 'sorttest',
-                use = 'STXXL BOOST provenance libmls_core',
-                install_path = None)
-        bld.program(
-                source = 'extras/buckettest.cpp',
-                target = 'buckettest',
+                source = [
+                    'extras/normals.cpp',
+                    'extras/normals_bucket.cpp',
+                    'extras/normals_sweep.cpp'],
+                target = 'normals',
                 use = 'STXXL BOOST CGAL EIGEN provenance libmls_core',
                 install_path = None)
 
