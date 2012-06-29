@@ -356,7 +356,8 @@ public:
         typedef CGAL::Simple_cartesian<float> Kernel;
         typedef Kernel::Point_3 Point;
         typedef CGAL::Search_traits_3<Kernel> SearchTraits;
-        typedef CGAL::Orthogonal_k_neighbor_search<SearchTraits> Search;
+        typedef CGAL::Euclidean_distance<SearchTraits> Distance;
+        typedef CGAL::Orthogonal_k_neighbor_search<SearchTraits, Distance, CGAL::Midpoint_of_max_spread<SearchTraits> > Search;
         typedef Search::Tree Tree;
 
         Tree tree;
@@ -389,7 +390,7 @@ public:
                         neighbors.push_back(j->first);
                         maxN2 = std::max(maxN2, j->second);
                     }
-                neighborStat.add(neighbors.size());
+                neighborStat.add(neighbors.size() == std::size_t(item.numNeighbors));
 
                 if (neighbors.size() == std::size_t(item.numNeighbors))
                 {
