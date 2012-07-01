@@ -232,9 +232,7 @@ Eigen::Vector3f computeNormal(
     cov.setZero();
     for (std::size_t k = 0; k < neighbors.size(); k++)
     {
-        Eigen::Vector3f delta;
-        for (int j = 0; j < 3; j++)
-            delta(j) = s.position[j] - centroid(j);
+        Eigen::Vector3f delta = neighbors[k] - centroid;
         cov += delta * delta.transpose();
     }
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(cov);
