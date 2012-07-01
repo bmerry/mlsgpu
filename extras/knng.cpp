@@ -49,7 +49,7 @@ public:
     }
 };
 
-KDNode *buildTree(int N, KDPoint points[],
+KDNode *buildTree(int N, KDPoint points[], KDPoint pointsTmp[],
                   int *permute[3], int *permuteTmp[3],
                   int *remap, float worstSquared)
 {
@@ -77,21 +77,12 @@ KDNode *buildTree(int N, KDPoint points[],
         const int H = N / 2;
         float split = points[permute[axis][H]].pos[axis];
 
-        int p = 0;
-        int q = N - 1;
         for (int i = 0; i < N; i++)
-            remap[i] = i;
-        while (true)
         {
-            while (points[p].pos[axis] < split)
-                p++;
-            while (points[q].pos[axis] >= split)
-                q--;
-            if (p > q)
-                break;
-            std::swap(points[p], points[q]);
-            std::swap(remap[p], remap[q]);
+            remap[permute[axis][i]] = i;
+            pointsTmp[i] = points[permute[axis][i]];
         }
+        std::copy(pointsTmp, pointsTmp + N, points);
 
         for (int a = 0; a < 3; a++)
         {
@@ -115,11 +106,24 @@ KDNode *buildTree(int N, KDPoint points[],
 
         n->split = split;
         n->axis = axis;
-        n->left.reset(buildTree(H, points, permuteTmp, permute, remap, worstSquared));
-        int *subPermute[3];
+        n->left.reset(buildTree(H, points, pointsTmp, permuteTmp, permute, remap, worstSquared));
+        int *subPermute[3], *subPermuteTmp[3];
         for (int j = 0; j < 3; j++)
-            subPermute[j] = permuteTmp[j] + H;
-        n->right.reset(buildTree(N - H, points + H, subPermute, permute, remap, worstSquared));
+        {
+            subPermute[j] = permute[j] + H;
+            subPermuteTmp[j] = permuteTmp[j] + H;
+        }
+        // TODO: can we reuse temp data from part 1 to improve cache hits?
+        n->right.reset(buildTree(N - H, points + H, pointsTmp + H, subPermuteTmp, subPermute, remap + H, worstSquared));
+
+        assert(n->left->first == n->first);
+        assert(n->left->last == n->first + H);
+        assert(n->right->first == n->left->last);
+        assert(n->right->last == n->last);
+        for (int i = 0; i < H; i++)
+            assert(n->left->first[i].pos[axis] <= split);
+        for (int i = 0; i < N - H; i++)
+            assert(n->right->first[i].pos[axis] >= split);
     }
     return n.release();
 }
@@ -168,13 +172,16 @@ void knngRecurse(std::vector<std::vector<std::pair<float, int> > > &ans,
         float wmax = 0.0f;
         for (KDPoint *i = root1->first; i != root1->last; ++i)
         {
+            assert(i->pos[0] >= bbox1[0] && i->pos[0] <= bbox1[1]);
+            assert(i->pos[1] >= bbox1[2] && i->pos[1] <= bbox1[3]);
+            assert(i->pos[2] >= bbox1[4] && i->pos[2] <= bbox1[5]);
             for (const KDPoint *j = root2->first; j != root2->last; ++j)
                 if (j != i)
                     updatePair(ans, i, j, maxDistanceSquared);
             std::vector<std::pair<float, int> > &a = ans[i->id];
             float w;
             if (a.size() == a.capacity())
-                w = a.back().first;
+                w = a[0].first;
             else
                 w = maxDistanceSquared;
             if (w > wmax)
@@ -262,9 +269,10 @@ void knngRecurse(std::vector<std::vector<std::pair<float, int> > > &ans,
 std::vector<std::vector<std::pair<float, int> > > knng(const Statistics::Container::vector<Splat> &splats, int K, float maxDistanceSquared)
 {
     int N = splats.size();
-    std::vector<KDPoint> points;
+    std::vector<KDPoint> points, pointsTmp;
     std::vector<int> permuteData[6];
     points.reserve(N);
+    pointsTmp.reserve(N); // TODO: needs to be populated
     for (int j = 0; j < 3; j++)
     {
         permuteData[j].reserve(N);
@@ -287,7 +295,7 @@ std::vector<std::vector<std::pair<float, int> > > knng(const Statistics::Contain
         permuteTmp[j] = &permuteData[j + 3][0];
     }
     std::vector<int> remap(N);
-    boost::scoped_ptr<KDNode> root(buildTree(N, &points[0],
+    boost::scoped_ptr<KDNode> root(buildTree(N, &points[0], &pointsTmp[0],
                                              permute, permuteTmp,
                                              &remap[0], maxDistanceSquared));
 
@@ -297,12 +305,14 @@ std::vector<std::vector<std::pair<float, int> > > knng(const Statistics::Contain
     for (int i = 0; i < N; i++)
         ans[i].reserve(K);
 
-    float bbox[6];
+    float bbox1[6];
+    float bbox2[6];
     for (int j = 0; j < 3; j++)
     {
-        bbox[2 * j] = -std::numeric_limits<float>::infinity();
-        bbox[2 * j + 1] = std::numeric_limits<float>::infinity();
+        bbox1[2 * j] = -std::numeric_limits<float>::infinity();
+        bbox1[2 * j + 1] = std::numeric_limits<float>::infinity();
     }
-    knngRecurse(ans, root.get(), bbox, root.get(), bbox, maxDistanceSquared);
+    std::copy(bbox1, bbox1 + 6, bbox2);
+    knngRecurse(ans, root.get(), bbox1, root.get(), bbox2, maxDistanceSquared);
     return ans;
 }
