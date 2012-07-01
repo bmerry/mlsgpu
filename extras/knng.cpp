@@ -135,17 +135,21 @@ void updatePair(std::vector<std::vector<std::pair<float, int> > > &ans,
 {
     float dist2 = (p->pos - q->pos).squaredNorm();
     std::vector<std::pair<float, int> > &a = ans[p->id];
-    if (dist2 <= maxDistanceSquared && (a.empty() || dist2 < a[0].first))
+    if (dist2 <= maxDistanceSquared)
     {
-        std::pair<float, int> cur(dist2, q->id);
-        if (a.size() == a.capacity())
+        bool full = a.size() == a.capacity();
+        if (!full || dist2 < a[0].first)
         {
-            pop_heap(a.begin(), a.end());
-            a.back() = cur;
+            std::pair<float, int> cur(dist2, q->id);
+            if (full)
+            {
+                std::pop_heap(a.begin(), a.end());
+                a.back() = cur;
+            }
+            else
+                a.push_back(cur);
+            std::push_heap(a.begin(), a.end());
         }
-        else
-            a.push_back(cur);
-        push_heap(a.begin(), a.end());
     }
 }
 
