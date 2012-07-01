@@ -21,11 +21,6 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/ref.hpp>
 #include <stxxl.h>
-#include <CGAL/Simple_cartesian.h>
-#include <CGAL/Kd_tree.h>
-#include <CGAL/Search_traits_3.h>
-#include <CGAL/Fuzzy_sphere.h>
-#include <CGAL/Orthogonal_k_neighbor_search.h>
 #include <Eigen/Core>
 #include "../src/bucket.h"
 #include "../src/statistics.h"
@@ -37,6 +32,7 @@
 #include "../src/worker_group.h"
 #include "normals.h"
 #include "normals_bucket.h"
+#include "knng.h"
 
 namespace po = boost::program_options;
 
@@ -177,24 +173,14 @@ public:
         Statistics::Timer timer(computeStat);
         (void) gen;
 
-        typedef CGAL::Simple_cartesian<float> Kernel;
-        typedef Kernel::Point_3 Point;
-        typedef CGAL::Search_traits_3<Kernel> SearchTraits;
-        typedef CGAL::Euclidean_distance<SearchTraits> Distance;
-        typedef CGAL::Orthogonal_k_neighbor_search<SearchTraits, Distance, CGAL::Midpoint_of_max_spread<SearchTraits> > Search;
-        typedef Search::Tree Tree;
-
-        Tree tree;
-        BOOST_FOREACH(const Splat &s, item.splats)
-        {
-            Point p(s.position[0], s.position[1], s.position[2]);
-            tree.insert(p);
-        }
+        std::vector<std::vector<std::pair<float, int> > > nn
+            = knng(item.splats, item.numNeighbors, item.maxDistance2);
 
         std::vector<Eigen::Vector3f> neighbors;
         neighbors.reserve(item.numNeighbors);
-        BOOST_FOREACH(const Splat &s, item.splats)
+        for (std::size_t i = 0; i < item.splats.size(); i++)
         {
+            const Splat &s = item.splats[i];
             float vertexCoords[3];
             item.binGrid.worldToVertex(s.position, vertexCoords);
             bool inside = true;
@@ -203,17 +189,13 @@ public:
             if (inside)
             {
                 neighbors.clear();
-                Point p(s.position[0], s.position[1], s.position[2]);
-                // + 1 because we will find the point itself
-                Search search(tree, p, item.numNeighbors + 1);
 
-                float maxN2 = 0.0f;
-                for (Search::iterator j = search.begin(); j != search.end(); ++j)
-                    if (j->second != 0.0f && j->second <= item.maxDistance2)
-                    {
-                        neighbors.push_back(Eigen::Vector3f(j->first[0], j->first[1], j->first[2]));
-                        maxN2 = std::max(maxN2, j->second);
-                    }
+                for (std::size_t j = 0; j < nn[i].size(); j++)
+                {
+                    int idx = nn[i][j].second;
+                    const Splat &sn = item.splats[idx];
+                    neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
+                }
                 neighborStat.add(neighbors.size() == std::size_t(item.numNeighbors));
 
                 if (neighbors.size() == std::size_t(item.numNeighbors))

@@ -378,9 +378,10 @@ def build(bld):
                 source = [
                     'extras/normals.cpp',
                     'extras/normals_bucket.cpp',
-                    'extras/normals_sweep.cpp'],
+                    'extras/normals_sweep.cpp',
+                    'extras/knng.cpp'],
                 target = 'normals',
-                use = 'STXXL BOOST CGAL EIGEN provenance libmls_core',
+                use = 'STXXL BOOST EIGEN provenance libmls_core',
                 install_path = None)
 
     if bld.env['XSLTPROC']:
