@@ -116,6 +116,7 @@ KDNode *buildTree(int N, KDPoint points[], KDPoint pointsTmp[],
         // TODO: can we reuse temp data from part 1 to improve cache hits?
         n->right.reset(buildTree(N - H, points + H, pointsTmp + H, subPermuteTmp, subPermute, remap + H, worstSquared));
 
+#if DEBUGGING
         assert(n->left->first == n->first);
         assert(n->left->last == n->first + H);
         assert(n->right->first == n->left->last);
@@ -124,6 +125,7 @@ KDNode *buildTree(int N, KDPoint points[], KDPoint pointsTmp[],
             assert(n->left->first[i].pos[axis] <= split);
         for (int i = 0; i < N - H; i++)
             assert(n->right->first[i].pos[axis] >= split);
+#endif
     }
     return n.release();
 }
@@ -156,6 +158,22 @@ void knngRecurse(std::vector<std::vector<std::pair<float, int> > > &ans,
                  KDNode *root1, float bbox1[6], KDNode *root2, float bbox2[6],
                  float maxDistanceSquared)
 {
+#if DEBUGGING
+    float wtest = 0.0f;
+    for (KDPoint *i = root1->first; i != root1->last; ++i)
+    {
+        std::vector<std::pair<float, int> > &a = ans[i->id];
+        float w;
+        assert(a.capacity() == 16);
+        if (a.size() == a.capacity())
+            w = a[0].first;
+        else
+            w = maxDistanceSquared;
+        wtest = std::max(wtest, w);
+    }
+    assert(root1->worstSquared == wtest);
+#endif
+
     float dist2 = 0.0f;
     for (int i = 0; i < 3; i++)
     {
@@ -172,9 +190,11 @@ void knngRecurse(std::vector<std::vector<std::pair<float, int> > > &ans,
         float wmax = 0.0f;
         for (KDPoint *i = root1->first; i != root1->last; ++i)
         {
+#if DEBUGGING
             assert(i->pos[0] >= bbox1[0] && i->pos[0] <= bbox1[1]);
             assert(i->pos[1] >= bbox1[2] && i->pos[1] <= bbox1[3]);
             assert(i->pos[2] >= bbox1[4] && i->pos[2] <= bbox1[5]);
+#endif
             for (const KDPoint *j = root2->first; j != root2->last; ++j)
                 if (j != i)
                     updatePair(ans, i, j, maxDistanceSquared);
