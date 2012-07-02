@@ -53,13 +53,27 @@ private:
     struct KDNode
     {
         int axis;       ///< Split axis, or -1 for a leaf
-        float split;    ///< Split plane value
-        size_type left, right;
-        size_type first, last;
+        union
+        {
+            struct
+            {
+                float split;            ///< Split plane value
+                size_type left, right;  ///< Indices of left and right children
+            } internal;
+            struct
+            {
+                size_type first, last;  ///< Indices of first and past-the-end points
+            } leaf;
+        } u;
         float worstSquared;
 
-        KDNode() : split(0.0f), left(0), right(0), first(0), last(0) {}
+        KDNode() : axis(-1) {}
         bool isLeaf() const { return axis < 0; }
+        size_type left() const { return u.internal.left; }
+        size_type right() const { return u.internal.right; }
+        size_type first() const { return u.leaf.first; }
+        size_type last() const { return u.leaf.last; }
+        float split() const { return u.internal.split; }
     };
 
     class CompareAxis
@@ -163,9 +177,9 @@ void KDTree::buildTree(size_type N, KDPointBase points[], KDPointBase pointsTmp[
             }
         }
 
-        n.split = split;
         n.axis = axis;
-        n.left = nodes.size();
+        n.u.internal.split = split;
+        n.u.internal.left = nodes.size();
         buildTree(H, pointsTmp, points, permuteTmp, permute, remap);
         // Can no longer use n: recursive call can invalidate the reference
         size_type *subPermute[3], *subPermuteTmp[3];
@@ -174,13 +188,13 @@ void KDTree::buildTree(size_type N, KDPointBase points[], KDPointBase pointsTmp[
             subPermute[j] = permute[j] + H;
             subPermuteTmp[j] = permuteTmp[j] + H;
         }
-        nodes[nodeId].right = nodes.size();
+        nodes[nodeId].u.internal.right = nodes.size();
         buildTree(N - H, pointsTmp + H, points + H, subPermuteTmp, subPermute, remap);
     }
     else
     {
-        n.first = this->points.size();
-        n.last = n.first + N;
+        n.u.leaf.first = this->points.size();
+        n.u.leaf.last = n.u.leaf.first + N;
         n.axis = -1;
         for (size_type i = 0; i < N; i++)
         {
@@ -238,9 +252,9 @@ void KDTree::knngRecurse(size_type root1, float bbox1[6],
     if (node1.isLeaf() && node2.isLeaf())
     {
         float wmax = 0.0f;
-        for (size_t i = node1.first; i != node1.last; ++i)
+        for (size_t i = node1.first(); i != node1.last(); ++i)
         {
-            for (size_t j = node2.first; j != node2.last; ++j)
+            for (size_t j = node2.first(); j != node2.last(); ++j)
                 if (j != i)
                     updatePair(i, j);
             const KDPoint &pi = points[i];
@@ -273,26 +287,26 @@ void KDTree::knngRecurse(size_type root1, float bbox1[6],
             int axis = node2.axis;
             int bl = 2 * axis;
             int br = bl + 1;
-            float split = node2.split;
+            float split = node2.split();
             float mid = 0.5 * (bbox1[bl] + bbox1[br]);
             float L = bbox2[bl];
             float R = bbox2[br];
             if (mid < split)
             {
                 bbox2[br] = split;
-                knngRecurse(root1, bbox1, node2.left, bbox2);
+                knngRecurse(root1, bbox1, node2.left(), bbox2);
                 bbox2[br] = R;
                 bbox2[bl] = split;
-                knngRecurse(root1, bbox1, node2.right, bbox2);
+                knngRecurse(root1, bbox1, node2.right(), bbox2);
                 bbox2[bl] = L;
             }
             else
             {
                 bbox2[bl] = split;
-                knngRecurse(root1, bbox1, node2.right, bbox2);
+                knngRecurse(root1, bbox1, node2.right(), bbox2);
                 bbox2[bl] = L;
                 bbox2[br] = split;
-                knngRecurse(root1, bbox1, node2.left, bbox2);
+                knngRecurse(root1, bbox1, node2.left(), bbox2);
                 bbox2[br] = R;
             }
         }
@@ -301,31 +315,31 @@ void KDTree::knngRecurse(size_type root1, float bbox1[6],
             int axis = node1.axis;
             int bl = 2 * axis;
             int br = 2 * axis + 1;
-            float split = node1.split;
+            float split = node1.split();
             float mid = 0.5 * (bbox2[bl] + bbox2[br]);
             float L = bbox1[bl];
             float R = bbox1[br];
             if (mid < split)
             {
                 bbox1[br] = split;
-                knngRecurse(node1.left, bbox1, root2, bbox2);
+                knngRecurse(node1.left(), bbox1, root2, bbox2);
                 bbox1[br] = R;
                 bbox1[bl] = split;
-                knngRecurse(node1.right, bbox1, root2, bbox2);
+                knngRecurse(node1.right(), bbox1, root2, bbox2);
                 bbox1[bl] = L;
             }
             else
             {
                 bbox1[bl] = split;
-                knngRecurse(node1.right, bbox1, root2, bbox2);
+                knngRecurse(node1.right(), bbox1, root2, bbox2);
                 bbox1[bl] = L;
                 bbox1[br] = split;
-                knngRecurse(node1.left, bbox1, root2, bbox2);
+                knngRecurse(node1.left(), bbox1, root2, bbox2);
                 bbox1[br] = R;
             }
 
-            node1.worstSquared = std::max(nodes[node1.left].worstSquared,
-                                          nodes[node1.right].worstSquared);
+            node1.worstSquared = std::max(nodes[node1.left()].worstSquared,
+                                          nodes[node1.right()].worstSquared);
         }
     }
 }
