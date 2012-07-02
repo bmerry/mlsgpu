@@ -378,8 +378,7 @@ def build(bld):
                 source = [
                     'extras/normals.cpp',
                     'extras/normals_bucket.cpp',
-                    'extras/normals_sweep.cpp',
-                    'extras/knng.cpp'],
+                    'extras/normals_sweep.cpp'],
                 target = 'normals',
                 use = 'STXXL BOOST EIGEN provenance libmls_core',
                 install_path = None)
