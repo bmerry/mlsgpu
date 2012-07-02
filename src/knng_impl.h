@@ -255,7 +255,9 @@ void KDTree<Coord, Dim, SizeType>::knngRecurse(
                 knngRecurse(root1, node2.left(), data);
             }
 
-            // TODO: need to udpate node2.worstSquared!
+            data.worstSquared[root2] =
+                std::max(data.worstSquared[node2.left()],
+                         data.worstSquared[node2.right()]);
         }
         else
         {
