@@ -103,6 +103,8 @@ private:
                    size_type *remap);
 
     void updatePair(size_type p, size_type q);
+    void updatePairOneWay(size_type p, size_type q, float distSquared);
+    void updateWorstSquared(KDNode &node);
 
     void knngRecurse(size_type root1, float bbox1[6],
                      size_type root2, float bbox2[6]);
@@ -203,26 +205,32 @@ void KDTree::buildTree(size_type N, KDPointBase points[], KDPointBase pointsTmp[
     }
 }
 
-void KDTree::updatePair(size_type p, size_type q)
+void KDTree::updatePairOneWay(size_type p, size_type q, float distSquared)
 {
     KDPoint &pp = points[p];
     const KDPoint &pq = points[q];
-    float dist2 = (pp.pos - pq.pos).squaredNorm();
 
-    if (dist2 <= maxDistanceSquared)
+    bool full = pp.numNeighbors == K;
+    size_type first = p * K;
+    if (!full || distSquared < neighbors[first].first)
     {
-        bool full = pp.numNeighbors == K;
-        size_type first = p * K;
-        if (!full || dist2 < neighbors[first].first)
-        {
-            std::pair<float, size_type> cur(dist2, pq.id);
-            if (full)
-                std::pop_heap(neighbors.begin() + first, neighbors.begin() + (first + K));
-            else
-                pp.numNeighbors++;
-            neighbors[first + pp.numNeighbors - 1] = cur;
-            std::push_heap(neighbors.begin() + first, neighbors.begin() + (first + pp.numNeighbors));
-        }
+        std::pair<float, size_type> cur(distSquared, pq.id);
+        if (full)
+            std::pop_heap(neighbors.begin() + first, neighbors.begin() + (first + K));
+        else
+            pp.numNeighbors++;
+        neighbors[first + pp.numNeighbors - 1] = cur;
+        std::push_heap(neighbors.begin() + first, neighbors.begin() + (first + pp.numNeighbors));
+    }
+}
+
+void KDTree::updatePair(size_type p, size_type q)
+{
+    float distSquared = (points[p].pos - points[q].pos).squaredNorm();
+    if (distSquared <= maxDistanceSquared)
+    {
+        updatePairOneWay(p, q, distSquared);
+        updatePairOneWay(q, p, distSquared);
     }
 }
 
@@ -231,11 +239,28 @@ static inline float sqr(float x)
     return x * x;
 }
 
+void KDTree::updateWorstSquared(KDNode &node)
+{
+    float wmax = 0.0f;
+    for (size_type i = node.first(); i < node.last(); i++)
+    {
+        const KDPoint &pi = points[i];
+        float w;
+        if (pi.numNeighbors == K)
+            w = neighbors[pi.id * K].first;
+        else
+            w = maxDistanceSquared;
+        if (w > wmax)
+            wmax = w;
+    }
+    node.worstSquared = wmax;
+}
+
 void KDTree::knngRecurse(size_type root1, float bbox1[6],
                          size_type root2, float bbox2[6])
 {
     KDNode &node1 = nodes[root1];
-    const KDNode &node2 = nodes[root2];
+    KDNode &node2 = nodes[root2];
 
     float distSquared = 0.0f;
     // TODO: figure out some form of incremental distance computation
@@ -246,27 +271,59 @@ void KDTree::knngRecurse(size_type root1, float bbox1[6],
         else if (bbox2[i * 2] > bbox1[i * 2 + 1])
             distSquared += sqr(bbox2[i * 2] - bbox1[i * 2 + 1]);
     }
-    if (distSquared > node1.worstSquared)
+    if (distSquared > std::max(node1.worstSquared, node2.worstSquared))
         return;
 
     if (node1.isLeaf() && node2.isLeaf())
     {
-        float wmax = 0.0f;
-        for (size_t i = node1.first(); i != node1.last(); ++i)
+        if (root1 == root2)
         {
-            for (size_t j = node2.first(); j != node2.last(); ++j)
-                if (j != i)
+            for (size_t i = node1.first(); i < node1.last(); i++)
+                for (size_t j = i + 1; j < node1.last(); j++)
                     updatePair(i, j);
-            const KDPoint &pi = points[i];
-            float w;
-            if (pi.numNeighbors == K)
-                w = neighbors[pi.id * K].first;
-            else
-                w = maxDistanceSquared;
-            if (w > wmax)
-                wmax = w;
+            updateWorstSquared(node1);
         }
-        node1.worstSquared = wmax;
+        else
+        {
+            for (size_t i = node1.first(); i != node1.last(); ++i)
+                for (size_t j = node2.first(); j != node2.last(); ++j)
+                    updatePair(i, j);
+            updateWorstSquared(node1);
+            updateWorstSquared(node2);
+        }
+    }
+    else if (root1 == root2)
+    {
+        // Split both
+        int axis1 = node1.axis;
+        float split1 = node1.split();
+        int bl1 = axis1 * 2;
+        int br1 = bl1 + 1;
+        float L1 = bbox1[bl1];
+        float R1 = bbox1[br1];
+
+        int axis2 = node2.axis;
+        float split2 = node2.split();
+        int bl2 = axis2 * 2;
+        int br2 = bl2 + 1;
+        float L2 = bbox2[bl2];
+        float R2 = bbox2[br2];
+
+        bbox1[br1] = split1;
+        bbox2[br2] = split2;
+        knngRecurse(node1.left(), bbox1, node2.left(), bbox2);
+        bbox2[br2] = R2;
+        bbox1[br1] = R1;
+
+        bbox1[bl1] = split1;
+        bbox2[bl2] = split2;
+        knngRecurse(node1.right(), bbox1, node2.right(), bbox2);
+        bbox2[bl2] = L2;
+
+        bbox2[br2] = split2;
+        knngRecurse(node1.right(), bbox1, node2.left(), bbox2);
+        bbox2[br2] = R2;
+        bbox1[bl1] = L1;
     }
     else
     {
