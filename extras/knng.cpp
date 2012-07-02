@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cassert>
+#include <cstring>
 #include <limits>
 #include <Eigen/Core>
 #include <boost/smart_ptr/scoped_ptr.hpp>
@@ -64,6 +65,7 @@ private:
                 size_type first, last;  ///< Indices of first and past-the-end points
             } leaf;
         } u;
+        float bbox[3][2];
         float worstSquared;
 
         KDNode() : axis(-1) {}
@@ -105,8 +107,7 @@ private:
     void updatePairOneWay(size_type p, size_type q, float distSquared);
     void updateWorstSquared(KDNode &node);
 
-    void knngRecurse(size_type root1, float bbox1[6],
-                     size_type root2, float bbox2[6]);
+    void knngRecurse(size_type root1, size_type root2);
 };
 
 std::vector<std::pair<float, KDTree::size_type> > KDTree::getNeighbors(size_type idx) const
@@ -128,14 +129,19 @@ void KDTree::buildTree(size_type N, KDPointBase points[], KDPointBase pointsTmp[
     KDNode &n = nodes.back();
 
     n.worstSquared = maxDistanceSquared;
+    for (int j = 0; j < 3; j++)
+    {
+        n.bbox[j][0] = points[permute[j][0]].pos[j];
+        n.bbox[j][1] = points[permute[j][N - 1]].pos[j];
+    }
     if (N >= 2 * MIN_LEAF) // TODO: make tunable
     {
         float maxSpread = -1.0f;
         int axis = -1;
         for (int j = 0; j < 3; j++)
         {
-            float lo = points[permute[j][0]].pos[j];
-            float hi = points[permute[j][N - 1]].pos[j];
+            float lo = n.bbox[j][0];
+            float hi = n.bbox[j][1];
             if (hi - lo > maxSpread)
             {
                 maxSpread = hi - lo;
@@ -176,6 +182,7 @@ void KDTree::buildTree(size_type N, KDPointBase points[], KDPointBase pointsTmp[
         n.axis = axis;
         n.u.internal.split = split;
         n.u.internal.left = nodes.size();
+
         buildTree(H, pointsTmp, points, permuteTmp, permute, remap);
         // Can no longer use n: recursive call can invalidate the reference
         size_type *subPermute[3], *subPermuteTmp[3];
@@ -252,20 +259,18 @@ void KDTree::updateWorstSquared(KDNode &node)
     node.worstSquared = wmax;
 }
 
-void KDTree::knngRecurse(size_type root1, float bbox1[6],
-                         size_type root2, float bbox2[6])
+void KDTree::knngRecurse(size_type root1, size_type root2)
 {
     KDNode &node1 = nodes[root1];
     KDNode &node2 = nodes[root2];
 
     float distSquared = 0.0f;
-    // TODO: figure out some form of incremental distance computation
     for (int i = 0; i < 3; i++)
     {
-        if (bbox1[i * 2] > bbox2[i * 2 + 1])
-            distSquared += sqr(bbox1[i * 2] - bbox2[i * 2 + 1]);
-        else if (bbox2[i * 2] > bbox1[i * 2 + 1])
-            distSquared += sqr(bbox2[i * 2] - bbox1[i * 2 + 1]);
+        if (node1.bbox[i][0] > node2.bbox[i][1])
+            distSquared += sqr(node1.bbox[i][0] - node2.bbox[i][1]);
+        else if (node2.bbox[i][0] > node1.bbox[i][1])
+            distSquared += sqr(node2.bbox[i][0] - node1.bbox[i][1]);
     }
     if (distSquared > std::max(node1.worstSquared, node2.worstSquared))
         return;
@@ -291,35 +296,9 @@ void KDTree::knngRecurse(size_type root1, float bbox1[6],
     else if (root1 == root2)
     {
         // Split both
-        int axis1 = node1.axis;
-        float split1 = node1.split();
-        int bl1 = axis1 * 2;
-        int br1 = bl1 + 1;
-        float L1 = bbox1[bl1];
-        float R1 = bbox1[br1];
-
-        int axis2 = node2.axis;
-        float split2 = node2.split();
-        int bl2 = axis2 * 2;
-        int br2 = bl2 + 1;
-        float L2 = bbox2[bl2];
-        float R2 = bbox2[br2];
-
-        bbox1[br1] = split1;
-        bbox2[br2] = split2;
-        knngRecurse(node1.left(), bbox1, node2.left(), bbox2);
-        bbox2[br2] = R2;
-        bbox1[br1] = R1;
-
-        bbox1[bl1] = split1;
-        bbox2[bl2] = split2;
-        knngRecurse(node1.right(), bbox1, node2.right(), bbox2);
-        bbox2[bl2] = L2;
-
-        bbox2[br2] = split2;
-        knngRecurse(node1.right(), bbox1, node2.left(), bbox2);
-        bbox2[br2] = R2;
-        bbox1[bl1] = L1;
+        knngRecurse(node1.left(), node2.left());
+        knngRecurse(node1.right(), node2.right());
+        knngRecurse(node1.right(), node2.left());
     }
     else
     {
@@ -330,65 +309,46 @@ void KDTree::knngRecurse(size_type root1, float bbox1[6],
             split2 = false;
         else
         {
-            float vol1 = (bbox1[1] - bbox1[0]) * (bbox1[3] - bbox1[2]) * (bbox1[5] - bbox1[4]);
-            float vol2 = (bbox2[1] - bbox2[0]) * (bbox2[3] - bbox2[2]) * (bbox2[5] - bbox2[4]);
+            float vol1 = 1.0f;
+            float vol2 = 1.0f;
+            for (int i = 0; i < 3; i++)
+            {
+                vol1 *= node1.bbox[i][1] - node1.bbox[i][0];
+                vol2 *= node2.bbox[i][1] - node2.bbox[i][0];
+            }
             split2 = vol2 > vol1;
         }
 
         if (split2)
         {
             int axis = node2.axis;
-            int bl = 2 * axis;
-            int br = bl + 1;
             float split = node2.split();
-            float mid = 0.5 * (bbox1[bl] + bbox1[br]);
-            float L = bbox2[bl];
-            float R = bbox2[br];
+            float mid = 0.5 * (node1.bbox[axis][0] + node1.bbox[axis][1]);
             if (mid < split)
             {
-                bbox2[br] = split;
-                knngRecurse(root1, bbox1, node2.left(), bbox2);
-                bbox2[br] = R;
-                bbox2[bl] = split;
-                knngRecurse(root1, bbox1, node2.right(), bbox2);
-                bbox2[bl] = L;
+                knngRecurse(root1, node2.left());
+                knngRecurse(root1, node2.right());
             }
             else
             {
-                bbox2[bl] = split;
-                knngRecurse(root1, bbox1, node2.right(), bbox2);
-                bbox2[bl] = L;
-                bbox2[br] = split;
-                knngRecurse(root1, bbox1, node2.left(), bbox2);
-                bbox2[br] = R;
+                knngRecurse(root1, node2.right());
+                knngRecurse(root1, node2.left());
             }
         }
         else
         {
             int axis = node1.axis;
-            int bl = 2 * axis;
-            int br = 2 * axis + 1;
             float split = node1.split();
-            float mid = 0.5 * (bbox2[bl] + bbox2[br]);
-            float L = bbox1[bl];
-            float R = bbox1[br];
+            float mid = 0.5 * (node2.bbox[axis][0] + node2.bbox[axis][1]);
             if (mid < split)
             {
-                bbox1[br] = split;
-                knngRecurse(node1.left(), bbox1, root2, bbox2);
-                bbox1[br] = R;
-                bbox1[bl] = split;
-                knngRecurse(node1.right(), bbox1, root2, bbox2);
-                bbox1[bl] = L;
+                knngRecurse(node1.left(), root2);
+                knngRecurse(node1.right(), root2);
             }
             else
             {
-                bbox1[bl] = split;
-                knngRecurse(node1.right(), bbox1, root2, bbox2);
-                bbox1[bl] = L;
-                bbox1[br] = split;
-                knngRecurse(node1.left(), bbox1, root2, bbox2);
-                bbox1[br] = R;
+                knngRecurse(node1.right(), root2);
+                knngRecurse(node1.left(), root2);
             }
 
             node1.worstSquared = std::max(nodes[node1.left()].worstSquared,
@@ -411,27 +371,14 @@ KDTree::KDTree(Iterator first, Iterator last, size_type K, float maxDistanceSqua
     neighbors.resize(N * K);
     nodes.reserve(2 * (N / MIN_LEAF) + 1);
 
-    float bbox[2][6];
-    for (int j = 0; j < 3; j++)
-    {
-        bbox[0][2 * j] = std::numeric_limits<float>::infinity();
-        bbox[0][2 * j + 1] = -std::numeric_limits<float>::infinity();
-    }
-
-    // Create transient data structures and compute bbox
+    // Create transient data structures
     pointData[0].reserve(N);
     size_type idx = 0;
     for (Iterator i = first; i != last; ++i, ++idx)
     {
         pointData[0].push_back(KDPointBase(i->position[0], i->position[1], i->position[2], idx));
-        for (int j = 0; j < 3; j++)
-        {
-            bbox[0][2 * j] = std::min(bbox[0][2 * j], i->position[j]);
-            bbox[0][2 * j + 1] = std::max(bbox[0][2 * j + 1], i->position[j]);
-        }
     }
     pointData[1].resize(N); // arbitrary data
-    std::copy(bbox[0], bbox[0] + 6, bbox[1]);
 
     for (int axis = 0; axis < 3; axis++)
     {
@@ -452,7 +399,7 @@ KDTree::KDTree(Iterator first, Iterator last, size_type K, float maxDistanceSqua
     for (size_type i = 0; i < N; i++)
         reorder[points[i].id] = i;
 
-    knngRecurse(0, bbox[0], 0, bbox[1]);
+    knngRecurse(0, 0);
 }
 
 } // anonymous namespace
