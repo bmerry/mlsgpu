@@ -9,7 +9,8 @@
 #include <utility>
 #include "../src/allocator.h"
 #include "../src/splat.h"
+#include "../src/tr1_cstdint.h"
 
-std::vector<std::vector<std::pair<float, int> > > knng(const Statistics::Container::vector<Splat> &splats, int K, float maxDistanceSquared);
+std::vector<std::vector<std::pair<float, std::tr1::uint32_t> > > knng(const Statistics::Container::vector<Splat> &splats, int K, float maxDistanceSquared);
 
 #endif /* !EXTRAS_KNNG_H */

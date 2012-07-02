@@ -21,8 +21,7 @@ public:
 
     size_type size() const { return points.size(); }
 
-    size_type numNeighbors(size_type idx) const;
-    std::pair<float, size_type> getNeighbor(size_type idx, size_type nidx) const;
+    std::vector<std::pair<float, size_type> > getNeighbors(size_type idx) const;
 
     template<typename Iterator>
     KDTree(Iterator first, Iterator last, size_type K, float maxDistanceSquared);
@@ -110,19 +109,14 @@ private:
                      size_type root2, float bbox2[6]);
 };
 
-KDTree::size_type KDTree::numNeighbors(size_type idx) const
+std::vector<std::pair<float, KDTree::size_type> > KDTree::getNeighbors(size_type idx) const
 {
     assert(idx < points.size());
     idx = reorder[idx];
-    return points[idx].numNeighbors;
-}
-
-std::pair<float, KDTree::size_type> KDTree::getNeighbor(size_type idx, size_type nidx) const
-{
-    assert(idx < points.size());
-    idx = reorder[idx];
-    assert(nidx < points[idx].numNeighbors);
-    return neighbors[idx * K + nidx];
+    size_type first = idx * K;
+    return std::vector<std::pair<float, KDTree::size_type> >(
+        neighbors.begin() + first,
+        neighbors.begin() + (first + points[idx].numNeighbors));
 }
 
 void KDTree::buildTree(size_type N, KDPointBase points[], KDPointBase pointsTmp[],
@@ -463,21 +457,15 @@ KDTree::KDTree(Iterator first, Iterator last, size_type K, float maxDistanceSqua
 
 } // anonymous namespace
 
-std::vector<std::vector<std::pair<float, int> > > knng(const Statistics::Container::vector<Splat> &splats, int K, float maxDistanceSquared)
+std::vector<std::vector<std::pair<float, std::tr1::uint32_t> > > knng(const Statistics::Container::vector<Splat> &splats, int K, float maxDistanceSquared)
 {
-    KDTree tree(splats.begin(), splats.end(), K, maxDistanceSquared);
+    std::vector<std::vector<std::pair<float, std::tr1::uint32_t> > > ans;
+    if (splats.empty())
+        return ans;
 
-    std::vector<std::vector<std::pair<float, int> > > ans;
+    KDTree tree(splats.begin(), splats.end(), K, maxDistanceSquared);
     ans.reserve(tree.size());
     for (KDTree::size_type i = 0; i < tree.size(); i++)
-    {
-        int k = tree.numNeighbors(i);
-        ans.push_back(std::vector<std::pair<float, int> >(k));
-        for (int j = 0; j < k; j++)
-        {
-            std::pair<float, KDTree::size_type> n = tree.getNeighbor(i, j);
-            ans[i][j] = std::make_pair(n.first, int(n.second));
-        }
-    }
+        ans.push_back(tree.getNeighbors(i));
     return ans;
 }

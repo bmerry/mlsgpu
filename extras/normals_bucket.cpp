@@ -173,7 +173,7 @@ public:
         Statistics::Timer timer(computeStat);
         (void) gen;
 
-        std::vector<std::vector<std::pair<float, int> > > nn
+        std::vector<std::vector<std::pair<float, std::tr1::uint32_t> > > nn
             = knng(item.splats, item.numNeighbors, item.maxDistance2);
 
         std::vector<Eigen::Vector3f> neighbors;
