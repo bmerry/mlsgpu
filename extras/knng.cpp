@@ -211,16 +211,18 @@ void KDTree::updatePairOneWay(size_type p, size_type q, float distSquared)
     const KDPoint &pq = points[q];
 
     bool full = pp.numNeighbors == K;
-    size_type first = p * K;
-    if (!full || distSquared < neighbors[first].first)
+    std::pair<float, size_type> *nn = &neighbors[p * K];
+    if (!full || distSquared < nn[K - 1].first)
     {
-        std::pair<float, size_type> cur(distSquared, pq.id);
-        if (full)
-            std::pop_heap(neighbors.begin() + first, neighbors.begin() + (first + K));
-        else
+        int p = pp.numNeighbors;
+        while (p > 0 && distSquared < nn[p - 1].first)
+            p--;
+        if (!full)
             pp.numNeighbors++;
-        neighbors[first + pp.numNeighbors - 1] = cur;
-        std::push_heap(neighbors.begin() + first, neighbors.begin() + (first + pp.numNeighbors));
+        for (int i = pp.numNeighbors - 1; i > p; i--)
+            nn[i] = nn[i - 1];
+        nn[p].first = distSquared;
+        nn[p].second = pq.id;
     }
 }
 
@@ -247,7 +249,7 @@ void KDTree::updateWorstSquared(KDNode &node)
         const KDPoint &pi = points[i];
         float w;
         if (pi.numNeighbors == K)
-            w = neighbors[pi.id * K].first;
+            w = neighbors[pi.id * K + K - 1].first;
         else
             w = maxDistanceSquared;
         if (w > wmax)
