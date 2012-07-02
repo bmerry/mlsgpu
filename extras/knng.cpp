@@ -344,12 +344,27 @@ KDTree::KDTree(Iterator first, Iterator last, size_type K, float maxDistanceSqua
     neighbors.resize(N * K);
     nodes.reserve(2 * (N / MIN_LEAF) + 1);
 
-    // Create transient data structures
+    float bbox[2][6];
+    for (int j = 0; j < 3; j++)
+    {
+        bbox[0][2 * j] = std::numeric_limits<float>::infinity();
+        bbox[0][2 * j + 1] = -std::numeric_limits<float>::infinity();
+    }
+
+    // Create transient data structures and compute bbox
     pointData[0].reserve(N);
     size_type idx = 0;
     for (Iterator i = first; i != last; ++i, ++idx)
+    {
         pointData[0].push_back(KDPointBase(i->position[0], i->position[1], i->position[2], idx));
+        for (int j = 0; j < 3; j++)
+        {
+            bbox[0][2 * j] = std::min(bbox[0][2 * j], i->position[j]);
+            bbox[0][2 * j + 1] = std::max(bbox[0][2 * j + 1], i->position[j]);
+        }
+    }
     pointData[1].resize(N); // arbitrary data
+    std::copy(bbox[0], bbox[0] + 6, bbox[1]);
 
     for (int axis = 0; axis < 3; axis++)
     {
@@ -370,13 +385,6 @@ KDTree::KDTree(Iterator first, Iterator last, size_type K, float maxDistanceSqua
     for (size_type i = 0; i < N; i++)
         reorder[points[i].id] = i;
 
-    float bbox[2][6];
-    for (int i = 0; i < 2; i++)
-        for (int j = 0; j < 3; j++)
-        {
-            bbox[i][2 * j] = -std::numeric_limits<float>::infinity();
-            bbox[i][2 * j + 1] = std::numeric_limits<float>::infinity();
-        }
     knngRecurse(0, bbox[0], 0, bbox[1]);
 }
 
