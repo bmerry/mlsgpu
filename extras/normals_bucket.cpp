@@ -20,6 +20,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/ref.hpp>
+#include <boost/iterator/transform_iterator.hpp>
 #include <stxxl.h>
 #include <Eigen/Core>
 #include "../src/bucket.h"
@@ -32,7 +33,7 @@
 #include "../src/worker_group.h"
 #include "normals.h"
 #include "normals_bucket.h"
-#include "knng.h"
+#include "../src/knng.h"
 
 namespace po = boost::program_options;
 
@@ -148,6 +149,18 @@ struct NormalItem
     NormalItem() : splats("mem.splats") {}
 };
 
+/// Transformation used to transform the splats for @ref KDTree
+class SplatToEigen
+{
+public:
+    typedef Eigen::Vector3f result_type;
+
+    Eigen::Vector3f operator()(const Splat &s) const
+    {
+        return Eigen::Vector3f(s.position[0], s.position[1], s.position[2]);
+    }
+};
+
 class NormalWorker
 {
 private:
@@ -173,8 +186,15 @@ public:
         Statistics::Timer timer(computeStat);
         (void) gen;
 
-        std::vector<std::vector<std::pair<float, std::tr1::uint32_t> > > nn
-            = knng(item.splats, item.numNeighbors, item.maxDistance2);
+        typedef std::tr1::uint32_t size_type;
+        std::auto_ptr<KNNG<float, size_type> > knng;
+
+        {
+            KDTree<float, 3, size_type> tree(
+                boost::make_transform_iterator(item.splats.begin(), SplatToEigen()),
+                boost::make_transform_iterator(item.splats.end(), SplatToEigen()));
+            knng.reset(tree.knn(item.numNeighbors, item.maxDistance2));
+        }
 
         std::vector<Eigen::Vector3f> neighbors;
         neighbors.reserve(item.numNeighbors);
@@ -190,10 +210,11 @@ public:
             {
                 neighbors.clear();
 
-                for (std::size_t j = 0; j < nn[i].size(); j++)
+                std::vector<std::pair<float, size_type> > nn = (*knng)[i];
+                for (std::size_t j = 0; j < nn.size(); j++)
                 {
-                    int idx = nn[i][j].second;
-                    const Splat &sn = item.splats[idx];
+                    int idx = nn[j].second;
+                    const Splat &sn = item.splats[idx]; // TODO: just have KNNG give us Eigen::Vector3f?
                     neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
                 }
                 neighborStat.add(neighbors.size() == std::size_t(item.numNeighbors));
