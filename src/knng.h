@@ -22,6 +22,8 @@ class KDTree;
 template<typename Coord, typename SizeType>
 struct KNNGData;
 
+class TestKDTree;
+
 /**
  * Representation of a k-nearest neighbor graph. For each point, one can
  * query a list of neighbors, expressed as a pair of the squared distance
@@ -87,6 +89,7 @@ private:
 template<typename Coord, int Dim, typename SizeType>
 class KDTree
 {
+    friend class TestKDTree;
 public:
     typedef SizeType size_type;
     typedef Coord coord_type;

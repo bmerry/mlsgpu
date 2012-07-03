@@ -227,9 +227,9 @@ def configure(conf):
                 cxxflags = cgal_cxxflags,
                 uselib_store = 'CGAL',
                 msg = 'Checking for CGAL')
-        conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
     conf.env['extras'] = conf.options.enable_extras
 
+    conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
@@ -355,7 +355,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = core_sources,
             target = 'mls_core',
-            use = 'STXXL TIMER BOOST',
+            use = 'STXXL TIMER BOOST EIGEN',
             name = 'libmls_core')
     bld(
             features = ['cxx', 'cxxstlib'],
