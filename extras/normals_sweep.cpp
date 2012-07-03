@@ -138,6 +138,7 @@ void processSlice(Slice *slice, const std::deque<boost::shared_ptr<Slice> > &act
 
     Eigen::VectorXf dist2(K);
     Eigen::VectorXi indices(K);
+#pragma omp parallel for firstprivate(dist2, indices) schedule(static)
     for (std::size_t i = 0; i < slice->splats.size(); i++)
     {
         Neighbors nn;

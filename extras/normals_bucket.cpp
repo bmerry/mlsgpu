@@ -205,23 +205,20 @@ public:
             knng.reset(tree.knn(item.numNeighbors, item.maxDistance2));
         }
 #elif KNN_NABO
-        Eigen::MatrixXi indices(item.numNeighbors, item.splats.size());
-        Eigen::MatrixXf dists2(item.numNeighbors, item.splats.size());
+        Eigen::VectorXi indices(item.numNeighbors);
+        Eigen::VectorXf dists2(item.numNeighbors);
+        Eigen::MatrixXf M(3, item.splats.size());
+        for (std::size_t i = 0; i < item.splats.size(); i++)
         {
-            using namespace Nabo;
-            Eigen::MatrixXf M(3, item.splats.size());
-            for (std::size_t i = 0; i < item.splats.size(); i++)
-            {
-                for (int j = 0; j < 3; j++)
-                    M(j, i) = item.splats[i].position[j];
-            }
-            boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
-            tree->knn(M, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
+            for (int j = 0; j < 3; j++)
+                M(j, i) = item.splats[i].position[j];
         }
+        boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
 #endif
 
         std::vector<Eigen::Vector3f> neighbors;
         neighbors.reserve(item.numNeighbors);
+#pragma omp parallel for firstprivate(neighbors, indices, dists2) schedule(static)
         for (std::size_t i = 0; i < item.splats.size(); i++)
         {
             const Splat &s = item.splats[i];
@@ -243,13 +240,16 @@ public:
                     neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
                 }
 #elif KNN_NABO
+                Eigen::VectorXf query(3);
+                for (int j = 0; j < 3; j++)
+                    query[j] = s.position[j];
+                tree->knn(query, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
                 for (std::size_t j = 0; j < std::size_t(item.numNeighbors); j++)
                 {
-                    if ((std::tr1::isfinite)(dists2(j, i)))
+                    if ((std::tr1::isfinite)(dists2(j)))
                     {
-                        int idx = indices(j, i);
-                        const Splat &sn = item.splats[idx];
-                        neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
+                        int idx = indices(j);
+                        neighbors.push_back(M.col(idx).head<3>());
                     }
                 }
 #endif
@@ -381,7 +381,7 @@ void runBucket(const po::variables_map &vm)
     Grid grid = splats.getBoundingGrid();
     ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-    NormalWorkerGroup normalGroup(8, 4);
+    NormalWorkerGroup normalGroup(1, 1);
     BinProcessor<Splats> binProcessor(normalGroup, numNeighbors, radius, &progress);
 
     normalGroup.producerStart(0);
