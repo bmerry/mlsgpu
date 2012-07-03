@@ -13,8 +13,8 @@
 #include <vector>
 #include <utility>
 #include <cstddef>
-#include "errors.h"
-#include "tr1_cstdint.h"
+#include "../src/errors.h"
+#include "../src/tr1_cstdint.h"
 
 template<typename Coord, int Dim = 3, typename SizeType = std::tr1::uint32_t>
 class KDTree;

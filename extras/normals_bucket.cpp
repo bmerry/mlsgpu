@@ -8,6 +8,9 @@
 # include <config.h>
 #endif
 
+#define KNN_NABO 1
+// #define KNN_INTERNAL 1
+
 #include <iostream>
 #include <cstdlib>
 #include <algorithm>
@@ -33,7 +36,12 @@
 #include "../src/worker_group.h"
 #include "normals.h"
 #include "normals_bucket.h"
-#include "../src/knng.h"
+
+#if KNN_NABO
+# include <nabo/nabo.h>
+#elif KNN_INTERNAL
+# include "knng.h"
+#endif
 
 namespace po = boost::program_options;
 
@@ -186,8 +194,9 @@ public:
         Statistics::Timer timer(computeStat);
         (void) gen;
 
+#if KNN_INTERNAL
         typedef std::tr1::uint32_t size_type;
-        std::auto_ptr<KNNG<float, size_type> > knng;
+        boost::scoped_ptr<KNNG<float, size_type> > knng;
 
         {
             KDTree<float, 3, size_type> tree(
@@ -195,6 +204,21 @@ public:
                 boost::make_transform_iterator(item.splats.end(), SplatToEigen()));
             knng.reset(tree.knn(item.numNeighbors, item.maxDistance2));
         }
+#elif KNN_NABO
+        Eigen::MatrixXi indices(item.numNeighbors, item.splats.size());
+        Eigen::MatrixXf dists2(item.numNeighbors, item.splats.size());
+        {
+            using namespace Nabo;
+            Eigen::MatrixXf M(3, item.splats.size());
+            for (std::size_t i = 0; i < item.splats.size(); i++)
+            {
+                for (int j = 0; j < 3; j++)
+                    M(j, i) = item.splats[i].position[j];
+            }
+            boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
+            tree->knn(M, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
+        }
+#endif
 
         std::vector<Eigen::Vector3f> neighbors;
         neighbors.reserve(item.numNeighbors);
@@ -210,6 +234,7 @@ public:
             {
                 neighbors.clear();
 
+#if KNN_INTERNAL
                 std::vector<std::pair<float, size_type> > nn = (*knng)[i];
                 for (std::size_t j = 0; j < nn.size(); j++)
                 {
@@ -217,6 +242,17 @@ public:
                     const Splat &sn = item.splats[idx]; // TODO: just have KNNG give us Eigen::Vector3f?
                     neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
                 }
+#elif KNN_NABO
+                for (std::size_t j = 0; j < std::size_t(item.numNeighbors); j++)
+                {
+                    if ((std::tr1::isfinite)(dists2(j, i)))
+                    {
+                        int idx = indices(j, i);
+                        const Splat &sn = item.splats[idx];
+                        neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
+                    }
+                }
+#endif
                 neighborStat.add(neighbors.size() == std::size_t(item.numNeighbors));
 
                 if (neighbors.size() == std::size_t(item.numNeighbors))

@@ -78,8 +78,6 @@ def configure_variant(conf):
         conf.define('BOOST_DISABLE_ASSERTS', '1', quote = False)
     if conf.env['unit_tests']:
         conf.define('UNIT_TESTS', 1, quote = False)
-    if conf.options.enable_extras and conf.env['expensive_assertions']:
-        conf.define('CGAL_KERNEL_CHECK_EXPENSIVE', 1, quote = False)
 
 def configure_variant_gcc(conf):
     ccflags = ['-Wall', '-W', '-pthread', '-fopenmp']
@@ -220,16 +218,16 @@ def configure(conf):
         cgal_cxxflags += ['-frounding-math']
 
     if conf.options.enable_extras:
+        conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
         conf.check_cxx(
                 features = ['cxx', 'cxxprogram'],
-                header_name = 'CGAL/basic.h',
-                lib = 'CGAL',
-                cxxflags = cgal_cxxflags,
-                uselib_store = 'CGAL',
-                msg = 'Checking for CGAL')
+                header_name = 'nabo/nabo.h',
+                lib = 'nabo',
+                use = 'EIGEN',
+                uselib_store = 'NABO',
+                msg = 'Checking for libnabo')
     conf.env['extras'] = conf.options.enable_extras
 
-    conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
@@ -355,7 +353,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = core_sources,
             target = 'mls_core',
-            use = 'STXXL TIMER BOOST EIGEN',
+            use = 'STXXL TIMER BOOST',
             name = 'libmls_core')
     bld(
             features = ['cxx', 'cxxstlib'],
@@ -380,7 +378,7 @@ def build(bld):
                     'extras/normals_bucket.cpp',
                     'extras/normals_sweep.cpp'],
                 target = 'normals',
-                use = 'STXXL BOOST EIGEN provenance libmls_core',
+                use = 'STXXL BOOST EIGEN NABO provenance libmls_core',
                 install_path = None)
 
     if bld.env['XSLTPROC']:
@@ -400,10 +398,15 @@ def build(bld):
         test_features = 'cxx cxxprogram'
         if not bld.options.no_tests:
             test_features += ' test'
+        test_sources = bld.path.ant_glob('test/*.cpp')
+        test_use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl']
+        if bld.env['extras']:
+            test_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
+            test_use.append('EIGEN')
         bld.program(
                 features = test_features,
-                source = bld.path.ant_glob('test/*.cpp'),
+                source = test_sources,
                 target = 'testmain',
-                use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl'],
+                use = test_use,
                 install_path = None)
         bld.add_post_fun(print_unit_tests)
