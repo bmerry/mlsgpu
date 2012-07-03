@@ -218,7 +218,6 @@ public:
 
         std::vector<Eigen::Vector3f> neighbors;
         neighbors.reserve(item.numNeighbors);
-#pragma omp parallel for firstprivate(neighbors, indices, dists2) schedule(static)
         for (std::size_t i = 0; i < item.splats.size(); i++)
         {
             const Splat &s = item.splats[i];
@@ -381,7 +380,7 @@ void runBucket(const po::variables_map &vm)
     Grid grid = splats.getBoundingGrid();
     ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-    NormalWorkerGroup normalGroup(1, 1);
+    NormalWorkerGroup normalGroup(8, 4);
     BinProcessor<Splats> binProcessor(normalGroup, numNeighbors, radius, &progress);
 
     normalGroup.producerStart(0);
