@@ -158,10 +158,9 @@ void KDTree<Coord, Dim, SizeType>::updateWorstSquared(size_type nodeIdx, KNNGDat
     size_type K = data.out->K;
     for (size_type i = node.first(); i < node.last(); i++)
     {
-        const KDPoint &pi = points[i];
         Coord w;
         if (data.out->numNeighbors[i] == K)
-            w = data.out->neighbors[pi.id * K + K - 1].first;
+            w = data.out->neighbors[i * K + K - 1].first;
         else
             w = data.maxDistanceSquared;
         if (w > wmax)
@@ -293,6 +292,9 @@ template<typename CoordType, int Dim, typename SizeType>
 template<typename Iterator>
 KDTree<CoordType, Dim, SizeType>::KDTree(Iterator first, Iterator last)
 {
+    if (first == last)
+        return;
+
     std::vector<KDPoint> pointData[2];
     std::vector<size_type> permuteData[2][DIM];
     size_type *permute[2][DIM];
@@ -334,18 +336,21 @@ KNNG<CoordType, SizeType> *KDTree<CoordType, Dim, SizeType>::knn(
 {
     size_type N = size();
     std::auto_ptr<KNNG<CoordType, SizeType> > ans(new KNNG<CoordType, SizeType>(N, K));
-    KNNGData<CoordType, SizeType> data;
-    data.out = ans.get();
-    data.maxDistanceSquared = maxDistanceSquared;
+    if (N != 0)
+    {
+        KNNGData<CoordType, SizeType> data;
+        data.out = ans.get();
+        data.maxDistanceSquared = maxDistanceSquared;
 
-    for (size_type i = 0; i < N; i++)
-        ans->reorder[points[i].id] = i;
+        for (size_type i = 0; i < N; i++)
+            ans->reorder[points[i].id] = i;
 
-    data.worstSquared.resize(nodes.size());
-    for (size_type i = 0; i < nodes.size(); i++)
-        data.worstSquared[i] = maxDistanceSquared;
+        data.worstSquared.resize(nodes.size());
+        for (size_type i = 0; i < nodes.size(); i++)
+            data.worstSquared[i] = maxDistanceSquared;
 
-    knngRecurse(0, 0, data);
+        knngRecurse(0, 0, data);
+    }
     return ans.release();
 }
 
