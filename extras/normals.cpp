@@ -167,6 +167,7 @@ static po::variables_map processOptions(int argc, char **argv)
     addCommonOptions(desc);
     addSolveOptions(desc);
     addBucketOptions(desc);
+    addSweepOptions(desc);
     addStatisticsOptions(desc);
 
     po::options_description hidden("Hidden options");

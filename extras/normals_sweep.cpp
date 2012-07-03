@@ -32,6 +32,17 @@
 
 namespace po = boost::program_options;
 
+namespace Option
+{
+    static const char *axis() { return "axis"; }
+};
+
+void addSweepOptions(po::options_description &opts)
+{
+    opts.add_options()
+        (Option::axis(), po::value<int>()->default_value(2), "Sort axis (0 = X, 1 = Y, 2 = Z");
+}
+
 class CompareSplats
 {
 private:
@@ -46,14 +57,14 @@ public:
     Splat min_value() const
     {
         Splat ans;
-        ans.position[2] = -std::numeric_limits<float>::max();
+        ans.position[axis] = -std::numeric_limits<float>::max();
         return ans;
     }
 
     Splat max_value() const
     {
         Splat ans;
-        ans.position[2] = std::numeric_limits<float>::max();
+        ans.position[axis] = std::numeric_limits<float>::max();
         return ans;
     }
 
@@ -173,7 +184,12 @@ void runSweep(const po::variables_map &vm)
     const FastPly::ReaderType readerType = vm[Option::reader()].as<Choice<FastPly::ReaderTypeWrapper> >();
     const int numNeighbors = vm[Option::neighbors()].as<int>();
     const float radius = vm[Option::radius()].as<double>();
-    const int axis = 2; // TODO: make tunable
+    const int axis = vm[Option::axis()].as<int>();
+    if (axis < 0 || axis > 2)
+    {
+        Log::log[Log::error] << "Invalid axis (should be 0, 1 or 2)\n";
+        std::exit(1);
+    }
 
     BOOST_FOREACH(const std::string &name, names)
     {
@@ -214,4 +230,5 @@ void runSweep(const po::variables_map &vm)
         processSlice(active[1].get(), active, numNeighbors, radius);
 
     Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
+    progress += splats.maxSplats() - nSplats; // ensures the progress bar completes
 }
