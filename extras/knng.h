@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * CPU code to find k nearest neighboring points for every point in a point
  * set.
  */
@@ -91,11 +93,11 @@ class KDTree
 {
     friend class TestKDTree;
 public:
-    typedef SizeType size_type;
-    typedef Coord coord_type;
+    typedef SizeType size_type;  ///< Type used to store point and node indices
+    typedef Coord coord_type;    ///< Scalar type for the coordinates
     enum
     {
-        DIM = Dim
+        DIM = Dim                ///< Number of dimensions
     };
 
     /// Return the number of points in the KD Tree
@@ -127,15 +129,17 @@ public:
 private:
     enum
     {
-        MIN_LEAF = 4
+        MIN_LEAF = 4             ///< Target minimum leaf bucket size
     };
 
+    /// Internal type to hold point position data
     typedef Eigen::Matrix<Coord, DIM, 1> Point;
 
+    /// An entry for a single point in a leaf
     struct KDPoint
     {
-        Point pos;
-        size_type id;
+        Point pos;          ///< Spatial position
+        size_type id;       ///< Index in the user-provided list
 
         KDPoint() {}
         KDPoint(const Point &pos, size_type id) : pos(pos), id(id) {}
@@ -161,16 +165,38 @@ private:
         } u;
         coord_type bbox[DIM][2];        ///< Bounding box
 
+        /// Default constructor
         KDNode() : axis(-1) {}
+        /// Whether this point is a leaf
         bool isLeaf() const { return axis < 0; }
+        /**
+         * Left child index.
+         * @pre @ref isLeaf() is false
+         */
         size_type left() const { return u.internal.left; }
+        /**
+         * Right child index.
+         * @pre @ref isLeaf() is false
+         */
         size_type right() const { return u.internal.right; }
+        /**
+         * Index of first point in bucket.
+         * @pre @ref isLeaf()
+         */
         size_type first() const { return u.leaf.first; }
+        /**
+         * Index one past the last point in bucket.
+         * @pre @ref isLeaf()
+         */
         size_type last() const { return u.leaf.last; }
+        /**
+         * Split coordinate.
+         * @pre @ref isLeaf() is false
+         */
         coord_type split() const { return u.internal.split; }
     };
 
-    /// Sorts points on one axis
+    /// Sorts point indices on one axis
     class CompareAxis
     {
     private:
@@ -178,6 +204,11 @@ private:
         const KDPoint *points;
 
     public:
+        /**
+         * Constructor.
+         * @param axis    Axis to sort on (0 to @ref DIM - 1)
+         * @param points  Backing array of points.
+         */
         CompareAxis(int axis, const KDPoint *points) : axis(axis), points(points) {}
 
         bool operator()(size_type a, size_type b) const
@@ -186,16 +217,65 @@ private:
         }
     };
 
+    /**
+     * Flat list of points, ordered such that each node contains a contiguous sequence.
+     */
     std::vector<KDPoint> points;
+    /**
+     * Flat list of nodes. The node indices all reference this list. Node 0 is
+     * the root. It is also possible for this list to be empty if the tree is
+     * empty.
+     */
     std::vector<KDNode> nodes;
 
+    /**
+     * Recursively build a node in the tree, appending it and its descendants
+     * to @ref nodes. The node itself will be the first one to be appended.
+     *
+     * @param N          Number of points to consider.
+     * @param points     Array of @a N points to add.
+     * @param pointsTmp  Scratch space for at least @a N points
+     * @param permute    Each element is a pointer to an array of @a N indices into @a points,
+     *                   giving the order of the points sorted along the corresponding axis.
+     * @param permuteTmp Scratch space with the same storage space as @a permute.
+     * @param remap      Scratch space for @a N indices.
+     */
     void buildTree(size_type N, KDPoint points[], KDPoint pointsTmp[],
                    size_type *permute[DIM], size_type *permuteTmp[DIM],
                    size_type *remap);
 
+    /**
+     * Update @a p's list of nearest neighbors with @a q.
+     * @param p, q            Indices into @ref points (not equal).
+     * @param distSquared     Squared distance from point @a p to point @a q.
+     * @param out             Nearest neighbor structure to update.
+     */
     void updatePairOneWay(size_type p, size_type q, coord_type distSquared, KNNG<coord_type, size_type> &out) const;
+
+    /**
+     * Update pairwise distances between @a p and @a q.
+     */
     void updatePair(size_type p, size_type q, KNNGData<coord_type, size_type> &out) const;
+
+    /**
+     * Update the maximum squared distance bound for leaf @a nodeIdx based on its points.
+     * @param nodeIdx         A node index to update.
+     * @param data            Data structure holding value to update.
+     * @pre @a nodeIdx indexes a leaf node.
+     */
     void updateWorstSquared(size_type nodeIdx, KNNGData<coord_type, size_type> &data) const;
+
+    /**
+     * Recursively consider all pairs of nodes in two subtrees and update neighborhoods.
+     *
+     * The strategy is recursive on both subtrees i.e. it will split one or the other
+     * (or both) before recursing again.
+     *
+     * @param root1, root2    Indices of two nodes (can be equal).
+     * @param data            Data structure to update with neighborhoods.
+     * @pre  The worst-case distances for @a root1 and @a root2 are up to date.
+     * @post The worst-case distances for @a root1 and @a root2 are again up to date.
+     */
     void knngRecurse(size_type root1, size_type root2, KNNGData<coord_type, size_type> &data) const;
 };
 

@@ -1,5 +1,5 @@
 /**
- * Implementation of @ref src/knng.h.
+ * Implementation of @ref extras/knng.h.
  */
 
 #ifndef KNNG_IMPL_H

@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * Tests for @ref src/knng.h.
+ * Tests for @ref extras/knng.h.
  */
 
 #if HAVE_CONFIG_H
