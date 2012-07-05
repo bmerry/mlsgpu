@@ -76,6 +76,7 @@ struct Slice
     std::vector<Splat> splats;
     Eigen::MatrixXf points;
     boost::scoped_ptr<Nabo::NNSearchF> tree;
+    float minCut, maxCut;
 
     void addSplat(const Splat &s)
     {
@@ -105,7 +106,7 @@ struct Neighbors
         std::vector<Eigen::Vector3f> melements;
 
         unsigned int F = 0;
-        while (F < K && (std::tr1::isfinite)(ndist2[F]))
+        while (F < ndist2.size() && (std::tr1::isfinite)(ndist2[F]))
             F++;
         unsigned int T = std::min(K, (unsigned int) (dist2.size() + F));
         mdist2.reserve(T);
@@ -139,7 +140,7 @@ struct Neighbors
     }
 };
 
-void processSlice(Slice *slice, const std::deque<boost::shared_ptr<Slice> > &active, unsigned int K, float maxRadius)
+void processSlice(int axis, Slice *slice, const std::deque<boost::shared_ptr<Slice> > &active, unsigned int K, float maxRadius)
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
     Statistics::Variable &neighborStat = registry.getStatistic<Statistics::Variable>("neighbors");
@@ -149,15 +150,43 @@ void processSlice(Slice *slice, const std::deque<boost::shared_ptr<Slice> > &act
 
     Eigen::VectorXf dist2(K);
     Eigen::VectorXi indices(K);
+    const std::size_t NS = active.size();
 #pragma omp parallel for firstprivate(dist2, indices) schedule(static)
     for (std::size_t i = 0; i < slice->splats.size(); i++)
     {
-        Neighbors nn;
-        Eigen::VectorXf query = slice->points.col(i);
-        for (std::size_t j = 0; j < active.size(); j++)
+        const Eigen::VectorXf query = slice->points.col(i);
+        const float z = query[axis];
+
+        std::pair<float, Slice *> nslices[3];
+        assert(NS <= 3);
+        for (std::size_t j = 0; j < NS; j++)
         {
-            active[j]->tree->knn(query, indices, dist2, K, 0.0f, Nabo::NNSearchF::SORT_RESULTS, maxRadius);
-            nn.merge(dist2, indices, active[j]->points, K);
+            nslices[j].second = active[j].get();
+            if (active[j]->maxCut < z)
+                nslices[j].first = z - active[j]->maxCut;
+            else if (active[j]->minCut > z)
+                nslices[j].first = active[j]->minCut - z;
+            else
+                nslices[j].first = 0.0f;
+        }
+        std::sort(nslices, nslices + NS);
+
+        Neighbors nn;
+        for (std::size_t j = 0; j < NS; j++)
+        {
+            float d2 = nslices[j].first * nslices[j].first;
+            float limit = maxRadius;
+            std::size_t skip = 0;
+            if (nn.dist2.size() == K)
+                limit = std::sqrt(nn.dist2.back());
+            while (skip < nn.dist2.size() && nn.dist2[skip] < d2)
+                skip++;
+
+            if (skip < K)
+            {
+                nslices[j].second->tree->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
+                nn.merge(dist2, indices, nslices[j].second->points, K);
+            }
         }
 
         std::vector<Eigen::Vector3f> neighbors;
@@ -209,25 +238,27 @@ void runSweep(const po::variables_map &vm)
         // Fill up the next slice
         float z0 = sortStream->position[axis];
         boost::shared_ptr<Slice> curSlice(boost::make_shared<Slice>());
+        curSlice->minCut = z0;
         while (!sortStream.empty() && sortStream->position[axis] < z0 + radius)
         {
             curSlice->addSplat(*sortStream);
             ++sortStream;
             ++nSplats;
         }
+        curSlice->maxCut = curSlice->splats.back().position[axis];
         curSlice->makeTree();
         progress += curSlice->splats.size();
 
         active.push_front(curSlice);
         if (active.size() >= 2)
         {
-            processSlice(active[1].get(), active, numNeighbors, radius);
+            processSlice(axis, active[1].get(), active, numNeighbors, radius);
             if (active.size() == 3)
                 active.pop_back();
         }
     }
-    if (active.size() >= 2)
-        processSlice(active[1].get(), active, numNeighbors, radius);
+    if (!active.empty())
+        processSlice(axis, active.front().get(), active, numNeighbors, radius);
 
     Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
     progress += splats.maxSplats() - nSplats; // ensures the progress bar completes
