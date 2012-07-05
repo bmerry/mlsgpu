@@ -384,6 +384,17 @@ void runBucket(const po::variables_map &vm)
     }
 
     Grid grid = splats.getBoundingGrid();
+    {
+        Log::log[Log::info] << "Bounding box size: ";
+        for (int i = 0; i < 3; i++)
+        {
+            if (i > 0)
+                Log::log[Log::info] << " x ";
+            Log::log[Log::info] << grid.getSpacing() * grid.numCells(i);
+        }
+        Log::log[Log::info] << "\n";
+    }
+
     ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
     NormalWorkerGroup normalGroup(8, 4);
