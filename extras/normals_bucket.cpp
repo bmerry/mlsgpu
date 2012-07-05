@@ -60,6 +60,9 @@ void addBucketOptions(po::options_description &opts)
         (Option::leafSize(),     po::value<double>()->default_value(2560.0), "Size of top-level octree leaves");
 }
 
+namespace
+{
+
 template<typename S, typename T>
 class TransformSplatSet : public S
 {
@@ -281,7 +284,7 @@ public:
             Statistics::getStatistic<Statistics::Variable>("normal.worker.get"))
     {
         for (std::size_t i = 0; i < numWorkers; i++)
-            addWorker(new NormalWorker());
+            addWorker(new NormalWorker);
         for (std::size_t i = 0; i < numWorkers + spare; i++)
             addPoolItem(boost::make_shared<NormalItem>());
     }
@@ -340,6 +343,8 @@ public:
         outGroup.push(0, item);
     }
 };
+
+} // anonymous namespace
 
 void runBucket(const po::variables_map &vm)
 {

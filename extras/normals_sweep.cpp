@@ -27,6 +27,7 @@
 #include "../src/logging.h"
 #include "../src/progress.h"
 #include "../src/options.h"
+#include "../src/worker_group.h"
 #include "normals.h"
 #include "normals_sweep.h"
 
@@ -42,6 +43,9 @@ void addSweepOptions(po::options_description &opts)
     opts.add_options()
         (Option::axis(), po::value<int>()->default_value(2), "Sort axis (0 = X, 1 = Y, 2 = Z");
 }
+
+namespace
+{
 
 class CompareSplats
 {
@@ -140,68 +144,145 @@ struct Neighbors
     }
 };
 
-void processSlice(int axis, Slice *slice, const std::deque<boost::shared_ptr<Slice> > &active, unsigned int K, float maxRadius)
+struct NormalItem
 {
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-    Statistics::Variable &neighborStat = registry.getStatistic<Statistics::Variable>("neighbors");
-    Statistics::Variable &qualityStat = registry.getStatistic<Statistics::Variable>("quality");
-    Statistics::Variable &angleStat = registry.getStatistic<Statistics::Variable>("angle");
-    Statistics::Timer timer("normal.worker.time");
+    int axis;
+    unsigned int K;
+    float maxRadius;
+    boost::shared_ptr<Slice> slice;
+    std::size_t nactive;
+    boost::shared_ptr<Slice> active[3];
+    ProgressDisplay *progress;
+};
 
-    Eigen::VectorXf dist2(K);
-    Eigen::VectorXi indices(K);
-    const std::size_t NS = active.size();
-#pragma omp parallel for firstprivate(dist2, indices) schedule(static)
-    for (std::size_t i = 0; i < slice->splats.size(); i++)
+class NormalWorker
+{
+private:
+    Statistics::Variable &neighborStat;
+    Statistics::Variable &computeStat;
+    Statistics::Variable &qualityStat;
+    Statistics::Variable &angleStat;
+
+public:
+    NormalWorker()
+    :
+        neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
+        computeStat(Statistics::getStatistic<Statistics::Variable>("normal.worker.time")),
+        qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
+        angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))
+    {}
+
+    void start() {}
+    void stop() {}
+
+    void operator()(int gen, NormalItem &item)
     {
-        const Eigen::VectorXf query = slice->points.col(i);
-        const float z = query[axis];
-
-        std::pair<float, Slice *> nslices[3];
+        (void) gen;
+        Statistics::Timer timer(computeStat);
+        const int axis = item.axis;
+        const unsigned int K = item.K;
+        const float maxRadius = item.maxRadius;
+        const std::size_t NS = item.nactive;
+        const Slice *slice = item.slice.get();
         assert(NS <= 3);
-        for (std::size_t j = 0; j < NS; j++)
-        {
-            nslices[j].second = active[j].get();
-            if (active[j]->maxCut < z)
-                nslices[j].first = z - active[j]->maxCut;
-            else if (active[j]->minCut > z)
-                nslices[j].first = active[j]->minCut - z;
-            else
-                nslices[j].first = 0.0f;
-        }
-        std::sort(nslices, nslices + NS);
 
-        Neighbors nn;
-        for (std::size_t j = 0; j < NS; j++)
+        Eigen::VectorXf dist2(K);
+        Eigen::VectorXi indices(K);
+        for (std::size_t i = 0; i < slice->splats.size(); i++)
         {
-            float d2 = nslices[j].first * nslices[j].first;
-            float limit = maxRadius;
-            std::size_t skip = 0;
-            if (nn.dist2.size() == K)
-                limit = std::sqrt(nn.dist2.back());
-            while (skip < nn.dist2.size() && nn.dist2[skip] < d2)
-                skip++;
+            const Eigen::VectorXf query = slice->points.col(i);
+            const float z = query[axis];
 
-            if (skip < K)
+            std::pair<float, Slice *> nslices[3];
+            for (std::size_t j = 0; j < NS; j++)
             {
-                nslices[j].second->tree->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
-                nn.merge(dist2, indices, nslices[j].second->points, K);
+                nslices[j].second = item.active[j].get();
+                if (item.active[j]->maxCut < z)
+                    nslices[j].first = z - item.active[j]->maxCut;
+                else if (item.active[j]->minCut > z)
+                    nslices[j].first = item.active[j]->minCut - z;
+                else
+                    nslices[j].first = 0.0f;
+            }
+            std::sort(nslices, nslices + NS);
+
+            Neighbors nn;
+            for (std::size_t j = 0; j < NS; j++)
+            {
+                float d2 = nslices[j].first * nslices[j].first;
+                float limit = maxRadius;
+                std::size_t skip = 0;
+                if (nn.dist2.size() == K)
+                    limit = std::sqrt(nn.dist2.back());
+                while (skip < nn.dist2.size() && nn.dist2[skip] < d2)
+                    skip++;
+
+                if (skip < K)
+                {
+                    nslices[j].second->tree->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
+                    nn.merge(dist2, indices, nslices[j].second->points, K);
+                }
+            }
+
+            std::vector<Eigen::Vector3f> neighbors;
+            neighborStat.add(nn.elements.size() == std::size_t(K));
+
+            if (nn.elements.size() == std::size_t(K))
+            {
+                float angle, quality;
+                Eigen::Vector3f normal;
+                normal = computeNormal(slice->splats[i], nn.elements, angle, quality);
+                angleStat.add(angle);
+                qualityStat.add(quality);
             }
         }
-
-        std::vector<Eigen::Vector3f> neighbors;
-        neighborStat.add(nn.elements.size() == std::size_t(K));
-
-        if (nn.elements.size() == std::size_t(K))
-        {
-            float angle, quality;
-            Eigen::Vector3f normal;
-            normal = computeNormal(slice->splats[i], nn.elements, angle, quality);
-            angleStat.add(angle);
-            qualityStat.add(quality);
-        }
+        if (item.progress != NULL)
+            *item.progress += slice->splats.size();
+        // Recover the memory as soon as possible
+        item.slice.reset();
+        for (int i = 0; i < 3; i++)
+            item.active[i].reset();
     }
+};
+
+class NormalWorkerGroup : public WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>
+{
+public:
+    NormalWorkerGroup(std::size_t numWorkers, std::size_t spare)
+        : WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>(
+            numWorkers, spare,
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop.first"),
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop"),
+            Statistics::getStatistic<Statistics::Variable>("normal.worker.get"))
+    {
+        for (std::size_t i = 0; i < numWorkers; i++)
+            addWorker(new NormalWorker);
+        for (std::size_t i = 0; i < numWorkers + spare; i++)
+            addPoolItem(boost::make_shared<NormalItem>());
+    }
+};
+
+void processSlice(
+    NormalWorkerGroup &outGroup,
+    int axis, boost::shared_ptr<Slice> slice,
+    const std::deque<boost::shared_ptr<Slice> > &active,
+    unsigned int K, float maxRadius,
+    ProgressDisplay *progress)
+{
+    boost::shared_ptr<NormalItem> item = outGroup.get();
+    item->axis = axis;
+    item->K = K;
+    item->maxRadius = maxRadius;
+    item->slice = slice;
+    item->nactive = active.size();
+    for (std::size_t i = 0; i < item->nactive; i++)
+        item->active[i] = active[i];
+    item->progress = progress;
+    outGroup.push(0, item);
 }
+
+} // anonymous namespace
 
 void runSweep(const po::variables_map &vm)
 {
@@ -232,6 +313,9 @@ void runSweep(const po::variables_map &vm)
     std::deque<boost::shared_ptr<Slice> > active;
 
     ProgressDisplay progress(splats.maxSplats(), Log::log[Log::info]);
+    NormalWorkerGroup normalGroup(8, 4);
+    normalGroup.producerStart(0);
+    normalGroup.start();
 
     while (!sortStream.empty())
     {
@@ -247,18 +331,20 @@ void runSweep(const po::variables_map &vm)
         }
         curSlice->maxCut = curSlice->splats.back().position[axis];
         curSlice->makeTree();
-        progress += curSlice->splats.size();
 
         active.push_front(curSlice);
         if (active.size() >= 2)
         {
-            processSlice(axis, active[1].get(), active, numNeighbors, radius);
+            processSlice(normalGroup, axis, active[1], active, numNeighbors, radius, &progress);
             if (active.size() == 3)
                 active.pop_back();
         }
     }
     if (!active.empty())
-        processSlice(axis, active.front().get(), active, numNeighbors, radius);
+        processSlice(normalGroup, axis, active.front(), active, numNeighbors, radius, &progress);
+
+    normalGroup.producerStop(0);
+    normalGroup.stop();
 
     Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
     progress += splats.maxSplats() - nSplats; // ensures the progress bar completes
