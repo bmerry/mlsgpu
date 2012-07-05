@@ -31,6 +31,7 @@
 #include "../src/options.h"
 #include "../src/provenance.h"
 #include "../src/decache.h"
+#include "../src/splat_set.h"
 #include "normals.h"
 #include "normals_bucket.h"
 #include "normals_sweep.h"
@@ -61,6 +62,7 @@ static void addCommonOptions(po::options_description &opts)
     opts.add_options()
         ("help,h",                  "Show help")
         ("quiet,q",                 "Do not show informational messages")
+        (Option::bufferSize(),      po::value<std::size_t>()->default_value(SplatSet::FileSet::DEFAULT_BUFFER_SIZE), "File reader buffer size")
         (Option::reader(),          po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)");
         (Option::debug(),           "Show debug messages");
 }
@@ -70,7 +72,7 @@ static void addSolveOptions(po::options_description &opts)
     po::options_description solve("Solver options");
     solve.add_options()
         (Option::maxHostSplats(),   po::value<std::size_t>()->default_value(8000000), "Maximum splats per bin/slice")
-        (Option::radius(),          po::value<double>()->default_value(0.1),  "Maximum radius to search")
+        (Option::radius(),          po::value<double>()->default_value(100),  "Maximum radius to search")
         (Option::neighbors(),       po::value<int>()->default_value(16),      "Neighbors to find")
         (Option::mode(),            po::value<Choice<ModeWrapper> >()->default_value(MODE_BUCKET), "Out-of-core mode (bucket | sweep)");
     opts.add(solve);

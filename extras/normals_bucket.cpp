@@ -370,6 +370,7 @@ void runBucket(const po::variables_map &vm)
         splats.addFile(reader.get());
         reader.release();
     }
+    splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
     try
     {

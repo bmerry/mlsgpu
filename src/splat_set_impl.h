@@ -81,7 +81,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
             if (start < end)
             {
                 std::size_t vertexSize = owner.files[fileId].getVertexSize();
-                if (vertexSize > BUFFER_SIZE / 2)
+                if (vertexSize > buffer.size() / 2)
                 {
                     // TODO: associate the filename with it? Might be too late.
                     throw std::runtime_error("Far too many bytes per vertex");

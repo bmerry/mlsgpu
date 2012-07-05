@@ -375,6 +375,19 @@ private:
 class FileSet
 {
 public:
+    enum
+    {
+        /**
+         * Default size of internal buffer for reading file data.
+         *
+         * This is the total buffer size, but only a fixed fraction of it
+         * is used in any one read, so that reads can be pipelined.
+         *
+         * @see @ref setBufferSize
+         */
+        DEFAULT_BUFFER_SIZE = 256 * 1024 * 1024
+    };
+
     /// Number of bits used to store the within-file splat ID
     static const unsigned int scanIdShift;
     /// Mask of the bits used to store the within-file splat ID
@@ -408,7 +421,18 @@ public:
 
     splat_id maxSplats() const { return nSplats; }
 
-    FileSet() : nSplats(0) {}
+    /**
+     * Set the buffer size that is used by the reader thread. It is not safe
+     * to call this function at the same time as another thread creates a
+     * stream, but it can be called while streams exist and they will each
+     * have their own buffer size.
+     *
+     * @warning This must be at least twice as big as any of the splats in any
+     * of the files, and ideally a lot bigger or performance will suffer.
+     */
+    void setBufferSize(std::size_t bufferSize) { this->bufferSize = bufferSize; }
+
+    FileSet() : nSplats(0), bufferSize(DEFAULT_BUFFER_SIZE) {}
 
 private:
     /**
@@ -419,17 +443,6 @@ private:
     class ReaderThreadBase : public boost::noncopyable
     {
     public:
-        enum
-        {
-            /**
-             * Size of internal buffer for reading file data.
-             *
-             * This is the total buffer size, but only a fixed fraction of it
-             * is used in any one read, so that reads can be pipelined.
-             */
-            BUFFER_SIZE = 256 * 1024 * 1024
-        };
-
         /**
          * Describes a contiguous range of splats. It can also be a sentinel
          * value (marked with @ref ptr of @c NULL), which marks the end out
@@ -567,6 +580,9 @@ private:
 
     /// Number of splats stored in the files (including non-finites)
     splat_id nSplats;
+
+    /// Buffer sized used by streams
+    std::size_t bufferSize;
 };
 
 /**

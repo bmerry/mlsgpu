@@ -311,6 +311,7 @@ void runSweep(const po::variables_map &vm)
         splats.addFile(reader.get());
         reader.release();
     }
+    splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
     stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);

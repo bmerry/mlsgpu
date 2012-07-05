@@ -24,6 +24,7 @@ namespace Option
     static inline const char *help()    { return "help"; }
     static inline const char *quiet()   { return "quiet"; }
     static inline const char *debug()   { return "debug"; }
+    static inline const char *bufferSize() { return "buffer-size"; }
 
     static inline const char *inputFile() { return "input-file"; }
 
