@@ -35,13 +35,15 @@ namespace po = boost::program_options;
 
 namespace Option
 {
-    static const char *axis() { return "axis"; }
+    static inline const char *axis() { return "axis"; }
 };
 
 void addSweepOptions(po::options_description &opts)
 {
-    opts.add_options()
-        (Option::axis(), po::value<int>()->default_value(2), "Sort axis (0 = X, 1 = Y, 2 = Z");
+    po::options_description opts2("Sweep mode options");
+    opts2.add_options()
+        (Option::axis(), po::value<int>()->default_value(2), "Sort axis (0 = X, 1 = Y, 2 = Z)");
+    opts.add(opts2);
 }
 
 namespace
@@ -217,7 +219,7 @@ public:
                 while (skip < nn.dist2.size() && nn.dist2[skip] < d2)
                     skip++;
 
-                if (skip < K)
+                if (skip < K && nslices[j].first <= limit)
                 {
                     nslices[j].second->tree->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
                     nn.merge(dist2, indices, nslices[j].second->points, K);
@@ -295,6 +297,8 @@ void runSweep(const po::variables_map &vm)
     const int numNeighbors = vm[Option::neighbors()].as<int>();
     const float radius = vm[Option::radius()].as<double>();
     const int axis = vm[Option::axis()].as<int>();
+    const std::size_t maxHostSplats = vm[Option::maxHostSplats()].as<std::size_t>();
+
     if (axis < 0 || axis > 2)
     {
         Log::log[Log::error] << "Invalid axis (should be 0, 1 or 2)\n";
@@ -323,7 +327,8 @@ void runSweep(const po::variables_map &vm)
         float z0 = sortStream->position[axis];
         boost::shared_ptr<Slice> curSlice(boost::make_shared<Slice>());
         curSlice->minCut = z0;
-        while (!sortStream.empty() && sortStream->position[axis] < z0 + radius)
+        while (!sortStream.empty()
+               && (sortStream->position[axis] < z0 + radius || curSlice->splats.size() < maxHostSplats))
         {
             curSlice->addSplat(*sortStream);
             ++sortStream;

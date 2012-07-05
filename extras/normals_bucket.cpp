@@ -47,17 +47,17 @@ namespace po = boost::program_options;
 
 namespace Option
 {
-    static const char *maxHostSplats() { return "max-host-splats"; }
-    static const char *maxSplit()      { return "max-split"; }
-    static const char *leafSize()      { return "leaf-size"; }
+    static inline const char *maxSplit()      { return "max-split"; }
+    static inline const char *leafSize()      { return "leaf-size"; }
 };
 
 void addBucketOptions(po::options_description &opts)
 {
-    opts.add_options()
-        (Option::maxHostSplats(), po::value<std::size_t>()->default_value(8000000), "Maximum splats per bin")
+    po::options_description opts2("Bucket mode options");
+    opts2.add_options()
         (Option::maxSplit(),     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::leafSize(),     po::value<double>()->default_value(2560.0), "Size of top-level octree leaves");
+    opts.add(opts2);
 }
 
 namespace
