@@ -203,6 +203,7 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
         boost::io::ios_exception_saver saver(*out);
         out->exceptions(ios::failbit | ios::badbit);
+        out->precision(9);
         *out << "mlsgpu version: " << provenanceVersion() << '\n';
         *out << "mlsgpu variant: " << provenanceVariant() << '\n';
         *out << "mlsgpu options:" << makeOptions(vm) << '\n';
