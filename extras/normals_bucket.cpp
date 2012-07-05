@@ -221,11 +221,11 @@ public:
         for (std::size_t i = 0; i < item.splats.size(); i++)
         {
             const Splat &s = item.splats[i];
-            float vertexCoords[3];
-            item.binGrid.worldToVertex(s.position, vertexCoords);
+            Grid::difference_type vertexCoords[3];
+            item.binGrid.worldToCell(s.position, vertexCoords);
             bool inside = true;
             for (int j = 0; j < 3; j++)
-                inside &= vertexCoords[j] >= 0.0f && vertexCoords[j] < item.binGrid.numVertices(j);
+                inside &= vertexCoords[j] >= 0 && Grid::size_type(vertexCoords[j]) < item.binGrid.numCells(j);
             if (inside)
             {
                 neighbors.clear();
