@@ -37,13 +37,15 @@ namespace Option
 class NormalStats
 {
 protected:
-    Statistics::Variable &neighborStat;
+    Statistics::Counter &splatsStat;
+    Statistics::Counter &outlierStat;
     Statistics::Variable &computeStat;
     Statistics::Variable &qualityStat;
     Statistics::Variable &angleStat;
 
     NormalStats() :
-        neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
+        splatsStat(Statistics::getStatistic<Statistics::Counter>("splats")),
+        outlierStat(Statistics::getStatistic<Statistics::Counter>("outliers")),
         computeStat(Statistics::getStatistic<Statistics::Variable>("normal.worker.time")),
         qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
         angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))

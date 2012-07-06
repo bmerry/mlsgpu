@@ -73,7 +73,7 @@ static void addSolveOptions(po::options_description &opts)
 {
     po::options_description solve("Solver options");
     solve.add_options()
-        (Option::maxHostSplats(),   po::value<std::size_t>()->default_value(8000000), "Maximum splats per bin/slice")
+        (Option::maxHostSplats(),   po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
         (Option::radius(),          po::value<double>()->default_value(100),  "Maximum radius to search")
         (Option::neighbors(),       po::value<int>()->default_value(16),      "Neighbors to find")
         (Option::mode(),            po::value<Choice<ModeWrapper> >()->default_value(MODE_BUCKET), "Out-of-core mode (bucket | sweep)");
@@ -226,7 +226,9 @@ void NormalStats::computeNormal(
     unsigned int K)
 {
     bool full = (neighbors.size() == K);
-    neighborStat.add(full);
+    if (!full)
+        outlierStat.add(1);
+    splatsStat.add(1);
     if (full)
     {
         Eigen::Vector3f oldNormal(s.normal[0], s.normal[1], s.normal[2]);

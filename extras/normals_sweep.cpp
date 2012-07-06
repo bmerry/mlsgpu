@@ -310,7 +310,6 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     normalGroup.producerStop(0);
     normalGroup.stop();
 
-    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
     // ensures the progress bar completes even if there were non-finite splats
     if (progress != NULL)
         *progress += progress->expected_count() - progress->count();

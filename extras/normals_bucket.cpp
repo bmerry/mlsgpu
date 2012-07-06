@@ -55,8 +55,8 @@ void addBucketOptions(po::options_description &opts)
 {
     po::options_description opts2("Bucket mode options");
     opts2.add_options()
-        (Option::maxSplit(),     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
-        (Option::leafSize(),     po::value<double>()->default_value(2560.0), "Size of top-level octree leaves");
+        (Option::maxSplit(),     po::value<int>()->default_value(10000000), "Maximum fan-out in partitioning")
+        (Option::leafSize(),     po::value<double>()->default_value(1000.0), "Size of top-level octree leaves");
     opts.add(opts2);
 }
 
@@ -279,6 +279,7 @@ private:
     ProgressDisplay *progress;
 
     Statistics::Variable &loadStat;
+    Statistics::Variable &binStat;
 
 public:
     BinProcessor(
@@ -290,7 +291,8 @@ public:
         outGroup(outGroup),
         numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
         progress(progress),
-        loadStat(Statistics::getStatistic<Statistics::Variable>("load.time"))
+        loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
+        binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size"))
     {}
 
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
@@ -317,6 +319,7 @@ public:
             item->maxDistance2 = maxDistance2;
             item->progress = progress;
         }
+        binStat.add(item->splats.size());
         outGroup.push(0, item);
     }
 };
@@ -367,7 +370,7 @@ void runBucket(const po::variables_map &vm)
             << "Bounding box size: "
             << Statistics::getStatistic<Statistics::Variable>("blobset.bboxX").getMean() << " x "
             << Statistics::getStatistic<Statistics::Variable>("blobset.bboxY").getMean() << " x "
-            << Statistics::getStatistic<Statistics::Variable>("blobset.bboxY").getMean() << '\n';
+            << Statistics::getStatistic<Statistics::Variable>("blobset.bboxZ").getMean() << '\n';
     }
 
     ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
