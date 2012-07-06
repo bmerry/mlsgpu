@@ -361,30 +361,40 @@ void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *pro
     std::size_t next = 0;  // number of the next splat which needs a normal computed
     while (!sortStream.empty())
     {
-        Splat s = *sortStream;
-        active.push_back(s);
-        Eigen::Vector3f pos(s.position[0], s.position[1], s.position[2]);
-        tree.insert(pos);
-        ++sortStream;
-        ++nSplats;
-
-        while (s.position[axis] > active[next - front].position[axis] + radius)
+        const unsigned int chunk = 65536;
+        for (unsigned int i = 0; i < chunk && !sortStream.empty(); i++)
         {
-            compute.computeOneNormal(tree, active[next - front]);
-            while (active[next - front].position[axis] > active[0].position[axis] + radius)
-            {
-                const Splat &rm = active[0];
-                Eigen::Vector3f q(rm.position[0], rm.position[1], rm.position[2]);
-                tree.erase_exact(q);
-
-                active.pop_front();
-                front++;
-            }
-
-            next++;
-            if (progress != NULL)
-                ++*progress;
+            Splat s = *sortStream;
+            active.push_back(s);
+            Eigen::Vector3f pos(s.position[0], s.position[1], s.position[2]);
+            tree.insert(pos);
+            ++sortStream;
+            ++nSplats;
         }
+        float end = active.back().position[axis] - radius;
+
+        std::size_t next2 = next;
+        while (active[next2 - front].position[axis] < end)
+            next2++;
+#pragma omp parallel for schedule(dynamic, 512)
+        for (std::size_t i = next; i < next2; i++)
+        {
+            compute.computeOneNormal(tree, active[i - front]);
+        }
+
+        while (active[next2 - front].position[axis] > active[0].position[axis] + radius)
+        {
+            const Splat &rm = active[0];
+            Eigen::Vector3f q(rm.position[0], rm.position[1], rm.position[2]);
+            tree.erase_exact(q);
+
+            active.pop_front();
+            front++;
+        }
+
+        if (progress != NULL)
+            *progress += next2 - next;
+        next = next2;
     }
 
     while (next < nSplats)
