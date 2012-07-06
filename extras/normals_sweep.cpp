@@ -177,6 +177,7 @@ public:
 
         Eigen::VectorXf dist2(K);
         Eigen::VectorXi indices(K);
+#pragma omp parallel for firstprivate(dist2, indices) schedule(dynamic,512)
         for (std::size_t i = 0; i < slice->splats.size(); i++)
         {
             const Eigen::VectorXf query = slice->points.col(i);
@@ -272,7 +273,7 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     SortStream sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
     std::deque<boost::shared_ptr<Slice> > active;
 
-    NormalWorkerGroup normalGroup(8, 4);
+    NormalWorkerGroup normalGroup(1, 1);
     normalGroup.producerStart(0);
     normalGroup.start();
 
