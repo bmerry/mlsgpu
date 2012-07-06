@@ -318,6 +318,18 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
         boundingGrid.setExtent(i, lo, hi);
     }
     registry.getStatistic<Statistics::Variable>("blobset.blobs").add(blobs.size());
+
+    const char * const names[3] =
+    {
+        "blobset.bboxX",
+        "blobset.bboxY",
+        "blobset.bboxZ"
+    };
+
+    for (int i = 0; i < 3; i++)
+    {
+        registry.getStatistic<Statistics::Variable>(names[i]).add(bbox.bboxMax[i] - bbox.bboxMin[i]);
+    }
 }
 
 template<typename Base, typename BlobVector>
