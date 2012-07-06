@@ -5,6 +5,6 @@
 
 void addSweepOptions(boost::program_options::options_description &opts);
 
-void runSweep(const boost::program_options::variables_map &vm);
+void runSweep(const boost::program_options::variables_map &vm, bool continuous);
 
 #endif /* !EXTRAS_NORMALS_SWEEP_H */

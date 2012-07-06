@@ -226,6 +226,12 @@ def configure(conf):
                 use = 'EIGEN',
                 uselib_store = 'NABO',
                 msg = 'Checking for libnabo')
+        conf.check_cxx(
+                features = ['cxx', 'cxxprogram'],
+                header_name = 'sl/kdtree.hpp',
+                lib = 'sl',
+                uselib_store = 'SL',
+                msg = 'Checking for sl')
     conf.env['extras'] = conf.options.enable_extras
 
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
@@ -378,7 +384,7 @@ def build(bld):
                     'extras/normals_bucket.cpp',
                     'extras/normals_sweep.cpp'],
                 target = 'normals',
-                use = 'STXXL BOOST EIGEN NABO provenance libmls_core',
+                use = 'STXXL BOOST EIGEN NABO SL provenance libmls_core',
                 install_path = None)
 
     if bld.env['XSLTPROC']:

@@ -21,6 +21,7 @@
 #include <boost/tr1/cmath.hpp>
 #include <stxxl.h>
 #include <nabo/nabo.h>
+#include <sl/kdtree.hpp>
 #include "../src/statistics.h"
 #include "../src/splat_set.h"
 #include "../src/fast_ply.h"
@@ -157,23 +158,9 @@ struct NormalItem
     ProgressDisplay *progress;
 };
 
-class NormalWorker
+class NormalWorker : public NormalStats
 {
-private:
-    Statistics::Variable &neighborStat;
-    Statistics::Variable &computeStat;
-    Statistics::Variable &qualityStat;
-    Statistics::Variable &angleStat;
-
 public:
-    NormalWorker()
-    :
-        neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
-        computeStat(Statistics::getStatistic<Statistics::Variable>("normal.worker.time")),
-        qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
-        angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))
-    {}
-
     void start() {}
     void stop() {}
 
@@ -226,17 +213,7 @@ public:
                 }
             }
 
-            std::vector<Eigen::Vector3f> neighbors;
-            neighborStat.add(nn.elements.size() == std::size_t(K));
-
-            if (nn.elements.size() == std::size_t(K))
-            {
-                float angle, quality;
-                Eigen::Vector3f normal;
-                normal = computeNormal(slice->splats[i], nn.elements, angle, quality);
-                angleStat.add(angle);
-                qualityStat.add(quality);
-            }
+            computeNormal(slice->splats[i], nn.elements, K);
         }
         if (item.progress != NULL)
             *item.progress += slice->splats.size();
@@ -284,17 +261,155 @@ void processSlice(
     outGroup.push(0, item);
 }
 
+typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> SortStream;
+
+void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
+                      int axis, unsigned int K, float radius, std::size_t maxHostSplats)
+{
+    std::tr1::uint64_t nSplats = 0;
+    Timer latency;
+
+    SortStream sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
+    std::deque<boost::shared_ptr<Slice> > active;
+
+    NormalWorkerGroup normalGroup(8, 4);
+    normalGroup.producerStart(0);
+    normalGroup.start();
+
+    while (!sortStream.empty())
+    {
+        if (active.empty())
+            Statistics::getStatistic<Statistics::Variable>("latency").add(latency.getElapsed());
+
+        // Fill up the next slice
+        float z0 = sortStream->position[axis];
+        boost::shared_ptr<Slice> curSlice(boost::make_shared<Slice>());
+        curSlice->minCut = z0;
+        while (!sortStream.empty()
+               && (sortStream->position[axis] < z0 + radius || curSlice->splats.size() < maxHostSplats))
+        {
+            curSlice->addSplat(*sortStream);
+            ++sortStream;
+            ++nSplats;
+        }
+        curSlice->maxCut = curSlice->splats.back().position[axis];
+        curSlice->makeTree();
+
+        active.push_front(curSlice);
+        if (active.size() >= 2)
+        {
+            processSlice(normalGroup, axis, active[1], active, K, radius, progress);
+            if (active.size() == 3)
+                active.pop_back();
+        }
+    }
+    if (!active.empty())
+        processSlice(normalGroup, axis, active.front(), active, K, radius, progress);
+
+    normalGroup.producerStop(0);
+    normalGroup.stop();
+
+    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
+    // ensures the progress bar completes even if there were non-finite splats
+    if (progress != NULL)
+        *progress += progress->expected_count() - progress->count();
+}
+
+class NormalCompute : public NormalStats
+{
+public:
+    typedef sl::kdtree<3, float, Eigen::Vector3f> tree_type;
+
+    explicit NormalCompute(unsigned int K, float maxRadius)
+        : knn_it(K), knn_dist2(K), knn(K), K(K), maxRadius(maxRadius)
+    {
+    }
+
+    void computeOneNormal(const tree_type &tree, const Splat &splat)
+    {
+        Statistics::Timer timer(computeStat);
+        Eigen::Vector3f query(splat.position[0], splat.position[1], splat.position[2]);
+        std::size_t knn_size;
+        tree.k_nearest_neighbors_in(knn_size, &knn_it[0], &knn_dist2[0], query, K, maxRadius);
+
+        knn.resize(knn_size);
+        for (std::size_t i = 0; i < knn_size; i++)
+            knn[i] = *knn_it[i];
+        computeNormal(splat, knn, K);
+    }
+
+private:
+    std::vector<tree_type::const_iterator> knn_it;
+    std::vector<tree_type::float_t> knn_dist2;
+    std::vector<Eigen::Vector3f> knn;
+    unsigned int K;
+    float maxRadius;
+};
+
+void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
+                        int axis, unsigned int K, float radius)
+{
+    std::tr1::uint64_t nSplats = 0;
+    Timer latency;
+
+    SortStream sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
+    std::deque<Splat> active;
+    NormalCompute compute(K, radius);
+    NormalCompute::tree_type tree;
+
+    std::size_t front = 0; // number for the first splat in the deque
+    std::size_t next = 0;  // number of the next splat which needs a normal computed
+    while (!sortStream.empty())
+    {
+        Splat s = *sortStream;
+        active.push_back(s);
+        Eigen::Vector3f pos(s.position[0], s.position[1], s.position[2]);
+        tree.insert(pos);
+        ++sortStream;
+        ++nSplats;
+
+        while (s.position[axis] > active[next - front].position[axis] + radius)
+        {
+            compute.computeOneNormal(tree, active[next - front]);
+            while (active[next - front].position[axis] > active[0].position[axis] + radius)
+            {
+                const Splat &rm = active[0];
+                Eigen::Vector3f q(rm.position[0], rm.position[1], rm.position[2]);
+                tree.erase_exact(q);
+
+                active.pop_front();
+                front++;
+            }
+
+            next++;
+            if (progress != NULL)
+                ++*progress;
+        }
+    }
+
+    while (next < nSplats)
+    {
+        compute.computeOneNormal(tree, active[next - front]);
+        next++;
+        if (progress != NULL)
+            ++*progress;
+    }
+
+    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
+    // ensures the progress bar completes even if there were non-finite splats
+    if (progress != NULL)
+        *progress += progress->expected_count() - progress->count();
+}
+
 } // anonymous namespace
 
-void runSweep(const po::variables_map &vm)
+void runSweep(const po::variables_map &vm, bool continuous)
 {
     SplatSet::FileSet splats;
-    Timer latency;
-    long long nSplats = 0;
 
     const std::vector<std::string> &names = vm[Option::inputFile()].as<std::vector<std::string> >();
     const FastPly::ReaderType readerType = vm[Option::reader()].as<Choice<FastPly::ReaderTypeWrapper> >();
-    const int numNeighbors = vm[Option::neighbors()].as<int>();
+    const int K = vm[Option::neighbors()].as<int>();
     const float radius = vm[Option::radius()].as<double>();
     const int axis = vm[Option::axis()].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats()].as<std::size_t>();
@@ -313,45 +428,10 @@ void runSweep(const po::variables_map &vm)
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-    stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
-    std::deque<boost::shared_ptr<Slice> > active;
-
     ProgressDisplay progress(splats.maxSplats(), Log::log[Log::info]);
-    NormalWorkerGroup normalGroup(8, 4);
-    normalGroup.producerStart(0);
-    normalGroup.start();
-
-    while (!sortStream.empty())
-    {
-        // Fill up the next slice
-        float z0 = sortStream->position[axis];
-        boost::shared_ptr<Slice> curSlice(boost::make_shared<Slice>());
-        curSlice->minCut = z0;
-        while (!sortStream.empty()
-               && (sortStream->position[axis] < z0 + radius || curSlice->splats.size() < maxHostSplats))
-        {
-            curSlice->addSplat(*sortStream);
-            ++sortStream;
-            ++nSplats;
-        }
-        curSlice->maxCut = curSlice->splats.back().position[axis];
-        curSlice->makeTree();
-
-        active.push_front(curSlice);
-        if (active.size() >= 2)
-        {
-            processSlice(normalGroup, axis, active[1], active, numNeighbors, radius, &progress);
-            if (active.size() == 3)
-                active.pop_back();
-        }
-    }
-    if (!active.empty())
-        processSlice(normalGroup, axis, active.front(), active, numNeighbors, radius, &progress);
-
-    normalGroup.producerStop(0);
-    normalGroup.stop();
-
-    Statistics::getStatistic<Statistics::Counter>("splats").add(nSplats);
-    progress += splats.maxSplats() - nSplats; // ensures the progress bar completes
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
+    if (continuous)
+        runSweepContinuous(splatStream.get(), &progress, axis, K, radius);
+    else
+        runSweepDiscrete(splatStream.get(), &progress, axis, K, radius, maxHostSplats);
 }

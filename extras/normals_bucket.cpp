@@ -172,23 +172,9 @@ public:
     }
 };
 
-class NormalWorker
+class NormalWorker : public NormalStats
 {
-private:
-    Statistics::Variable &neighborStat;
-    Statistics::Variable &computeStat;
-    Statistics::Variable &qualityStat;
-    Statistics::Variable &angleStat;
-
 public:
-    NormalWorker()
-    :
-        neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
-        computeStat(Statistics::getStatistic<Statistics::Variable>("normal.worker.time")),
-        qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
-        angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))
-    {}
-
     void start() {}
     void stop() {}
 
@@ -255,16 +241,7 @@ public:
                     }
                 }
 #endif
-                neighborStat.add(neighbors.size() == std::size_t(item.numNeighbors));
-
-                if (neighbors.size() == std::size_t(item.numNeighbors))
-                {
-                    float angle, quality;
-                    Eigen::Vector3f normal;
-                    normal = computeNormal(s, neighbors, angle, quality);
-                    angleStat.add(angle);
-                    qualityStat.add(quality);
-                }
+                computeNormal(s, neighbors, item.numNeighbors);
             }
         }
         if (item.progress != NULL)

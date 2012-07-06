@@ -41,7 +41,8 @@ namespace po = boost::program_options;
 enum Mode
 {
     MODE_BUCKET,
-    MODE_SWEEP
+    MODE_SWEEP,
+    MODE_SLICE
 };
 
 class ModeWrapper
@@ -53,6 +54,7 @@ public:
         std::map<std::string, Mode> nameMap;
         nameMap["bucket"] = MODE_BUCKET;
         nameMap["sweep"] = MODE_SWEEP;
+        nameMap["slice"] = MODE_SLICE;
         return nameMap;
     }
 };
@@ -218,41 +220,47 @@ static po::variables_map processOptions(int argc, char **argv)
     }
 }
 
-Eigen::Vector3f computeNormal(
+void NormalStats::computeNormal(
     const Splat &s,
     const std::vector<Eigen::Vector3f> &neighbors,
-    float &angle,
-    float &quality)
+    unsigned int K)
 {
-    Eigen::Vector3f oldNormal(s.normal[0], s.normal[1], s.normal[2]);
-    oldNormal.normalize();
+    bool full = (neighbors.size() == K);
+    neighborStat.add(full);
+    if (full)
+    {
+        Eigen::Vector3f oldNormal(s.normal[0], s.normal[1], s.normal[2]);
+        oldNormal.normalize();
 
-    Eigen::Vector3f centroid;
-    centroid.setZero();
-    for (std::size_t k = 0; k < neighbors.size(); k++)
-    {
-        centroid += neighbors[k];
-    }
-    centroid /= neighbors.size();
+        Eigen::Vector3f centroid;
+        centroid.setZero();
+        for (std::size_t k = 0; k < neighbors.size(); k++)
+        {
+            centroid += neighbors[k];
+        }
+        centroid /= neighbors.size();
 
-    Eigen::Matrix3f cov;
-    cov.setZero();
-    for (std::size_t k = 0; k < neighbors.size(); k++)
-    {
-        Eigen::Vector3f delta = neighbors[k] - centroid;
-        cov += delta * delta.transpose();
+        Eigen::Matrix3f cov;
+        cov.setZero();
+        for (std::size_t k = 0; k < neighbors.size(); k++)
+        {
+            Eigen::Vector3f delta = neighbors[k] - centroid;
+            cov += delta * delta.transpose();
+        }
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(cov);
+        Eigen::Vector3f normal = solver.eigenvectors().col(0);
+        float quality = 1.0f - solver.eigenvalues()[0] / solver.eigenvalues()[1];
+        float dot = normal.dot(oldNormal);
+        if (dot < 0.0f)
+        {
+            normal = -normal;
+            dot = -dot;
+        }
+        float angle = std::acos(std::min(dot, 1.0f)) * 57.2957795130823f;
+
+        qualityStat.add(quality);
+        angleStat.add(angle);
     }
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(cov);
-    Eigen::Vector3f normal = solver.eigenvectors().col(0);
-    quality = 1.0f - solver.eigenvalues()[0] / solver.eigenvalues()[1];
-    float dot = normal.dot(oldNormal);
-    if (dot < 0.0f)
-    {
-        normal = -normal;
-        dot = -dot;
-    }
-    angle = std::acos(std::min(dot, 1.0f)) * 57.2957795130823f;
-    return normal;
 }
 
 static void run(const po::variables_map &vm)
@@ -272,7 +280,10 @@ static void run(const po::variables_map &vm)
         runBucket(vm);
         break;
     case MODE_SWEEP:
-        runSweep(vm);
+        runSweep(vm, true);
+        break;
+    case MODE_SLICE:
+        runSweep(vm, false);
         break;
     }
 }

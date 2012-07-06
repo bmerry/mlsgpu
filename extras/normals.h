@@ -12,12 +12,7 @@
 #endif
 #include <Eigen/Core>
 #include <vector>
-
-Eigen::Vector3f computeNormal(
-    const Splat &s,
-    const std::vector<Eigen::Vector3f> &neighbors,
-    float &angle,
-    float &quality);
+#include "../src/statistics.h"
 
 namespace Option
 {
@@ -37,6 +32,25 @@ namespace Option
     static inline const char *statisticsFile() { return "statistics-file"; }
 
     static inline const char *reader()  { return "reader"; }
+};
+
+class NormalStats
+{
+protected:
+    Statistics::Variable &neighborStat;
+    Statistics::Variable &computeStat;
+    Statistics::Variable &qualityStat;
+    Statistics::Variable &angleStat;
+
+    NormalStats() :
+        neighborStat(Statistics::getStatistic<Statistics::Variable>("neighbors")),
+        computeStat(Statistics::getStatistic<Statistics::Variable>("normal.worker.time")),
+        qualityStat(Statistics::getStatistic<Statistics::Variable>("quality")),
+        angleStat(Statistics::getStatistic<Statistics::Variable>("angle"))
+    {
+    }
+
+    void computeNormal(const Splat &s, const std::vector<Eigen::Vector3f> &neighbors, unsigned int K);
 };
 
 #endif /* EXTRAS_NORMALS_H */
