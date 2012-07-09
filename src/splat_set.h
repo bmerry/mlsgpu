@@ -38,6 +38,10 @@
 #include "progress.h"
 #include "allocator.h"
 #include "circular_buffer.h"
+#include "tr1_cstdint.h"
+
+template<typename BaseType>
+class TestFastBlobSet;
 
 /**
  * Data structures for iteration over sets of splats.
@@ -71,6 +75,14 @@ struct BlobInfo
      * @see @ref lower.
      */
     boost::array<Grid::difference_type, 3> upper;
+
+    bool operator==(const BlobInfo &b) const
+    {
+        return firstSplat == b.firstSplat
+            && lastSplat == b.lastSplat
+            && lower == b.lower
+            && upper == b.upper;
+    }
 };
 
 /**
@@ -590,7 +602,7 @@ private:
  * directly by the user, but is in the namespace so that the user can generate
  * the type for the second template parameter to @ref FastBlobSet.
  */
-typedef BlobInfo BlobData;
+typedef std::tr1::uint32_t BlobData;
 
 /**
  * Subsettable splat set with accelerated blob interface. This class takes a
@@ -608,6 +620,47 @@ typedef BlobInfo BlobData;
  * single pass, this is usually more efficient than computing the bounding
  * grid separately.
  *
+ * The blobs are stored in a variable-length encoding, as either 1 or 10 32-bit
+ * words. The "full" encoding (10 words) is non-differential and as follows:
+ *  -# firstSplat (high)
+ *  -# firstSplat (low)
+ *  -# lastSplat (high)
+ *  -# lastSplat (low)
+ *  -# lower[0]
+ *  -# upper[0]
+ *  -# lower[1]
+ *  -# upper[1]
+ *  -# lower[2]
+ *  -# upper[2]
+ *
+ * The differential encoding is bit-packed into a 32-bit word as follows (from
+ * least to most significant bit):
+ *  - [0:3] a[0]
+ *  - [3:4] b[0]
+ *  - [4:7] a[1]
+ *  - [7:8] b[1]
+ *  - [8:11] a[2]
+ *  - [11:12] b[2]
+ *  - [12:31] c
+ *  - [31:32] 1
+ *
+ * The high bit being set is what marks it as differential - note that this means
+ * that only half the splat ID range can be used in a FastBlobSet. The @a a values
+ * are signed while the other values are unsigned.
+ *
+ * To complete the decoding, let @a p be the previous decoded blob. Then
+ *  - firstSplat = p.lastSplat
+ *  - lastSplat = firstSplat + c
+ *  - lower[i] = p.upper[i] + a[i]
+ *  - upper[i] = lower[i] + b[i]
+ *
+ * Thus, the differential encoding can only be used when the blob
+ *  - is not the first in the file;
+ *  - contains at most 2<sup>19</sup> splats;
+ *  - follows directly after the previous one in splat ID order;
+ *  - covers at most two buckets in each axis;
+ *  - is sufficiently close to the previous one.
+ *
  * @param Base A model of @ref SubsettableConcept.
  */
 template<typename Base, typename BlobVector>
@@ -616,6 +669,7 @@ class FastBlobSet : public Base
 , public SubsettableConcept
 #endif
 {
+    template<typename BaseType> friend class TestFastBlobSet;
 public:
     /**
      * Class returned by makeBlobStream only in the fast path.
@@ -625,16 +679,11 @@ public:
     public:
         virtual BlobInfo operator*() const;
 
-        virtual BlobStream &operator++()
-        {
-            MLSGPU_ASSERT(curBlob < lastBlob, std::length_error);
-            ++curBlob;
-            return *this;
-        }
+        virtual BlobStream &operator++();
 
         virtual bool empty() const
         {
-            return curBlob == lastBlob;
+            return curBlob.firstSplat > curBlob.lastSplat;
         }
 
         MyBlobStream(const FastBlobSet<Base, BlobVector> &owner, const Grid &grid,
@@ -649,8 +698,18 @@ public:
          * blob data, in units of @a owner.internalBucketSize.
          */
         Grid::difference_type offset[3];
-        typename BlobVector::size_type curBlob;     ///< Blob ID for the current blob
-        typename BlobVector::size_type lastBlob;    ///< Past-the-end ID
+        /// Index into owner's blobData for the blob after curInfo is extracted
+        typename BlobVector::size_type nextPtr;
+        /**
+         * A blob to return from operator*, but prior to adjustment for @ref
+         * offset and @ref bucketRatio. It is also the base for differential
+         * encoding of the next blob.
+         *
+         * In the special case firstSplat > lastSplat, the stream is empty.
+         */
+        BlobInfo curBlob;
+
+        void refill(); ///< Load curBlob from the stream
     };
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
@@ -706,7 +765,7 @@ private:
     /**
      * Blob metadata computed by @ref computeBlobs. It is initially empty.
      */
-    BlobVector blobs;
+    BlobVector blobData;
     std::size_t nSplats;  ///< Exact splat count computed during blob generation
 
     /**
@@ -714,6 +773,16 @@ private:
      * pre-generated blob data.
      */
     bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
+
+    /**
+     * Append a blob to @ref blobData.
+     * @param blobData The list of encoded blobs to append to.
+     * @param prevBlob The value @a curBlob had on previous call.
+     * @param curBlob  The blob to append.
+     * On the first call (i.e., when @a blobData is empty), the value of @a
+     * prevBlob is irrelevant.
+     */
+    static void addBlob(BlobVector &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob);
 };
 
 /**

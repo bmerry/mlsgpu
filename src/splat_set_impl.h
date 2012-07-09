@@ -119,18 +119,107 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     outQueue.push(Item());
 }
 
+static std::tr1::int32_t extractUnsigned(std::tr1::uint32_t value, int lbit, int hbit)
+{
+    assert(0 <= lbit && lbit < hbit && hbit <= 32);
+    assert(hbit - lbit < 32);
+    value >>= lbit;
+    value &= (std::tr1::uint32_t(1) << (hbit - lbit)) - 1;
+    return value;
+}
+
+static std::tr1::uint32_t extractSigned(std::tr1::uint32_t value, int lbit, int hbit)
+{
+    int bits = hbit - lbit;
+    std::tr1::int32_t ans = extractUnsigned(value, lbit, hbit);
+    if (ans & (std::tr1::uint32_t(1) << (bits - 1)))
+        ans -= std::tr1::int32_t(1) << bits;
+    return ans;
+}
+
+static std::tr1::uint32_t insertUnsigned(std::tr1::uint32_t payload, std::tr1::uint32_t value, int lbit, int hbit)
+{
+    assert(0 <= lbit && lbit < hbit && hbit <= 32);
+    assert(hbit - lbit < 32);
+    assert(value < std::tr1::uint32_t(1) << (hbit - lbit));
+    (void) hbit;
+    return payload | (value << lbit);
+}
+
+static std::tr1::uint32_t insertSigned(std::tr1::uint32_t payload, std::tr1::int32_t value, int lbit, int hbit)
+{
+    assert(0 <= lbit && lbit < hbit && hbit <= 32);
+    assert(hbit - lbit < 32);
+    assert(value >= -(std::tr1::int32_t(1) << (hbit - lbit))
+           && value < (std::tr1::int32_t(1) << (hbit - lbit)));
+    if (value < 0)
+        value += std::tr1::uint32_t(1) << (hbit - lbit);
+    return payload | (value << lbit);
+}
+
+template<typename Base, typename BlobVector>
+BlobStream &FastBlobSet<Base, BlobVector>::MyBlobStream::operator++()
+{
+    MLSGPU_ASSERT(!empty(), std::length_error);
+    refill();
+    return *this;
+}
+
+template<typename Base, typename BlobVector>
+void FastBlobSet<Base, BlobVector>::MyBlobStream::refill()
+{
+    if (nextPtr == owner.blobData.size())
+    {
+        curBlob.firstSplat = 1;
+        curBlob.lastSplat = 0;
+    }
+    else
+    {
+        std::tr1::uint32_t data = owner.blobData[nextPtr];
+        if (data & UINT32_C(0x80000000))
+        {
+            // Differential record
+            for (unsigned int i = 0; i < 3; i++)
+            {
+                curBlob.lower[i] = curBlob.upper[i] + extractSigned(data, i * 4, i * 4 + 3);
+                curBlob.upper[i] = curBlob.lower[i] + extractUnsigned(data, i * 4 + 3, i * 4 + 4);
+            }
+            curBlob.firstSplat = curBlob.lastSplat;
+            curBlob.lastSplat = curBlob.firstSplat + extractUnsigned(data, 12, 31);
+            nextPtr += 1;
+        }
+        else
+        {
+            // Full record
+            MLSGPU_ASSERT(nextPtr + 10 <= owner.blobData.size(), std::length_error);
+            std::tr1::uint64_t firstHi = data;
+            std::tr1::uint64_t firstLo = owner.blobData[nextPtr + 1];
+            std::tr1::uint64_t lastHi = owner.blobData[nextPtr + 2];
+            std::tr1::uint64_t lastLo = owner.blobData[nextPtr + 3];
+            curBlob.firstSplat = (firstHi << 32) | firstLo;
+            curBlob.lastSplat = (lastHi << 32) | lastLo;
+            for (unsigned int i = 0; i < 3; i++)
+            {
+                curBlob.lower[i] = static_cast<std::tr1::int32_t>(owner.blobData[nextPtr + 4 + 2 * i]);
+                curBlob.upper[i] = static_cast<std::tr1::int32_t>(owner.blobData[nextPtr + 5 + 2 * i]);
+            }
+            nextPtr += 10;
+        }
+    }
+}
+
 template<typename Base, typename BlobVector>
 BlobInfo FastBlobSet<Base, BlobVector>::MyBlobStream::operator*() const
 {
     BlobInfo ans;
-    MLSGPU_ASSERT(curBlob < lastBlob, std::out_of_range);
-    BlobData data = owner.blobs[curBlob];
-    ans.firstSplat = data.firstSplat;
-    ans.lastSplat = data.lastSplat;
+    MLSGPU_ASSERT(!empty(), std::out_of_range);
+
+    ans.firstSplat = curBlob.firstSplat;
+    ans.lastSplat = curBlob.lastSplat;
     for (unsigned int i = 0; i < 3; i++)
-        ans.lower[i] = divDown(data.lower[i] - offset[i], bucketRatio);
+        ans.lower[i] = divDown(curBlob.lower[i] - offset[i], bucketRatio);
     for (unsigned int i = 0; i < 3; i++)
-        ans.upper[i] = divDown(data.upper[i] - offset[i], bucketRatio);
+        ans.upper[i] = divDown(curBlob.upper[i] - offset[i], bucketRatio);
     return ans;
 }
 
@@ -145,8 +234,8 @@ FastBlobSet<Base, BlobVector>::MyBlobStream::MyBlobStream(
     for (unsigned int i = 0; i < 3; i++)
         offset[i] = grid.getExtent(i).first / Grid::difference_type(owner.internalBucketSize);
     bucketRatio = bucketSize / owner.internalBucketSize;
-    curBlob = 0;
-    lastBlob = owner.blobs.size();
+    nextPtr = 0;
+    refill();
 }
 
 template<typename Base, typename BlobVector>
@@ -196,6 +285,53 @@ struct Bbox
 }
 
 template<typename Base, typename BlobVector>
+void FastBlobSet<Base, BlobVector>::addBlob(BlobVector &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob)
+{
+    bool differential;
+
+    if (!blobData.empty()
+        && prevBlob.lastSplat == curBlob.firstSplat
+        && curBlob.lastSplat - curBlob.firstSplat < (1U << 19))
+    {
+        differential = true;
+        for (unsigned int i = 0; i < 3 && differential; i++)
+            if (curBlob.upper[i] - curBlob.lower[i] > 1
+                || curBlob.lower[i] < prevBlob.upper[i] - 4
+                || curBlob.lower[i] > prevBlob.upper[i] + 3)
+                differential = false;
+    }
+    else
+        differential = false;
+
+    if (differential)
+    {
+        std::tr1::uint32_t payload = 0;
+        payload |= UINT32_C(0x80000000); // signals a differential record
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            std::tr1::int32_t d = curBlob.lower[i] - prevBlob.upper[i];
+            payload = insertSigned(payload, d, i * 4, i * 4 + 3);
+            std::tr1::uint32_t s = curBlob.upper[i] - curBlob.lower[i];
+            payload = insertUnsigned(payload, s, i * 4 + 3, i * 4 + 4);
+        }
+        payload = insertUnsigned(payload, curBlob.lastSplat - curBlob.firstSplat, 12, 31);
+        blobData.push_back(payload);
+    }
+    else
+    {
+        blobData.push_back(curBlob.firstSplat >> 32);
+        blobData.push_back(curBlob.firstSplat & UINT32_C(0xFFFFFFFF));
+        blobData.push_back(curBlob.lastSplat >> 32);
+        blobData.push_back(curBlob.lastSplat & UINT32_C(0xFFFFFFFF));
+        for (unsigned int i = 0; i < 3; i++)
+        {
+            blobData.push_back(static_cast<std::tr1::uint32_t>(curBlob.lower[i]));
+            blobData.push_back(static_cast<std::tr1::uint32_t>(curBlob.upper[i]));
+        }
+    }
+}
+
+template<typename Base, typename BlobVector>
 void FastBlobSet<Base, BlobVector>::computeBlobs(
     float spacing, Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
 {
@@ -204,7 +340,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    blobs.clear();
+    blobData.clear();
     internalBucketSize = bucketSize;
 
     // Reference point will be 0,0,0. Extents are set after reading all the splats
@@ -224,7 +360,10 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     nSplats = 0;
 
     static const std::size_t BUFFER_SIZE = 1024 * 1024;
-    Statistics::Container::vector<std::pair<Splat, BlobData> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
+    Statistics::Container::vector<std::pair<Splat, BlobInfo> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
+    BlobInfo curBlob, prevBlob;
+    bool haveCurBlob = false;
+    std::tr1::uint64_t nBlobs = 0;
     while (!splats->empty())
     {
         std::size_t nBuffer = 0;
@@ -253,7 +392,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
             for (std::size_t i = 0; i < nBuffer; i++)
             {
                 const Splat &splat = buffer[i].first;
-                BlobData &blob = buffer[i].second;
+                BlobInfo &blob = buffer[i].second;
                 detail::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
                 blob.lastSplat = blob.firstSplat + 1;
                 bboxes[tid] += buffer[i].first;
@@ -268,25 +407,34 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 
         for (std::size_t i = 0; i < nBuffer; i++)
         {
-            const BlobData &blob = buffer[i].second;
-            if (blobs.empty()
-                || blobs.back().lower != blob.lower
-                || blobs.back().upper != blob.upper
-                || blobs.back().lastSplat != blob.firstSplat)
+            const BlobInfo &blob = buffer[i].second;
+            if (!haveCurBlob)
             {
-                blobs.push_back(blob);
+                curBlob = blob;
+                haveCurBlob = true;
             }
+            else if (curBlob.lower == blob.lower
+                     && curBlob.upper == blob.upper
+                     && curBlob.lastSplat == blob.firstSplat)
+                curBlob.lastSplat++;
             else
             {
-                blobs.back().lastSplat++;
+                addBlob(blobData, prevBlob, curBlob);
+                nBlobs++;
+                prevBlob = curBlob;
+                curBlob = blob;
             }
-
         }
 
         nSplats += nBuffer;
         if (progress != NULL)
             *progress += nBuffer;
 
+    }
+    if (haveCurBlob)
+    {
+        addBlob(blobData, prevBlob, curBlob);
+        nBlobs++;
     }
 
     assert(nSplats <= Base::maxSplats());
@@ -317,7 +465,8 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 
         boundingGrid.setExtent(i, lo, hi);
     }
-    registry.getStatistic<Statistics::Variable>("blobset.blobs").add(blobs.size());
+    registry.getStatistic<Statistics::Variable>("blobset.blobs").add(nBlobs);
+    registry.getStatistic<Statistics::Variable>("blobset.blobs.size").add(blobData.size() * sizeof(BlobData));
 
     const char * const names[3] =
     {

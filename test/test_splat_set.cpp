@@ -351,11 +351,13 @@ class TestFastBlobSet : public TestSplatSubsettable<FastBlobSet<BaseType, std::v
     typedef TestSplatSubsettable<FastBlobSet<BaseType, std::vector<BlobData> > > BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestFastBlobSet<BaseType>, BaseFixture);
     CPPUNIT_TEST(testBoundingGrid);
+    CPPUNIT_TEST(testAddBlob);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 public:
     typedef typename BaseFixture::Set Set;
 
     void testBoundingGrid();         ///< Tests that the extracted bounding box is correct
+    void testAddBlob();              ///< Tests the encoding of blobs
 };
 
 /// Tests for @ref SplatSet::FastBlobSet<SplatSet::FileSet>.
@@ -782,6 +784,68 @@ void TestFastBlobSet<BaseType>::testBoundingGrid()
     CPPUNIT_ASSERT_EQUAL(43, bbox.getExtent(0).second);
     CPPUNIT_ASSERT_EQUAL(20000, bbox.getExtent(1).second);
     CPPUNIT_ASSERT_EQUAL(40, bbox.getExtent(2).second);
+}
+
+template<typename BaseType>
+void TestFastBlobSet<BaseType>::testAddBlob()
+{
+    std::vector<BlobData> blobData;
+    BlobInfo prevBlob, curBlob;
+
+    // Full encoding
+    curBlob.firstSplat = UINT64_C(0x123456781234);
+    curBlob.lastSplat = UINT64_C(0x234567801234);
+    curBlob.lower[0] = -128;
+    curBlob.lower[1] = -64;
+    curBlob.lower[2] = -32;
+    curBlob.upper[0] = -1;
+    curBlob.upper[1] = 0;
+    curBlob.upper[2] = 1023;
+
+    Set::addBlob(blobData, prevBlob, curBlob);
+    CPPUNIT_ASSERT_EQUAL(10, int(blobData.size()));
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x1234), blobData[0]);     // first hi
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x56781234), blobData[1]); // first lo
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x2345), blobData[2]);     // last hi
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x67801234), blobData[3]); // last lo
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFF80), blobData[4]); // lower[0]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFFFF), blobData[5]); // upper[0]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFFC0), blobData[6]); // lower[1]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0),          blobData[7]); // upper[1]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFFE0), blobData[8]); // lower[2]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(1023),       blobData[9]); // upper[2]
+
+    // Differential encoding
+    prevBlob = curBlob;
+    curBlob.firstSplat = UINT64_C(0x234567801234);
+    curBlob.lastSplat = curBlob.firstSplat + (1 << 19) - 1;
+    curBlob.lower[0] = -5;
+    curBlob.upper[0] = -4;
+    curBlob.lower[1] = 3;
+    curBlob.upper[1] = 3;
+    curBlob.lower[2] = 1022;
+    curBlob.upper[2] = 1023;
+    Set::addBlob(blobData, prevBlob, curBlob);
+    CPPUNIT_ASSERT_EQUAL(11, int(blobData.size()));
+    // 1 1111111111111111111 1 111 0 011 1 100
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFF3C), blobData[10]);
+
+    // Make sure the decoding works
+    Set set;
+    set.blobData = blobData;
+    set.internalBucketSize = 1;
+
+    BlobInfo blob;
+    boost::scoped_ptr<BlobStream> stream(set.makeBlobStream(set.boundingGrid, set.internalBucketSize));
+    CPPUNIT_ASSERT(!stream->empty());
+    blob = **stream;
+    CPPUNIT_ASSERT(blob == prevBlob);
+    ++*stream;
+    CPPUNIT_ASSERT(!stream->empty());
+    blob = **stream;
+    CPPUNIT_ASSERT(blob == curBlob);
+    ++*stream;
+    CPPUNIT_ASSERT(stream->empty());
 }
 
 FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
