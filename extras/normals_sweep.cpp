@@ -281,7 +281,7 @@ void processSlice(
 typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> SortStream;
 
 void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
-                      int axis, unsigned int K, float radius, std::size_t maxHostSplats)
+                      bool compute, int axis, unsigned int K, float radius, std::size_t maxHostSplats)
 {
     std::tr1::uint64_t nSplats = 0;
     Timer latency;
@@ -310,17 +310,19 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
             ++nSplats;
         }
         curSlice->maxCut = curSlice->splats.back().position[axis];
-        curSlice->makeTree();
+        if (compute)
+            curSlice->makeTree();
 
         active.push_front(curSlice);
         if (active.size() >= 2)
         {
-            processSlice(normalGroup, axis, active[1], active, K, radius, progress);
+            if (compute)
+                processSlice(normalGroup, axis, active[1], active, K, radius, progress);
             if (active.size() == 3)
                 active.pop_back();
         }
     }
-    if (!active.empty())
+    if (!active.empty() && compute)
         processSlice(normalGroup, axis, active.front(), active, K, radius, progress);
 
     normalGroup.producerStop(0);
@@ -363,7 +365,7 @@ private:
 };
 
 void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
-                        int axis, unsigned int K, float radius)
+                        bool doCompute, int axis, unsigned int K, float radius)
 {
     std::tr1::uint64_t nSplats = 0;
     Timer latency;
@@ -382,8 +384,11 @@ void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *pro
         {
             Splat s = *sortStream;
             active.push_back(s);
-            Eigen::Vector3f pos(s.position[0], s.position[1], s.position[2]);
-            tree.insert(pos);
+            if (doCompute)
+            {
+                Eigen::Vector3f pos(s.position[0], s.position[1], s.position[2]);
+                tree.insert(pos);
+            }
             ++sortStream;
             ++nSplats;
         }
@@ -392,17 +397,24 @@ void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *pro
         std::size_t next2 = next;
         while (active[next2 - front].position[axis] < end)
             next2++;
-#pragma omp parallel for schedule(dynamic, 512)
-        for (std::size_t i = next; i < next2; i++)
+
+        if (doCompute)
         {
-            compute.computeOneNormal(tree, active[i - front]);
+#pragma omp parallel for schedule(dynamic, 512)
+            for (std::size_t i = next; i < next2; i++)
+            {
+                compute.computeOneNormal(tree, active[i - front]);
+            }
         }
 
         while (active[next2 - front].position[axis] > active[0].position[axis] + radius)
         {
-            const Splat &rm = active[0];
-            Eigen::Vector3f q(rm.position[0], rm.position[1], rm.position[2]);
-            tree.erase_exact(q);
+            if (doCompute)
+            {
+                const Splat &rm = active[0];
+                Eigen::Vector3f q(rm.position[0], rm.position[1], rm.position[2]);
+                tree.erase_exact(q);
+            }
 
             active.pop_front();
             front++;
@@ -415,7 +427,8 @@ void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *pro
 
     while (next < nSplats)
     {
-        compute.computeOneNormal(tree, active[next - front]);
+        if (doCompute)
+            compute.computeOneNormal(tree, active[next - front]);
         next++;
         if (progress != NULL)
             ++*progress;
@@ -439,6 +452,7 @@ void runSweep(const po::variables_map &vm, bool continuous)
     const float radius = vm[Option::radius()].as<double>();
     const int axis = vm[Option::axis()].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats()].as<std::size_t>();
+    const bool compute = !vm.count(Option::noCompute());
 
     if (axis < 0 || axis > 2)
     {
@@ -457,7 +471,7 @@ void runSweep(const po::variables_map &vm, bool continuous)
     ProgressDisplay progress(splats.maxSplats(), Log::log[Log::info]);
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
     if (continuous)
-        runSweepContinuous(splatStream.get(), &progress, axis, K, radius);
+        runSweepContinuous(splatStream.get(), &progress, compute, axis, K, radius);
     else
-        runSweepDiscrete(splatStream.get(), &progress, axis, K, radius, maxHostSplats);
+        runSweepDiscrete(splatStream.get(), &progress, compute, axis, K, radius, maxHostSplats);
 }

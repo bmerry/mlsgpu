@@ -153,6 +153,7 @@ struct NormalItem
     Grid binGrid;
     int numNeighbors;
     float maxDistance2;
+    bool compute;
     ProgressDisplay *progress;
 
     Statistics::Container::vector<Splat> splats;
@@ -183,65 +184,68 @@ public:
         Statistics::Timer timer(computeStat);
         (void) gen;
 
+        if (item.compute)
+        {
 #if KNN_INTERNAL
-        typedef std::tr1::uint32_t size_type;
-        boost::scoped_ptr<KNNG<float, size_type> > knng;
+            typedef std::tr1::uint32_t size_type;
+            boost::scoped_ptr<KNNG<float, size_type> > knng;
 
-        {
-            KDTree<float, 3, size_type> tree(
-                boost::make_transform_iterator(item.splats.begin(), SplatToEigen()),
-                boost::make_transform_iterator(item.splats.end(), SplatToEigen()));
-            knng.reset(tree.knn(item.numNeighbors, item.maxDistance2));
-        }
-#elif KNN_NABO
-        Eigen::VectorXi indices(item.numNeighbors);
-        Eigen::VectorXf dists2(item.numNeighbors);
-        Eigen::MatrixXf M(3, item.splats.size());
-        for (std::size_t i = 0; i < item.splats.size(); i++)
-        {
-            for (int j = 0; j < 3; j++)
-                M(j, i) = item.splats[i].position[j];
-        }
-        boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
-#endif
-
-        std::vector<Eigen::Vector3f> neighbors;
-        neighbors.reserve(item.numNeighbors);
-        for (std::size_t i = 0; i < item.splats.size(); i++)
-        {
-            const Splat &s = item.splats[i];
-            Grid::difference_type vertexCoords[3];
-            item.binGrid.worldToCell(s.position, vertexCoords);
-            bool inside = true;
-            for (int j = 0; j < 3; j++)
-                inside &= vertexCoords[j] >= 0 && Grid::size_type(vertexCoords[j]) < item.binGrid.numCells(j);
-            if (inside)
             {
-                neighbors.clear();
+                KDTree<float, 3, size_type> tree(
+                    boost::make_transform_iterator(item.splats.begin(), SplatToEigen()),
+                    boost::make_transform_iterator(item.splats.end(), SplatToEigen()));
+                knng.reset(tree.knn(item.numNeighbors, item.maxDistance2));
+            }
+#elif KNN_NABO
+            Eigen::VectorXi indices(item.numNeighbors);
+            Eigen::VectorXf dists2(item.numNeighbors);
+            Eigen::MatrixXf M(3, item.splats.size());
+            for (std::size_t i = 0; i < item.splats.size(); i++)
+            {
+                for (int j = 0; j < 3; j++)
+                    M(j, i) = item.splats[i].position[j];
+            }
+            boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
+#endif
+
+            std::vector<Eigen::Vector3f> neighbors;
+            neighbors.reserve(item.numNeighbors);
+            for (std::size_t i = 0; i < item.splats.size(); i++)
+            {
+                const Splat &s = item.splats[i];
+                Grid::difference_type vertexCoords[3];
+                item.binGrid.worldToCell(s.position, vertexCoords);
+                bool inside = true;
+                for (int j = 0; j < 3; j++)
+                    inside &= vertexCoords[j] >= 0 && Grid::size_type(vertexCoords[j]) < item.binGrid.numCells(j);
+                if (inside)
+                {
+                    neighbors.clear();
 
 #if KNN_INTERNAL
-                std::vector<std::pair<float, size_type> > nn = (*knng)[i];
-                for (std::size_t j = 0; j < nn.size(); j++)
-                {
-                    int idx = nn[j].second;
-                    const Splat &sn = item.splats[idx]; // TODO: just have KNNG give us Eigen::Vector3f?
-                    neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
-                }
-#elif KNN_NABO
-                Eigen::VectorXf query(3);
-                for (int j = 0; j < 3; j++)
-                    query[j] = s.position[j];
-                tree->knn(query, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
-                for (std::size_t j = 0; j < std::size_t(item.numNeighbors); j++)
-                {
-                    if ((std::tr1::isfinite)(dists2(j)))
+                    std::vector<std::pair<float, size_type> > nn = (*knng)[i];
+                    for (std::size_t j = 0; j < nn.size(); j++)
                     {
-                        int idx = indices(j);
-                        neighbors.push_back(M.col(idx).head<3>());
+                        int idx = nn[j].second;
+                        const Splat &sn = item.splats[idx]; // TODO: just have KNNG give us Eigen::Vector3f?
+                        neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
                     }
-                }
+#elif KNN_NABO
+                    Eigen::VectorXf query(3);
+                    for (int j = 0; j < 3; j++)
+                        query[j] = s.position[j];
+                    tree->knn(query, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
+                    for (std::size_t j = 0; j < std::size_t(item.numNeighbors); j++)
+                    {
+                        if ((std::tr1::isfinite)(dists2(j)))
+                        {
+                            int idx = indices(j);
+                            neighbors.push_back(M.col(idx).head<3>());
+                        }
+                    }
 #endif
-                computeNormal(s, neighbors, item.numNeighbors);
+                    computeNormal(s, neighbors, item.numNeighbors);
+                }
             }
         }
         if (item.progress != NULL)
@@ -273,6 +277,7 @@ class BinProcessor
 private:
     NormalWorkerGroup &outGroup;
 
+    bool compute;
     int numNeighbors;
     float maxDistance2;
 
@@ -284,11 +289,13 @@ private:
 public:
     BinProcessor(
         NormalWorkerGroup &outGroup,
+        bool compute,
         int numNeighbors,
         float maxDistance,
         ProgressDisplay *progress = NULL)
     :
         outGroup(outGroup),
+        compute(compute),
         numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
         progress(progress),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
@@ -314,6 +321,7 @@ public:
                 item->splats.push_back(s);
                 ++*stream;
             }
+            item->compute = compute;
             item->binGrid = binGrid;
             item->numNeighbors = numNeighbors;
             item->maxDistance2 = maxDistance2;
@@ -333,6 +341,7 @@ void runBucket(const po::variables_map &vm)
     const float spacing = leafSize / bucketSize;
     const float radius = vm[Option::radius()].as<double>();
     const int numNeighbors = vm[Option::neighbors()].as<int>();
+    bool compute = !vm.count(Option::noCompute());
 
     const std::size_t maxHostSplats = vm[Option::maxHostSplats()].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit()].as<int>();
@@ -351,6 +360,10 @@ void runBucket(const po::variables_map &vm)
         reader.release();
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
+
+    NormalWorkerGroup normalGroup(compute ? 8 : 1, compute ? 4 : 0);
+    normalGroup.producerStart(0);
+    normalGroup.start();
 
     try
     {
@@ -375,11 +388,8 @@ void runBucket(const po::variables_map &vm)
 
     ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
-    NormalWorkerGroup normalGroup(8, 4);
-    BinProcessor<Splats> binProcessor(normalGroup, numNeighbors, radius, &progress);
+    BinProcessor<Splats> binProcessor(normalGroup, compute, numNeighbors, radius, &progress);
 
-    normalGroup.producerStart(0);
-    normalGroup.start();
     Bucket::bucket(splats, grid, maxHostSplats, bucketSize, 0, true, maxSplit,
                    boost::ref(binProcessor), &progress);
     normalGroup.producerStop(0);
