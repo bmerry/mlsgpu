@@ -111,11 +111,20 @@ bool Node::operator==(const Node &b) const
 
 const std::size_t BucketState::BAD_REGION = (std::size_t) -1;
 
+boost::array<Grid::size_type, 3> BucketState::computeDims(const Grid &grid, Grid::size_type microSize)
+{
+    boost::array<Grid::size_type, 3> dims;
+    for (int i = 0; i < 3; i++)
+        dims[i] = divUp(grid.numCells(i), microSize);
+    return dims;
+}
+
 BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    nodeCounts("mem.BucketState::nodeCounts", macroLevels),
+    dims(computeDims(grid, microSize)),
+    microRegions("mem.BucketState::microRegions", dims),
     subregions("mem.BucketState::subregions")
 {
     for (int i = 0; i < 3; i++)
@@ -132,10 +141,10 @@ BucketState::BucketState(
             s[i] = divUp(dims[i], Grid::size_type(1) << level);
             assert(level != macroLevels - 1 || s[i] == 1);
         }
-        nodeCounts[level].resize(s);
+        nodeCounts.push_back(new Statistics::Container::multi_array<std::tr1::int64_t, 3>(
+                "mem.BucketState::nodeCounts", s));
         if (level == 0)
         {
-            microRegions.resize(s);
             for (Node::size_type x = 0; x < s[0]; x++)
                 for (Node::size_type y = 0; y < s[1]; y++)
                     for (Node::size_type z = 0; z < s[2]; z++)
@@ -252,7 +261,7 @@ BucketStateSet::BucketStateSet(
     const Grid &grid,
     Grid::size_type microSize,
     int macroLevels)
-    : boost::multi_array<boost::shared_ptr<BucketState>, 3>(chunks),
+    : Statistics::Container::multi_array<boost::shared_ptr<BucketState>, 3>("mem.BucketStateSet", chunks),
     chunkRatio(chunkCells / microSize)
 {
     MLSGPU_ASSERT(chunkCells % microSize == 0, std::invalid_argument);

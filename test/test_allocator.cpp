@@ -71,16 +71,15 @@ void TestAllocator::testAllocateHint()
 
 void TestAllocator::testCopyConstruct()
 {
-    typedef Statistics::Allocator<std::allocator<int> > A1;
-    typedef Statistics::Allocator<A1> A2;
+    typedef Statistics::Allocator<std::allocator<int> > A;
 
-    Statistics::Peak<A1::size_type> peak1("peak1");
-    Statistics::Peak<A2::size_type> peak2("peak2");
-    A2 alloc(&peak1, A1(&peak2));
-    A2 dup(alloc);
+    Statistics::Peak<A::size_type> peak1("peak1");
+    Statistics::Peak<A::size_type> peak2("peak2");
+    A alloc(&peak1, &peak2);
+    A dup(alloc);
 
     CPPUNIT_ASSERT_EQUAL(&peak1, dup.usage);
-    CPPUNIT_ASSERT_EQUAL(&peak2, static_cast<A1 &>(dup).usage);
+    CPPUNIT_ASSERT_EQUAL(&peak2, dup.allUsage);
 }
 
 void TestAllocator::testEqual()

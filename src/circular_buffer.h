@@ -45,7 +45,7 @@ private:
     boost::condition_variable spaceCondition;
 
     /// Allocator used to allocate and free @ref buffer
-    Statistics::Allocator<Statistics::Allocator<std::allocator<char> > > allocator;
+    Statistics::Allocator<std::allocator<char> > allocator;
 
     /**
      * Circular buffer for passing splats to the stream thread. The range

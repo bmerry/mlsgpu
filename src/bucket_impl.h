@@ -15,6 +15,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/mem_fn.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
 #include <ostream>
 #include <limits>
 #include "bucket.h"
@@ -139,7 +140,7 @@ public:
     std::tr1::int64_t getNodeCount(const Node &node) const;
 
     /// Size in microblocks of the region being processed.
-    const Grid::size_type *getDims() const { return dims; }
+    const Grid::size_type *getDims() const { return &dims[0]; }
 
 private:
     friend class PickNodes;
@@ -163,7 +164,7 @@ private:
     };
 
     /// Size in microblocks of the region being processed.
-    Grid::size_type dims[3];
+    boost::array<Grid::size_type, 3> dims;
 
     /**
      * Octree of splat counts. Each element of the vector is one level of the
@@ -175,12 +176,12 @@ private:
      * will thus typically be negative. @ref upsweepCounts applies the
      * summation up the tree.
      */
-    Statistics::Container::vector<boost::multi_array<std::tr1::int64_t, 3> > nodeCounts;
+    boost::ptr_vector<Statistics::Container::multi_array<std::tr1::int64_t, 3> > nodeCounts;
 
     /**
      * Index of the chosen subregion for each leaf (BAD_REGION if empty).
      */
-    boost::multi_array<std::size_t, 3> microRegions;
+    Statistics::Container::multi_array<std::size_t, 3> microRegions;
 
     /**
      * The nodes and ranges for the next level of the hierarchy.
@@ -200,6 +201,12 @@ private:
                const boost::array<Grid::difference_type, 3> &upper,
                boost::array<Node::size_type, 3> &lo,
                boost::array<Node::size_type, 3> &hi);
+
+    /**
+     * Determine the number of microblocks in each dimension (used to
+     * initialize @ref dims).
+     */
+    boost::array<Grid::size_type, 3> computeDims(const Grid &grid, Grid::size_type microSize);
 };
 
 template<typename Splats>
@@ -234,7 +241,7 @@ void BucketState::doCallbacks(
     }
 }
 
-class BucketStateSet : public boost::multi_array<boost::shared_ptr<BucketState>, 3>
+class BucketStateSet : public Statistics::Container::multi_array<boost::shared_ptr<BucketState>, 3>
 {
 public:
     BucketStateSet(

@@ -14,6 +14,7 @@
 #include <new>
 #include <vector>
 #include <string>
+#include <boost/multi_array.hpp>
 #include "tr1_unordered_map.h"
 #include "tr1_unordered_set.h"
 #include "statistics.h"
@@ -34,6 +35,8 @@ namespace Statistics
 template<typename BaseAllocator>
 class Allocator : public BaseAllocator
 {
+    friend class ::TestAllocator;
+    template<typename B> friend class Allocator;
 private:
     /**
      * The statistic in which we store total allocated memory. It may be @c NULL
@@ -41,8 +44,11 @@ private:
      */
     Statistics::Peak<typename BaseAllocator::size_type> *usage;
 
-    template<typename B> friend class Allocator;
-    friend class ::TestAllocator;
+    /**
+     * The statistic for storing the global total memory allocation. It may be
+     * @c NULL (and will be if this allocator is default-constructed).
+     */
+    Statistics::Peak<typename BaseAllocator::size_type> *allUsage;
 
 public:
     /// Underlying allocator type
@@ -54,15 +60,21 @@ public:
      * @param usage   The statistic that will track usage from this allocator.
      *                It may already have a non-zero current value. If it is @c NULL, no
      *                tracking is done.
+     * @param allUsage The statistic that will track total memory usage. It is
+     *                functionally equivalent to @a usage.
      * @param base    The underlying allocator providing the real functionality.
      */
     explicit Allocator(Statistics::Peak<typename BaseAllocator::size_type> *usage = NULL,
+                       Statistics::Peak<typename BaseAllocator::size_type> *allUsage = NULL,
                        const BaseAllocator &base = BaseAllocator()) throw()
-        : BaseAllocator(base), usage(usage) {}
+        : BaseAllocator(base), usage(usage), allUsage(allUsage) {}
 
     /// Copy and conversion constructors
     template<typename B>
-    Allocator(const Allocator<B> &b) : BaseAllocator(static_cast<const B &>(b)), usage(b.usage) {}
+    Allocator(const Allocator<B> &b) :
+        BaseAllocator(static_cast<const B &>(b)),
+        usage(b.usage),
+        allUsage(b.allUsage) {}
 
     /// Interface requirement
     template<typename U> struct rebind
@@ -78,6 +90,8 @@ public:
         typename BaseAllocator::pointer ans = BaseAllocator::allocate(n);
         if (usage != NULL)
             *usage += n * sizeof(typename BaseAllocator::value_type);
+        if (allUsage != NULL)
+            *allUsage += n * sizeof(typename BaseAllocator::value_type);
         return ans;
     }
 
@@ -90,6 +104,8 @@ public:
         typename BaseAllocator::pointer ans = BaseAllocator::allocate(n, hint);
         if (usage != NULL)
             *usage += n * sizeof(typename BaseAllocator::value_type);
+        if (allUsage != NULL)
+            *allUsage += n * sizeof(typename BaseAllocator::value_type);
         return ans;
     }
 
@@ -99,6 +115,8 @@ public:
         BaseAllocator::deallocate(p, n);
         if (usage != NULL)
             *usage -= n * sizeof(typename BaseAllocator::value_type);
+        if (allUsage != NULL)
+            *allUsage -= n * sizeof(typename BaseAllocator::value_type);
     }
 
     template<typename A, typename B>
@@ -109,7 +127,9 @@ public:
 template<typename A, typename B>
 bool operator==(const Allocator<A> &a, const Allocator<B> &b)
 {
-    return a.usage == b.usage && static_cast<const A &>(a) == static_cast<const B &>(b);
+    return a.usage == b.usage
+        && a.allUsage == b.allUsage
+        && static_cast<const A &>(a) == static_cast<const B &>(b);
 }
 
 template<typename A, typename B>
@@ -127,11 +147,11 @@ template<typename Alloc>
 Alloc makeAllocator(const std::string &name)
 {
     typedef typename Alloc::size_type size_type;
-    Statistics::Peak<size_type> &allStat = Statistics::getStatistic<Statistics::Peak<size_type> >("mem.all");
-    typename Alloc::base_type base(&allStat);
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+    Statistics::Peak<size_type> &allStat = registry.getStatistic<Statistics::Peak<size_type> >("mem.all");
+    Statistics::Peak<size_type> &myStat = registry.getStatistic<Statistics::Peak<size_type> >(name);
 
-    Statistics::Peak<size_type> &myStat = Statistics::getStatistic<Statistics::Peak<size_type> >(name);
-    return Alloc(&myStat, base);
+    return Alloc(&myStat, &allStat);
 }
 
 /**
@@ -149,7 +169,7 @@ namespace Container
  */
 template<
     typename T,
-    typename Alloc = Allocator<Allocator<std::allocator<T> > > >
+    typename Alloc = Allocator<std::allocator<T> > >
 class vector : public std::vector<T, Alloc>
 {
 private:
@@ -174,7 +194,7 @@ template<
     typename Value,
     typename Hash = std::tr1::hash<Value>,
     typename Pred = std::equal_to<Value>,
-    typename Alloc = Allocator<Allocator<std::allocator<Value> > > >
+    typename Alloc = Allocator<std::allocator<Value> > >
 class unordered_set : public std::tr1::unordered_set<Value, Hash, Pred, Alloc>
 {
 private:
@@ -209,7 +229,7 @@ template<
     typename T,
     typename Hash = std::tr1::hash<Key>,
     typename Pred = std::equal_to<Key>,
-    typename Alloc = Allocator<Allocator<std::allocator<std::pair<const Key, T> > > > >
+    typename Alloc = Allocator<std::allocator<std::pair<const Key, T> > > >
 class unordered_map : public std::tr1::unordered_map<Key, T, Hash, Pred, Alloc>
 {
 private:
@@ -233,6 +253,28 @@ public:
         const hasher &hf = hasher(),
         const key_equal &eql = key_equal())
         : BaseType(f, l, n, hf, eql, makeAllocator<Alloc>(allocName)) {}
+};
+
+template<
+    typename ValueType,
+    std::size_t NumDims,
+    typename Alloc = Allocator<std::allocator<ValueType> > >
+class multi_array : public boost::multi_array<ValueType, NumDims, Alloc>
+{
+private:
+    typedef boost::multi_array<ValueType, NumDims, Alloc> BaseType;
+
+public:
+    explicit multi_array(
+        const std::string &allocName)
+        : BaseType(std::vector<std::size_t>(NumDims, 0), boost::c_storage_order(),
+                   makeAllocator<Alloc>(allocName)) {}
+
+    template<typename ExtentList>
+    multi_array(const std::string &allocName,
+                const ExtentList &sizes,
+                const typename BaseType::storage_order_type &store = boost::c_storage_order())
+        : BaseType(sizes, store, makeAllocator<Alloc>(allocName)) {}
 };
 
 } // namespace Container
