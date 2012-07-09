@@ -13,6 +13,7 @@
 #include <deque>
 #include <algorithm>
 #include <memory>
+#include <boost/noncopyable.hpp>
 #include <boost/program_options.hpp>
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
@@ -29,6 +30,7 @@
 #include "../src/progress.h"
 #include "../src/options.h"
 #include "../src/worker_group.h"
+#include "../src/tr1_cstdint.h"
 #include "normals.h"
 #include "normals_sweep.h"
 
@@ -78,9 +80,10 @@ public:
     explicit CompareSplats(int axis) : axis(axis) {}
 };
 
-struct Slice
+struct Slice : public boost::noncopyable
 {
-    std::vector<Splat> splats;
+    Statistics::Peak<std::tr1::uint64_t> &activeStat;
+    Statistics::Container::vector<Splat> splats;
     Eigen::MatrixXf points;
     boost::scoped_ptr<Nabo::NNSearchF> tree;
     float minCut, maxCut;
@@ -92,6 +95,9 @@ struct Slice
 
     void makeTree()
     {
+        assert(!tree);
+        activeStat += splats.size();
+
         points.resize(3, splats.size());
         for (std::size_t i = 0; i < splats.size(); i++)
         {
@@ -99,6 +105,16 @@ struct Slice
                 points(j, i) = splats[i].position[j];
         }
         tree.reset(Nabo::NNSearchF::createKDTreeLinearHeap(points));
+    }
+
+    Slice() :
+        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
+        splats("mem.splats") {}
+
+    ~Slice()
+    {
+        if (tree)
+            activeStat -= splats.size();
     }
 };
 
