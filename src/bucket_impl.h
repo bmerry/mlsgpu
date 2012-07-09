@@ -216,6 +216,11 @@ void BucketState::doCallbacks(
     const Recursion &recursionState,
     const boost::array<Grid::difference_type, 3> &chunkOffset)
 {
+    std::size_t numRanges = 0;
+    BOOST_FOREACH(Subregion &region, subregions)
+    {
+        numRanges += region.subset.numRanges();
+    }
     BOOST_FOREACH(Subregion &region, subregions)
     {
         // Clip the region to the grid
@@ -226,7 +231,7 @@ void BucketState::doCallbacks(
 
         Recursion childRecursion = recursionState;
         childRecursion.depth++;
-        childRecursion.totalRanges += region.subset.numRanges();
+        childRecursion.totalRanges += numRanges;
         for (unsigned int i = 0; i < 3; i++)
             childRecursion.chunk[i] += chunkOffset[i];
 
