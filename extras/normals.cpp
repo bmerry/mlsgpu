@@ -151,11 +151,14 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 
         boost::io::ios_exception_saver saver(*out);
         out->exceptions(std::ios::failbit | std::ios::badbit);
-        out->precision(9);
         *out << "normals version: " << provenanceVersion() << '\n';
         *out << "normals variant: " << provenanceVariant() << '\n';
         *out << "normals options:" << makeOptions(vm) << '\n';
-        *out << Statistics::Registry::getInstance();
+        {
+            boost::io::ios_precision_saver saver2(*out);
+            out->precision(15);
+            *out << Statistics::Registry::getInstance();
+        }
         *out << *stxxl::stats::get_instance();
     }
 }
