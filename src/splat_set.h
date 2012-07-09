@@ -669,7 +669,7 @@ class FastBlobSet : public Base
 , public SubsettableConcept
 #endif
 {
-    template<typename BaseType> friend class TestFastBlobSet;
+    template<typename BaseType> friend class ::TestFastBlobSet;
 public:
     /**
      * Class returned by makeBlobStream only in the fast path.

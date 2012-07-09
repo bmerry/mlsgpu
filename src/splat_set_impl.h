@@ -119,7 +119,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     outQueue.push(Item());
 }
 
-static std::tr1::int32_t extractUnsigned(std::tr1::uint32_t value, int lbit, int hbit)
+static inline std::tr1::int32_t extractUnsigned(std::tr1::uint32_t value, int lbit, int hbit)
 {
     assert(0 <= lbit && lbit < hbit && hbit <= 32);
     assert(hbit - lbit < 32);
@@ -128,7 +128,7 @@ static std::tr1::int32_t extractUnsigned(std::tr1::uint32_t value, int lbit, int
     return value;
 }
 
-static std::tr1::uint32_t extractSigned(std::tr1::uint32_t value, int lbit, int hbit)
+static inline std::tr1::uint32_t extractSigned(std::tr1::uint32_t value, int lbit, int hbit)
 {
     int bits = hbit - lbit;
     std::tr1::int32_t ans = extractUnsigned(value, lbit, hbit);
@@ -137,7 +137,7 @@ static std::tr1::uint32_t extractSigned(std::tr1::uint32_t value, int lbit, int 
     return ans;
 }
 
-static std::tr1::uint32_t insertUnsigned(std::tr1::uint32_t payload, std::tr1::uint32_t value, int lbit, int hbit)
+static inline std::tr1::uint32_t insertUnsigned(std::tr1::uint32_t payload, std::tr1::uint32_t value, int lbit, int hbit)
 {
     assert(0 <= lbit && lbit < hbit && hbit <= 32);
     assert(hbit - lbit < 32);
@@ -146,7 +146,7 @@ static std::tr1::uint32_t insertUnsigned(std::tr1::uint32_t payload, std::tr1::u
     return payload | (value << lbit);
 }
 
-static std::tr1::uint32_t insertSigned(std::tr1::uint32_t payload, std::tr1::int32_t value, int lbit, int hbit)
+static inline std::tr1::uint32_t insertSigned(std::tr1::uint32_t payload, std::tr1::int32_t value, int lbit, int hbit)
 {
     assert(0 <= lbit && lbit < hbit && hbit <= 32);
     assert(hbit - lbit < 32);
