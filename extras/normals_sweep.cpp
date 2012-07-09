@@ -278,7 +278,7 @@ void processSlice(
     outGroup.push(0, item);
 }
 
-typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 8 * 1024 * 1024> SortStream;
+typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 1024> SortStream;
 
 void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
                       bool compute, int axis, unsigned int K, float radius, std::size_t maxHostSplats)
