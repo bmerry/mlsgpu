@@ -49,14 +49,16 @@ namespace Option
 {
     static inline const char *maxSplit()      { return "max-split"; }
     static inline const char *leafSize()      { return "leaf-size"; }
+    static inline const char *maxHostSplats() { return "max-host-splats"; }
 };
 
 void addBucketOptions(po::options_description &opts)
 {
     po::options_description opts2("Bucket mode options");
     opts2.add_options()
-        (Option::maxSplit(),     po::value<int>()->default_value(10000000), "Maximum fan-out in partitioning")
-        (Option::leafSize(),     po::value<double>()->default_value(1000.0), "Size of top-level octree leaves");
+        (Option::maxHostSplats(), po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
+        (Option::maxSplit(),      po::value<int>()->default_value(10000000), "Maximum fan-out in partitioning")
+        (Option::leafSize(),      po::value<double>()->default_value(1000.0), "Size of top-level octree leaves");
     opts.add(opts2);
 }
 
@@ -282,6 +284,8 @@ private:
     float maxDistance2;
 
     ProgressDisplay *progress;
+    Timer histoTimer;
+    bool first;
 
     Statistics::Variable &loadStat;
     Statistics::Variable &binStat;
@@ -298,6 +302,7 @@ public:
         compute(compute),
         numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
         progress(progress),
+        first(true),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
         binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size"))
     {}
@@ -307,6 +312,8 @@ public:
     {
         (void) recursionState;
         Log::log[Log::debug] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
+        if (first)
+            Statistics::getStatistic<Statistics::Variable>("histogram.time").add(histoTimer.getElapsed());
 
         boost::shared_ptr<NormalItem> item = outGroup.get();
 
@@ -361,7 +368,7 @@ void runBucket(const po::variables_map &vm)
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
-    NormalWorkerGroup normalGroup(compute ? 8 : 1, compute ? 4 : 0);
+    NormalWorkerGroup normalGroup(compute ? 8 : 1, compute ? 8 : 0);
     normalGroup.producerStart(0);
     normalGroup.start();
 
@@ -392,6 +399,7 @@ void runBucket(const po::variables_map &vm)
 
     Bucket::bucket(splats, grid, maxHostSplats, bucketSize, 0, true, maxSplit,
                    boost::ref(binProcessor), &progress);
+    Statistics::Timer spindownTimer("spindown.time");
     normalGroup.producerStop(0);
     normalGroup.stop();
 }

@@ -23,7 +23,6 @@ namespace Option
 
     static inline const char *inputFile() { return "input-file"; }
 
-    static inline const char *maxHostSplats() { return "max-host-splats"; }
     static inline const char *radius()  { return "radius"; }
     static inline const char *neighbors() { return "neighbors"; }
     static inline const char *noCompute() { return "no-compute"; }

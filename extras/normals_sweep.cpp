@@ -281,7 +281,7 @@ void processSlice(
 typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 1024> SortStream;
 
 void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
-                      bool compute, int axis, unsigned int K, float radius, std::size_t maxHostSplats)
+                      bool compute, int axis, unsigned int K, float radius)
 {
     std::tr1::uint64_t nSplats = 0;
     Timer latency;
@@ -303,7 +303,7 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
         boost::shared_ptr<Slice> curSlice(boost::make_shared<Slice>());
         curSlice->minCut = z0;
         while (!sortStream.empty()
-               && (sortStream->position[axis] < z0 + radius || curSlice->splats.size() < maxHostSplats))
+               && (sortStream->position[axis] < z0 + radius))
         {
             curSlice->addSplat(*sortStream);
             ++sortStream;
@@ -451,7 +451,6 @@ void runSweep(const po::variables_map &vm, bool continuous)
     const int K = vm[Option::neighbors()].as<int>();
     const float radius = vm[Option::radius()].as<double>();
     const int axis = vm[Option::axis()].as<int>();
-    const std::size_t maxHostSplats = vm[Option::maxHostSplats()].as<std::size_t>();
     const bool compute = !vm.count(Option::noCompute());
 
     if (axis < 0 || axis > 2)
@@ -473,5 +472,5 @@ void runSweep(const po::variables_map &vm, bool continuous)
     if (continuous)
         runSweepContinuous(splatStream.get(), &progress, compute, axis, K, radius);
     else
-        runSweepDiscrete(splatStream.get(), &progress, compute, axis, K, radius, maxHostSplats);
+        runSweepDiscrete(splatStream.get(), &progress, compute, axis, K, radius);
 }

@@ -73,7 +73,6 @@ static void addSolveOptions(po::options_description &opts)
 {
     po::options_description solve("Solver options");
     solve.add_options()
-        (Option::maxHostSplats(),   po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
         (Option::radius(),          po::value<double>()->default_value(100),  "Maximum radius to search")
         (Option::neighbors(),       po::value<int>()->default_value(16),      "Neighbors to find")
         (Option::noCompute(),                                                 "Just load, no computations")
