@@ -332,6 +332,7 @@ bool bucketCallback(const Splats &splats, const Grid &grid,
                     boost::true_type)
 {
     process(splats, grid, recursionState);
+    Statistics::getStatistic<Statistics::Counter>("bucket.bins").add(1);
     return true;
 }
 

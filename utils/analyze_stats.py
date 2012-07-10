@@ -7,8 +7,8 @@ from collections import OrderedDict
 def parse_stats(f):
     values = {}
     for line in f:
-        if re.match(r'mlsgpu options: ', line):
-            for m in re.findall(r' --([-a-z0-9]+)=(\S+)', line):
+        if re.match(r'(mlsgpu|normals) options: ', line):
+            for m in re.findall(r' --([-a-zA-Z0-9]+)=(\S+)', line):
                 try:
                     v = int(m[1])
                 except ValueError:
@@ -18,7 +18,7 @@ def parse_stats(f):
                         v = m[1]
                 values[m[0]] = v
         else:
-            m = re.match(r'([a-z0-9.]+): (\S+)', line)
+            m = re.match(r'([a-zA-Z0-9.]+): (\S+)', line)
             if m:
                 try:
                     v = int(m.group(2))

@@ -283,6 +283,7 @@ typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 102
 void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
                       bool compute, int axis, unsigned int K, float radius)
 {
+    Statistics::Variable &loadTime = Statistics::getStatistic<Statistics::Variable>("load.time");
     std::tr1::uint64_t nSplats = 0;
     Timer latency;
 
@@ -302,12 +303,15 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
         float z0 = sortStream->position[axis];
         boost::shared_ptr<Slice> curSlice(boost::make_shared<Slice>());
         curSlice->minCut = z0;
-        while (!sortStream.empty()
-               && (sortStream->position[axis] < z0 + radius))
         {
-            curSlice->addSplat(*sortStream);
-            ++sortStream;
-            ++nSplats;
+            Statistics::Timer loadTimer(loadTime);
+            while (!sortStream.empty()
+                   && (sortStream->position[axis] < z0 + radius))
+            {
+                curSlice->addSplat(*sortStream);
+                ++sortStream;
+                ++nSplats;
+            }
         }
         curSlice->maxCut = curSlice->splats.back().position[axis];
         if (compute)
@@ -325,6 +329,7 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     if (!active.empty() && compute)
         processSlice(normalGroup, axis, active.front(), active, K, radius, progress);
 
+    Statistics::Timer spindownTimer("spindown.time");
     normalGroup.producerStop(0);
     normalGroup.stop();
 
