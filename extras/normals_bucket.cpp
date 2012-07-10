@@ -57,7 +57,7 @@ void addBucketOptions(po::options_description &opts)
     po::options_description opts2("Bucket mode options");
     opts2.add_options()
         (Option::maxHostSplats(), po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
-        (Option::maxSplit(),      po::value<int>()->default_value(10000000), "Maximum fan-out in partitioning")
+        (Option::maxSplit(),      po::value<int>()->default_value(40000000), "Maximum fan-out in partitioning")
         (Option::leafSize(),      po::value<double>()->default_value(1000.0), "Size of top-level octree leaves");
     opts.add(opts2);
 }
