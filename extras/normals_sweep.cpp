@@ -20,9 +20,13 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/tr1/cmath.hpp>
+#include <boost/thread/future.hpp>
 #include <stxxl.h>
 #include <nabo/nabo.h>
 #include <sl/kdtree.hpp>
+#ifdef _OPENMP
+# include <omp.h>
+#endif
 #include "../src/statistics.h"
 #include "../src/splat_set.h"
 #include "../src/fast_ply.h"
@@ -82,10 +86,14 @@ public:
 
 struct Slice : public boost::noncopyable
 {
+    std::tr1::uint64_t index; ///< Sequential number of the slice
     Statistics::Peak<std::tr1::uint64_t> &activeStat;
     Statistics::Container::vector<Splat> splats;
     Eigen::MatrixXf points;
-    boost::scoped_ptr<Nabo::NNSearchF> tree;
+
+    boost::promise<boost::shared_ptr<Nabo::NNSearchF> > treePromise;
+    boost::unique_future<boost::shared_ptr<Nabo::NNSearchF> > tree;
+
     float minCut, maxCut;
 
     void addSplat(const Splat &s)
@@ -95,7 +103,7 @@ struct Slice : public boost::noncopyable
 
     void makeTree()
     {
-        assert(!tree);
+        assert(!tree.is_ready());
         activeStat += splats.size();
 
         points.resize(3, splats.size());
@@ -104,16 +112,24 @@ struct Slice : public boost::noncopyable
             for (int j = 0; j < 3; j++)
                 points(j, i) = splats[i].position[j];
         }
-        tree.reset(Nabo::NNSearchF::createKDTreeLinearHeap(points));
+        boost::shared_ptr<Nabo::NNSearchF> value(Nabo::NNSearchF::createKDTreeLinearHeap(points));
+        treePromise.set_value(value);
+    }
+
+    const Nabo::NNSearchF *getTree()
+    {
+        return tree.get().get();
     }
 
     Slice() :
         activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
-        splats("mem.splats") {}
+        splats("mem.splats"),
+        tree(treePromise.get_future())
+    {}
 
     ~Slice()
     {
-        if (tree)
+        if (tree.has_value())
             activeStat -= splats.size();
     }
 };
@@ -171,6 +187,7 @@ struct NormalItem
     boost::shared_ptr<Slice> slice;
     std::size_t nactive;
     boost::shared_ptr<Slice> active[3];
+    std::tr1::uint64_t needsTree; ///< Index of the first slice whose tree is incomplete
     ProgressDisplay *progress;
 };
 
@@ -189,11 +206,18 @@ public:
         const float maxRadius = item.maxRadius;
         const std::size_t NS = item.nactive;
         const Slice *slice = item.slice.get();
-        assert(NS <= 3);
+        assert(NS >= 1 && NS <= 3);
+
+        // Run tree generation for future slices
+        for (std::size_t i = 0; i < NS; i++)
+            if (item.active[i]->index >= item.needsTree)
+                item.active[i]->makeTree();
 
         Eigen::VectorXf dist2(K);
         Eigen::VectorXi indices(K);
-#pragma omp parallel for firstprivate(dist2, indices) schedule(dynamic,512)
+#ifdef _OPENMP
+# pragma omp parallel for firstprivate(dist2, indices) schedule(dynamic,1024)
+#endif
         for (std::size_t i = 0; i < slice->splats.size(); i++)
         {
             const Eigen::VectorXf query = slice->points.col(i);
@@ -225,7 +249,7 @@ public:
 
                 if (skip < K && nslices[j].first <= limit)
                 {
-                    nslices[j].second->tree->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
+                    nslices[j].second->getTree()->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
                     nn.merge(dist2, indices, nslices[j].second->points, K);
                 }
             }
@@ -263,6 +287,7 @@ void processSlice(
     NormalWorkerGroup &outGroup,
     int axis, boost::shared_ptr<Slice> slice,
     const std::deque<boost::shared_ptr<Slice> > &active,
+    std::tr1::uint64_t needsTree,
     unsigned int K, float maxRadius,
     ProgressDisplay *progress)
 {
@@ -274,6 +299,7 @@ void processSlice(
     item->nactive = active.size();
     for (std::size_t i = 0; i < item->nactive; i++)
         item->active[i] = active[i];
+    item->needsTree = needsTree;
     item->progress = progress;
     outGroup.push(0, item);
 }
@@ -290,10 +316,15 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     SortStream sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
     std::deque<boost::shared_ptr<Slice> > active;
 
-    NormalWorkerGroup normalGroup(1, 1);
+#ifdef _OPENMP
+    omp_set_num_threads(4);
+#endif
+    NormalWorkerGroup normalGroup(2, 1);
     normalGroup.producerStart(0);
     normalGroup.start();
 
+    std::tr1::uint64_t sliceIdx = 0;
+    std::tr1::uint64_t needsTree = 0;
     while (!sortStream.empty())
     {
         if (active.empty())
@@ -314,20 +345,20 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
             }
         }
         curSlice->maxCut = curSlice->splats.back().position[axis];
-        if (compute)
-            curSlice->makeTree();
+        curSlice->index = sliceIdx++;
 
         active.push_front(curSlice);
         if (active.size() >= 2)
         {
             if (compute)
-                processSlice(normalGroup, axis, active[1], active, K, radius, progress);
+                processSlice(normalGroup, axis, active[1], active, needsTree, K, radius, progress);
+            needsTree = sliceIdx;
             if (active.size() == 3)
                 active.pop_back();
         }
     }
     if (!active.empty() && compute)
-        processSlice(normalGroup, axis, active.front(), active, K, radius, progress);
+        processSlice(normalGroup, axis, active.front(), active, needsTree, K, radius, progress);
 
     Statistics::Timer spindownTimer("spindown.time");
     normalGroup.producerStop(0);

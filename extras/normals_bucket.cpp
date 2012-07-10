@@ -26,6 +26,9 @@
 #include <boost/iterator/transform_iterator.hpp>
 #include <stxxl.h>
 #include <Eigen/Core>
+#ifdef _OPENMP
+# include <omp.h>
+#endif
 #include "../src/bucket.h"
 #include "../src/statistics.h"
 #include "../src/splat_set.h"
@@ -160,7 +163,10 @@ struct NormalItem
 
     Statistics::Container::vector<Splat> splats;
 
-    NormalItem() : splats("mem.splats") {}
+    NormalItem(std::size_t maxSplats) : splats("mem.splats")
+    {
+        splats.reserve(maxSplats);
+    }
 };
 
 /// Transformation used to transform the splats for @ref KDTree
@@ -212,6 +218,9 @@ public:
 
             std::vector<Eigen::Vector3f> neighbors;
             neighbors.reserve(item.numNeighbors);
+#ifdef _OPENMP
+# pragma omp parallel for firstprivate(neighbors, indices, dists2) schedule(dynamic,1024)
+#endif
             for (std::size_t i = 0; i < item.splats.size(); i++)
             {
                 const Splat &s = item.splats[i];
@@ -258,7 +267,7 @@ public:
 class NormalWorkerGroup : public WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>
 {
 public:
-    NormalWorkerGroup(std::size_t numWorkers, std::size_t spare)
+    NormalWorkerGroup(std::size_t numWorkers, std::size_t spare, std::size_t maxSplats)
         : WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>(
             numWorkers, spare,
             Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
@@ -269,7 +278,7 @@ public:
         for (std::size_t i = 0; i < numWorkers; i++)
             addWorker(new NormalWorker);
         for (std::size_t i = 0; i < numWorkers + spare; i++)
-            addPoolItem(boost::make_shared<NormalItem>());
+            addPoolItem(boost::make_shared<NormalItem>(maxSplats));
     }
 };
 
@@ -320,7 +329,6 @@ public:
 
         {
             Statistics::Timer timer(loadStat);
-            item->splats.reserve(subset.maxSplats());
             boost::scoped_ptr<SplatSet::SplatStream> stream(subset.makeSplatStream());
             item->splats.clear();
             while (!stream->empty())
@@ -369,7 +377,10 @@ void runBucket(const po::variables_map &vm)
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
-    NormalWorkerGroup normalGroup(compute ? 8 : 1, compute ? 8 : 0);
+#ifdef _OPENMP
+    omp_set_num_threads(4);
+#endif
+    NormalWorkerGroup normalGroup(compute ? 2 : 1, compute ? 2 : 0, maxHostSplats);
     normalGroup.producerStart(0);
     normalGroup.start();
 
