@@ -314,6 +314,7 @@ public:
         Log::log[Log::debug] << binGrid.numCells(0) << " x " << binGrid.numCells(1) << " x " << binGrid.numCells(2) << '\n';
         if (first)
             Statistics::getStatistic<Statistics::Variable>("histogram.time").add(histoTimer.getElapsed());
+        first = false;
 
         boost::shared_ptr<NormalItem> item = outGroup.get();
 
