@@ -369,10 +369,14 @@ void runBucket(const po::variables_map &vm)
     Splats splats;
     splats.setTransform(TransformSetRadius(radius));
 
+    Statistics::Counter &numScans = Statistics::getStatistic<Statistics::Counter>("files.scans");
+    Statistics::Counter &numBytes = Statistics::getStatistic<Statistics::Counter>("files.bytes");
     BOOST_FOREACH(const std::string &name, names)
     {
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
         splats.addFile(reader.get());
+        numScans.add(1);
+        numBytes.add(reader->size() * reader->getVertexSize());
         reader.release();
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
