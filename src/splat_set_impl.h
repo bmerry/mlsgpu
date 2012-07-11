@@ -60,6 +60,7 @@ FileSet::ReaderThread<RangeIterator>::ReaderThread(const FileSet &owner, RangeIt
 template<typename RangeIterator>
 void FileSet::ReaderThread<RangeIterator>::operator()()
 {
+    Statistics::Variable &readStat = Statistics::getStatistic<Statistics::Variable>("files.read.time");
     boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
     std::size_t handleId;
     for (RangeIterator r = firstRange; r != lastRange; ++r)
@@ -104,7 +105,10 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
                     item.last = first + nSplats;
                     item.ptr = (char *) chunk.first;
                     item.bytes = chunk.second;
-                    handle->readRaw(start, start + nSplats, item.ptr);
+                    {
+                        Statistics::Timer timer(readStat);
+                        handle->readRaw(start, start + nSplats, item.ptr);
+                    }
                     outQueue.push(item);
 
                     start += nSplats;
