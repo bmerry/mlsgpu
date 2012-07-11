@@ -212,6 +212,7 @@ public:
         for (std::size_t i = 0; i < NS; i++)
             if (item.active[i]->index >= item.needsTree)
                 item.active[i]->makeTree();
+        slice->tree.wait();
 
         Eigen::VectorXf dist2(K);
         Eigen::VectorXi indices(K);
