@@ -89,10 +89,11 @@ struct Slice : public boost::noncopyable
     std::tr1::uint64_t index; ///< Sequential number of the slice
     Statistics::Peak<std::tr1::uint64_t> &activeStat;
     Statistics::Container::vector<Splat> splats;
-    Eigen::MatrixXf points;
 
-    boost::promise<boost::shared_ptr<Nabo::NNSearchF> > treePromise;
-    boost::unique_future<boost::shared_ptr<Nabo::NNSearchF> > tree;
+    Eigen::MatrixXf points;
+    boost::scoped_ptr<Nabo::NNSearchF> tree;
+    boost::mutex treeMutex; ///< Guards @c tree and @c points
+    boost::condition_variable treeCondition; ///< Signaled when @c makeTree completes
 
     float minCut, maxCut;
 
@@ -103,7 +104,8 @@ struct Slice : public boost::noncopyable
 
     void makeTree()
     {
-        assert(!tree.is_ready());
+        boost::lock_guard<boost::mutex> lock(treeMutex);
+        assert(!tree);
         activeStat += splats.size();
 
         points.resize(3, splats.size());
@@ -112,24 +114,31 @@ struct Slice : public boost::noncopyable
             for (int j = 0; j < 3; j++)
                 points(j, i) = splats[i].position[j];
         }
-        boost::shared_ptr<Nabo::NNSearchF> value(Nabo::NNSearchF::createKDTreeLinearHeap(points));
-        treePromise.set_value(value);
+        tree.reset(Nabo::NNSearchF::createKDTreeLinearHeap(points));
+        treeCondition.notify_all();
     }
 
-    const Nabo::NNSearchF *getTree()
+    void waitTree()
     {
-        return tree.get().get();
+        boost::unique_lock<boost::mutex> lock(treeMutex);
+        while (!tree)
+            treeCondition.wait(lock);
+    }
+
+    const Nabo::NNSearchF *getTree() const
+    {
+        assert(tree);
+        return tree.get();
     }
 
     Slice() :
         activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
-        splats("mem.splats"),
-        tree(treePromise.get_future())
+        splats("mem.splats")
     {}
 
     ~Slice()
     {
-        if (tree.has_value())
+        if (tree)
             activeStat -= splats.size();
     }
 };
@@ -205,33 +214,43 @@ public:
         const unsigned int K = item.K;
         const float maxRadius = item.maxRadius;
         const std::size_t NS = item.nactive;
-        const Slice *slice = item.slice.get();
+        const Slice * const slice = item.slice.get();
+        const Slice * const active[3] =
+        {
+            item.active[0].get(),
+            item.active[1].get(),
+            item.active[2].get()
+        };
         assert(NS >= 1 && NS <= 3);
 
         // Run tree generation for future slices
         for (std::size_t i = 0; i < NS; i++)
             if (item.active[i]->index >= item.needsTree)
                 item.active[i]->makeTree();
-        slice->tree.wait();
+
+        // Wait for tree generation from previous slices
+        for (std::size_t i = 0; i < NS; i++)
+            if (item.active[i]->index < item.needsTree)
+                item.active[i]->waitTree();
 
         Eigen::VectorXf dist2(K);
         Eigen::VectorXi indices(K);
 #ifdef _OPENMP
-# pragma omp parallel for firstprivate(dist2, indices) schedule(dynamic,1024)
+# pragma omp parallel for shared(active) firstprivate(dist2, indices) default(none) schedule(dynamic,1024)
 #endif
         for (std::size_t i = 0; i < slice->splats.size(); i++)
         {
             const Eigen::VectorXf query = slice->points.col(i);
             const float z = query[axis];
 
-            std::pair<float, Slice *> nslices[3];
+            std::pair<float, const Slice *> nslices[3];
             for (std::size_t j = 0; j < NS; j++)
             {
-                nslices[j].second = item.active[j].get();
-                if (item.active[j]->maxCut < z)
-                    nslices[j].first = z - item.active[j]->maxCut;
-                else if (item.active[j]->minCut > z)
-                    nslices[j].first = item.active[j]->minCut - z;
+                nslices[j].second = active[j];
+                if (active[j]->maxCut < z)
+                    nslices[j].first = z - active[j]->maxCut;
+                else if (active[j]->minCut > z)
+                    nslices[j].first = active[j]->minCut - z;
                 else
                     nslices[j].first = 0.0f;
             }
