@@ -102,11 +102,15 @@ struct Slice : public boost::noncopyable
         splats.push_back(s);
     }
 
+    void finishSplats()
+    {
+        activeStat += splats.size();
+    }
+
     void makeTree()
     {
         boost::lock_guard<boost::mutex> lock(treeMutex);
         assert(!tree);
-        activeStat += splats.size();
 
         points.resize(3, splats.size());
         for (std::size_t i = 0; i < splats.size(); i++)
@@ -138,8 +142,7 @@ struct Slice : public boost::noncopyable
 
     ~Slice()
     {
-        if (tree)
-            activeStat -= splats.size();
+        activeStat -= splats.size();
     }
 };
 
@@ -363,6 +366,7 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
                 ++sortStream;
                 ++nSplats;
             }
+            curSlice->finishSplats();
         }
         curSlice->maxCut = curSlice->splats.back().position[axis];
         curSlice->index = sliceIdx++;
