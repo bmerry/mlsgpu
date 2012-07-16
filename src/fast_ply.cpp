@@ -369,6 +369,13 @@ void MmapReader::MmapHandle::readRaw(size_type first, size_type last, char *buff
     std::memcpy(buffer, vertexPtr + first * vertexSize, (last - first) * vertexSize);
 }
 
+void MmapReader::MmapHandle::prefetch(size_type first, size_type last) const
+{
+    // TODO: use madvise under UNIX
+    (void) first;
+    (void) last;
+}
+
 MmapReader::MmapReader(const std::string &filename, float smooth = 1.0f)
     : ReaderBase(filename, smooth), filename(filename)
 {
@@ -441,6 +448,21 @@ void SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char
     }
 }
 
+void SyscallReader::SyscallHandle::prefetch(size_type first, size_type last) const
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+
+#if HAVE_POSIX_FADVISE
+    const std::size_t vertexSize = owner.getVertexSize();
+    const off_t offset = static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize;
+    const off_t len = (last - first) * vertexSize;
+    posix_fadvise(fd, offset, len, POSIX_FADV_WILLNEED);
+#else
+    (void) first;
+    (void) last;
+#endif
+}
+
 SyscallReader::SyscallHandle::~SyscallHandle()
 {
     close(fd);
@@ -511,6 +533,11 @@ void SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char
         e << boost::errinfo_file_name(static_cast<const SyscallReader &>(owner).filename);
         throw;
     }
+}
+
+void SyscallReader::SyscallHandle::prefetch(size_type first, size_type last) const
+{
+    // TODO: implement for win32
 }
 
 SyscallReader::SyscallHandle::~SyscallHandle()

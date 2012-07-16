@@ -153,6 +153,16 @@ public:
         virtual void readRaw(size_type first, size_type last, char *buffer) const = 0;
 
         /**
+         * A hint that a range will be read in the near future. The subclass
+         * may pass this hint to the OS, or it may ignore it.
+         */
+        virtual void prefetch(size_type first, size_type last) const
+        {
+            (void) first;
+            (void) last;
+        }
+
+        /**
          * Convenience wrapper around @ref Reader::decode.
          *
          * @see @ref Reader::decode.
@@ -276,6 +286,7 @@ private:
 
     public:
         virtual void readRaw(size_type first, size_type last, char *buffer) const;
+        virtual void prefetch(size_type first, size_type last) const;
 
         explicit MmapHandle(const MmapReader &owner, const std::string &filename);
     };
@@ -316,6 +327,7 @@ private:
         SyscallHandle(const SyscallReader &owner);
 
         virtual void readRaw(size_type first, size_type last, char *buffer) const;
+        virtual void prefetch(size_type first, size_type last) const;
 
         virtual ~SyscallHandle();
     };
