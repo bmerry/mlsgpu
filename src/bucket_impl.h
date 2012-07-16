@@ -113,8 +113,12 @@ public:
     BucketState(const BucketParameters &params, const Grid &grid,
                 Grid::size_type microSize, int macroLevels);
 
-    /// Enters a blob into all corresponding counters in the tree.
-    void countSplats(const SplatSet::BlobInfo &blob);
+    /**
+     * Enters a blob into all corresponding counters in the tree.
+     * @param blob      The blob to use
+     * @param updates   Will be incremented by the number of counters affected, per splat
+     */
+    void countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates);
 
     /**
      * Convert @ref nodeCounts from a delta encoding to plain counts.
@@ -418,12 +422,16 @@ void bucketRecurse(
 
         /* Create histogram */
         boost::scoped_ptr<SplatSet::BlobStream> blobs(splats.makeBlobStream(grid, microSize));
+        std::tr1::uint64_t numUpdates = 0;
         while (!blobs->empty())
         {
-            states.processBlob(**blobs, boost::mem_fn(&BucketState::countSplats));
+            states.processBlob(**blobs,
+                               boost::bind(&BucketState::countSplats, _1, _2, boost::ref(numUpdates)));
             ++*blobs;
         }
         blobs.reset();
+        Statistics::getStatistic<Statistics::Counter>("bucket.countSplats.updates")
+            .add(numUpdates);
 
         boost::array<Grid::difference_type, 3> chunkCoord;
         for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)

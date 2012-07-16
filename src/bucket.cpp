@@ -191,17 +191,19 @@ std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
     return nodeCounts[node.getLevel()](node.getCoords());
 }
 
-void BucketState::countSplats(const SplatSet::BlobInfo &blob)
+void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates)
 {
     int level = 0;
     boost::array<Node::size_type, 3> lo, hi;
     if (!clamp(blob.lower, blob.upper, lo, hi))
         return;
+    SplatSet::splat_id numSplats = blob.lastSplat - blob.firstSplat;
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                nodeCounts[level][x][y][z] += blob.lastSplat - blob.firstSplat;
+                nodeCounts[level][x][y][z] += numSplats;
+                numUpdates += numSplats;
             }
     while (level < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
@@ -217,8 +219,8 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob)
                         hits *= 2;
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
-                    SplatSet::splat_id numSplats = blob.lastSplat - blob.firstSplat;
                     nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
+                    numUpdates += numSplats;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {
