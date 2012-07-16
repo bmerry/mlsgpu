@@ -22,6 +22,7 @@
 #endif
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
+#include "errors.h"
 #include "splat_set.h"
 
 namespace SplatSet
@@ -51,6 +52,92 @@ void VectorSet::MySplatStream<RangeIterator>::refill()
     }
 }
 
+
+template<typename RangeIterator>
+void FileSet::FileRangeIterator<RangeIterator>::increment()
+{
+    MLSGPU_ASSERT(curRange != lastRange, state_error);
+    MLSGPU_ASSERT(owner != NULL, state_error);
+    first = (first | splatIdMask) + 1; // advance to next fileId
+    refill();
+}
+
+template<typename RangeIterator>
+void FileSet::FileRangeIterator<RangeIterator>::refill()
+{
+    if (curRange != lastRange)
+    {
+        while (true)
+        {
+            std::size_t fileId = first >> scanIdShift;
+            if (first >= curRange->second || fileId >= owner->files.size())
+            {
+                ++curRange;
+                if (curRange == lastRange)
+                {
+                    first = 0;
+                    return;
+                }
+                else
+                {
+                    first = curRange->first;
+                }
+            }
+            else if ((first & splatIdMask) >= owner->files[fileId].size())
+            {
+                first = (splat_id(fileId) + 1) << scanIdShift; // advance to next fileId
+            }
+            else
+                break;
+        }
+    }
+}
+
+template<typename RangeIterator>
+bool FileSet::FileRangeIterator<RangeIterator>::equal(const FileRangeIterator<RangeIterator> &other) const
+{
+    if (curRange == lastRange)
+        return other.curRange == other.lastRange;
+    else
+        return curRange == other.curRange && first == other.first;
+}
+
+template<typename RangeIterator>
+FileSet::FileRange FileSet::FileRangeIterator<RangeIterator>::dereference() const
+{
+    MLSGPU_ASSERT(curRange != lastRange, state_error);
+    MLSGPU_ASSERT(owner != NULL, state_error);
+    FileRange ans;
+
+    ans.fileId = first >> scanIdShift;
+    ans.start = first & splatIdMask;
+    assert(ans.fileId < owner->files.size());
+    ans.end = owner->files[ans.fileId].size();
+    if ((curRange->second >> scanIdShift) == ans.fileId)
+        ans.end = std::min(ans.end, FastPly::ReaderBase::size_type(curRange->second & splatIdMask));
+    return ans;
+}
+
+template<typename RangeIterator>
+FileSet::FileRangeIterator<RangeIterator>::FileRangeIterator(
+    const FileSet &owner,
+    RangeIterator firstRange,
+    RangeIterator lastRange)
+: owner(&owner), curRange(firstRange), lastRange(lastRange), first(0)
+{
+    if (curRange != lastRange)
+        first = curRange->first;
+    refill();
+}
+
+template<typename RangeIterator>
+FileSet::FileRangeIterator<RangeIterator>::FileRangeIterator(
+    const FileSet &owner,
+    RangeIterator lastRange)
+: owner(&owner), curRange(lastRange), lastRange(lastRange), first(0)
+{
+}
+
 template<typename RangeIterator>
 FileSet::ReaderThread<RangeIterator>::ReaderThread(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange)
     : FileSet::ReaderThreadBase(owner), firstRange(firstRange), lastRange(lastRange)
@@ -63,60 +150,45 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     Statistics::Variable &readStat = Statistics::getStatistic<Statistics::Variable>("files.read.time");
     boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
     std::size_t handleId;
-    for (RangeIterator r = firstRange; r != lastRange; ++r)
+    FileRangeIterator<RangeIterator> first(owner, firstRange, lastRange);
+    FileRangeIterator<RangeIterator> last(owner, lastRange);
+    for (FileRangeIterator<RangeIterator> i = first; i != last; ++i)
     {
-        splat_id first = r->first;
-        splat_id last = r->second;
+        const FileRange range = *i;
 
-        while (first < last)
+        std::size_t vertexSize = owner.files[range.fileId].getVertexSize();
+        if (vertexSize > buffer.size() / 2)
         {
-            std::size_t fileId = first >> scanIdShift;
-            if (fileId >= owner.files.size())
-                break;
+            // TODO: associate the filename with it? Might be too late.
+            throw std::runtime_error("Far too many bytes per vertex");
+        }
 
-            FastPly::ReaderBase::size_type start = first & splatIdMask;
-            FastPly::ReaderBase::size_type end = owner.files[fileId].size();
-            if ((last >> scanIdShift) == fileId)
-                end = std::min(end, FastPly::ReaderBase::size_type(last & splatIdMask));
+        if (!handle || range.fileId != handleId)
+        {
+            handle.reset(); // close the old handle
+            handle.reset(owner.files[range.fileId].createHandle());
+            handleId = range.fileId;
+        }
 
-            if (start < end)
+        FastPly::ReaderBase::size_type start = range.start;
+        FastPly::ReaderBase::size_type end = range.end;
+        while (start < end)
+        {
+            std::pair<void *, std::size_t> chunk = buffer.allocate(vertexSize, end - start);
+            std::size_t nSplats = chunk.second;
+
+            Item item;
+            item.first = start + (splat_id(range.fileId) << scanIdShift);
+            item.last = item.first + nSplats;
+            item.ptr = (char *) chunk.first;
+            item.bytes = chunk.second;
             {
-                std::size_t vertexSize = owner.files[fileId].getVertexSize();
-                if (vertexSize > buffer.size() / 2)
-                {
-                    // TODO: associate the filename with it? Might be too late.
-                    throw std::runtime_error("Far too many bytes per vertex");
-                }
-
-                if (!handle || fileId != handleId)
-                {
-                    handle.reset(); // close the old handle
-                    handle.reset(owner.files[fileId].createHandle());
-                    handleId = fileId;
-                }
-
-                while (start < end)
-                {
-                    std::pair<void *, std::size_t> chunk = buffer.allocate(vertexSize, end - start);
-                    std::size_t nSplats = chunk.second;
-
-                    Item item;
-                    item.first = first;
-                    item.last = first + nSplats;
-                    item.ptr = (char *) chunk.first;
-                    item.bytes = chunk.second;
-                    {
-                        Statistics::Timer timer(readStat);
-                        handle->readRaw(start, start + nSplats, item.ptr);
-                    }
-                    outQueue.push(item);
-
-                    start += nSplats;
-                    first += nSplats;
-                }
+                Statistics::Timer timer(readStat);
+                handle->readRaw(start, start + nSplats, item.ptr);
             }
+            outQueue.push(item);
 
-            first = (fileId + 1) << scanIdShift;
+            start += nSplats;
         }
     }
     // Signal completion

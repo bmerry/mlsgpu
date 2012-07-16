@@ -25,6 +25,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/type_traits/integral_constant.hpp>
+#include <boost/iterator/iterator_facade.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/locks.hpp>
 #include "grid.h"
@@ -386,6 +387,51 @@ private:
  */
 class FileSet
 {
+private:
+    struct FileRange
+    {
+        std::size_t fileId;  ///< Index into list of files
+        FastPly::ReaderBase::size_type start, end;  ///< Indices within @ref fileId
+    };
+
+    /**
+     * Iterator class that is used to wrap an iterator over ranges and presents
+     * range that are always within a single file, clamped to the range of the
+     * file size, and non-empty.
+     */
+    template<typename RangeIterator>
+    class FileRangeIterator : public boost::iterator_facade<
+        FileRangeIterator<RangeIterator>,
+        FileRange,
+        boost::forward_traversal_tag,
+        FileRange>
+    {
+    private:
+        const FileSet *owner;
+        RangeIterator curRange;
+        RangeIterator lastRange;
+        splat_id first; ///< First splat in the returned range (0 if singular)
+
+        friend class boost::iterator_core_access;
+
+        void refill(); ///< Advance until a non-empty output range is found
+
+        void increment();
+
+        bool equal(const FileRangeIterator &other) const;
+
+        FileRange dereference() const;
+
+    public:
+        FileRangeIterator() : owner(NULL), curRange(), lastRange(), first(0) {}
+
+        /// Begin iterator
+        FileRangeIterator(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange);
+
+        /// End iterator
+        explicit FileRangeIterator(const FileSet &owner, RangeIterator lastRange);
+    };
+
 public:
     enum
     {
