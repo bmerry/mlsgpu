@@ -10,7 +10,7 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
-#if HAVE_OMP_H
+#ifdef _OPENMP
 # include <omp.h>
 #else
 # ifndef omp_get_num_threads
@@ -384,15 +384,23 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
          * do it manually by having a separate bbox location for each thread.
          */
         std::vector<detail::Bbox> bboxes;
+#ifdef _OPENMP
 #pragma omp parallel shared(bboxes, buffer, nBuffer)
+#endif
         {
+#ifdef _OPENMP
 #pragma omp master
+#endif
             {
                 bboxes.resize(omp_get_num_threads());
             }
+#ifdef _OPENMP
 #pragma omp barrier
+#endif
             int tid = omp_get_thread_num();
+#ifdef _OPENMP
 #pragma omp for schedule(dynamic, 8192)
+#endif
             for (std::size_t i = 0; i < nBuffer; i++)
             {
                 const Splat &splat = buffer[i].first;
@@ -402,7 +410,9 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 bboxes[tid] += buffer[i].first;
             }
 
+#ifdef _OPENMP
 #pragma omp master
+#endif
             {
                 for (int i = 0; i < omp_get_num_threads(); i++)
                     bbox += bboxes[i];

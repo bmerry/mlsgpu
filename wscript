@@ -237,7 +237,6 @@ def configure(conf):
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
-    conf.check_cxx(header_name = 'omp.h', mandatory = False)
 
     # Detect which timer implementation to use
     # We have to provide a fragment because with the default one the
