@@ -339,9 +339,6 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     SortStream sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
     std::deque<boost::shared_ptr<Slice> > active;
 
-#ifdef _OPENMP
-    omp_set_num_threads(4);
-#endif
     NormalWorkerGroup normalGroup(2, 1);
     normalGroup.producerStart(0);
     normalGroup.start();

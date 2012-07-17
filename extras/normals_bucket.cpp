@@ -381,9 +381,6 @@ void runBucket(const po::variables_map &vm)
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
-#ifdef _OPENMP
-    omp_set_num_threads(4);
-#endif
     NormalWorkerGroup normalGroup(compute ? 2 : 1, compute ? 2 : 0, maxHostSplats);
     normalGroup.producerStart(0);
     normalGroup.start();
