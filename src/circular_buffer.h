@@ -72,7 +72,7 @@ public:
      * of @a elementSize.
      *
      * @param elementSize     Size of a single element.
-     * @param maxElements     Maximum number of elements to allocate.
+     * @param elements        Number of elements to allocate.
      * @return A pointer to the allocated data
      *
      * @pre

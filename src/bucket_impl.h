@@ -115,8 +115,8 @@ public:
 
     /**
      * Enters a blob into all corresponding counters in the tree.
-     * @param blob      The blob to use
-     * @param updates   Will be incremented by the number of counters affected, per splat
+     * @param blob         The blob to use
+     * @param numUpdates   Will be incremented by the number of counters affected, per splat
      */
     void countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates);
 
