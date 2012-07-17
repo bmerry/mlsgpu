@@ -22,6 +22,7 @@
 #endif
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
+#include <boost/next_prior.hpp>
 #include "errors.h"
 #include "splat_set.h"
 
@@ -58,7 +59,9 @@ void FileSet::FileRangeIterator<RangeIterator>::increment()
 {
     MLSGPU_ASSERT(curRange != lastRange, state_error);
     MLSGPU_ASSERT(owner != NULL, state_error);
-    first = (first | splatIdMask) + 1; // advance to next fileId
+    const std::size_t fileId = first >> scanIdShift;
+    const std::size_t vertexSize = owner->files[fileId].getVertexSize();
+    first = std::min(first + maxSize / vertexSize, curRange->second);
     refill();
 }
 
@@ -85,7 +88,7 @@ void FileSet::FileRangeIterator<RangeIterator>::refill()
             }
             else if ((first & splatIdMask) >= owner->files[fileId].size())
             {
-                first = (splat_id(fileId) + 1) << scanIdShift; // advance to next fileId
+                first = (splat_id(fileId) + 1) << scanIdShift; // advance to next file
             }
             else
                 break;
@@ -115,6 +118,9 @@ FileSet::FileRange FileSet::FileRangeIterator<RangeIterator>::dereference() cons
     ans.end = owner->files[ans.fileId].size();
     if ((curRange->second >> scanIdShift) == ans.fileId)
         ans.end = std::min(ans.end, FastPly::ReaderBase::size_type(curRange->second & splatIdMask));
+    const std::size_t vertexSize = owner->files[ans.fileId].getVertexSize();
+    if ((ans.end - ans.start) * vertexSize > maxSize)
+        ans.end = ans.start + maxSize / vertexSize;
     return ans;
 }
 
@@ -122,9 +128,11 @@ template<typename RangeIterator>
 FileSet::FileRangeIterator<RangeIterator>::FileRangeIterator(
     const FileSet &owner,
     RangeIterator firstRange,
-    RangeIterator lastRange)
-: owner(&owner), curRange(firstRange), lastRange(lastRange), first(0)
+    RangeIterator lastRange,
+    FastPly::ReaderBase::size_type maxSize)
+: owner(&owner), curRange(firstRange), lastRange(lastRange), first(0), maxSize(maxSize)
 {
+    MLSGPU_ASSERT(maxSize > 0, std::invalid_argument);
     if (curRange != lastRange)
         first = curRange->first;
     refill();
@@ -147,10 +155,14 @@ FileSet::ReaderThread<RangeIterator>::ReaderThread(const FileSet &owner, RangeIt
 template<typename RangeIterator>
 void FileSet::ReaderThread<RangeIterator>::operator()()
 {
+    // Maximum number of bytes to load at one time. This must be less than the buffer
+    // size, and should be much less for efficiency.
+    const std::size_t maxChunk = buffer.size() / 8;
     Statistics::Variable &readStat = Statistics::getStatistic<Statistics::Variable>("files.read.time");
+
     boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
     std::size_t handleId;
-    FileRangeIterator<RangeIterator> first(owner, firstRange, lastRange);
+    FileRangeIterator<RangeIterator> first(owner, firstRange, lastRange, maxChunk);
     FileRangeIterator<RangeIterator> last(owner, lastRange);
 
     Timer totalTimer;
@@ -158,43 +170,32 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     for (FileRangeIterator<RangeIterator> i = first; i != last; ++i)
     {
         const FileRange range = *i;
-
-        std::size_t vertexSize = owner.files[range.fileId].getVertexSize();
-        if (vertexSize > buffer.size() / 2)
-        {
-            // TODO: associate the filename with it? Might be too late.
-            throw std::runtime_error("Far too many bytes per vertex");
-        }
+        const std::size_t vertexSize = owner.files[range.fileId].getVertexSize();
 
         if (!handle || range.fileId != handleId)
         {
+            if (vertexSize > maxChunk)
+            {
+                // TODO: associate the filename with it? Might be too late.
+                throw std::runtime_error("Far too many bytes per vertex");
+            }
             handle.reset(); // close the old handle
             handle.reset(owner.files[range.fileId].createHandle());
             handleId = range.fileId;
         }
 
-        FastPly::ReaderBase::size_type start = range.start;
-        FastPly::ReaderBase::size_type end = range.end;
-        while (start < end)
-        {
-            std::pair<void *, std::size_t> chunk = buffer.allocate(vertexSize, end - start);
-            std::size_t nSplats = chunk.second;
+        void *chunk = buffer.allocate(vertexSize, range.end - range.start);
+        handle->readRaw(range.start, range.end, (char *) chunk);
 
-            Item item;
-            item.first = start + (splat_id(range.fileId) << scanIdShift);
-            item.last = item.first + nSplats;
-            item.ptr = (char *) chunk.first;
-            item.bytes = chunk.second;
-            handle->readRaw(start, start + nSplats, item.ptr);
+        Item item;
+        item.first = range.start + (splat_id(range.fileId) << scanIdShift);
+        item.last = item.first + (range.end - range.start);
+        item.ptr = (char *) chunk;
+        item.bytes = (range.end - range.start) * vertexSize;
 
-            {
-                Timer pushTime;
-                outQueue.push(item);
-                totalTime -= pushTime.getElapsed();
-            }
-
-            start += nSplats;
-        }
+        Timer pushTime;
+        outQueue.push(item);
+        totalTime -= pushTime.getElapsed();
     }
     totalTime += totalTimer.getElapsed();
     readStat.add(totalTime);

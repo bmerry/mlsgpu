@@ -32,34 +32,33 @@ class TestCircularBuffer : public CppUnit::TestFixture
     CPPUNIT_TEST(testAllocateFree);
     CPPUNIT_TEST(testSize);
     CPPUNIT_TEST(testStatistics);
-    CPPUNIT_TEST(testBigMax);
-    CPPUNIT_TEST(testElementTooLarge);
-    CPPUNIT_TEST(testMaxZero);
+    CPPUNIT_TEST(testTooLarge);
+    CPPUNIT_TEST(testOverflow);
+    CPPUNIT_TEST(testZero);
     CPPUNIT_TEST_SUITE_END();
 
 private:
     void testAllocateFree();    ///< Smoke test for @ref CircularBuffer::allocate and @ref CircularBuffer::free
     void testSize();            ///< Test @ref CircularBuffer::size
     void testStatistics();      ///< Test that memory allocation is accounted for
-    void testBigMax();          ///< Test that no overflow occurs when @a maxElements is huge
-    void testElementTooLarge(); ///< Test that an exception is thrown for a huge element size
-    void testMaxZero();         ///< Test that an exception is thrown when asking for zero elements
+    void testTooLarge();        ///< Test exception handling when asking for too much memory
+    void testOverflow();        ///< Test exception handling when total size overflows
+    void testZero();            ///< Test that an exception is thrown when asking for zero elements
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBuffer, TestSet::perBuild());
 
 void TestCircularBuffer::testAllocateFree()
 {
     CircularBuffer buffer("test", 10);
-    std::pair<void *, std::size_t> item = buffer.allocate(sizeof(short), 2);
-    CPPUNIT_ASSERT(item.first != NULL);
-    CPPUNIT_ASSERT(item.second >= 1 && item.second <= 2);
+    void *item = buffer.allocate(sizeof(short), 2);
+    CPPUNIT_ASSERT(item != NULL);
 
     // Check that the memory can be safely written
-    short *values = reinterpret_cast<short *>(item.first);
+    short *values = reinterpret_cast<short *>(item);
     values[0] = 123;
     values[1] = 456;
 
-    buffer.free(item.first, sizeof(short), item.second);
+    buffer.free(item, sizeof(short), 2);
 }
 
 void TestCircularBuffer::testSize()
@@ -80,25 +79,27 @@ void TestCircularBuffer::testStatistics()
     CPPUNIT_ASSERT_EQUAL(oldMem + 1000, newMem);
 }
 
-void TestCircularBuffer::testBigMax()
+void TestCircularBuffer::testTooLarge()
 {
     CircularBuffer buffer("test", 1000);
-    std::pair<void *, std::size_t> item = buffer.allocate(4, 0x1000000000000);
-    CPPUNIT_ASSERT(item.first != NULL);
-    CPPUNIT_ASSERT(item.second > 0);
-    CPPUNIT_ASSERT(item.second <= 1000);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(1000, 1), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(1, 1000), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(100, 100), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(1000), std::out_of_range);
 }
 
-void TestCircularBuffer::testElementTooLarge()
+void TestCircularBuffer::testOverflow()
 {
-    CircularBuffer buffer("test", 16);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(12, 4), std::invalid_argument);
+    CircularBuffer buffer("test", 1000);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(8, std::numeric_limits<std::size_t>::max() / 2 + 2), std::out_of_range);
 }
 
-void TestCircularBuffer::testMaxZero()
+void TestCircularBuffer::testZero()
 {
     CircularBuffer buffer("test", 16);
     CPPUNIT_ASSERT_THROW(buffer.allocate(4, 0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(0, 4), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(0), std::invalid_argument);
 }
 
 /// Stress tests for @ref CircularBuffer
@@ -140,26 +141,24 @@ void TestCircularBufferStress::producerThread(std::tr1::uint64_t total)
 {
     std::tr1::mt19937 engine;
     std::tr1::uint64_t cur = 0;
-    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, buffer.size() * 2 / sizeof(cur));
+    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, (buffer.size() - 1) / sizeof(cur));
 
     while (cur < total)
     {
-        std::tr1::uint64_t max = chunkDist(engine);
-        max = std::min(max, total - cur);
-        std::pair<void *, std::size_t> chunk = buffer.allocate(sizeof(cur), max);
-        CPPUNIT_ASSERT(chunk.first != NULL);
-        CPPUNIT_ASSERT(chunk.second > 0);
-        CPPUNIT_ASSERT(chunk.second <= max);
+        std::tr1::uint64_t elements = chunkDist(engine);
+        elements = std::min(elements, total - cur);
+        void *chunk = buffer.allocate(sizeof(cur), elements);
+        CPPUNIT_ASSERT(chunk != NULL);
 
-        std::tr1::uint64_t *ptr = static_cast<std::tr1::uint64_t *>(chunk.first);
-        for (std::size_t i = 0; i < chunk.second; i++)
+        std::tr1::uint64_t *ptr = static_cast<std::tr1::uint64_t *>(chunk);
+        for (std::size_t i = 0; i < elements; i++)
         {
             ptr[i] = cur++;
         }
 
         Item item;
         item.ptr = ptr;
-        item.elements = chunk.second;
+        item.elements = elements;
         workQueue.push(item);
     }
 

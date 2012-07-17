@@ -20,49 +20,37 @@
 #include "circular_buffer.h"
 #include "errors.h"
 
-std::pair<void *, std::size_t> CircularBuffer::allocate(
-    std::size_t elementSize, std::tr1::uintmax_t maxElements)
+void *CircularBuffer::allocate(std::size_t bytes)
 {
-    MLSGPU_ASSERT(elementSize < bufferSize / 2, std::invalid_argument);
-    MLSGPU_ASSERT(maxElements > 0, std::invalid_argument);
+    MLSGPU_ASSERT(bytes > 0, std::invalid_argument);
+    MLSGPU_ASSERT(bytes < bufferSize, std::out_of_range);
 
     boost::unique_lock<boost::mutex> lock(mutex);
 
-    while (bufferHead > bufferTail && bufferHead - bufferTail <= elementSize)
+    while (bufferHead > bufferTail && bufferHead - bufferTail <= bytes)
         spaceCondition.wait(lock);
     // At this point we either have enough space, or the free space wraps around
-    if (bufferSize - bufferTail < elementSize)
+    if (bufferSize - bufferTail < bytes)
     {
         // Not enough space, so we can be sure the free space wraps around
         bufferTail = 0; // no room at end, so waste that region and start at the beginning
-        while (bufferHead <= elementSize)
+        while (bufferHead <= bytes)
             spaceCondition.wait(lock);
     }
 
-    std::size_t bytes;
-    if (bufferHead > bufferTail)
-        bytes = bufferHead - bufferTail - 1;
-    else
-    {
-        bytes = bufferSize - bufferTail;
-        if (bufferHead == 0)
-            bytes--; // must not completely fill the buffer
-    }
-    bytes = std::min(bytes, bufferSize / 2);
-
-    std::size_t elements = bytes / elementSize;
-    if (elements > maxElements)
-        elements = maxElements;
-    bytes = elements * elementSize;
-
-    assert(bytes >= elementSize);
-
-    std::pair<void *, std::size_t> ans(buffer + bufferTail, elements);
+    void *ans = buffer + bufferTail;
     bufferTail += bytes;
     if (bufferTail == bufferSize)
         bufferTail = 0;
-    assert(bufferTail <= bufferSize);
+    assert(bufferTail < bufferSize);
     return ans;
+}
+
+void *CircularBuffer::allocate(std::size_t elementSize, std::size_t elements)
+{
+    MLSGPU_ASSERT(elementSize > 0, std::invalid_argument);
+    MLSGPU_ASSERT(elements <= (bufferSize - 1) / elementSize, std::out_of_range);
+    return allocate(elementSize * elements);
 }
 
 void CircularBuffer::free(void *ptr, std::size_t elementSize, std::size_t elements)

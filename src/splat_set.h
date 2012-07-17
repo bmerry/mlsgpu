@@ -397,7 +397,7 @@ private:
     /**
      * Iterator class that is used to wrap an iterator over ranges and presents
      * range that are always within a single file, clamped to the range of the
-     * file size, and non-empty.
+     * file size, non-empty, and no bigger than a given size in bytes.
      */
     template<typename RangeIterator>
     class FileRangeIterator : public boost::iterator_facade<
@@ -407,26 +407,46 @@ private:
         FileRange>
     {
     private:
+        /**
+         * Owner, used to obtain file sizes etc (NULL when default-constructed).
+         */
         const FileSet *owner;
-        RangeIterator curRange;
-        RangeIterator lastRange;
-        splat_id first; ///< First splat in the returned range (0 if singular)
+        RangeIterator curRange;   ///< Currently being considered
+        RangeIterator lastRange;  ///< Past-the-end range
+        /**
+         * First to return from @c operator*. This is an absolute packed splat
+         * ID, not file- or range-relative.
+         */
+        splat_id first;
+        FastPly::ReaderBase::size_type maxSize;  ///< Maximum range size (bytes)
 
         friend class boost::iterator_core_access;
 
-        void refill(); ///< Advance until a non-empty output range is found
+        /// Advance until a non-empty output range is found
+        void refill();
 
+        /// Move to the next sub-range
         void increment();
 
+        /**
+         * Equality comparison. It is only meaningful for ranges with the same
+         * @ref owner and @ref lastRange.
+         */
         bool equal(const FileRangeIterator &other) const;
 
+        /**
+         * Extract a range and return it.
+         */
         FileRange dereference() const;
 
     public:
-        FileRangeIterator() : owner(NULL), curRange(), lastRange(), first(0) {}
+        FileRangeIterator() : owner(NULL), curRange(), lastRange(), first(0), maxSize(0) {}
 
-        /// Begin iterator
-        FileRangeIterator(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange);
+        /**
+         * Begin iterator.
+         * @pre @a maxSize is at least as big as any single vertex.
+         */
+        FileRangeIterator(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange, FastPly::ReaderBase::size_type maxSize);
 
         /// End iterator
         explicit FileRangeIterator(const FileSet &owner, RangeIterator lastRange);
@@ -443,7 +463,7 @@ public:
          *
          * @see @ref setBufferSize
          */
-        DEFAULT_BUFFER_SIZE = 4 * 1024 * 1024
+        DEFAULT_BUFFER_SIZE = 4 * 1024 * 1024 + 1
     };
 
     /// Number of bits used to store the within-file splat ID

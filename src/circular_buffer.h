@@ -48,10 +48,10 @@ private:
     Statistics::Allocator<std::allocator<char> > allocator;
 
     /**
-     * Circular buffer for passing splats to the stream thread. The range
-     * [@ref bufferHead, @ref bufferTail) potentially contains data, while the rest
-     * is empty. The occupied range may wrap around. If @ref bufferHead ==
-     * @ref bufferTail then the buffer is empty; thus it can never be completely full.
+     * The range [@ref bufferHead, @ref bufferTail) potentially contains data,
+     * while the rest is empty. The occupied range may wrap around. If @ref
+     * bufferHead == @ref bufferTail then the buffer is empty; thus it can
+     * never be completely full.
      */
     char *buffer;
     std::size_t bufferHead;    ///< First data element in @ref buffer
@@ -60,12 +60,8 @@ private:
 
 public:
     /**
-     * Allocate some memory from the buffer. It will return as many elements
-     * as it can, up to @a max. If there is insufficient memory for a single
-     * element, it will block until enough is freed up.
-     *
-     * To facilitate efficient pipelining, at most half the buffer
-     * will be returned at any time.
+     * Allocate some memory from the buffer. If the memory is not yet
+     * available, this will block until it is.
      *
      * It is thread-safe to call this function at the same time as @a free.
      *
@@ -77,13 +73,23 @@ public:
      *
      * @param elementSize     Size of a single element.
      * @param maxElements     Maximum number of elements to allocate.
-     * @return A pointer to the allocated data and the number of elements allocated.
+     * @return A pointer to the allocated data
      *
      * @pre
-     * - @a elementSize &lt;= @ref size() / 2
-     * - @a maxElements > 0
+     * - 0 &lt; @a elementSize * @a maxElements &lt; @ref size()
      */
-    std::pair<void *, std::size_t> allocate(std::size_t elementSize, std::tr1::uintmax_t maxElements);
+    void *allocate(std::size_t elementSize, std::size_t elements);
+
+    /**
+     * Variant of @ref allocate(std::size_t, std::size_t) that takes just a byte count.
+     *
+     * @param bytes           Number of bytes to allocate.
+     * @return A pointer to the allocated data
+     *
+     * @pre
+     * - 0 &lt; bytes &lt; @ref size()
+     */
+    void *allocate(std::size_t bytes);
 
     /**
      * Free memory allocated by @ref allocate. Each call to @ref allocate must be matched with

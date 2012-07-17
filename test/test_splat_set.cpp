@@ -740,6 +740,7 @@ FileSet *TestFileSet::setFactory(
     (void) bucketSize;
     std::auto_ptr<Set> set(new Set);
     populate(*set, splatData, store);
+    set->setBufferSize(16384);
     return set.release();
 }
 
