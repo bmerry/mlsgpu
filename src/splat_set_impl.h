@@ -152,6 +152,9 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     std::size_t handleId;
     FileRangeIterator<RangeIterator> first(owner, firstRange, lastRange);
     FileRangeIterator<RangeIterator> last(owner, lastRange);
+
+    Timer totalTimer;
+    double totalTime = 0.0;
     for (FileRangeIterator<RangeIterator> i = first; i != last; ++i)
     {
         const FileRange range = *i;
@@ -182,15 +185,20 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
             item.last = item.first + nSplats;
             item.ptr = (char *) chunk.first;
             item.bytes = chunk.second;
+            handle->readRaw(start, start + nSplats, item.ptr);
+
             {
-                Statistics::Timer timer(readStat);
-                handle->readRaw(start, start + nSplats, item.ptr);
+                Timer pushTime;
+                outQueue.push(item);
+                totalTime -= pushTime.getElapsed();
             }
-            outQueue.push(item);
 
             start += nSplats;
         }
     }
+    totalTime += totalTimer.getElapsed();
+    readStat.add(totalTime);
+
     // Signal completion
     outQueue.push(Item());
 }
