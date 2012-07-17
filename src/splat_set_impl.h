@@ -167,9 +167,10 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
 
     Timer totalTimer;
     double totalTime = 0.0;
-    for (FileRangeIterator<RangeIterator> i = first; i != last; ++i)
+    FileRangeIterator<RangeIterator> cur = first;
+    while (cur != last)
     {
-        const FileRange range = *i;
+        FileRange range = *cur;
         const std::size_t vertexSize = owner.files[range.fileId].getVertexSize();
 
         if (!handle || range.fileId != handleId)
@@ -184,18 +185,46 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
             handleId = range.fileId;
         }
 
-        void *chunk = buffer.allocate(vertexSize, range.end - range.start);
-        handle->readRaw(range.start, range.end, (char *) chunk);
+        const FastPly::ReaderBase::size_type start = range.start;
+        FastPly::ReaderBase::size_type end = range.end;
+        /* Request merging */
+        FileRangeIterator<RangeIterator> next = cur;
+        ++next;
+        while (next != last)
+        {
+            const FileRange nextRange = *next;
+            if (nextRange.start < end
+                || (nextRange.fileId != range.fileId)
+                || (nextRange.start - end) * vertexSize > maxChunk / 2
+                || (nextRange.end - start) * vertexSize > maxChunk)
+                break;
+            end = nextRange.end;
+            ++next;
+        }
 
-        Item item;
-        item.first = range.start + (splat_id(range.fileId) << scanIdShift);
-        item.last = item.first + (range.end - range.start);
-        item.ptr = (char *) chunk;
-        item.bytes = (range.end - range.start) * vertexSize;
+        void *chunk = buffer.allocate(vertexSize, end - start);
+        handle->readRaw(start, end, (char *) chunk);
 
-        Timer pushTime;
-        outQueue.push(item);
-        totalTime -= pushTime.getElapsed();
+        while (cur != next)
+        {
+            Item item;
+            item.first = range.start + (splat_id(range.fileId) << scanIdShift);
+            item.last = item.first + (range.end - range.start);
+            item.ptr = (char *) chunk + (range.start - start) * vertexSize;
+            ++cur;
+            if (cur != next)
+            {
+                FastPly::ReaderBase::size_type oldStart = range.start;
+                range = *cur;
+                item.bytes = (range.start - oldStart) * vertexSize;
+            }
+            else
+                item.bytes = (range.end - range.start) * vertexSize;
+
+            Timer pushTime;
+            outQueue.push(item);
+            totalTime -= pushTime.getElapsed();
+        }
     }
     totalTime += totalTimer.getElapsed();
     readStat.add(totalTime);
