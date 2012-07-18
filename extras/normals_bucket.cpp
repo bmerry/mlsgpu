@@ -352,6 +352,8 @@ public:
 
 void runBucket(const po::variables_map &vm)
 {
+    Timer bboxTimer;
+
     const int bucketSize = 256;
     const float leafSize = vm[Option::leafSize()].as<double>();
     const float spacing = leafSize / bucketSize;
@@ -387,8 +389,8 @@ void runBucket(const po::variables_map &vm)
 
     try
     {
-        Statistics::Timer timer("bbox.time");
         splats.computeBlobs(spacing, bucketSize, &Log::log[Log::info]);
+        Statistics::getStatistic<Statistics::Variable>("bbox.time").add(bboxTimer.getElapsed());
     }
     catch (std::length_error &e)
     {
