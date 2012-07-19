@@ -12,6 +12,7 @@
 // #define KNN_INTERNAL 1
 
 #include <iostream>
+#include <fstream>
 #include <cstdlib>
 #include <algorithm>
 #include <memory>
@@ -24,6 +25,7 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/ref.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include <boost/tr1/random.hpp>
 #include <stxxl.h>
 #include <Eigen/Core>
 #ifdef _OPENMP
@@ -53,6 +55,7 @@ namespace Option
     static inline const char *maxSplit()      { return "max-split"; }
     static inline const char *leafSize()      { return "leaf-size"; }
     static inline const char *maxHostSplats() { return "max-host-splats"; }
+    static inline const char *colorFile()     { return "color-file"; }
 };
 
 void addBucketOptions(po::options_description &opts)
@@ -61,7 +64,8 @@ void addBucketOptions(po::options_description &opts)
     opts2.add_options()
         (Option::maxHostSplats(), po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
         (Option::maxSplit(),      po::value<int>()->default_value(40000000), "Maximum fan-out in partitioning")
-        (Option::leafSize(),      po::value<double>()->default_value(1000.0), "Size of top-level octree leaves");
+        (Option::leafSize(),      po::value<double>()->default_value(1000.0), "Size of top-level octree leaves")
+        (Option::colorFile(),     po::value<std::string>()->default_value("color.ply"), "Output file for color mode output");
     opts.add(opts2);
 }
 
@@ -417,4 +421,158 @@ void runBucket(const po::variables_map &vm)
     Statistics::Timer spindownTimer("spindown.time");
     normalGroup.producerStop(0);
     normalGroup.stop();
+}
+
+
+namespace
+{
+
+template<typename Splats>
+class ColorProcessor
+{
+private:
+
+    struct Bin
+    {
+        Grid bbox;
+        std::tr1::uint8_t color[3];
+        std::vector<Splat> splats;
+    };
+
+    ProgressDisplay *progress;
+    const std::tr1::uint64_t nInput;  ///< Total number of input splats
+    const std::tr1::uint64_t nTarget; ///< Target number of output splats
+    std::vector<Bin> bins;
+
+    std::tr1::mt19937 engine;
+    std::tr1::variate_generator<std::tr1::mt19937 &, std::tr1::bernoulli_distribution> pickGen;
+    std::tr1::variate_generator<std::tr1::mt19937 &, std::tr1::uniform_int<int> > colorGen;
+
+public:
+    explicit ColorProcessor(
+        std::tr1::uint64_t nInput,
+        std::tr1::uint64_t nTarget,
+        ProgressDisplay *progress) :
+        progress(progress),
+        nInput(nInput),
+        nTarget(nTarget),
+        pickGen(engine, std::tr1::bernoulli_distribution(double(nTarget) / nInput)),
+        colorGen(engine, std::tr1::uniform_int<int>(32, 192))
+    {
+    }
+
+    void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
+                    const Grid &binGrid, const Bucket::Recursion &recursionState)
+    {
+        (void) recursionState;
+
+        bins.push_back(Bin());
+        Bin &bin = bins.back();
+        bin.bbox = binGrid;
+        for (int i = 0; i < 3; i++)
+            bin.color[i] = colorGen();
+        boost::scoped_ptr<SplatSet::SplatStream> stream(subset.makeSplatStream());
+        while (!stream->empty())
+        {
+            if (pickGen())
+            {
+                Splat s = **stream;
+                Grid::difference_type vertexCoords[3];
+                binGrid.worldToCell(s.position, vertexCoords);
+                bool inside = true;
+                for (int j = 0; j < 3; j++)
+                    inside &= vertexCoords[j] >= 0 && Grid::size_type(vertexCoords[j]) < binGrid.numCells(j);
+                if (inside)
+                    bin.splats.push_back(s);
+            }
+            ++*stream;
+        }
+        if (progress != NULL)
+            *progress += binGrid.numCells();
+    }
+
+    void write(const std::string &filename)
+    {
+        std::ofstream out(filename.c_str(), std::ios::binary);
+        out.exceptions(std::ios::badbit | std::ios::failbit);
+
+        std::tr1::uint64_t nOut = 0;
+        for (std::size_t i = 0; i < bins.size(); i++)
+        {
+            nOut += bins[i].splats.size();
+        }
+
+        out << "ply\n"
+            << "format binary_little_endian 1.0\n"
+            << "element vertex " << nOut << '\n'
+            << "property float x\n"
+            << "property float y\n"
+            << "property float z\n"
+            << "property float nx\n"
+            << "property float ny\n"
+            << "property float nz\n"
+            << "property uchar red\n"
+            << "property uchar green\n"
+            << "property uchar blue\n"
+            << "end_header\n";
+        for (std::size_t i = 0; i < bins.size(); i++)
+        {
+            for (std::size_t j = 0; j < bins[i].splats.size(); j++)
+            {
+                out.write((const char *) &bins[i].splats[j].position[0], 3 * sizeof(float));
+                out.write((const char *) &bins[i].splats[j].normal[0], 3 * sizeof(float));
+                out.write((const char *) &bins[i].color, 3 * sizeof(std::tr1::uint8_t));
+            }
+        }
+        out.close();
+    }
+};
+
+}; // anonymous namespace
+
+void makeColor(const po::variables_map &vm)
+{
+    const int bucketSize = 256;
+    const float leafSize = vm[Option::leafSize()].as<double>();
+    const float spacing = leafSize / bucketSize;
+    const float radius = vm[Option::radius()].as<double>();
+
+    const std::size_t maxHostSplats = vm[Option::maxHostSplats()].as<std::size_t>();
+    const std::size_t maxSplit = vm[Option::maxSplit()].as<int>();
+    const std::vector<std::string> &names = vm[Option::inputFile()].as<std::vector<std::string> >();
+    const FastPly::ReaderType readerType = vm[Option::reader()].as<Choice<FastPly::ReaderTypeWrapper> >();
+    const std::string outFilename = vm[Option::colorFile()].as<std::string>();
+
+    typedef TransformSplatSet<SplatSet::FileSet, TransformSetRadius> Set0;
+    typedef SplatSet::FastBlobSet<Set0, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+    Splats splats;
+    splats.setTransform(TransformSetRadius(radius));
+
+    std::tr1::uint64_t nInput = 0, nTarget = 20000000;
+    BOOST_FOREACH(const std::string &name, names)
+    {
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
+        splats.addFile(reader.get());
+        nInput += reader->size();
+        reader.release();
+    }
+    nTarget = std::min(nInput, nTarget);
+    splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
+
+    try
+    {
+        splats.computeBlobs(spacing, bucketSize, &Log::log[Log::info]);
+    }
+    catch (std::length_error &e)
+    {
+        std::cerr << "At least one input point is required.\n";
+        std::exit(1);
+    }
+    Grid grid = splats.getBoundingGrid();
+    ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+
+    ColorProcessor<Splats> colorProcessor(nInput, nTarget, &progress);
+    Bucket::bucket(splats, grid, maxHostSplats, bucketSize, 0, true, maxSplit,
+                   boost::ref(colorProcessor), &progress);
+    colorProcessor.write(outFilename);
 }

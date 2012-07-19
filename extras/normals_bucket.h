@@ -5,5 +5,6 @@
 
 void addBucketOptions(boost::program_options::options_description &opts);
 void runBucket(const boost::program_options::variables_map &vm);
+void makeColor(const boost::program_options::variables_map &vm);
 
 #endif /* !EXTRAS_NORMALS_BUCKET_H */

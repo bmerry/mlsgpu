@@ -42,7 +42,8 @@ enum Mode
 {
     MODE_BUCKET,
     MODE_SWEEP,
-    MODE_SLICE
+    MODE_SLICE,
+    MODE_COLOR
 };
 
 class ModeWrapper
@@ -55,6 +56,7 @@ public:
         nameMap["bucket"] = MODE_BUCKET;
         nameMap["sweep"] = MODE_SWEEP;
         nameMap["slice"] = MODE_SLICE;
+        nameMap["color"] = MODE_COLOR;
         return nameMap;
     }
 };
@@ -283,6 +285,9 @@ static void run(const po::variables_map &vm)
     {
     case MODE_BUCKET:
         runBucket(vm);
+        break;
+    case MODE_COLOR:
+        makeColor(vm);
         break;
     case MODE_SWEEP:
         runSweep(vm, true);
