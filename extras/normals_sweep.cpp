@@ -326,6 +326,8 @@ typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 102
 void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
                       bool compute, int axis, unsigned int K, float radius)
 {
+    Statistics::Peak<std::tr1::uint64_t> &active3Stat =
+        Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active3.peak");
     Statistics::Variable &loadTime = Statistics::getStatistic<Statistics::Variable>("load.time");
     std::tr1::uint64_t nSplats = 0;
     Timer latency;
@@ -363,13 +365,17 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
         curSlice->index = sliceIdx++;
 
         active.push_front(curSlice);
+        active3Stat += curSlice->splats.size();
         if (active.size() >= 2)
         {
             if (compute)
                 processSlice(normalGroup, axis, active[1], active, needsTree, K, radius, progress);
             needsTree = sliceIdx;
             if (active.size() == 3)
+            {
+                active3Stat -= active.back()->splats.size();
                 active.pop_back();
+            }
         }
     }
     if (!active.empty() && compute)
