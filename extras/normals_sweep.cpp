@@ -24,6 +24,9 @@
 #include <stxxl.h>
 #include <nabo/nabo.h>
 #include <sl/kdtree.hpp>
+#ifdef _OPENMP
+# include <omp.h>
+#endif
 #include "../src/statistics.h"
 #include "../src/splat_set.h"
 #include "../src/fast_ply.h"
@@ -235,6 +238,9 @@ public:
 
         Eigen::VectorXf dist2(K);
         Eigen::VectorXi indices(K);
+#ifdef _OPENMP
+# pragma omp parallel for shared(active) firstprivate(dist2, indices) default(none) schedule(dynamic,1024)
+#endif
         for (std::size_t i = 0; i < slice->splats.size(); i++)
         {
             const Eigen::VectorXf query = slice->points.col(i);
@@ -335,7 +341,7 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     SortStream sortStream(*splatStream, CompareSplats(axis), 1024 * 1024 * 1024);
     std::deque<boost::shared_ptr<Slice> > active;
 
-    NormalWorkerGroup normalGroup(8, 2);
+    NormalWorkerGroup normalGroup(2, 1);
     normalGroup.producerStart(0);
     normalGroup.start();
 
@@ -459,6 +465,7 @@ void runSweepContinuous(SplatSet::SplatStream *splatStream, ProgressDisplay *pro
 
         if (doCompute)
         {
+#pragma omp parallel for schedule(dynamic, 512)
             for (std::size_t i = next; i < next2; i++)
             {
                 compute.computeOneNormal(tree, active[i - front]);
