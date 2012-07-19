@@ -26,9 +26,6 @@
 #include <boost/iterator/transform_iterator.hpp>
 #include <stxxl.h>
 #include <Eigen/Core>
-#ifdef _OPENMP
-# include <omp.h>
-#endif
 #include "../src/bucket.h"
 #include "../src/statistics.h"
 #include "../src/splat_set.h"
@@ -218,9 +215,6 @@ public:
 
             std::vector<Eigen::Vector3f> neighbors;
             neighbors.reserve(item.numNeighbors);
-#ifdef _OPENMP
-# pragma omp parallel for firstprivate(neighbors, indices, dists2) schedule(dynamic,1024)
-#endif
             for (std::size_t i = 0; i < item.splats.size(); i++)
             {
                 const Splat &s = item.splats[i];
@@ -383,7 +377,7 @@ void runBucket(const po::variables_map &vm)
     }
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
-    NormalWorkerGroup normalGroup(compute ? 2 : 1, compute ? 2 : 0, maxHostSplats);
+    NormalWorkerGroup normalGroup(compute ? 8 : 1, compute ? 4 : 0, maxHostSplats);
     normalGroup.producerStart(0);
     normalGroup.start();
 
