@@ -375,6 +375,8 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     if (!active.empty() && compute)
         processSlice(normalGroup, axis, active.front(), active, needsTree, K, radius, progress);
 
+    Statistics::getStatistic<Statistics::Counter>("slices").add(sliceIdx);
+
     Statistics::Timer spindownTimer("spindown.time");
     normalGroup.producerStop(0);
     normalGroup.stop();
