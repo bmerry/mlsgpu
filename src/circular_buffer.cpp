@@ -27,15 +27,18 @@ void *CircularBuffer::allocate(std::size_t bytes)
 
     boost::unique_lock<boost::mutex> lock(mutex);
 
-    while (bufferHead > bufferTail && bufferHead - bufferTail <= bytes)
+    /* This condition is slightly stronger than necessary: in the wraparound
+     * case, it's sufficient if there are exactly enough bytes at either the
+     * front or the back, but I think this is sufficient to guarantee forward
+     * progress.
+     */
+    while ((bufferHead > bufferTail && bufferHead - bufferTail <= bytes)
+           || (bufferHead <= bufferTail && bufferSize - bufferTail <= bytes && bufferHead <= bytes))
         spaceCondition.wait(lock);
-    // At this point we either have enough space, or the free space wraps around
-    if (bufferSize - bufferTail < bytes)
+    if (bufferHead <= bufferTail && bufferSize - bufferTail <= bytes)
     {
-        // Not enough space, so we can be sure the free space wraps around
-        bufferTail = 0; // no room at end, so waste that region and start at the beginning
-        while (bufferHead <= bytes)
-            spaceCondition.wait(lock);
+        // no room at the end, so waste that space and start at the front
+        bufferTail = 0;
     }
 
     void *ans = buffer + bufferTail;
@@ -68,9 +71,12 @@ void CircularBuffer::free(void *ptr, std::size_t bytes)
     bufferHead = ((char *) ptr - buffer) + bytes;
     if (bufferHead == bufferSize)
         bufferHead = 0;
-    // If the buffer is empty, we can continue wherever we like, and
-    // going back to the beginning will minimize fragmentation and hopefully
-    // also cache pollution.
+    /* If the buffer is empty, we can continue wherever we like, and
+     * going back to the beginning will minimize fragmentation and hopefully
+     * also cache pollution. More importantly, it guarantees that allocate
+     * can make forward progress when asked for a chunk bigger than half
+     * the buffer which is guaranteed to overlap the current tail.
+     */
     if (bufferHead == bufferTail)
         bufferHead = bufferTail = 0;
     spaceCondition.notify_one();

@@ -180,7 +180,7 @@ void TestCircularBufferStress::testStress()
      * rate and hence test both full and empty conditions.
      */
     std::tr1::mt19937 gen;
-    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, buffer.size() * 2 / sizeof(std::tr1::uint64_t));
+    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, (buffer.size() - 1) / sizeof(std::tr1::uint64_t));
 
     while ((item = workQueue.pop()).ptr != NULL)
     {
