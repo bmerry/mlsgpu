@@ -67,7 +67,7 @@ static void addCommonOptions(po::options_description &opts)
         ("help,h",                  "Show help")
         ("quiet,q",                 "Do not show informational messages")
         (Option::bufferSize(),      po::value<std::size_t>()->default_value(SplatSet::FileSet::DEFAULT_BUFFER_SIZE), "File reader buffer size")
-        (Option::reader(),          po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)");
+        (Option::reader(),          po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::debug(),           "Show debug messages");
 }
 
