@@ -158,7 +158,9 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     // Maximum number of bytes to load at one time. This must be less than the buffer
     // size, and should be much less for efficiency.
     const std::size_t maxChunk = buffer.size() / 8;
-    Statistics::Variable &readStat = Statistics::getStatistic<Statistics::Variable>("files.read.time");
+    Statistics::Variable &readTimeStat = Statistics::getStatistic<Statistics::Variable>("files.read.time");
+    Statistics::Variable &readRangeStat = Statistics::getStatistic<Statistics::Variable>("files.read.splats");
+    Statistics::Variable &readMergedStat = Statistics::getStatistic<Statistics::Variable>("files.read.merged");
 
     boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
     std::size_t handleId;
@@ -204,9 +206,12 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
 
         void *chunk = buffer.allocate(vertexSize, end - start);
         handle->readRaw(start, end, (char *) chunk);
+        readMergedStat.add(end - start);
 
         while (cur != next)
         {
+            readRangeStat.add(range.end - range.start);
+
             Item item;
             item.first = range.start + (splat_id(range.fileId) << scanIdShift);
             item.last = item.first + (range.end - range.start);
@@ -227,7 +232,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
         }
     }
     totalTime += totalTimer.getElapsed();
-    readStat.add(totalTime);
+    readTimeStat.add(totalTime);
 
     // Signal completion
     outQueue.push(Item());
