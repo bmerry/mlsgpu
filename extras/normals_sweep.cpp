@@ -151,13 +151,13 @@ struct Neighbors
     std::vector<float> dist2;
     std::vector<Eigen::Vector3f> elements;
 
-    void merge(const Eigen::VectorXf &ndist2, const Eigen::VectorXi &nindices, const Eigen::MatrixXf &points, unsigned int K)
+    void merge(const Eigen::MatrixXf &ndist2, const Eigen::MatrixXi &nindices, const Eigen::MatrixXf &points, unsigned int K)
     {
         std::vector<float> mdist2;
         std::vector<Eigen::Vector3f> melements;
 
         unsigned int F = 0;
-        while (F < ndist2.size() && (std::tr1::isfinite)(ndist2[F]))
+        while (F < ndist2.rows() && (std::tr1::isfinite)(ndist2(F, 0)))
             F++;
         unsigned int T = std::min(K, (unsigned int) (dist2.size() + F));
         mdist2.reserve(T);
@@ -169,7 +169,7 @@ struct Neighbors
         {
             bool useOld;
             if (p < dist2.size() && q < F)
-                useOld = dist2[p] < ndist2[q];
+                useOld = dist2[p] < ndist2(q, 0);
             else
                 useOld = p < dist2.size();
             if (useOld)
@@ -180,8 +180,8 @@ struct Neighbors
             }
             else
             {
-                mdist2.push_back(ndist2[q]);
-                melements.push_back(points.col(nindices[q]).head<3>());
+                mdist2.push_back(ndist2(q, 0));
+                melements.push_back(points.col(nindices(q, 0)).head<3>());
                 q++;
             }
         }
@@ -235,49 +235,59 @@ public:
             if (item.active[i]->index < item.needsTree)
                 item.active[i]->waitTree();
 
-        Eigen::VectorXf dist2(K);
-        Eigen::VectorXi indices(K);
 #ifdef _OPENMP
-# pragma omp parallel for shared(active) firstprivate(dist2, indices) default(none) schedule(dynamic,1024)
+# pragma omp parallel shared(active) default(none)
 #endif
-        for (std::size_t i = 0; i < slice->splats.size(); i++)
         {
-            const Eigen::VectorXf query = slice->points.col(i);
-            const float z = query[axis];
+            Eigen::MatrixXf dist2(K, 1);
+            Eigen::MatrixXi indices(K, 1);
+            Eigen::MatrixXf query(3, 1);
 
-            std::pair<float, const Slice *> nslices[3];
-            for (std::size_t j = 0; j < NS; j++)
+#ifdef _OPENMP
+# pragma omp for schedule(dynamic,1024)
+#endif
+            for (std::size_t i = 0; i < slice->splats.size(); i++)
             {
-                nslices[j].second = active[j];
-                if (active[j]->maxCut < z)
-                    nslices[j].first = z - active[j]->maxCut;
-                else if (active[j]->minCut > z)
-                    nslices[j].first = active[j]->minCut - z;
-                else
-                    nslices[j].first = 0.0f;
-            }
-            std::sort(nslices, nslices + NS);
+                query = slice->points.col(i);
+                const float z = query(axis, 0);
 
-            Neighbors nn;
-            for (std::size_t j = 0; j < NS; j++)
-            {
-                float d2 = nslices[j].first * nslices[j].first;
-                float limit = maxRadius;
-                std::size_t skip = 0;
-                if (nn.dist2.size() == K)
-                    limit = std::sqrt(nn.dist2.back());
-                while (skip < nn.dist2.size() && nn.dist2[skip] < d2)
-                    skip++;
-
-                if (skip < K && nslices[j].first <= limit)
+                std::pair<float, const Slice *> nslices[3];
+                for (std::size_t j = 0; j < NS; j++)
                 {
-                    nslices[j].second->getTree()->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
-                    nn.merge(dist2, indices, nslices[j].second->points, K);
+                    nslices[j].second = active[j];
+                    if (active[j]->maxCut < z)
+                        nslices[j].first = z - active[j]->maxCut;
+                    else if (active[j]->minCut > z)
+                        nslices[j].first = active[j]->minCut - z;
+                    else
+                        nslices[j].first = 0.0f;
                 }
-            }
+                std::sort(nslices, nslices + NS);
 
-            computeNormal(slice->splats[i], nn.elements, K);
+                Neighbors nn;
+                for (std::size_t j = 0; j < NS; j++)
+                {
+                    float d2 = nslices[j].first * nslices[j].first;
+                    float limit = maxRadius;
+                    std::size_t skip = 0;
+                    if (nn.dist2.size() == K)
+                        limit = std::sqrt(nn.dist2.back());
+                    while (skip < nn.dist2.size() && nn.dist2[skip] < d2)
+                        skip++;
+
+                    if (skip < K && nslices[j].first <= limit)
+                    {
+                        indices.resize(K - skip, 1);
+                        dist2.resize(K - skip, 1);
+                        nslices[j].second->getTree()->knn(query, indices, dist2, K - skip, 0.0f, Nabo::NNSearchF::SORT_RESULTS, limit);
+                        nn.merge(dist2, indices, nslices[j].second->points, K);
+                    }
+                }
+
+                computeNormal(slice->splats[i], nn.elements, K);
+            }
         }
+
         if (item.progress != NULL)
             *item.progress += slice->splats.size();
         // Recover the memory as soon as possible

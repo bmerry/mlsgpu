@@ -211,59 +211,68 @@ public:
                 knng.reset(tree.knn(item.numNeighbors, item.maxDistance2));
             }
 #elif KNN_NABO
-            Eigen::VectorXi indices(item.numNeighbors);
-            Eigen::VectorXf dists2(item.numNeighbors);
             Eigen::MatrixXf M(3, item.splats.size());
             for (std::size_t i = 0; i < item.splats.size(); i++)
             {
                 for (int j = 0; j < 3; j++)
                     M(j, i) = item.splats[i].position[j];
             }
-            boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
+            const boost::scoped_ptr<Nabo::NNSearchF> tree(Nabo::NNSearchF::createKDTreeLinearHeap(M));
 #endif
 
-            std::vector<Eigen::Vector3f> neighbors;
-            neighbors.reserve(item.numNeighbors);
 #ifdef _OPENMP
-# pragma omp parallel for firstprivate(neighbors, indices, dists2) schedule(dynamic,1024)
+# pragma omp parallel shared(M, item) default(none)
 #endif
-            for (std::size_t i = 0; i < item.splats.size(); i++)
             {
-                const Splat &s = item.splats[i];
-                Grid::difference_type vertexCoords[3];
-                item.binGrid.worldToCell(s.position, vertexCoords);
-                bool inside = true;
-                for (int j = 0; j < 3; j++)
-                    inside &= vertexCoords[j] >= 0 && Grid::size_type(vertexCoords[j]) < item.binGrid.numCells(j);
-                if (inside)
+                std::vector<Eigen::Vector3f> neighbors;
+                neighbors.reserve(item.numNeighbors);
+#if KNN_NABO
+                Eigen::MatrixXi indices(item.numNeighbors, 1);
+                Eigen::MatrixXf dists2(item.numNeighbors, 1);
+                Eigen::MatrixXf query(3, 1);
+#endif
+
+#ifdef _OPENMP
+# pragma omp for schedule(dynamic,1024)
+#endif
+                for (std::size_t i = 0; i < item.splats.size(); i++)
                 {
-                    neighbors.clear();
+                    const Splat &s = item.splats[i];
+                    Grid::difference_type vertexCoords[3];
+                    item.binGrid.worldToCell(s.position, vertexCoords);
+                    bool inside = true;
+                    for (int j = 0; j < 3; j++)
+                        inside &= vertexCoords[j] >= 0 && Grid::size_type(vertexCoords[j]) < item.binGrid.numCells(j);
+                    if (inside)
+                    {
+                        neighbors.clear();
 
 #if KNN_INTERNAL
-                    std::vector<std::pair<float, size_type> > nn = (*knng)[i];
-                    for (std::size_t j = 0; j < nn.size(); j++)
-                    {
-                        int idx = nn[j].second;
-                        const Splat &sn = item.splats[idx]; // TODO: just have KNNG give us Eigen::Vector3f?
-                        neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
-                    }
-#elif KNN_NABO
-                    Eigen::VectorXf query(3);
-                    for (int j = 0; j < 3; j++)
-                        query[j] = s.position[j];
-                    tree->knn(query, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
-                    for (std::size_t j = 0; j < std::size_t(item.numNeighbors); j++)
-                    {
-                        if ((std::tr1::isfinite)(dists2(j)))
+                        std::vector<std::pair<float, size_type> > nn = (*knng)[i];
+                        for (std::size_t j = 0; j < nn.size(); j++)
                         {
-                            int idx = indices(j);
-                            neighbors.push_back(M.col(idx).head<3>());
+                            int idx = nn[j].second;
+                            const Splat &sn = item.splats[idx]; // TODO: just have KNNG give us Eigen::Vector3f?
+                            neighbors.push_back(Eigen::Vector3f(sn.position[0], sn.position[1], sn.position[2]));
                         }
-                    }
+#elif KNN_NABO
+                        for (int j = 0; j < 3; j++)
+                            query(j, 0) = s.position[j];
+                        tree->knn(query, indices, dists2, item.numNeighbors, 0.0f, 0, std::sqrt(item.maxDistance2));
+                        for (std::size_t j = 0; j < std::size_t(item.numNeighbors); j++)
+                        {
+                            if ((std::tr1::isfinite)(dists2(j, 0)))
+                            {
+                                int idx = indices(j, 0);
+                                neighbors.push_back(M.col(idx).head<3>());
+                            }
+                        }
 #endif
-                    computeNormal(s, neighbors, item.numNeighbors);
+                        computeNormal(s, neighbors, item.numNeighbors);
+                    }
                 }
             }
+
         }
         if (item.progress != NULL)
             *item.progress += item.binGrid.numCells();
