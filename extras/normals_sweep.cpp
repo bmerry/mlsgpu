@@ -181,8 +181,7 @@ struct Neighbors
             else
             {
                 mdist2.push_back(ndist2[q]);
-                Eigen::VectorXf col = points.col(nindices[q]);
-                melements.push_back(col.head<3>());
+                melements.push_back(points.col(nindices[q]).head<3>());
                 q++;
             }
         }
