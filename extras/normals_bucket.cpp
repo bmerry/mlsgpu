@@ -187,6 +187,8 @@ public:
 
 class NormalWorker : public NormalStats
 {
+private:
+    Statistics::Peak<std::tr1::uint64_t> &activeStat;
 public:
     void start() {}
     void stop() {}
@@ -265,6 +267,13 @@ public:
         }
         if (item.progress != NULL)
             *item.progress += item.binGrid.numCells();
+        item.splats.clear();
+        activeStat -= item.splats.size();
+    }
+
+    NormalWorker()
+        : activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
+    {
     }
 };
 
@@ -302,6 +311,7 @@ private:
 
     Statistics::Variable &loadStat;
     Statistics::Variable &binStat;
+    Statistics::Peak<std::tr1::uint64_t> &activeStat;
 
 public:
     BinProcessor(
@@ -317,7 +327,8 @@ public:
         progress(progress),
         first(true),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
-        binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size"))
+        binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size")),
+        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
     {}
 
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
@@ -329,6 +340,7 @@ public:
             Statistics::getStatistic<Statistics::Variable>("histogram.time").add(histoTimer.getElapsed());
         first = false;
 
+        activeStat += subset.numSplats();
         boost::shared_ptr<NormalItem> item = outGroup.get();
 
         {
