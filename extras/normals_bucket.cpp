@@ -276,8 +276,8 @@ public:
         }
         if (item.progress != NULL)
             *item.progress += item.binGrid.numCells();
-        item.splats.clear();
         activeStat -= item.splats.size();
+        item.splats.clear();
     }
 
     NormalWorker()
