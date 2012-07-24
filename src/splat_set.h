@@ -463,7 +463,7 @@ public:
          *
          * @see @ref setBufferSize
          */
-        DEFAULT_BUFFER_SIZE = 4 * 1024 * 1024 + 1
+        DEFAULT_BUFFER_SIZE = 32 * 1024 * 1024 + 1
     };
 
     /// Number of bits used to store the within-file splat ID
