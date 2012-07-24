@@ -848,7 +848,7 @@ private:
      * On the first call (i.e., when @a blobData is empty), the value of @a
      * prevBlob is irrelevant.
      */
-    static void addBlob(BlobVector &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob);
+    static void addBlob(std::vector<BlobData> &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob);
 };
 
 /**
