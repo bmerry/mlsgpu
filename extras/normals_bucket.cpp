@@ -349,8 +349,8 @@ public:
             Statistics::getStatistic<Statistics::Variable>("histogram.time").add(histoTimer.getElapsed());
         first = false;
 
-        activeStat += subset.numSplats();
         boost::shared_ptr<NormalItem> item = outGroup.get();
+        activeStat += subset.numSplats();
 
         {
             Statistics::Timer timer(loadStat);
