@@ -464,9 +464,13 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     blobData.clear();
     internalBucketSize = bucketSize;
 
-    // Reference point will be 0,0,0. Extents are set after reading all the splats
+    // Reference point will be 0,0,0. Extents are set after reading all the splats,
+    // but the lower extent must initially be zero to make splatToBuckets give the
+    // answers we want.
     boundingGrid.setSpacing(spacing);
     boundingGrid.setReference(ref);
+    for (unsigned int i = 0; i < 3; i++)
+        boundingGrid.setExtent(i, 0, 1);
 
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)

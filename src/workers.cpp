@@ -270,7 +270,7 @@ FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner)
 };
 
 void FineBucketGroupBase::Worker::operator()(
-    const SplatSet::Traits<SplatSet::VectorSet>::subset_type &splatSet,
+    const SplatSet::Traits<Splats>::subset_type &splatSet,
     const Grid &grid,
     const Bucket::Recursion &recursionState)
 {
@@ -334,6 +334,7 @@ void FineBucketGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &w
 
     owner.outGroup.producerNext(curChunkId, chunkId);
     curChunkId = chunkId;
+    work.splats.computeBlobs(grid.getSpacing(), owner.maxCells, NULL, false);
     Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
                    boost::ref(*this), owner.progress, work.recursionState);
 }

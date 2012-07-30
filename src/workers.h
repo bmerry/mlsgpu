@@ -241,9 +241,11 @@ class FineBucketGroup;
 class FineBucketGroupBase
 {
 public:
+    typedef SplatSet::FastBlobSet<SplatSet::VectorSet, std::vector<SplatSet::BlobData> > Splats;
+
     struct WorkItem
     {
-        SplatSet::VectorSet splats;
+        Splats splats;
         Grid grid;
         Bucket::Recursion recursionState;
     };
@@ -261,7 +263,7 @@ public:
 
         /// Bucketing callback for blocks sized for device execution.
         void operator()(
-            const SplatSet::Traits<SplatSet::VectorSet>::subset_type &splats,
+            const SplatSet::Traits<Splats>::subset_type &splats,
             const Grid &grid,
             const Bucket::Recursion &recursionState);
 
