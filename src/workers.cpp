@@ -30,6 +30,7 @@
 #include "mesh_filter.h"
 #include "statistics.h"
 #include "errors.h"
+#include "thread_name.h"
 
 MesherGroupBase::Worker::Worker(MesherGroup &owner) : owner(owner) {}
 
@@ -40,6 +41,7 @@ void MesherGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
 
 MesherGroup::MesherGroup(std::size_t spare)
     : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>(
+        "mesher",
         1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
         Statistics::getStatistic<Statistics::Variable>("mesher.pop.first"),
@@ -86,6 +88,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     MlsShape shape)
 :
     Base(
+        "device",
         devices.size(), numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop.first"),
@@ -235,6 +238,7 @@ FineBucketGroup::FineBucketGroup(
     std::size_t maxSplit)
 :
     WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker, FineBucketGroup>(
+        "bucket",
         numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop.first"),

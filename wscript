@@ -268,6 +268,27 @@ int main() {
             msg = 'Checking for clock_gettime in -lrt',
             mandatory = False)
 
+    # Apparently MacOS has a function with the same name but different
+    # signature, which is why we need a fragment of code to test it.
+    pthread_setname_np_test = '''
+#ifndef _GNU_SOURCE
+# define _GNU_SOURCE 1
+#endif
+#include <pthread.h>
+
+int main() {
+    char buffer[1024];
+    pthread_getname_np(pthread_self(), buffer, sizeof(buffer));
+    pthread_setname_np(pthread_self(), "Test thread");
+    return 0;
+}'''
+    conf.check_cxx(
+        features = ['cxx', 'cxxprogram'],
+        fragment = pthread_setname_np_test,
+        function_name = 'pthread_setname_np',
+        msg = 'Checking for pthread_setname_np',
+        mandatory = False)
+
     conf.check_cxx(
         features = ['cxx', 'cxxprogram'],
         function_name = 'QueryPerformanceCounter', header_name = 'windows.h',
@@ -335,6 +356,7 @@ def build(bld):
             'src/splat.cpp',
             'src/splat_set.cpp',
             'src/stxxl_log.cpp',
+            'src/thread_name.cpp',
             'src/timer.cpp']
     cl_sources = [
             'src/clh.cpp',

@@ -138,6 +138,7 @@ protected:
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
      *
+     * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
@@ -147,12 +148,13 @@ protected:
      *
      * @pre @a numWorkers &gt; 0.
      */
-    WorkerGroupPool(std::size_t numWorkers, std::size_t spare,
+    WorkerGroupPool(const std::string &name,
+                    std::size_t numWorkers, std::size_t spare,
                     Statistics::Variable &pushStat,
                     Statistics::Variable &firstPopStat,
                     Statistics::Variable &popStat,
                     Statistics::Variable &getStat)
-        : itemPool(numWorkers + spare),
+        : threadName(name), itemPool(numWorkers + spare),
         pushStat(pushStat), firstPopStat(firstPopStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
@@ -174,6 +176,7 @@ private:
         {
             try
             {
+                thread_set_name(owner.threadName);
                 bool firstPop = true;
                 while (true)
                 {
@@ -201,6 +204,9 @@ private:
             }
         }
     };
+
+    /// Name to assign to threads
+    const std::string threadName;
 
     Pool<WorkItem> itemPool;
 
@@ -294,6 +300,7 @@ public:
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
      *
+     * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
@@ -303,12 +310,13 @@ public:
      *
      * @pre @a numWorkers &gt; 0.
      */
-    WorkerGroup(std::size_t numWorkers, std::size_t spare,
+    WorkerGroup(const std::string &name,
+                std::size_t numWorkers, std::size_t spare,
                 Statistics::Variable &pushStat,
                 Statistics::Variable &firstPopStat,
                 Statistics::Variable &popStat,
                 Statistics::Variable &getStat)
-        : BaseType(numWorkers, spare, pushStat, firstPopStat, popStat, getStat),
+        : BaseType(name, numWorkers, spare, pushStat, firstPopStat, popStat, getStat),
           workQueue(numWorkers + spare)
     {
     }
@@ -413,6 +421,7 @@ public:
      * provide the constructed workers and work items (with the appropriate number
      * per set).
      *
+     * @param name           Name for the threads in the pool.
      * @param numSets        Number of sets.
      * @param numWorkers     Number of worker threads to use <em>per set</em>.
      * @param spare          Number of work items to have available in the pool when all workers are busy, <em>per set</em>.
@@ -425,12 +434,13 @@ public:
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroupMulti(
+        const std::string &name,
         std::size_t numSets, std::size_t numWorkers, std::size_t spare,
         Statistics::Variable &pushStat,
         Statistics::Variable &firstPopStat,
         Statistics::Variable &popStat,
         Statistics::Variable &getStat)
-        : BaseType(numWorkers * numSets, spare * numSets, pushStat, firstPopStat, popStat, getStat),
+        : BaseType(name, numWorkers * numSets, spare * numSets, pushStat, firstPopStat, popStat, getStat),
         workQueueCapacity(numWorkers + spare)
     {
         MLSGPU_ASSERT(numSets > 0, std::invalid_argument);

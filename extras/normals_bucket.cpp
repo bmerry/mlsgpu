@@ -291,6 +291,7 @@ class NormalWorkerGroup : public WorkerGroup<NormalItem, int, NormalWorker, Norm
 public:
     NormalWorkerGroup(std::size_t numWorkers, std::size_t spare, std::size_t maxSplats)
         : WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>(
+            "normals",
             numWorkers, spare,
             Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
             Statistics::getStatistic<Statistics::Variable>("normal.worker.pop.first"),

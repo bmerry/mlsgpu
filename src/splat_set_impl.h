@@ -27,6 +27,7 @@
 #include <boost/next_prior.hpp>
 #include "errors.h"
 #include "splat_set.h"
+#include "thread_name.h"
 
 namespace SplatSet
 {
@@ -157,6 +158,8 @@ FileSet::ReaderThread<RangeIterator>::ReaderThread(const FileSet &owner, RangeIt
 template<typename RangeIterator>
 void FileSet::ReaderThread<RangeIterator>::operator()()
 {
+    thread_set_name("reader");
+
     // Maximum number of bytes to load at one time. This must be less than the buffer
     // size, and should be much less for efficiency.
     const std::size_t maxChunk = buffer.size() / 8;
