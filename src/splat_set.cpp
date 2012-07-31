@@ -66,6 +66,19 @@ void splatToBuckets(const Splat &splat,
     }
 }
 
+std::size_t loadBuffer(SplatStream *splats, Statistics::Container::vector<std::pair<Splat, splat_id> > &buffer)
+{
+    std::size_t nBuffer = 0;
+    while (nBuffer < buffer.size() && !splats->empty())
+    {
+        buffer[nBuffer].first = **splats;
+        buffer[nBuffer].second = splats->currentId();
+        nBuffer++;
+        ++*splats;
+    }
+    return nBuffer;
+}
+
 } // namespace detail
 
 BlobInfo SimpleBlobStream::operator*() const

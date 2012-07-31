@@ -406,6 +406,63 @@ struct Bbox
     }
 };
 
+/**
+ * Computes the range of buckets that will be occupied by a splat's bounding
+ * box. See @ref BlobInfo for the definition of buckets.
+ *
+ * The coordinates are given in units of buckets, with (0,0,0) being the bucket
+ * overlapping cell (0,0,0).
+ *
+ * @param      splat         Input splat
+ * @param      grid          Grid for spacing and alignment
+ * @param      bucketSize    Size of buckets in cells
+ * @param[out] lower         Lower bound coordinates (inclusive)
+ * @param[out] upper         Upper bound coordinates (inclusive)
+ *
+ * @pre
+ * - <code>splat.isFinite()</code>
+ * - @a bucketSize &gt; 0
+ */
+void splatToBuckets(const Splat &splat,
+                    const Grid &grid, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper);
+
+/**
+ * Computes the range of buckets that will be occupied by a splat's bounding
+ * box. See @ref BlobInfo for the definition of buckets. This is an overload
+ * that is specialised for a grid based at the origin.
+ *
+ * The coordinates are given in units of buckets, with (0,0,0) being the bucket
+ * overlapping cell (0,0,0).
+ *
+ * @param      splat         Input splat
+ * @param      spacing       Grid spacing
+ * @param      bucketSize    Size of buckets in cells
+ * @param[out] lower         Lower bound coordinates (inclusive)
+ * @param[out] upper         Upper bound coordinates (inclusive)
+ *
+ * @pre
+ * - <code>splat.isFinite()</code>
+ * - @a bucketSize &gt; 0
+ */
+void splatToBuckets(const Splat &splat,
+                    float spacing, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper);
+
+/**
+ * Loads splats from a stream into a buffer.
+ * The maximum number of splats to read is given by the size of the buffer (which will not
+ * be resized). This number will be read unless the splat stream runs out. Each splat is
+ * stored as the splat data and splat ID.
+ *
+ * @param splats      Stream from which to extract splats.
+ * @param buffer      Buffer to assign splats in.
+ * @return The number of splats read.
+ */
+std::size_t loadBuffer(SplatStream *splats, Statistics::Container::vector<std::pair<Splat, splat_id> > &buffer);
+
 }
 
 template<typename Base, typename BlobVector>
@@ -485,46 +542,66 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
     nSplats = 0;
 
+    /* We use OpenMP to implement a basic pipeline between decoding and compacting.
+     * There are two buffers, and we load into one while compacting the other.
+     */
     static const std::size_t BUFFER_SIZE = 128 * 1024;
-    Statistics::Container::vector<std::pair<Splat, splat_id> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
-    std::tr1::uint64_t nBlobs = 0;
-    while (!splats->empty())
+    Statistics::Container::vector<std::pair<Splat, splat_id> > buffer[2] =
     {
-        std::size_t nBuffer = 0;
-        do
-        {
-            buffer[nBuffer].first = **splats;
-            buffer[nBuffer].second = splats->currentId();
-            nBuffer++;
-            ++*splats;
-        }
-        while (nBuffer < BUFFER_SIZE && !splats->empty());
+        Statistics::Container::vector<std::pair<Splat, splat_id> >("mem.computeBlobs.buffer", BUFFER_SIZE),
+        Statistics::Container::vector<std::pair<Splat, splat_id> >("mem.computeBlobs.buffer", BUFFER_SIZE)
+    };
+    std::size_t nBuffer[2] = {0, 0};
+    unsigned int phase = 0;
 
-#ifdef _OPENMP
-#pragma omp parallel shared(buffer, nBuffer, bbox, nBlobs) default(none)
-#endif
-        {
-            int nthreads = omp_get_num_threads();
+    std::tr1::uint64_t nBlobs = 0;
 
+    // Prime the pipeline by loading the first chunk
+    nBuffer[phase] = detail::loadBuffer(splats.get(), buffer[phase]);
 #ifdef _OPENMP
-#pragma omp for schedule(static,1) ordered
+#pragma omp parallel shared(splats, buffer, nBuffer, bbox, nBlobs, progress) firstprivate(phase) default(none)
 #endif
-            for (int tid = 0; tid < nthreads; tid++)
+    {
+        int blobThreads = omp_get_num_threads() - 1;
+        if (blobThreads <= 0)
+            blobThreads = 1;
+        while (nBuffer[phase] > 0)
+        {
+#ifdef _OPENMP
+#pragma omp single nowait
+#endif
             {
-                std::size_t first = tid * nBuffer / nthreads;
-                std::size_t last = (tid + 1) * nBuffer / nthreads;
+                // Load the following chunk into the alternate buffer. The nowait allows
+                // other thread to start dealing with the current chunk at the same time.
+                nBuffer[!phase] = detail::loadBuffer(splats.get(), buffer[!phase]);
+            }
+
+            /* Divide the splats into subblocks, based on an estimate of how many threads
+             * will be involved. We have to manually strip-mine the loop to guarantee that
+             * the distribution is in contiguous chunks.
+             */
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic,1) ordered
+#endif
+            for (int tid = 0; tid < blobThreads; tid++)
+            {
+                std::size_t first = tid * nBuffer[phase] / blobThreads;
+                std::size_t last = (tid + 1) * nBuffer[phase] / blobThreads;
                 detail::Bbox threadBbox;
                 std::vector<BlobData> threadBlobData;
                 BlobInfo curBlob, prevBlob;
                 bool haveCurBlob = false;
                 std::tr1::uint64_t threadBlobs = 0;
 
+                // Compute the blobs for a single subrange. The first blob will always
+                // be a non-differential encoding, so the encoding depends on the number
+                // of subchunks chosen.
                 for (std::size_t i = first; i < last; i++)
                 {
-                    const Splat &splat = buffer[i].first;
+                    const Splat &splat = buffer[phase][i].first;
                     BlobInfo blob;
                     detail::splatToBuckets(splat, spacing, bucketSize, blob.lower, blob.upper);
-                    blob.firstSplat = buffer[i].second;
+                    blob.firstSplat = buffer[phase][i].second;
                     blob.lastSplat = blob.firstSplat + 1;
                     threadBbox += splat;
 
@@ -555,17 +632,27 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 #pragma omp ordered
 #endif
                 {
+                    // Write the blobs for this subrange out to the global blob list.
                     bbox += threadBbox;
                     nBlobs += threadBlobs;
                     std::copy(threadBlobData.begin(), threadBlobData.end(), std::back_inserter(blobData));
                 }
             }
+            // There is an implicit barrier here, which ensures that the next chunk is loaded
+            // before any of the threads go back around the while loop
+
+#ifdef _OPENMP
+#pragma omp single nowait
+#endif
+            {
+                nSplats += nBuffer[phase];
+                if (progress != NULL)
+                    *progress += nBuffer[phase];
+            }
+
+            // Switch to the next chunk, loaded at the start
+            phase = !phase;
         }
-
-        nSplats += nBuffer;
-        if (progress != NULL)
-            *progress += nBuffer;
-
     }
 
     assert(nSplats <= Base::maxSplats());

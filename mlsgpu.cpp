@@ -480,6 +480,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         {
             Statistics::Timer timer("bbox.time");
             splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
+            Log::log[Log::debug] << "Bbox time: " << timer.getElapsed() << std::endl;
         }
         catch (std::length_error &e) // TODO: should be a subclass of runtime_error
         {
