@@ -48,6 +48,24 @@ void splatToBuckets(const Splat &splat,
     }
 }
 
+void splatToBuckets(const Splat &splat,
+                    float spacing, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper)
+{
+    MLSGPU_ASSERT(splat.isFinite(), std::invalid_argument);
+    MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float loWorld = splat.position[i] - splat.radius;
+        float hiWorld = splat.position[i] + splat.radius;
+        Grid::difference_type loCell = Grid::RoundDown::convert(loWorld / spacing);
+        Grid::difference_type hiCell = Grid::RoundDown::convert(hiWorld / spacing);
+        lower[i] = divDown(loCell, bucketSize);
+        upper[i] = divDown(hiCell, bucketSize);
+    }
+}
+
 } // namespace detail
 
 BlobInfo SimpleBlobStream::operator*() const

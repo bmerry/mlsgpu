@@ -265,6 +265,29 @@ void splatToBuckets(const Splat &splat,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper);
 
+/**
+ * Computes the range of buckets that will be occupied by a splat's bounding
+ * box. See @ref BlobInfo for the definition of buckets. This is an overload
+ * that is specialised for a grid based at the origin.
+ *
+ * The coordinates are given in units of buckets, with (0,0,0) being the bucket
+ * overlapping cell (0,0,0).
+ *
+ * @param      splat         Input splat
+ * @param      spacing       Grid spacing
+ * @param      bucketSize    Size of buckets in cells
+ * @param[out] lower         Lower bound coordinates (inclusive)
+ * @param[out] upper         Upper bound coordinates (inclusive)
+ *
+ * @pre
+ * - <code>splat.isFinite()</code>
+ * - @a bucketSize &gt; 0
+ */
+void splatToBuckets(const Splat &splat,
+                    float spacing, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper);
+
 } // namespace detail
 
 /**

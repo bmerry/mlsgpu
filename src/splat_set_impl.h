@@ -457,7 +457,7 @@ void FastBlobSet<Base, BlobVector>::addBlob(std::vector<BlobData> &blobData, con
 
 template<typename Base, typename BlobVector>
 void FastBlobSet<Base, BlobVector>::computeBlobs(
-    float spacing, const Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
+    const float spacing, const Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
 {
     const float ref[3] = {0.0f, 0.0f, 0.0f};
 
@@ -467,9 +467,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     blobData.clear();
     internalBucketSize = bucketSize;
 
-    // Reference point will be 0,0,0. Extents are set after reading all the splats,
-    // but the lower extent must initially be zero to make splatToBuckets give the
-    // answers we want.
+    // Reference point will be 0,0,0. Extents are set after reading all the splats.
     boundingGrid.setSpacing(spacing);
     boundingGrid.setReference(ref);
     for (unsigned int i = 0; i < 3; i++)
@@ -525,7 +523,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 {
                     const Splat &splat = buffer[i].first;
                     BlobInfo blob;
-                    detail::splatToBuckets(splat, boundingGrid, bucketSize, blob.lower, blob.upper);
+                    detail::splatToBuckets(splat, spacing, bucketSize, blob.lower, blob.upper);
                     blob.firstSplat = buffer[i].second;
                     blob.lastSplat = blob.firstSplat + 1;
                     threadBbox += splat;
