@@ -485,7 +485,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
     nSplats = 0;
 
-    static const std::size_t BUFFER_SIZE = 1024 * 1024;
+    static const std::size_t BUFFER_SIZE = 128 * 1024;
     Statistics::Container::vector<std::pair<Splat, splat_id> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
     std::tr1::uint64_t nBlobs = 0;
     while (!splats->empty())
