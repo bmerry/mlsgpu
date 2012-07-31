@@ -127,7 +127,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(8000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
-        (Option::bucketThreads, po::value<int>()->default_value(1), "Number of threads for bucketing splats")
+        (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (big | stxxl)")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
@@ -466,11 +466,11 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         Log::log[Log::info] << "Initializing...\n";
         MesherGroup mesherGroup(devices.size() * numDeviceThreads);
         DeviceWorkerGroup deviceWorkerGroup(
-            numDeviceThreads, numBucketThreads, mesherGroup,
+            numDeviceThreads, numBucketThreads + 1, mesherGroup,
             devices, maxDeviceSplats, blockCells, levels, subsampling,
             keepBoundary, boundaryLimit, shape);
         FineBucketGroup fineBucketGroup(
-            numBucketThreads, 1, deviceWorkerGroup,
+            numBucketThreads, 2, deviceWorkerGroup,
             maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
         HostBlock<Splats> hostBlock(fineBucketGroup);
 
