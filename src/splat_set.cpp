@@ -165,7 +165,7 @@ void FileSet::MySplatStream::refill()
             firstId = item.first;
             const std::size_t fileId = item.first >> scanIdShift;
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static)
+#pragma omp parallel for default(none) schedule(static) if(item.numSplats() >= 4096)
 #endif
             for (std::size_t i = 0; i < item.numSplats(); i++)
             {
