@@ -464,7 +464,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         mesher->setPruneThreshold(pruneThreshold);
 
         Log::log[Log::info] << "Initializing...\n";
-        MesherGroup mesherGroup(devices.size() * numDeviceThreads);
+        MesherGroup mesherGroup(2 * devices.size() * numDeviceThreads);
         DeviceWorkerGroup deviceWorkerGroup(
             numDeviceThreads, numBucketThreads + 1, mesherGroup,
             devices, maxDeviceSplats, blockCells, levels, subsampling,
