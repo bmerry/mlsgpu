@@ -151,8 +151,6 @@ void FileSet::MySplatStream::refill()
     {
         while (bufferCur == buffer.size())
         {
-            buffer.clear();
-            bufferCur = 0;
             if (isEmpty)
                 return;
             const ReaderThreadBase::Item item = readerThread->pop();
@@ -162,6 +160,7 @@ void FileSet::MySplatStream::refill()
                 return;
             }
 
+            bufferCur = 0;
             buffer.resize(item.numSplats());
             firstId = item.first;
             const std::size_t fileId = item.first >> scanIdShift;
@@ -169,10 +168,16 @@ void FileSet::MySplatStream::refill()
 #pragma omp parallel for default(none) schedule(static)
 #endif
             for (std::size_t i = 0; i < item.numSplats(); i++)
+            {
                 buffer[i] = owner.files[fileId].decode(item.ptr, i);
+                // Test finiteness inside the parallel loop, so that we
+                // can quick skip over non-finite elements.
+                if (!buffer[i].isFinite())
+                    buffer[i].radius = -1.0;
+            }
             readerThread->free(item);
         }
-        if (buffer[bufferCur].isFinite())
+        if (buffer[bufferCur].radius >= 0.0)
             return;
         bufferCur++;
     }

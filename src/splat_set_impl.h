@@ -542,51 +542,31 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
     nSplats = 0;
 
-    /* We use OpenMP to implement a basic pipeline between decoding and compacting.
-     * There are two buffers, and we load into one while compacting the other.
-     */
     static const std::size_t BUFFER_SIZE = 128 * 1024;
-    Statistics::Container::vector<std::pair<Splat, splat_id> > buffer[2] =
-    {
-        Statistics::Container::vector<std::pair<Splat, splat_id> >("mem.computeBlobs.buffer", BUFFER_SIZE),
-        Statistics::Container::vector<std::pair<Splat, splat_id> >("mem.computeBlobs.buffer", BUFFER_SIZE)
-    };
-    std::size_t nBuffer[2] = {0, 0};
-    unsigned int phase = 0;
+    Statistics::Container::vector<std::pair<Splat, splat_id> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
 
     std::tr1::uint64_t nBlobs = 0;
 
-    // Prime the pipeline by loading the first chunk
-    nBuffer[phase] = detail::loadBuffer(splats.get(), buffer[phase]);
-#ifdef _OPENMP
-#pragma omp parallel shared(splats, buffer, nBuffer, bbox, nBlobs, progress) firstprivate(phase) default(none)
-#endif
+    while (!splats->empty())
     {
-        int blobThreads = omp_get_num_threads() - 1;
-        if (blobThreads <= 0)
-            blobThreads = 1;
-        while (nBuffer[phase] > 0)
-        {
-#ifdef _OPENMP
-#pragma omp single nowait
-#endif
-            {
-                // Load the following chunk into the alternate buffer. The nowait allows
-                // other thread to start dealing with the current chunk at the same time.
-                nBuffer[!phase] = detail::loadBuffer(splats.get(), buffer[!phase]);
-            }
+        const std::size_t nBuffer = detail::loadBuffer(splats.get(), buffer);
 
+#ifdef _OPENMP
+#pragma omp parallel shared(buffer, bbox, nBlobs) default(none)
+#endif
+        {
+            const int nThreads = omp_get_num_threads();
             /* Divide the splats into subblocks, based on an estimate of how many threads
              * will be involved. We have to manually strip-mine the loop to guarantee that
              * the distribution is in contiguous chunks.
              */
 #ifdef _OPENMP
-#pragma omp for schedule(dynamic,1) ordered
+#pragma omp for schedule(static,1) ordered
 #endif
-            for (int tid = 0; tid < blobThreads; tid++)
+            for (int tid = 0; tid < nThreads; tid++)
             {
-                std::size_t first = tid * nBuffer[phase] / blobThreads;
-                std::size_t last = (tid + 1) * nBuffer[phase] / blobThreads;
+                std::size_t first = tid * nBuffer / nThreads;
+                std::size_t last = (tid + 1) * nBuffer / nThreads;
                 detail::Bbox threadBbox;
                 std::vector<BlobData> threadBlobData;
                 BlobInfo curBlob, prevBlob;
@@ -598,10 +578,10 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 // of subchunks chosen.
                 for (std::size_t i = first; i < last; i++)
                 {
-                    const Splat &splat = buffer[phase][i].first;
+                    const Splat &splat = buffer[i].first;
                     BlobInfo blob;
                     detail::splatToBuckets(splat, spacing, bucketSize, blob.lower, blob.upper);
-                    blob.firstSplat = buffer[phase][i].second;
+                    blob.firstSplat = buffer[i].second;
                     blob.lastSplat = blob.firstSplat + 1;
                     threadBbox += splat;
 
@@ -638,21 +618,11 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                     std::copy(threadBlobData.begin(), threadBlobData.end(), std::back_inserter(blobData));
                 }
             }
-            // There is an implicit barrier here, which ensures that the next chunk is loaded
-            // before any of the threads go back around the while loop
-
-#ifdef _OPENMP
-#pragma omp single nowait
-#endif
-            {
-                nSplats += nBuffer[phase];
-                if (progress != NULL)
-                    *progress += nBuffer[phase];
-            }
-
-            // Switch to the next chunk, loaded at the start
-            phase = !phase;
         }
+
+        nSplats += nBuffer;
+        if (progress != NULL)
+            *progress += nBuffer;
     }
 
     assert(nSplats <= Base::maxSplats());
