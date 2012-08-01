@@ -120,17 +120,18 @@ void FileSet::ReaderThreadBase::drain()
 
 FileSet::MySplatStream::MySplatStream(
     const FileSet &owner, ReaderThreadBase *reader)
-: owner(owner), readerThread(reader), thread(boost::ref(*readerThread))
+:
+    owner(owner), buffer("mem.FileSet.MySplatStream.buffer"),
+    readerThread(reader), thread(boost::ref(*readerThread))
 {
     isEmpty = false;
     bufferCur = 0;
+    firstId = 0;
     refill();
 }
 
 FileSet::MySplatStream::~MySplatStream()
 {
-    if (buffer.ptr)
-        readerThread->free(buffer);
     if (!isEmpty)
         readerThread->drain();
     thread.join();
@@ -138,7 +139,7 @@ FileSet::MySplatStream::~MySplatStream()
 
 SplatStream &FileSet::MySplatStream::operator++()
 {
-    MLSGPU_ASSERT(!isEmpty, std::out_of_range);
+    MLSGPU_ASSERT(bufferCur < buffer.size() || !isEmpty, std::out_of_range);
     bufferCur++;
     refill();
     return *this;
@@ -148,21 +149,30 @@ void FileSet::MySplatStream::refill()
 {
     while (true)
     {
-        while (!buffer.ptr || bufferCur == buffer.numSplats())
+        while (bufferCur == buffer.size())
         {
-            if (buffer.ptr)
-                readerThread->free(buffer);
-            buffer = readerThread->pop();
+            buffer.clear();
             bufferCur = 0;
-            if (!buffer.ptr)
+            if (isEmpty)
+                return;
+            const ReaderThreadBase::Item item = readerThread->pop();
+            if (item.ptr == NULL)
             {
                 isEmpty = true;
                 return;
             }
+
+            buffer.resize(item.numSplats());
+            firstId = item.first;
+            const std::size_t fileId = item.first >> scanIdShift;
+#ifdef _OPENMP
+#pragma omp parallel for default(none) schedule(static)
+#endif
+            for (std::size_t i = 0; i < item.numSplats(); i++)
+                buffer[i] = owner.files[fileId].decode(item.ptr, i);
+            readerThread->free(item);
         }
-        const std::size_t fileId = buffer.first >> scanIdShift;
-        nextSplat = owner.files[fileId].decode(buffer.ptr, bufferCur);
-        if (nextSplat.isFinite())
+        if (buffer[bufferCur].isFinite())
             return;
         bufferCur++;
     }

@@ -501,7 +501,7 @@ private:
     public:
         /**
          * Describes a contiguous range of splats. It can also be a sentinel
-         * value (marked with @ref ptr of @c NULL), which marks the end out
+         * value (marked with @ref ptr of @c NULL), which marks the end of
          * the splat stream.
          */
         struct Item
@@ -597,19 +597,19 @@ private:
         virtual Splat operator*() const
         {
             MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return nextSplat;
+            return buffer[bufferCur];
         }
 
         virtual SplatStream &operator++();
 
         virtual bool empty() const
         {
-            return isEmpty;
+            return isEmpty && bufferCur == buffer.size();
         }
 
         virtual splat_id currentId() const
         {
-            return buffer.first + bufferCur;
+            return firstId + bufferCur;
         }
 
         MySplatStream(const FileSet &owner, ReaderThreadBase *reader);
@@ -617,16 +617,16 @@ private:
 
     private:
         const FileSet &owner;           ///< Owning set
-        std::size_t bufferCur;          ///< First position in @ref buffer with data (points at @ref nextSplat)
-        Splat nextSplat;                ///< The splat to return from #operator*
-        ReaderThreadBase::Item buffer;  ///< Current buffer (possibly NULL)
-        bool isEmpty;                   ///< Set to true when hitting the end
+        std::size_t bufferCur;          ///< First position in @ref buffer with data
+        Statistics::Container::vector<Splat> buffer;  ///< Current buffer
+        splat_id firstId;               ///< Id of first splat in buffer
+        bool isEmpty;                   ///< Set to true once sentinel item is seen
         boost::scoped_ptr<ReaderThreadBase> readerThread;
         boost::thread thread;
 
         /**
-         * Advance the stream until empty or a finite splat is reached, and
-         * set @ref nextSplat. This will refill the buffer if necessary.
+         * Advance the stream until empty or a finite splat is reached. This
+         * will refill the buffer if necessary.
          */
         void refill();
     };
