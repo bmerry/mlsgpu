@@ -137,22 +137,112 @@ void FileSet::MySplatStream::refill()
     }
 }
 
+void SubsetBase::flush()
+{
+    if (first != last)
+    {
+        nRanges++;
+        if (first - prev < (1 << 16)
+            && last - first < (1 << 15))
+        {
+            std::tr1::uint32_t encoded = first - prev;
+            encoded |= (last - first) << 16;
+            encoded |= std::tr1::uint32_t(1) << 31;
+            splatRanges.push_back(encoded);
+        }
+        else
+        {
+            splatRanges.push_back(first >> 32);
+            splatRanges.push_back(first & UINT32_C(0xFFFFFFFF));
+            splatRanges.push_back(last >> 32);
+            splatRanges.push_back(last & UINT32_C(0xFFFFFFFF));
+        }
+        prev = last;
+        first = last;
+    }
+}
 
 void SubsetBase::addBlob(const BlobInfo &blob)
 {
-    MLSGPU_ASSERT(splatRanges.empty() || splatRanges.back().second <= blob.firstSplat,
-                  std::invalid_argument);
-    if (splatRanges.empty() || splatRanges.back().second != blob.firstSplat)
-        splatRanges.push_back(std::make_pair(blob.firstSplat, blob.lastSplat));
+    MLSGPU_ASSERT(last <= blob.firstSplat, std::invalid_argument);
+    if (last == blob.firstSplat)
+        last = blob.lastSplat;
     else
-        splatRanges.back().second = blob.lastSplat;
+    {
+        flush();
+        first = blob.firstSplat;
+        last = blob.lastSplat;
+    }
     nSplats += blob.lastSplat - blob.firstSplat;
 }
 
 void SubsetBase::swap(SubsetBase &other)
 {
     splatRanges.swap(other.splatRanges);
+    std::swap(first, other.first);
+    std::swap(last, other.last);
+    std::swap(prev, other.prev);
     std::swap(nSplats, other.nSplats);
+    std::swap(nRanges, other.nRanges);
+}
+
+SubsetBase::const_iterator SubsetBase::begin() const
+{
+    MLSGPU_ASSERT(first == last, state_error);
+    return const_iterator(0, splatRanges.begin());
+}
+
+SubsetBase::const_iterator SubsetBase::end() const
+{
+    MLSGPU_ASSERT(first == last, state_error);
+    return const_iterator(prev, splatRanges.end());
+}
+
+void SubsetBase::const_iterator::increment()
+{
+    if (*pos & (std::tr1::uint32_t(1) << 31))
+    {
+        // Differential
+        prev += (*pos) & 0xFFFF;
+        prev += (*pos >> 16) & 0x7FFF;
+        ++pos;
+    }
+    else
+    {
+        // Full encoding
+        pos += 2;
+        prev = *pos;
+        prev <<= 32;
+        ++pos;
+        prev |= *pos;
+        ++pos;
+    }
+}
+
+bool SubsetBase::const_iterator::equal(const const_iterator &other) const
+{
+    return pos == other.pos;
+}
+
+std::pair<splat_id, splat_id> SubsetBase::const_iterator::dereference() const
+{
+    if (*pos & (std::tr1::uint32_t(1) << 31))
+    {
+        // Differential
+        splat_id offset = *pos & 0xFFFF;
+        splat_id length = (*pos >> 16) & 0x7FFF;
+        splat_id first = prev + offset;
+        return std::make_pair(first, first + length);
+    }
+    else
+    {
+        Statistics::Container::vector<std::tr1::uint32_t>::const_iterator p = pos;
+        splat_id first = *p++; first <<= 32;
+        first |= *p++;
+        splat_id last = *p++; last <<= 32;
+        last |= *p++;
+        return std::make_pair(first, last);
+    }
 }
 
 } // namespace SplatSet

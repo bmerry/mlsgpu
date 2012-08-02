@@ -861,11 +861,58 @@ class SubsetBase
 {
 public:
     /**
+     * Forward iterator type that enumerates the splat ranges
+     * as pairs of [first, last) IDs.
+     */
+    class const_iterator : public boost::iterator_facade<
+        const_iterator,
+        std::pair<splat_id, splat_id>,
+        boost::forward_traversal_tag,
+        std::pair<splat_id, splat_id> >
+    {
+        friend class boost::iterator_core_access;
+        friend class SubsetBase;
+    private:
+
+        /**
+         * @name
+         * @{
+         * Iterator core functions.
+         * @see Boost iterator_facade documentation.
+         */
+        void increment();
+        bool equal(const const_iterator &other) const;
+        std::pair<splat_id, splat_id> dereference() const;
+        /**
+         * @}
+         */
+
+        /// Baseline for differential encoding
+        splat_id prev;
+
+        /// Position in the owner's encoded array
+        Statistics::Container::vector<std::tr1::uint32_t>::const_iterator pos;
+
+        const_iterator(splat_id prev,
+                       Statistics::Container::vector<std::tr1::uint32_t>::const_iterator pos)
+            : prev(prev), pos(pos) {}
+
+    public:
+        const_iterator() : prev(0) {}
+    };
+
+    /**
      * Add a blob to the subset.
      * @pre
      * - @a blob.firstSplat is greater than any previously added splat.
      */
     void addBlob(const BlobInfo &blob);
+
+    /**
+     * Call this after adding all blobs with @ref addBlob and before
+     * using the iterator functions to finalize the internal data structure.
+     */
+    void flush();
 
     /**
      * Swap blob IDs with another subset. Note that this does not check that
@@ -877,31 +924,71 @@ public:
     void swap(SubsetBase &other);
 
     /**
-     * The number of splat ID ranges.
+     * The number of contiguous splat ID ranges.
+     * @pre @ref flush has been called since the last @ref addBlob.
      */
-    std::size_t numRanges() const { return splatRanges.size(); }
+    std::size_t numRanges() const { return nRanges; }
 
     splat_id numSplats() const { return nSplats; }
     splat_id maxSplats() const { return nSplats; }
 
-    SubsetBase() : splatRanges("mem.SubsetBase::splatRange"), nSplats(0) {}
+    /**
+     * @name
+     * @{
+     * Iterator range that enumerates the ranges in order.
+     *
+     * @pre @ref flush() has been called.
+     */
+    const_iterator begin() const;
+    const_iterator end() const;
+    /** @} */
+
+    SubsetBase() :
+        splatRanges("mem.SubsetBase::splatRange"),
+        first(0), last(0), prev(0),
+        nSplats(0), nRanges(0) {}
 
 protected:
     /**
      * Store of splat ID ranges. Each range is a half-open interval of valid
-     * IDs.
+     * IDs. They are encoded in one of two forms. The full encoding uses 4
+     * 32-bit words:
+     * -# First splat (high)
+     * -# First splat (low)
+     * -# Last splat (high)
+     * -# Last splat (low)
+     *
+     * The differential encoding packs fields into a single 32-bit word. From
+     * lowest to highest bit:
+     * - [0:16]  First splat minus last splat from previous range
+     * - [16:31] Length
+     * - [31:32] 1
      */
-    Statistics::Container::vector<std::pair<splat_id, splat_id> > splatRanges;
+    Statistics::Container::vector<std::tr1::uint32_t> splatRanges;
+
+    /**
+     * @name
+     * @{
+     * Range waiting to be added to @ref splatRanges when complete.
+     */
+    splat_id first, last;
+    /** @} */
+
+    /// End of the previous range, for differential encoding
+    splat_id prev;
 
     /// Number of splats in the supplied blobs.
     splat_id nSplats;
+
+    /// Number of ranges encoded
+    std::size_t nRanges;
 };
 
 /**
  * A subset of the splats from another set. Note that this class does not
  * implement the @ref SubsettableConcept, but since it matches its superset in
- * blob and splat IDs, it is possible to create a subset of a subset by
- * subsetting the superset. @ref Traits can be used to handle this distinction
+ * splat IDs, it is possible to create a subset of a subset by subsetting the
+ * superset. @ref Traits can be used to handle this distinction
  * transparently.
  *
  * Blob iteration is currently not very efficient: it iterates one splat at a time,
@@ -918,7 +1005,7 @@ class Subset : public SubsetBase
 public:
     SplatStream *makeSplatStream() const
     {
-        return super.makeSplatStream(splatRanges.begin(), splatRanges.end());
+        return super.makeSplatStream(begin(), end());
     }
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;

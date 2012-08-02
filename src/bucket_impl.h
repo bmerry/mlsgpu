@@ -239,6 +239,7 @@ void BucketState::doCallbacks(
         for (unsigned int i = 0; i < 3; i++)
             childRecursion.chunk[i] += chunkOffset[i];
 
+        region.subset.flush();
         typename SplatSet::Traits<Splats>::subset_type subset(splats);
         subset.swap(region.subset);
         bucketRecurse(subset,

@@ -163,7 +163,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     Statistics::Variable &readMergedStat = Statistics::getStatistic<Statistics::Variable>("files.read.merged");
 
     boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
-    std::size_t handleId;
+    std::size_t handleId = 0;
     FileRangeIterator<RangeIterator> first(owner, firstRange, lastRange, maxChunk);
     FileRangeIterator<RangeIterator> last(owner, lastRange);
 
