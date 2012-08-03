@@ -921,6 +921,7 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
         offset += numSplats;
         ++*superBlobs;
     }
+    set->flush();
     CPPUNIT_ASSERT_EQUAL((unsigned int) flatSplats.size(), offset);
     flatSplats.swap(flatSubset);
     return set.release();
