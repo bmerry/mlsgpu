@@ -321,6 +321,7 @@ private:
     Statistics::Variable &loadStat;
     Statistics::Variable &binStat;
     Statistics::Peak<std::tr1::uint64_t> &activeStat;
+    Statistics::Counter &recursedStat;
 
 public:
     BinProcessor(
@@ -337,7 +338,8 @@ public:
         first(true),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
         binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size")),
-        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
+        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
+        recursedStat(Statistics::getStatistic<Statistics::Counter>("recursed"))
     {}
 
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
@@ -348,6 +350,8 @@ public:
         if (first)
             Statistics::getStatistic<Statistics::Variable>("histogram.time").add(histoTimer.getElapsed());
         first = false;
+        if (recursionState.depth > 1)
+            recursedStat.add(1);
 
         boost::shared_ptr<NormalItem> item = outGroup.get();
         activeStat += subset.numSplats();
