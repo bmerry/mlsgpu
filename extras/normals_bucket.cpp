@@ -63,7 +63,7 @@ void addBucketOptions(po::options_description &opts)
     po::options_description opts2("Bucket mode options");
     opts2.add_options()
         (Option::maxHostSplats(), po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
-        (Option::maxSplit(),      po::value<int>()->default_value(40000000), "Maximum fan-out in partitioning")
+        (Option::maxSplit(),      po::value<int>()->default_value(100000000), "Maximum fan-out in partitioning")
         (Option::leafSize(),      po::value<double>()->default_value(1000.0), "Size of top-level octree leaves")
         (Option::colorFile(),     po::value<std::string>()->default_value("color.ply"), "Output file for color mode output");
     opts.add(opts2);
@@ -379,7 +379,7 @@ void runBucket(const po::variables_map &vm)
 {
     Timer bboxTimer;
 
-    const int bucketSize = 256;
+    const int bucketSize = 8;
     const float leafSize = vm[Option::leafSize()].as<double>();
     const float spacing = leafSize / bucketSize;
     const float radius = vm[Option::radius()].as<double>();
@@ -553,7 +553,7 @@ public:
 
 void makeColor(const po::variables_map &vm)
 {
-    const int bucketSize = 256;
+    const int bucketSize = 8;
     const float leafSize = vm[Option::leafSize()].as<double>();
     const float spacing = leafSize / bucketSize;
     const float radius = vm[Option::radius()].as<double>();
