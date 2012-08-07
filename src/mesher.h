@@ -337,8 +337,8 @@ protected:
          * @post
          * - <code>counts.vertices == numVertices</code>
          * - <code>counts.triangles == 0</code>
-         * - <code>counts.chunkCounts[chunkGen] == numVertices</code>
-         * - <code>counts.chunkCounts[chunkGen] == 0</code>
+         * - <code>counts.chunkCounts[chunkGen].vertices == numVertices</code>
+         * - <code>counts.chunkCounts[chunkGen].triangles == 0</code>
          * - <code>counts.chunkCounts.size() == 1</code>
          */
         Clump(ChunkId::gen_type chunkGen, std::tr1::uint64_t numVertices)
