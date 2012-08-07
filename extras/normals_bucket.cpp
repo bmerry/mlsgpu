@@ -63,7 +63,7 @@ void addBucketOptions(po::options_description &opts)
     po::options_description opts2("Bucket mode options");
     opts2.add_options()
         (Option::maxHostSplats(), po::value<std::size_t>()->default_value(10000000), "Maximum splats per bin/slice")
-        (Option::maxSplit(),      po::value<int>()->default_value(40000000), "Maximum fan-out in partitioning")
+        (Option::maxSplit(),      po::value<int>()->default_value(100000000), "Maximum fan-out in partitioning")
         (Option::leafSize(),      po::value<double>()->default_value(1000.0), "Size of top-level octree leaves")
         (Option::colorFile(),     po::value<std::string>()->default_value("color.ply"), "Output file for color mode output");
     opts.add(opts2);
@@ -322,6 +322,7 @@ private:
     Statistics::Variable &loadStat;
     Statistics::Variable &binStat;
     Statistics::Peak<std::tr1::uint64_t> &activeStat;
+    Statistics::Counter &recursedStat;
 
 public:
     BinProcessor(
@@ -338,7 +339,8 @@ public:
         first(true),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
         binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size")),
-        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
+        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
+        recursedStat(Statistics::getStatistic<Statistics::Counter>("recursed"))
     {}
 
     void operator()(const typename SplatSet::Traits<Splats>::subset_type &subset,
@@ -349,6 +351,8 @@ public:
         if (first)
             Statistics::getStatistic<Statistics::Variable>("histogram.time").add(histoTimer.getElapsed());
         first = false;
+        if (recursionState.depth > 1)
+            recursedStat.add(1);
 
         boost::shared_ptr<NormalItem> item = outGroup.get();
         activeStat += subset.numSplats();
@@ -380,7 +384,7 @@ void runBucket(const po::variables_map &vm)
 {
     Timer bboxTimer;
 
-    const int bucketSize = 256;
+    const int bucketSize = 8;
     const float leafSize = vm[Option::leafSize()].as<double>();
     const float spacing = leafSize / bucketSize;
     const float radius = vm[Option::radius()].as<double>();
@@ -554,7 +558,7 @@ public:
 
 void makeColor(const po::variables_map &vm)
 {
-    const int bucketSize = 256;
+    const int bucketSize = 8;
     const float leafSize = vm[Option::leafSize()].as<double>();
     const float spacing = leafSize / bucketSize;
     const float radius = vm[Option::radius()].as<double>();
