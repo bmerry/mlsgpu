@@ -774,25 +774,19 @@ void StxxlMesher::write(std::ostream *progressStream)
                 startVertex.push_back(writtenVertices);
                 if (clumps[cid].counts.vertices >= thresholdVertices)
                 {
-                    vertices_type::size_type lastVertex = cc.firstVertex + cc.numInternalVertices + cc.numExternalVertices;
-                    stxxl::stream::streamify_traits<vertices_type::const_iterator>::stream_type
-                        vertexStream = stxxl::stream::streamify(
-                            vertices.cbegin() + cc.firstVertex,
-                            vertices.cbegin() + lastVertex);
-                    for (std::size_t i = 0; i < cc.numInternalVertices; i++)
+                    vertices_type::const_iterator v = vertices.cbegin() + cc.firstVertex;
+                    for (std::size_t i = 0; i < cc.numInternalVertices; i++, ++v)
                     {
-                        vb(*vertexStream);
-                        ++vertexStream;
-                        ++writtenVertices;
+                        vb(*v);
                     }
-                    for (std::size_t i = 0; i < cc.numExternalVertices; i++)
+                    writtenVertices += cc.numInternalVertices;
+
+                    for (std::size_t i = 0; i < cc.numExternalVertices; i++, ++v)
                     {
                         externalRemap.push_back(writtenVertices);
-                        vb(*vertexStream);
-                        ++vertexStream;
+                        vb(*v);
                         ++writtenVertices;
                     }
-                    assert(vertexStream.empty());
 
                     // Yes, numTriangles. That's easier to make add up to the total
                     // than vertices (which share), and still a good proxy.
@@ -815,14 +809,10 @@ void StxxlMesher::write(std::ostream *progressStream)
                 clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
                 if (clumps[cid].counts.vertices >= thresholdVertices)
                 {
-                    triangles_type::size_type lastTriangle = cc.firstTriangle + cc.numTriangles;
-                    stxxl::stream::streamify_traits<triangles_type::const_iterator>::stream_type
-                        triangleStream = stxxl::stream::streamify(triangles.cbegin() + cc.firstTriangle,
-                                                                  triangles.cbegin() + lastTriangle);
-                    while (!triangleStream.empty())
+                    triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
+                    for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
                     {
-                        boost::array<std::tr1::uint32_t, 3> t = *triangleStream;
-                        ++triangleStream;
+                        boost::array<std::tr1::uint32_t, 3> t = *tp;
                         for (int k = 0; k < 3; k++)
                         {
                             if (~t[k] < externalRemap.size())
