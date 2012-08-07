@@ -262,17 +262,29 @@ namespace detail
  * An internal base class for @ref BigMesher and @ref StxxlMesher, implementing
  * algorithms common to both.
  *
- * External vertices are entered into a hash table that maps their keys to
- * their final indices in an output chunk. When a new block of data comes in,
- * new external vertices are entered into the key map and known ones are
- * discarded. The indices are then rewritten using the key map.
- *
  * Component identification is implemented with a two-level approach. Within each
  * block, a union-find is performed to identify local components. These
  * components are referred to as @em clumps. Each vertex is given a <em>clump
  * id</em>. During welding, external vertices are used to identify clumps that
  * form part of the same component, and this is recorded in a union-find
- * structure over the clumps.
+ * structure over the clumps. Clumps are represented in both the per-chunk data
+ * and globally, but "clump IDs" refer to the global representation, over which
+ * the union-find tree is built.
+ *
+ * Vertices in a block are reordered by clump, and within a clump the vertices are
+ * first the internal ones, then the external ones. External vertices that already
+ * appeared in a previous clump in the same chunk are elided.
+ *
+ * Triangles are also ordered by clump, and use clump-local indices. Where a vertex
+ * has been elided, it is indexed by an enumeration over the external vertices
+ * of the chunk, and this alternative encoding is signalled by flipping all
+ * bits. This encoding is unambiguous provided that the total external vertices
+ * in a chunk plus the total vertices in a clump do not exceed 2^32 (at which point
+ * PLY would be useless anyway).
+ *
+ * External vertices are entered into a hash table that maps their keys to
+ * their (global) chunk ID, and a chunk-local hash table that maps it to the
+ * triangle index used to encode it.
  */
 class KeyMapMesher : public MesherBase
 {
@@ -536,28 +548,209 @@ public:
  * using multiple passes. It thus trades storage requirements against
  * performance, at least when @ref BigMesher is compute-bound.
  */
-class StxxlMesher : public detail::KeyMapMesher
+class StxxlMesher : public MesherBase
 {
 private:
-    typedef stxxl::VECTOR_GENERATOR<std::pair<boost::array<float, 3>, clump_id> >::result vertices_type;
+    typedef std::tr1::int32_t clump_id;
+
+    /// Type for storing vertex data out-of-core
+    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3> >::result vertices_type;
+    /// Type for storing intermediate triangle data out-of-core
     typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3> >::result triangles_type;
 
     /**
-     * Encodes the start position of one chunk within the @ref vertices and
-     * @ref triangles arrays. The end position is not explicitly encoded; rather it
-     * can be found as the start of the next chunk, or as the end of the array for
-     * the final chunk.
+     * Strict weak ordering for sorting a list of vertex indices based on their
+     * chunk IDs. It is stable i.e. ties are broken by the IDs themselves.
      */
-    struct Chunk
+    class VertexCompare
     {
-        ChunkId chunkId;
-        vertices_type::size_type firstVertex;
-        triangles_type::size_type firstTriangle;
+    private:
+        const Statistics::Container::vector<clump_id> &clumpId;
+
+    public:
+        explicit VertexCompare(const Statistics::Container::vector<clump_id> &clumpId)
+            : clumpId(clumpId) {}
+
+        bool operator()(std::tr1::uint32_t a, std::tr1::uint32_t b) const
+        {
+            assert(a < clumpId.size());
+            assert(b < clumpId.size());
+            if (clumpId[a] != clumpId[b])
+                return clumpId[a] < clumpId[b];
+            else
+                return a < b;
+        }
     };
+
+    /**
+     * Strict weak ordering for sorting triangles by clump, determined
+     * from a clumpId array indexed by the triangle indices.
+     */
+    class TriangleCompare
+    {
+    private:
+        const Statistics::Container::vector<clump_id> &clumpId;
+
+    public:
+        explicit TriangleCompare(const Statistics::Container::vector<clump_id> &clumpId)
+            : clumpId(clumpId) {}
+
+        bool operator()(const boost::array<std::tr1::uint32_t, 3> &a,
+                        const boost::array<std::tr1::uint32_t, 3> &b) const
+        {
+            assert(a[0] < clumpId.size());
+            assert(b[0] < clumpId.size());
+            return clumpId[a[0]] < clumpId[b[0]];
+        }
+    };
+
+    /**
+     * Data for a single chunk.
+     */
+    class Chunk
+    {
+    public:
+        // Chunk-local clump data
+        struct Clump
+        {
+            vertices_type::size_type firstVertex;
+            std::tr1::uint32_t numInternalVertices;
+            std::tr1::uint32_t numExternalVertices;
+            triangles_type::size_type firstTriangle;
+            std::tr1::uint32_t numTriangles;
+            clump_id globalId;
+
+            Clump(
+                vertices_type::size_type firstVertex,
+                std::tr1::uint32_t numInternalVertices,
+                std::tr1::uint32_t numExternalVertices,
+                triangles_type::size_type firstTriangle,
+                std::tr1::uint32_t numTriangles,
+                clump_id globalId)
+                : firstVertex(firstVertex),
+                numInternalVertices(numInternalVertices),
+                numExternalVertices(numExternalVertices),
+                firstTriangle(firstTriangle),
+                numTriangles(numTriangles),
+                globalId(globalId)
+            {
+            }
+        };
+
+        typedef Statistics::Container::unordered_map<cl_ulong, std::tr1::uint32_t> vertex_id_map_type;
+
+        ChunkId chunkId;
+        Statistics::Container::vector<Clump> clumps;
+        vertex_id_map_type vertexIdMap;
+        std::size_t numExternalVertices;
+
+        explicit Chunk(const ChunkId chunkId = ChunkId())
+            : chunkId(chunkId), clumps("mem.mesher.chunk.clumps"), vertexIdMap("mem.mesher.vertexIdMap"),
+            numExternalVertices(0) {}
+    };
+
+    /**
+     * Component within a single block. The root clump also tracks the number of
+     * vertices and triangles in a component.
+     */
+    class Clump : public UnionFind::Node<clump_id>
+    {
+    public:
+        /**
+         * A tuple of vertices and triangles.
+         */
+        struct Counts
+        {
+            std::tr1::uint64_t vertices;
+            std::tr1::uint64_t triangles;
+
+            Counts &operator+=(const Counts &b)
+            {
+                vertices += b.vertices;
+                triangles += b.triangles;
+                return *this;
+            }
+
+            Counts() : vertices(0), triangles(0) {}
+        };
+
+        /**
+         * @name
+         * @{
+         * Book-keeping counts of vertices and triangles. These counts are only valid
+         * on root nodes.
+         */
+        Counts counts;  ///< Global counts
+        /** @} */
+
+        void merge(Clump &b)
+        {
+            UnionFind::Node<cl_int>::merge(b);
+            counts += b.counts;
+        }
+
+        /**
+         * Constructor for a new clump.
+         * @param numVertices        The number of vertices in the clump.
+         *
+         * @post
+         * - <code>counts.vertices == numVertices</code>
+         * - <code>counts.triangles == 0</code>
+         */
+        Clump(std::tr1::uint64_t numVertices)
+        {
+            counts.vertices = numVertices;
+        }
+    };
+
+    /**
+     * @name
+     * @{
+     * Temporary buffers.
+     * These are stored in the object so that memory can be recycled if
+     * possible, rather than thrashing the allocator.
+     */
+    Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
+    Statistics::Container::vector<clump_id> tmpClumpId;
+    /** @} */
 
     vertices_type vertices;     ///< Buffer of all vertices seen so far
     triangles_type triangles;   ///< Buffer of all triangles seen so far
-    Statistics::Container::vector<Chunk> chunks;  ///< All chunks seen so far
+    Statistics::Container::unordered_map<ChunkId::gen_type, Chunk> chunks;  ///< All chunks seen so far
+    Statistics::Container::vector<Clump> clumps; ///< All clumps seen so far
+
+    typedef Statistics::Container::unordered_map<cl_ulong, clump_id> clump_id_map_type;
+    /// Maps external vertex keys to clumps
+    clump_id_map_type clumpIdMap;
+
+    /**
+     * Identifies components with a local set of triangles, and
+     * returns a union-find tree for them.
+     *
+     * @param numVertices    Number of vertices indexed by @a triangles.
+     *                       Also the size of the returned union-find tree.
+     * @param triangles      The vertex indices of the triangles.
+     * @param[out] nodes     A union-find tree over the vertices.
+     */
+    static void computeLocalComponents(
+        std::size_t numVertices,
+        const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
+        Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
+
+    void updateGlobalClumps(
+        const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
+        const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
+        Statistics::Container::vector<clump_id> &clumpId);
+
+    void updateClumpKeyMap(
+        const Statistics::Container::vector<cl_ulong> &keys,
+        const Statistics::Container::vector<clump_id> &clumpId);
+
+    void updateLocalClumps(
+        Chunk &chunk,
+        const Statistics::Container::vector<clump_id> &globalClumpId,
+        HostKeyMesh &mesh);
+
 
     /// Implementation of the functor
     void add(const ChunkId &chunkId, MesherWork &work);
@@ -601,7 +794,12 @@ public:
      * @copydoc MesherBase::MesherBase
      */
     StxxlMesher(FastPly::WriterBase &writer, const Namer &namer)
-        : KeyMapMesher(writer, namer), chunks("mem.StxxlMesher::chunks") {}
+        : MesherBase(writer, namer),
+        tmpNodes("mem.StxxlMesher::tmpNodes"),
+        tmpClumpId("mem.StxxlMesher::tmpClumpId"),
+        chunks("mem.StxxlMesher::chunks"),
+        clumps("mem.StxxlMesher::clumps"),
+        clumpIdMap("mem.StxxlMesher::clumpIdMap") {}
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
