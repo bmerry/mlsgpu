@@ -83,7 +83,6 @@ namespace Option
     const char * const subsampling = "subsampling";
     const char * const bucketThreads = "bucket-threads";
     const char * const deviceThreads = "device-threads";
-    const char * const mesher = "mesher";
     const char * const reader = "reader";
     const char * const writer = "writer";
 };
@@ -129,7 +128,6 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
-        (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (big | stxxl)")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
@@ -426,7 +424,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    const MesherType mesherType = vm[Option::mesher].as<Choice<MesherTypeWrapper> >();
+    const MesherType mesherType = STXXL_MESHER;
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();

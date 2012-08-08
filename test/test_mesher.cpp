@@ -1153,27 +1153,6 @@ class TestMesherBaseSlow : public TestMesherBase
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
 
-class TestBigMesher : public TestMesherBase
-{
-    CPPUNIT_TEST_SUB_SUITE(TestBigMesher, TestMesherBase);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesher, TestSet::perBuild());
-
-class TestBigMesherSlow : public TestBigMesher
-{
-    CPPUNIT_TEST_SUB_SUITE(TestBigMesherSlow, TestMesherBaseSlow);
-    CPPUNIT_TEST_SUITE_END();
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesherSlow, TestSet::perCommit());
-
-MesherBase *TestBigMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
-{
-    return new BigMesher(writer, namer);
-}
-
 class TestStxxlMesher : public TestMesherBase
 {
     CPPUNIT_TEST_SUB_SUITE(TestStxxlMesher, TestMesherBase);
