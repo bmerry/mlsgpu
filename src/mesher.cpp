@@ -574,28 +574,28 @@ void StxxlMesher::updateLocalClumps(
     const std::size_t numVertices = mesh.vertices.size();
     const std::size_t numInternalVertices = numVertices - mesh.vertexKeys.size();
 
-    // TODO: use tmp* variables for these
-    std::vector<std::tr1::uint32_t> vertexLabel(numVertices);
-    std::vector<std::tr1::uint32_t> vertexOrder;
+    tmpVertexLabel.clear();
+    tmpVertexLabel.resize(numVertices);
+    tmpVertexOrder.clear();
 
-    vertexOrder.reserve(numVertices);
+    tmpVertexOrder.reserve(numVertices);
     for (std::size_t i = 0; i < numVertices; i++)
-        vertexOrder.push_back(i);
-    std::sort(vertexOrder.begin(), vertexOrder.end(), VertexCompare(globalClumpId));
+        tmpVertexOrder.push_back(i);
+    std::sort(tmpVertexOrder.begin(), tmpVertexOrder.end(), VertexCompare(globalClumpId));
     std::sort(mesh.triangles.begin(), mesh.triangles.end(), TriangleCompare(globalClumpId));
 
     std::size_t nextVertex = 0;
     std::size_t nextTriangle = 0;
     while (nextVertex < numVertices)
     {
-        clump_id cid = globalClumpId[vertexOrder[nextVertex]];
+        clump_id cid = globalClumpId[tmpVertexOrder[nextVertex]];
         std::size_t lastVertex = nextVertex;
         std::size_t lastTriangle = nextTriangle;
         std::size_t clumpInternalVertices = 0;
         std::size_t clumpExternalVertices = 0;
         do
         {
-            std::tr1::uint32_t vid = vertexOrder[nextVertex];
+            std::tr1::uint32_t vid = tmpVertexOrder[nextVertex];
             bool elide = false;
             if (vid >= numInternalVertices)
             {
@@ -610,11 +610,11 @@ void StxxlMesher::updateLocalClumps(
                 }
                 else
                     elide = true;
-                vertexLabel[vid] = added.first->second;
+                tmpVertexLabel[vid] = added.first->second;
             }
             else
             {
-                vertexLabel[vid] = nextVertex - lastVertex;
+                tmpVertexLabel[vid] = nextVertex - lastVertex;
                 clumpInternalVertices++;
             }
 
@@ -622,14 +622,14 @@ void StxxlMesher::updateLocalClumps(
                 vertices.push_back(mesh.vertices[vid]);
 
             nextVertex++;
-        } while (nextVertex < numVertices && globalClumpId[vertexOrder[nextVertex]] == cid);
+        } while (nextVertex < numVertices && globalClumpId[tmpVertexOrder[nextVertex]] == cid);
 
         while (nextTriangle < mesh.triangles.size()
                && globalClumpId[mesh.triangles[nextTriangle][0]] == cid)
         {
             boost::array<std::tr1::uint32_t, 3> out;
             for (int j = 0; j < 3; j++)
-                out[j] = vertexLabel[mesh.triangles[nextTriangle][j]];
+                out[j] = tmpVertexLabel[mesh.triangles[nextTriangle][j]];
             triangles.push_back(out);
             nextTriangle++;
         }

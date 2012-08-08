@@ -713,6 +713,8 @@ private:
      */
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
     Statistics::Container::vector<clump_id> tmpClumpId;
+    Statistics::Container::vector<std::tr1::uint32_t> tmpVertexLabel;
+    Statistics::Container::vector<std::tr1::uint32_t> tmpVertexOrder;
     /** @} */
 
     vertices_type vertices;     ///< Buffer of all vertices seen so far
@@ -798,6 +800,8 @@ public:
         : MesherBase(writer, namer),
         tmpNodes("mem.StxxlMesher::tmpNodes"),
         tmpClumpId("mem.StxxlMesher::tmpClumpId"),
+        tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
+        tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
         chunks("mem.StxxlMesher::chunks"),
         clumps("mem.StxxlMesher::clumps"),
         clumpIdMap("mem.StxxlMesher::clumpIdMap") {}
