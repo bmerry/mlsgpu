@@ -727,9 +727,9 @@ void StxxlMesher::write(std::ostream *progressStream)
 
     // Maps from an linear enumeration of all external vertices of a chunk to the
     // final index in the file. It is badIndex for dropped vertices.
-    Statistics::Container::vector<std::tr1::uint32_t> externalRemap("mem.mesher.externalRemap");
+    Statistics::Container::vector<std::tr1::uint32_t> externalRemap("mem.StxxlMesher::externalRemap");
     // Offset to first vertex of each clump in output file
-    Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.mesher.startVertex");
+    Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.StxxlMesher::startVertex");
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
         startVertex.clear();
