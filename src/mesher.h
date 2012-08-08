@@ -717,8 +717,8 @@ private:
 
     vertices_type vertices;     ///< Buffer of all vertices seen so far
     triangles_type triangles;   ///< Buffer of all triangles seen so far
-    Statistics::Container::unordered_map<ChunkId::gen_type, Chunk> chunks;  ///< All chunks seen so far
-    Statistics::Container::vector<Clump> clumps; ///< All clumps seen so far
+    Statistics::Container::vector<Chunk> chunks;  ///< All chunks seen so far (possibly with holes)
+    Statistics::Container::vector<Clump> clumps;  ///< All clumps seen so far
 
     typedef Statistics::Container::unordered_map<cl_ulong, clump_id> clump_id_map_type;
     /// Maps external vertex keys to clumps

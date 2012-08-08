@@ -647,6 +647,8 @@ void StxxlMesher::updateLocalClumps(
 
 void StxxlMesher::add(MesherWork &work)
 {
+    if (work.chunkId.gen >= chunks.size())
+        chunks.resize(work.chunkId.gen + 1);
     Chunk &chunk = chunks[work.chunkId.gen];
     chunk.chunkId = work.chunkId;
 
