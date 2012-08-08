@@ -87,8 +87,6 @@ public:
     /**
      * Retrieve a functor that can be used in any thread to insert work into
      * the queue.
-     * @warning The returned function will not call @ref producerNext for you. It
-     * only calls @ref push to insert the mesh into the queue.
      */
     Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId);
 

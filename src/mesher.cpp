@@ -528,12 +528,11 @@ void StxxlMesher::updateGlobalClumps(
     }
 
     // Compute triangle counts for the clumps
-    // TODO: could be more efficient to do this after sorting?
     typedef boost::array<cl_uint, 3> triangle_type;
     BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         Clump &clump = clumps[clumpId[triangle[0]]];
-        clump.counts.triangles++;
+        clump.triangles++;
     }
 }
 
@@ -549,19 +548,17 @@ void StxxlMesher::updateClumpKeyMap(
         cl_ulong key = keys[i];
         clump_id cid = clumpId[i + numInternalVertices];
 
+        std::pair<Statistics::Container::unordered_map<cl_ulong, clump_id>::const_iterator, bool> added;
+        added = clumpIdMap.insert(std::make_pair(key, cid));
+        if (!added.second)
         {
-            std::pair<Statistics::Container::unordered_map<cl_ulong, clump_id>::const_iterator, bool> added;
-            added = clumpIdMap.insert(std::make_pair(key, cid));
-            if (!added.second)
-            {
-                // Unified two external vertices. Also need to unify their clumps.
-                clump_id cid2 = added.first->second;
-                UnionFind::merge(clumps, cid, cid2);
-                // They will both have counted the common vertex, so we need to
-                // subtract it.
-                cid = UnionFind::findRoot(clumps, cid);
-                clumps[cid].counts.vertices--;
-            }
+            // Unified two external vertices. Also need to unify their clumps.
+            clump_id cid2 = added.first->second;
+            UnionFind::merge(clumps, cid, cid2);
+            // They will both have counted the common vertex, so we need to
+            // subtract it.
+            cid = UnionFind::findRoot(clumps, cid);
+            clumps[cid].vertices--;
         }
     }
 }
@@ -578,6 +575,9 @@ void StxxlMesher::updateLocalClumps(
     tmpVertexLabel.resize(numVertices);
     tmpVertexOrder.clear();
 
+    // Vertices are not sorted in-place, but rather we sort vertex indices. This avoids
+    // the need to either bundle vertex data together with original indices or to use
+    // a custom sort for extracting the permutation.
     tmpVertexOrder.reserve(numVertices);
     for (std::size_t i = 0; i < numVertices; i++)
         tmpVertexOrder.push_back(i);
@@ -588,17 +588,21 @@ void StxxlMesher::updateLocalClumps(
     std::size_t nextTriangle = 0;
     while (nextVertex < numVertices)
     {
+        // This loop is run once per clump
         clump_id cid = globalClumpId[tmpVertexOrder[nextVertex]];
         std::size_t lastVertex = nextVertex;
         std::size_t lastTriangle = nextTriangle;
+        // These count *emitted* vertices - which for external vertices can be less than
+        // incoming ones due to sharing within the chunk.
         std::size_t clumpInternalVertices = 0;
         std::size_t clumpExternalVertices = 0;
         do
         {
             std::tr1::uint32_t vid = tmpVertexOrder[nextVertex];
-            bool elide = false;
+            bool elide = false; // true if the vertex is elided due to sharing
             if (vid >= numInternalVertices)
             {
+                // external vertex
                 std::pair<Chunk::vertex_id_map_type::iterator, bool> added;
                 added = chunk.vertexIdMap.insert(
                     std::make_pair(mesh.vertexKeys[vid - numInternalVertices],
@@ -614,6 +618,7 @@ void StxxlMesher::updateLocalClumps(
             }
             else
             {
+                // internal vertex
                 tmpVertexLabel[vid] = nextVertex - lastVertex;
                 clumpInternalVertices++;
             }
@@ -624,6 +629,9 @@ void StxxlMesher::updateLocalClumps(
             nextVertex++;
         } while (nextVertex < numVertices && globalClumpId[tmpVertexOrder[nextVertex]] == cid);
 
+        // tmpVertexLabel now contains the intermediate encoded ID for each vertex,
+        // indexed by the original (rather than permuted) ID. Transform and emit
+        // the triangles using this mapping.
         while (nextTriangle < mesh.triangles.size()
                && globalClumpId[mesh.triangles[nextTriangle][0]] == cid)
         {
@@ -693,7 +701,7 @@ void StxxlMesher::write(std::ostream *progressStream)
     {
         if (clump.isRoot())
         {
-            totalVertices += clump.counts.vertices;
+            totalVertices += clump.vertices;
         }
     }
     const std::tr1::uint64_t thresholdVertices = std::tr1::uint64_t(totalVertices * getPruneThreshold());
@@ -705,11 +713,10 @@ void StxxlMesher::write(std::ostream *progressStream)
         if (clump.isRoot())
         {
             totalComponents++;
-            if (clump.counts.vertices >= thresholdVertices)
+            if (clump.vertices >= thresholdVertices)
             {
                 keptComponents++;
-                keptTriangles += clump.counts.triangles;
-                typedef std::pair<ChunkId::gen_type, Clump::Counts> item_type;
+                keptTriangles += clump.triangles;
             }
         }
     }
@@ -729,11 +736,15 @@ void StxxlMesher::write(std::ostream *progressStream)
 
     const std::tr1::uint32_t badIndex = std::numeric_limits<std::tr1::uint32_t>::max();
 
-    // Maps from an linear enumeration of all external vertices of a chunk to the
-    // final index in the file. It is badIndex for dropped vertices.
+    /* Maps from an linear enumeration of all external vertices of a chunk to
+     * the final index in the file. It is badIndex for dropped vertices,
+     * although that is not actually used and could be skipped. This is declared
+     * outside the loop purely to facilitate memory reuse.
+     */
     Statistics::Container::vector<std::tr1::uint32_t> externalRemap("mem.StxxlMesher::externalRemap");
     // Offset to first vertex of each clump in output file
     Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.StxxlMesher::startVertex");
+
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
         startVertex.clear();
@@ -747,7 +758,7 @@ void StxxlMesher::write(std::ostream *progressStream)
         {
             const Chunk::Clump &cc = chunk.clumps[j];
             clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-            if (clumps[cid].counts.vertices >= thresholdVertices)
+            if (clumps[cid].vertices >= thresholdVertices)
             {
                 chunkVertices += cc.numInternalVertices + cc.numExternalVertices;
                 chunkExternal += cc.numExternalVertices;
@@ -776,7 +787,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                 const Chunk::Clump &cc = chunk.clumps[j];
                 clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
                 startVertex.push_back(writtenVertices);
-                if (clumps[cid].counts.vertices >= thresholdVertices)
+                if (clumps[cid].vertices >= thresholdVertices)
                 {
                     vertices_type::const_iterator v = vertices.cbegin() + cc.firstVertex;
                     for (std::size_t i = 0; i < cc.numInternalVertices; i++, ++v)
@@ -793,7 +804,8 @@ void StxxlMesher::write(std::ostream *progressStream)
                     }
 
                     // Yes, numTriangles. That's easier to make add up to the total
-                    // than vertices (which share), and still a good proxy.
+                    // than vertices (which share), and still a good indicator
+                    // of progress.
                     if (progress != NULL)
                         *progress += cc.numTriangles;
                 }
@@ -811,12 +823,13 @@ void StxxlMesher::write(std::ostream *progressStream)
             {
                 const Chunk::Clump &cc = chunk.clumps[j];
                 clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-                if (clumps[cid].counts.vertices >= thresholdVertices)
+                if (clumps[cid].vertices >= thresholdVertices)
                 {
                     triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
                     for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
                     {
                         boost::array<std::tr1::uint32_t, 3> t = *tp;
+                        // Convert indices to account for compaction
                         for (int k = 0; k < 3; k++)
                         {
                             if (~t[k] < externalRemap.size())

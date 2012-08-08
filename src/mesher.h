@@ -544,10 +544,35 @@ public:
 };
 
 /**
- * Mesher class that uses the same algorithm as @ref BigMesher, but stores
- * the data in STXXL containers before concatenating them rather than
- * using multiple passes. It thus trades storage requirements against
- * performance, at least when @ref BigMesher is compute-bound.
+ * Mesher class that can handle huge output meshes out-of-core.
+ * It stores the data in STXXL containers before reordering and concatenating them
+ * It thus requires storage roughly equal to the size of the output files (perhaps
+ * smaller because it doesn't need a vertex count per polygon, but perhaps larger
+ * because it keeps components that are later discarded).
+ *
+ * Component identification is implemented with a two-level approach. Within each
+ * block, a union-find is performed to identify local components. These
+ * components are referred to as @em clumps. Each vertex is given a <em>clump
+ * id</em>. During welding, external vertices are used to identify clumps that
+ * form part of the same component, and this is recorded in a union-find
+ * structure over the clumps. Clumps are represented in both the per-chunk data
+ * and globally, but "clump IDs" refer to the global representation, over which
+ * the union-find tree is built.
+ *
+ * Vertices in a block are reordered by clump, and within a clump the vertices are
+ * first the internal ones, then the external ones. External vertices that already
+ * appeared in a previous clump in the same chunk are elided.
+ *
+ * Triangles are also ordered by clump. Internal vertices use clump-local coordinates,
+ * while external vertices use an index that counts over the external indices
+ * of the chunk, with all bits inverted (operator ~) to distinguish them. This
+ * encoding is unambiguous provided that the total external vertices in a chunk
+ * plus the total internal in a clump do not exceed 2^32 (at which point PLY
+ * would be useless for output anyway).
+ *
+ * External vertices are entered into a hash table that maps their keys to
+ * their (global) chunk ID, and a chunk-local hash table that maps it to the
+ * triangle index used to encode it.
  */
 class StxxlMesher : public MesherBase
 {
@@ -585,7 +610,8 @@ private:
 
     /**
      * Strict weak ordering for sorting triangles by clump, determined
-     * from a clumpId array indexed by the triangle indices.
+     * from a clumpId array indexed by the triangle indices. Unlike
+     * @ref VertexCompare, there is no tie-breaker rule.
      */
     class TriangleCompare
     {
@@ -611,16 +637,30 @@ private:
     class Chunk
     {
     public:
-        // Chunk-local clump data
+        /// Chunk-local clump data
         struct Clump
         {
+            /// Index within @ref vertices of the first vertex
             vertices_type::size_type firstVertex;
+            /// Number of internal vertices, starting from @ref firstVertex
             std::tr1::uint32_t numInternalVertices;
+            /**
+             * Number of external vertices, starting from @ref firstVertex +
+             * @ref numInternalVertices. External vertices that are present
+             * in a previous clump of the same chunk are not output and are
+             * not included in this count.
+             */
             std::tr1::uint32_t numExternalVertices;
+            /// Index within @ref triangles of the first triangle
             triangles_type::size_type firstTriangle;
+            /// Number of triangles, starting from @ref firstTriangle
             std::tr1::uint32_t numTriangles;
+            /// Index within @ref StxxlMesher::clumps of this clump
             clump_id globalId;
 
+            /**
+             * Constructor. Parameters correspond to data members of the same name.
+             */
             Clump(
                 vertices_type::size_type firstVertex,
                 std::tr1::uint32_t numInternalVertices,
@@ -640,11 +680,16 @@ private:
 
         typedef Statistics::Container::unordered_map<cl_ulong, std::tr1::uint32_t> vertex_id_map_type;
 
+        /// ID for this chunk, used to generate the filename
         ChunkId chunkId;
+        /// All clumps in this chunk, in the order they are recorded in the output vectors
         Statistics::Container::vector<Clump> clumps;
+        /// Maps an external vertex key to the number of preceeding external vertices
         vertex_id_map_type vertexIdMap;
+        /// Number of distinct external vertices in this chunk
         std::size_t numExternalVertices;
 
+        /// Constructor
         explicit Chunk(const ChunkId chunkId = ChunkId())
             : chunkId(chunkId), clumps("mem.mesher.chunk.clumps"), vertexIdMap("mem.mesher.vertexIdMap"),
             numExternalVertices(0) {}
@@ -657,37 +702,14 @@ private:
     class Clump : public UnionFind::Node<clump_id>
     {
     public:
-        /**
-         * A tuple of vertices and triangles.
-         */
-        struct Counts
-        {
-            std::tr1::uint64_t vertices;
-            std::tr1::uint64_t triangles;
-
-            Counts &operator+=(const Counts &b)
-            {
-                vertices += b.vertices;
-                triangles += b.triangles;
-                return *this;
-            }
-
-            Counts() : vertices(0), triangles(0) {}
-        };
-
-        /**
-         * @name
-         * @{
-         * Book-keeping counts of vertices and triangles. These counts are only valid
-         * on root nodes.
-         */
-        Counts counts;  ///< Global counts
-        /** @} */
+        std::tr1::uint64_t vertices;   ///< Total unique vertices in the component (only valid at roots)
+        std::tr1::uint64_t triangles;  ///< Total triangles in the component (only valid at roots)
 
         void merge(Clump &b)
         {
             UnionFind::Node<cl_int>::merge(b);
-            counts += b.counts;
+            vertices += b.vertices;
+            triangles += b.triangles;
         }
 
         /**
@@ -695,12 +717,11 @@ private:
          * @param numVertices        The number of vertices in the clump.
          *
          * @post
-         * - <code>counts.vertices == numVertices</code>
-         * - <code>counts.triangles == 0</code>
+         * - <code>vertices == numVertices</code>
+         * - <code>triangles == 0</code>
          */
-        Clump(std::tr1::uint64_t numVertices)
+        Clump(std::tr1::uint64_t numVertices) : vertices(numVertices)
         {
-            counts.vertices = numVertices;
         }
     };
 
@@ -719,11 +740,16 @@ private:
 
     vertices_type vertices;     ///< Buffer of all vertices seen so far
     triangles_type triangles;   ///< Buffer of all triangles seen so far
-    Statistics::Container::vector<Chunk> chunks;  ///< All chunks seen so far (possibly with holes)
+    /**
+     * All chunks seen so far. This is indexed by the generation number in the
+     * chunk ID. If non-contiguous IDs are found, there will be default-constructed
+     * chunks plugging the holes.
+     */
+    Statistics::Container::vector<Chunk> chunks;
     Statistics::Container::vector<Clump> clumps;  ///< All clumps seen so far
 
     typedef Statistics::Container::unordered_map<cl_ulong, clump_id> clump_id_map_type;
-    /// Maps external vertex keys to clumps
+    /// Maps external vertex keys to global clump IDs
     clump_id_map_type clumpIdMap;
 
     /**
@@ -740,15 +766,41 @@ private:
         const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
         Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
 
+    /**
+     * Create global clumps from local union-find tree. The clumps are populated
+     * with the appropriate vertex and triangle counts, but are not merged together
+     * using shared external vertices.
+     *
+     * @param nodes          Union-find tree over the block vertices (see @ref computeLocalComponents).
+     * @param triangles      Triangles in the block.
+     * @param[out] clumpId   Clump IDs, one per vertex passed in.
+     */
     void updateGlobalClumps(
         const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
         const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
         Statistics::Container::vector<clump_id> &clumpId);
 
+    /**
+     * Update @ref clumpIdMap and merge global clumps that share external vertices.
+     *
+     * @param keys           Vertex keys in the mesh.
+     * @param clumpId        Vertex clump IDs computed by @ref updateGlobalClumps.
+     *
+     * Note that the internal vertices in @a clumpId are ignored, but must still be present.
+     */
     void updateClumpKeyMap(
         const Statistics::Container::vector<cl_ulong> &keys,
         const Statistics::Container::vector<clump_id> &clumpId);
 
+    /**
+     * Populate the per-chunk clump data and write the geometry to external
+     * memory. This also does chunk-level welding to update @ref Chunk::vertexIdMap.
+     *
+     * @param chunk          The chunk to update.
+     * @param globalClumpId  The clump IDs generated by @ref updateGlobalClumps
+     * @param mesh           The original data. All fields (vertices, triangles and keys)
+     *                       must have finished loading.
+     */
     void updateLocalClumps(
         Chunk &chunk,
         const Statistics::Container::vector<clump_id> &globalClumpId,
@@ -758,37 +810,63 @@ private:
     /// Implementation of the functor
     void add(MesherWork &work);
 
-    /// Function object that accepts incoming vertices and writes them to a writer.
+    /**
+     * Function object that accepts incoming vertices and writes them to a writer.
+     * The vertices are buffered internally to avoid small writes.
+     */
     class VertexBuffer : public boost::noncopyable
     {
     public:
         typedef FastPly::WriterBase::size_type size_type;
     private:
         FastPly::WriterBase &writer;
-        size_type nextVertex;
+        size_type nextVertex;         ///< File index of first vertex in the buffer
         std::vector<boost::array<float, 3> > buffer;
     public:
         typedef void result_type;
 
+        /**
+         * Constructor.
+         *
+         * @param writer       Output stream
+         * @param capacity     Number of vertices to hold in buffer
+         */
         VertexBuffer(FastPly::WriterBase &writer, size_type capacity);
+
+        /// Append a vertex
         void operator()(const boost::array<float, 3> &vertex);
+
+        /// Write any buffered data to the writer
         void flush();
     };
 
-    /// Function object that accepts incoming triangles and writes them to a writer.
+    /**
+     * Function object that accepts incoming triangles and writes them to a writer.
+     * The triangles are buffered internally to avoid small writes.
+     */
     class TriangleBuffer : public boost::noncopyable
     {
     public:
         typedef FastPly::WriterBase::size_type size_type;
     private:
         FastPly::WriterBase &writer;
-        size_type nextTriangle;
+        size_type nextTriangle;       ///< File index of the first triangle in the buffer
         std::vector<boost::array<std::tr1::uint32_t, 3> > buffer;
     public:
         typedef void result_type;
 
+        /**
+         * Constructor.
+         *
+         * @param writer       Output stream
+         * @param capacity     Number of triangles to hold in buffer.
+         */
         TriangleBuffer(FastPly::WriterBase &writer, size_type capacity);
+
+        /// Append a triangle
         void operator()(const boost::array<std::tr1::uint32_t, 3> &triangle);
+
+        /// Write any buffered data to the writer
         void flush();
     };
 
