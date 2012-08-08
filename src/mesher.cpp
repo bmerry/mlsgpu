@@ -214,8 +214,9 @@ BigMesher::BigMesher(FastPly::WriterBase &writer, const Namer &namer)
     MLSGPU_ASSERT(writer.supportsOutOfOrder(), std::invalid_argument);
 }
 
-void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
+void BigMesher::count(MesherWork &work)
 {
+    const ChunkId &chunkId = work.chunkId;
     if (!curChunkGen || chunkId.gen != *curChunkGen)
     {
         // This is a new chunk
@@ -240,8 +241,9 @@ void BigMesher::count(const ChunkId &chunkId, MesherWork &work)
     updateKeyMaps(chunkId.gen, 0, mesh.vertexKeys, tmpClumpId, tmpIndexTable);
 }
 
-void BigMesher::add(const ChunkId &chunkId, MesherWork &work)
+void BigMesher::add(MesherWork &work)
 {
+    const ChunkId &chunkId = work.chunkId;
     FastPly::WriterBase &writer = getWriter();
     if (!curChunkGen || chunkId.gen != *curChunkGen)
     {
@@ -422,10 +424,10 @@ MesherBase::InputFunctor BigMesher::functor(unsigned int pass)
     switch (pass)
     {
     case 0:
-        return boost::bind(&BigMesher::count, this, _1, _2);
+        return boost::bind(&BigMesher::count, this, _1);
     case 1:
         prepareAdd();
-        return boost::bind(&BigMesher::add, this, _1, _2);
+        return boost::bind(&BigMesher::add, this, _1);
     default:
         std::abort();
         return MesherBase::InputFunctor(); // should never be reached
@@ -643,10 +645,10 @@ void StxxlMesher::updateLocalClumps(
     }
 }
 
-void StxxlMesher::add(const ChunkId &chunkId, MesherWork &work)
+void StxxlMesher::add(MesherWork &work)
 {
-    Chunk &chunk = chunks[chunkId.gen];
-    chunk.chunkId = chunkId;
+    Chunk &chunk = chunks[work.chunkId.gen];
+    chunk.chunkId = work.chunkId;
 
     HostKeyMesh &mesh = work.mesh;
 
@@ -667,7 +669,7 @@ MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    return boost::bind(&StxxlMesher::add, this, _1, _2);
+    return boost::bind(&StxxlMesher::add, this, _1);
 }
 
 void StxxlMesher::TriangleBuffer::flush()
@@ -862,10 +864,11 @@ public:
         enqueueReadMesh(queue, mesh, work.mesh, events, &wait[0], &wait[1], &wait[2]);
         CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 
+        work.chunkId = chunkId;
         work.verticesEvent = wait[0];
         work.vertexKeysEvent = wait[1];
         work.trianglesEvent = wait[2];
-        in(chunkId, work);
+        in(work);
     }
 
     DeviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId)

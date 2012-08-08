@@ -367,7 +367,8 @@ void TestMesherBase::add(
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.trianglesEvent);
     queue.flush();
 
-    functor(chunkId, work);
+    work.chunkId = chunkId;
+    functor(work);
 }
 
 void TestMesherBase::checkIsomorphic(
@@ -1096,9 +1097,10 @@ void TestMesherBase::testRandom()
             std::reverse(block.work.mesh.vertexKeys.begin(), block.work.mesh.vertexKeys.end());
 
             block.work.mesh.triangles.resize(block.triangles.size());
-            for (std::size_t i = 0; i < block.triangles.size(); i++)
-                for (unsigned int j = 0; j < 3; j++)
-                    block.work.mesh.triangles[i][j] = indices[block.triangles[i][j]];
+            for (std::size_t k = 0; k < block.triangles.size(); k++)
+                for (unsigned int l = 0; l < 3; l++)
+                    block.work.mesh.triangles[k][l] = indices[block.triangles[k][l]];
+            block.work.chunkId = chunks[i].id;
         }
 
     /* Now the actual testing */
@@ -1119,7 +1121,7 @@ void TestMesherBase::testRandom()
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.vertexKeysEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.trianglesEvent);
                 queue.flush();
-                functor(chunk.id, block.work);
+                functor(block.work);
             }
         }
     }

@@ -34,13 +34,14 @@
 
 MesherGroupBase::Worker::Worker(MesherGroup &owner) : owner(owner) {}
 
-void MesherGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
+void MesherGroupBase::Worker::operator()(int dummy, WorkItem &work)
 {
-    owner.input(chunkId, work);
+    (void) dummy;
+    owner.input(work);
 }
 
 MesherGroup::MesherGroup(std::size_t spare)
-    : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>(
+    : WorkerGroup<MesherGroupBase::WorkItem, int, MesherGroupBase::Worker, MesherGroup>(
         "mesher",
         1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
@@ -72,10 +73,11 @@ void MesherGroup::outputFunc(
     enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 
+    work->chunkId = chunkId;
     work->verticesEvent = wait[0];
     work->vertexKeysEvent = wait[1];
     work->trianglesEvent = wait[2];
-    push(chunkId, work);
+    push(0, work);
 }
 
 
@@ -173,14 +175,13 @@ DeviceWorkerGroupBase::Worker::Worker(
 
 void DeviceWorkerGroupBase::Worker::start()
 {
-    curChunkId = ChunkId();
-    owner.outGroup.producerStart(curChunkId);
+    owner.outGroup.producerStart(0);
     scaleBias.setScaleBias(owner.fullGrid);
 }
 
 void DeviceWorkerGroupBase::Worker::stop()
 {
-    owner.outGroup.producerStop(curChunkId);
+    owner.outGroup.producerStop(0);
 }
 
 void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
@@ -206,8 +207,6 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
     for (int i = 0; i < 3; i++)
         expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
 
-    owner.outGroup.producerNext(curChunkId, chunkId);
-    curChunkId = chunkId;
     filterChain.setOutput(owner.outGroup.getOutputFunctor(chunkId));
 
     {

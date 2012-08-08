@@ -66,7 +66,7 @@ public:
 
         void start() {}
         void stop() {}
-        void operator()(const ChunkId &chunkId, WorkItem &work);
+        void operator()(int dummy, WorkItem &work);
     };
 };
 
@@ -76,7 +76,7 @@ public:
  * producers.
  */
 class MesherGroup : protected MesherGroupBase,
-    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>
+    public WorkerGroup<MesherGroupBase::WorkItem, int, MesherGroupBase::Worker, MesherGroup>
 {
 public:
     typedef MesherGroupBase::WorkItem WorkItem;
@@ -143,8 +143,6 @@ public:
         boost::scoped_ptr<Clip> clip;
         ScaleBiasFilter scaleBias;
         MeshFilterChain filterChain;
-
-        ChunkId curChunkId;
 
     public:
         typedef void result_type;

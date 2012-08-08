@@ -102,6 +102,7 @@ public:
  */
 struct MesherWork
 {
+    ChunkId chunkId;               ///< Chunk containing this mesh
     HostKeyMesh mesh;              ///< Mesh data (may be empty)
     cl::Event verticesEvent;       ///< Signaled when vertices may be read
     cl::Event vertexKeysEvent;     ///< Signaled when vertex keys may be read
@@ -176,7 +177,7 @@ public:
      * After the function returns the mesh is not used again, so it may be
      * modified as past of the implementation.
      */
-    typedef boost::function<void(const ChunkId &chunkId, MesherWork &work)> InputFunctor;
+    typedef boost::function<void(MesherWork &work)> InputFunctor;
 
     /**
      * Function object that generates a filename from a chunk ID.
@@ -518,7 +519,7 @@ private:
     Statistics::Container::vector<bool> tmpClumpValid;
 
     /// Implementation of the first-pass functor
-    void count(const ChunkId &chunkId, MesherWork &work);
+    void count(MesherWork &work);
 
     /// Chunk generation which is currently being written (empty if writer is not open)
     boost::optional<ChunkId::gen_type> curChunkGen;
@@ -527,7 +528,7 @@ private:
     void prepareAdd();
 
     /// Implementation of the second-pass functor
-    void add(const ChunkId &chunkId, MesherWork &work);
+    void add(MesherWork &work);
 
 public:
     virtual unsigned int numPasses() const { return 2; }
@@ -753,7 +754,7 @@ private:
 
 
     /// Implementation of the functor
-    void add(const ChunkId &chunkId, MesherWork &work);
+    void add(MesherWork &work);
 
     /// Function object that accepts incoming vertices and writes them to a writer.
     class VertexBuffer : public boost::noncopyable
