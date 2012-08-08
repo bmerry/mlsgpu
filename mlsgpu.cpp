@@ -360,15 +360,14 @@ void HostBlock<Splats>::operator()(
 {
     if (recursionState.chunk != curChunkId.coords)
     {
-        ChunkId old = curChunkId;
         curChunkId.gen++;
         curChunkId.coords = recursionState.chunk;
-        outGroup.producerNext(old, curChunkId);
     }
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
+    item->chunkId = curChunkId;
     item->grid = grid;
     item->recursionState = recursionState;
     item->splats.clear();
@@ -395,21 +394,18 @@ void HostBlock<Splats>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(curChunkId, item);
+    outGroup.push(item);
 }
 
 template<typename Splats>
 void HostBlock<Splats>::start(const Grid &fullGrid)
 {
     this->fullGrid = fullGrid;
-    curChunkId = ChunkId();
-    outGroup.producerStart(curChunkId);
 }
 
 template<typename Splats>
 void HostBlock<Splats>::stop()
 {
-    outGroup.producerStop(curChunkId);
 }
 
 /**

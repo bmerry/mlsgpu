@@ -193,10 +193,9 @@ public:
     void start() {}
     void stop() {}
 
-    void operator()(int gen, NormalItem &item)
+    void operator()(NormalItem &item)
     {
         Statistics::Timer timer(computeStat);
-        (void) gen;
 
         if (item.compute)
         {
@@ -286,11 +285,11 @@ public:
     }
 };
 
-class NormalWorkerGroup : public WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>
+class NormalWorkerGroup : public WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>
 {
 public:
     NormalWorkerGroup(std::size_t numWorkers, std::size_t spare, std::size_t maxSplats)
-        : WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>(
+        : WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>(
             "normals",
             numWorkers, spare,
             Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
@@ -374,7 +373,7 @@ public:
             item->progress = progress;
         }
         binStat.add(item->splats.size());
-        outGroup.push(0, item);
+        outGroup.push(item);
     }
 };
 
@@ -414,7 +413,6 @@ void runBucket(const po::variables_map &vm)
     splats.setBufferSize(vm[Option::bufferSize()].as<std::size_t>());
 
     NormalWorkerGroup normalGroup(compute ? 2 : 1, compute ? 2 : 0, maxHostSplats);
-    normalGroup.producerStart(0);
     normalGroup.start();
 
     try
@@ -445,7 +443,6 @@ void runBucket(const po::variables_map &vm)
     Bucket::bucket(splats, grid, maxHostSplats, bucketSize, 0, true, maxSplit,
                    boost::ref(binProcessor), &progress);
     Statistics::Timer spindownTimer("spindown.time");
-    normalGroup.producerStop(0);
     normalGroup.stop();
 }
 

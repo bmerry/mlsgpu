@@ -208,9 +208,8 @@ public:
     void start() {}
     void stop() {}
 
-    void operator()(int gen, NormalItem &item)
+    void operator()(NormalItem &item)
     {
-        (void) gen;
         Statistics::Timer timer(computeStat);
         const int axis = item.axis;
         const unsigned int K = item.K;
@@ -297,11 +296,11 @@ public:
     }
 };
 
-class NormalWorkerGroup : public WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>
+class NormalWorkerGroup : public WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>
 {
 public:
     NormalWorkerGroup(std::size_t numWorkers, std::size_t spare)
-        : WorkerGroup<NormalItem, int, NormalWorker, NormalWorkerGroup>(
+        : WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>(
             "normals",
             numWorkers, spare,
             Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
@@ -334,7 +333,7 @@ void processSlice(
         item->active[i] = active[i];
     item->needsTree = needsTree;
     item->progress = progress;
-    outGroup.push(0, item);
+    outGroup.push(item);
 }
 
 typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 1024> SortStream;
@@ -352,7 +351,6 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     std::deque<boost::shared_ptr<Slice> > active;
 
     NormalWorkerGroup normalGroup(2, 1);
-    normalGroup.producerStart(0);
     normalGroup.start();
 
     std::tr1::uint64_t sliceIdx = 0;
@@ -400,7 +398,6 @@ void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progr
     Statistics::getStatistic<Statistics::Counter>("slices").add(sliceIdx);
 
     Statistics::Timer spindownTimer("spindown.time");
-    normalGroup.producerStop(0);
     normalGroup.stop();
 
     // ensures the progress bar completes even if there were non-finite splats
