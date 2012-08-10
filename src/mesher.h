@@ -432,7 +432,7 @@ private:
          * - <code>vertices == numVertices</code>
          * - <code>triangles == 0</code>
          */
-        Clump(std::tr1::uint64_t numVertices) : vertices(numVertices)
+        Clump(std::tr1::uint64_t numVertices) : vertices(numVertices), triangles(0)
         {
         }
     };
