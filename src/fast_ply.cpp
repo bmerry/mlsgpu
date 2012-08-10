@@ -329,7 +329,10 @@ ReaderBase::ReaderBase(const std::string &filename, float smooth)
 {
     try
     {
-        std::ifstream in(filename.c_str(), std::ios::in | std::ios::binary);
+        std::ifstream in;
+        in.open(filename.c_str(), std::ios::in | std::ios::binary);
+        if (!in)
+            throw std::ios::failure("Could not open file");
         readHeader(in);
     }
     catch (boost::exception &e)
