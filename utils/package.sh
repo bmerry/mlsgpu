@@ -5,9 +5,9 @@ PKGDIR=mlsgpu-package
 rm -rf $PKGDIR
 mkdir $PKGDIR
 cp build/mlsgpu build/testmain $PKGDIR
+cp $HOME/src/stxxl-1.3.1-chpc/lib/libstxxl.so.1 $PKGDIR
 for i in \
     libclogs.so.1 \
-    libstxxl.so.1 \
     libboost_math_c99.so.1.46.1 \
     libboost_math_c99f.so.1.46.1 \
     libboost_program_options.so.1.46.1 \
