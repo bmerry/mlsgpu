@@ -16,6 +16,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/foreach.hpp>
 #include <cstdlib>
 #include <cstddef>
 #include <stdexcept>
@@ -23,6 +24,7 @@
 #include "work_queue.h"
 #include "statistics.h"
 #include "errors.h"
+#include "thread_name.h"
 
 /**
  * Base class for @ref WorkerGroup that handles only the threads, workers and pool,
@@ -236,6 +238,11 @@ private:
  * @a WorkItem. The operator does not need to be @c const.  The worker class
  * does not need to be copyable or default-constructable and may contain
  * significant state.
+ *
+ * The @a Worker class must also have @c start() and @c stop() methods, which will
+ * be called when the whole workgroup is started or stopped. These may be empty,
+ * but are provided to allow for additional setup for cleanup, particularly when
+ * the whole group is reused in multiple passes.
  *
  * The workitems may also be large objects, and the design is based on
  * recycling a fixed pool rather than having the caller construct them. Users
