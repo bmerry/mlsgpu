@@ -83,7 +83,6 @@ namespace Option
     const char * const subsampling = "subsampling";
     const char * const bucketThreads = "bucket-threads";
     const char * const deviceThreads = "device-threads";
-    const char * const mesher = "mesher";
     const char * const reader = "reader";
     const char * const writer = "writer";
 };
@@ -129,7 +128,6 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
-        (Option::mesher,       po::value<Choice<MesherTypeWrapper> >()->default_value(STXXL_MESHER), "Mesher (big | stxxl)")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
     opts.add(advanced);
@@ -360,15 +358,14 @@ void HostBlock<Splats>::operator()(
 {
     if (recursionState.chunk != curChunkId.coords)
     {
-        ChunkId old = curChunkId;
         curChunkId.gen++;
         curChunkId.coords = recursionState.chunk;
-        outGroup.producerNext(old, curChunkId);
     }
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
+    item->chunkId = curChunkId;
     item->grid = grid;
     item->recursionState = recursionState;
     item->splats.clear();
@@ -395,21 +392,18 @@ void HostBlock<Splats>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(curChunkId, item);
+    outGroup.push(item);
 }
 
 template<typename Splats>
 void HostBlock<Splats>::start(const Grid &fullGrid)
 {
     this->fullGrid = fullGrid;
-    curChunkId = ChunkId();
-    outGroup.producerStart(curChunkId);
 }
 
 template<typename Splats>
 void HostBlock<Splats>::stop()
 {
-    outGroup.producerStop(curChunkId);
 }
 
 /**
@@ -430,7 +424,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    const MesherType mesherType = vm[Option::mesher].as<Choice<MesherTypeWrapper> >();
+    const MesherType mesherType = STXXL_MESHER;
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
@@ -480,6 +474,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         {
             Statistics::Timer timer("bbox.time");
             splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
+            Log::log[Log::debug] << "Bbox time: " << timer.getElapsed() << std::endl;
         }
         catch (std::length_error &e) // TODO: should be a subclass of runtime_error
         {

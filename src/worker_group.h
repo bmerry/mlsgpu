@@ -28,12 +28,10 @@
  * Base class for @ref WorkerGroup that handles only the threads, workers and pool,
  * but not a work queue. See @ref WorkerGroup for details.
  */
-template<typename WorkItem, typename GenType, typename Worker, typename Derived>
+template<typename WorkItem, typename Worker, typename Derived>
 class WorkerGroupPool : public boost::noncopyable
 {
 public:
-    typedef GenType gen_type;
-
     bool running() const
     {
         return !threads.empty();
@@ -58,10 +56,10 @@ public:
      *
      * @pre @a item was obtained by @ref get.
      */
-    void push(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    void push(boost::shared_ptr<WorkItem> item)
     {
         Statistics::Timer timer(pushStat);
-        static_cast<Derived *>(this)->pushImpl(gen, item);
+        static_cast<Derived *>(this)->pushImpl(item);
     }
 
     /**
@@ -138,6 +136,7 @@ protected:
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
      *
+     * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
@@ -147,12 +146,13 @@ protected:
      *
      * @pre @a numWorkers &gt; 0.
      */
-    WorkerGroupPool(std::size_t numWorkers, std::size_t spare,
+    WorkerGroupPool(const std::string &name,
+                    std::size_t numWorkers, std::size_t spare,
                     Statistics::Variable &pushStat,
                     Statistics::Variable &firstPopStat,
                     Statistics::Variable &popStat,
                     Statistics::Variable &getStat)
-        : itemPool(numWorkers + spare),
+        : threadName(name), itemPool(numWorkers + spare),
         pushStat(pushStat), firstPopStat(firstPopStat), popStat(popStat), getStat(getStat)
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
@@ -174,12 +174,12 @@ private:
         {
             try
             {
+                thread_set_name(owner.threadName);
                 bool firstPop = true;
                 while (true)
                 {
                     Timer timer;
-                    gen_type gen;
-                    boost::shared_ptr<WorkItem> item = owner.popImpl(worker, gen);
+                    boost::shared_ptr<WorkItem> item = owner.popImpl(worker);
                     if (!item.get())
                         break; // we have been asked to shut down
                     if (firstPop)
@@ -189,7 +189,7 @@ private:
                     }
                     else
                         owner.popStat.add(timer.getElapsed());
-                    worker(gen, *item);
+                    worker(*item);
                     owner.itemPool.push(item);
                 }
                 worker.stop();
@@ -201,6 +201,9 @@ private:
             }
         }
     };
+
+    /// Name to assign to threads
+    const std::string threadName;
 
     Pool<WorkItem> itemPool;
 
@@ -226,7 +229,6 @@ private:
  * A collection of threads operating on work-items, fed by a queue.
  *
  * @param WorkItem     A POD type describing an item of work.
- * @param GenType      Key type used to represent generations of work.
  * @param Worker       Function object class that is called to process elements.
  * @param Derived      The class that is being derived from the template.
  *
@@ -252,48 +254,20 @@ private:
  * only be called by a single manager thread. The other functions are
  * thread-safe, allowing for multiple producers.
  */
-template<typename WorkItem, typename GenType, typename Worker, typename Derived>
-class WorkerGroup : public WorkerGroupPool<WorkItem, GenType, Worker, Derived>
+template<typename WorkItem, typename Worker, typename Derived>
+class WorkerGroup : public WorkerGroupPool<WorkItem, Worker, Derived>
 {
-    typedef WorkerGroupPool<WorkItem, GenType, Worker, Derived> BaseType;
-    friend class WorkerGroupPool<WorkItem, GenType, Worker, Derived>;
+    typedef WorkerGroupPool<WorkItem, Worker, Derived> BaseType;
+    friend class WorkerGroupPool<WorkItem, Worker, Derived>;
 
 public:
-    typedef GenType gen_type;
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStart.
-     *
-     * @pre The worker threads are not running.
-     */
-    void producerStart(const gen_type &gen)
-    {
-        MLSGPU_ASSERT(!this->running(), state_error);
-        workQueue.producerStart(gen);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerNext.
-     */
-    void producerNext(const gen_type &oldGen, const gen_type &newGen)
-    {
-        workQueue.producerNext(oldGen, newGen);
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStop.
-     */
-    void producerStop(const gen_type &gen)
-    {
-        workQueue.producerStop(gen);
-    }
-
     /**
      * Constructor. The derived class must chain to this, and then
      * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
      * calls to @ref addPoolItem to provide the constructed workers and
      * work items.
      *
+     * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param pushStat       Statistic for time blocked in @ref push.
@@ -303,12 +277,13 @@ public:
      *
      * @pre @a numWorkers &gt; 0.
      */
-    WorkerGroup(std::size_t numWorkers, std::size_t spare,
+    WorkerGroup(const std::string &name,
+                std::size_t numWorkers, std::size_t spare,
                 Statistics::Variable &pushStat,
                 Statistics::Variable &firstPopStat,
                 Statistics::Variable &popStat,
                 Statistics::Variable &getStat)
-        : BaseType(numWorkers, spare, pushStat, firstPopStat, popStat, getStat),
+        : BaseType(name, numWorkers, spare, pushStat, firstPopStat, popStat, getStat),
           workQueue(numWorkers + spare)
     {
     }
@@ -319,18 +294,18 @@ private:
      *
      * @pre @a item was obtained by @ref get.
      */
-    void pushImpl(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    void pushImpl(boost::shared_ptr<WorkItem> item)
     {
-        workQueue.push(gen, item);
+        workQueue.push(item);
     }
 
     /**
      * Dequeue an item of work.
      */
-    boost::shared_ptr<WorkItem> popImpl(const Worker &worker, gen_type &gen)
+    boost::shared_ptr<WorkItem> popImpl(const Worker &worker)
     {
         (void) &worker;
-        return workQueue.pop(gen);
+        return workQueue.pop();
     }
 
     /**
@@ -339,11 +314,11 @@ private:
     void stopImpl()
     {
         for (std::size_t i = 0; i < this->numWorkers(); i++)
-            workQueue.pushNoGen(boost::shared_ptr<WorkItem>());
+            workQueue.push(boost::shared_ptr<WorkItem>());
     }
 
     /// Work queue
-    GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType> workQueue;
+    WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
 };
 
 
@@ -360,51 +335,14 @@ private:
  * The sets are each identified by a key, which must be suitable for use with
  * an associative container.
  */
-template<typename WorkItem, typename GenType, typename Worker, typename Derived, typename Key, typename Compare = std::less<Key> >
-class WorkerGroupMulti : public WorkerGroupPool<WorkItem, GenType, Worker, Derived>
+template<typename WorkItem, typename Worker, typename Derived, typename Key, typename Compare = std::less<Key> >
+class WorkerGroupMulti : public WorkerGroupPool<WorkItem, Worker, Derived>
 {
-    typedef WorkerGroupPool<WorkItem, GenType, Worker, Derived> BaseType;
-    friend class WorkerGroupPool<WorkItem, GenType, Worker, Derived>;
+    typedef WorkerGroupPool<WorkItem, Worker, Derived> BaseType;
+    friend class WorkerGroupPool<WorkItem, Worker, Derived>;
 
 public:
-    typedef GenType gen_type;
     typedef Key key_type;
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStart.
-     *
-     * @pre The worker threads are not running.
-     */
-    void producerStart(const gen_type &gen)
-    {
-        MLSGPU_ASSERT(!this->running(), state_error);
-        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
-        {
-            i.second->producerStart(gen);
-        }
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerNext.
-     */
-    void producerNext(const gen_type &oldGen, const gen_type &newGen)
-    {
-        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
-        {
-            i.second->producerNext(oldGen, newGen);
-        }
-    }
-
-    /**
-     * Wraps @ref GenerationalWorkQueue::producerStop.
-     */
-    void producerStop(const gen_type &gen)
-    {
-        BOOST_FOREACH(typename work_queues_type::reference i, workQueues)
-        {
-            i.second->producerStop(gen);
-        }
-    }
 
     /**
      * Constructor. The derived class must chain to this, and then
@@ -413,6 +351,7 @@ public:
      * provide the constructed workers and work items (with the appropriate number
      * per set).
      *
+     * @param name           Name for the threads in the pool.
      * @param numSets        Number of sets.
      * @param numWorkers     Number of worker threads to use <em>per set</em>.
      * @param spare          Number of work items to have available in the pool when all workers are busy, <em>per set</em>.
@@ -425,12 +364,13 @@ public:
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroupMulti(
+        const std::string &name,
         std::size_t numSets, std::size_t numWorkers, std::size_t spare,
         Statistics::Variable &pushStat,
         Statistics::Variable &firstPopStat,
         Statistics::Variable &popStat,
         Statistics::Variable &getStat)
-        : BaseType(numWorkers * numSets, spare * numSets, pushStat, firstPopStat, popStat, getStat),
+        : BaseType(name, numWorkers * numSets, spare * numSets, pushStat, firstPopStat, popStat, getStat),
         workQueueCapacity(numWorkers + spare)
     {
         MLSGPU_ASSERT(numSets > 0, std::invalid_argument);
@@ -441,7 +381,7 @@ public:
         BaseType::addWorker(worker);
         Key key = worker->getKey();
         if (!workQueues.count(key))
-            workQueues.insert(key, new GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>(workQueueCapacity));
+            workQueues.insert(key, new WorkQueue<boost::shared_ptr<WorkItem> >(workQueueCapacity));
     }
 
 private:
@@ -450,17 +390,17 @@ private:
      *
      * @pre @a item was obtained by @ref get.
      */
-    void pushImpl(const gen_type &gen, boost::shared_ptr<WorkItem> item)
+    void pushImpl(boost::shared_ptr<WorkItem> item)
     {
-        workQueues.at(item->getKey()).push(gen, item);
+        workQueues.at(item->getKey()).push(item);
     }
 
     /**
      * Dequeue an item of work.
      */
-    boost::shared_ptr<WorkItem> popImpl(const Worker &worker, gen_type &gen)
+    boost::shared_ptr<WorkItem> popImpl(const Worker &worker)
     {
-        return workQueues.at(worker.getKey()).pop(gen);
+        return workQueues.at(worker.getKey()).pop();
     }
 
     /**
@@ -471,10 +411,10 @@ private:
         const std::size_t workersPerSet = this->numWorkers() / workQueues.size();
         BOOST_FOREACH(typename work_queues_type::reference q, workQueues)
             for (std::size_t i = 0; i < workersPerSet; i++)
-                q.second->pushNoGen(boost::shared_ptr<WorkItem>());
+                q.second->push(boost::shared_ptr<WorkItem>());
     }
 
-    typedef boost::ptr_map<Key, GenerationalWorkQueue<boost::shared_ptr<WorkItem>, GenType>, Compare> work_queues_type;
+    typedef boost::ptr_map<Key, WorkQueue<boost::shared_ptr<WorkItem> >, Compare> work_queues_type;
     /// Work queues
     work_queues_type workQueues;
 

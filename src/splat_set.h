@@ -243,28 +243,6 @@ namespace detail
 /// Range of [0, max splat id), so back a reader over the entire set
 extern const std::pair<splat_id, splat_id> rangeAll;
 
-/**
- * Computes the range of buckets that will be occupied by a splat's bounding
- * box. See @ref BlobInfo for the definition of buckets.
- *
- * The coordinates are given in units of buckets, with (0,0,0) being the bucket
- * overlapping cell (0,0,0).
- *
- * @param      splat         Input splat
- * @param      grid          Grid for spacing and alignment
- * @param      bucketSize    Size of buckets in cells
- * @param[out] lower         Lower bound coordinates (inclusive)
- * @param[out] upper         Upper bound coordinates (inclusive)
- *
- * @pre
- * - <code>splat.isFinite()</code>
- * - @a bucketSize &gt; 0
- */
-void splatToBuckets(const Splat &splat,
-                    const Grid &grid, Grid::size_type bucketSize,
-                    boost::array<Grid::difference_type, 3> &lower,
-                    boost::array<Grid::difference_type, 3> &upper);
-
 } // namespace detail
 
 /**
@@ -463,7 +441,7 @@ public:
          *
          * @see @ref setBufferSize
          */
-        DEFAULT_BUFFER_SIZE = 4 * 1024 * 1024 + 1
+        DEFAULT_BUFFER_SIZE = 32 * 1024 * 1024 + 1
     };
 
     /// Number of bits used to store the within-file splat ID
@@ -523,7 +501,7 @@ private:
     public:
         /**
          * Describes a contiguous range of splats. It can also be a sentinel
-         * value (marked with @ref ptr of @c NULL), which marks the end out
+         * value (marked with @ref ptr of @c NULL), which marks the end of
          * the splat stream.
          */
         struct Item
@@ -619,19 +597,19 @@ private:
         virtual Splat operator*() const
         {
             MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return nextSplat;
+            return buffer[bufferCur];
         }
 
         virtual SplatStream &operator++();
 
         virtual bool empty() const
         {
-            return isEmpty;
+            return isEmpty && bufferCur == buffer.size();
         }
 
         virtual splat_id currentId() const
         {
-            return buffer.first + bufferCur;
+            return firstId + bufferCur;
         }
 
         MySplatStream(const FileSet &owner, ReaderThreadBase *reader);
@@ -639,16 +617,16 @@ private:
 
     private:
         const FileSet &owner;           ///< Owning set
-        std::size_t bufferCur;          ///< First position in @ref buffer with data (points at @ref nextSplat)
-        Splat nextSplat;                ///< The splat to return from #operator*
-        ReaderThreadBase::Item buffer;  ///< Current buffer (possibly NULL)
-        bool isEmpty;                   ///< Set to true when hitting the end
+        std::size_t bufferCur;          ///< First position in @ref buffer with data
+        Statistics::Container::vector<Splat> buffer;  ///< Current buffer
+        splat_id firstId;               ///< Id of first splat in buffer
+        bool isEmpty;                   ///< Set to true once sentinel item is seen
         boost::scoped_ptr<ReaderThreadBase> readerThread;
         boost::thread thread;
 
         /**
-         * Advance the stream until empty or a finite splat is reached, and
-         * set @ref nextSplat. This will refill the buffer if necessary.
+         * Advance the stream until empty or a finite splat is reached. This
+         * will refill the buffer if necessary.
          */
         void refill();
     };
@@ -848,7 +826,7 @@ private:
      * On the first call (i.e., when @a blobData is empty), the value of @a
      * prevBlob is irrelevant.
      */
-    static void addBlob(BlobVector &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob);
+    static void addBlob(std::vector<BlobData> &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob);
 };
 
 /**

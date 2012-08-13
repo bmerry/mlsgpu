@@ -326,18 +326,22 @@ bool PickNodes::operator()(const Node &node) const
         return true;
 }
 
-/**
- * Pick the smallest possible power of 2 size for a microblock.
- * The limitation is thta there must be at most @a maxSplit microblocks.
- */
 Grid::size_type chooseMicroSize(
-    const Grid::size_type dims[3], std::size_t maxSplit)
+    const Grid::size_type dims[3],
+    std::size_t maxSplit,
+    std::tr1::uint64_t numSplats,
+    std::tr1::uint64_t maxSplats,
+    Grid::size_type maxCells)
 {
     Grid::size_type microSize = 1;
     std::size_t microBlocks = 1;
     for (int i = 0; i < 3; i++)
         microBlocks = mulSat(microBlocks, std::size_t(divUp(dims[i], microSize)));
-    while (microBlocks > maxSplit)
+
+    // Assume all the splats are in an axis-aligned plane
+    double target = 0.5 * *std::min_element(dims, dims + 3) * sqrt((double) maxSplats / numSplats);
+    while (microBlocks > maxSplit
+           || (microBlocks > 8 && microSize < target * 0.5 && microSize * 2 <= maxCells))
     {
         microSize *= 2;
         microBlocks = 1;

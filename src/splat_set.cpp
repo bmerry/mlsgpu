@@ -48,6 +48,37 @@ void splatToBuckets(const Splat &splat,
     }
 }
 
+void splatToBuckets(const Splat &splat,
+                    float spacing, Grid::size_type bucketSize,
+                    boost::array<Grid::difference_type, 3> &lower,
+                    boost::array<Grid::difference_type, 3> &upper)
+{
+    MLSGPU_ASSERT(splat.isFinite(), std::invalid_argument);
+    MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        float loWorld = splat.position[i] - splat.radius;
+        float hiWorld = splat.position[i] + splat.radius;
+        Grid::difference_type loCell = Grid::RoundDown::convert(loWorld / spacing);
+        Grid::difference_type hiCell = Grid::RoundDown::convert(hiWorld / spacing);
+        lower[i] = divDown(loCell, bucketSize);
+        upper[i] = divDown(hiCell, bucketSize);
+    }
+}
+
+std::size_t loadBuffer(SplatStream *splats, Statistics::Container::vector<std::pair<Splat, splat_id> > &buffer)
+{
+    std::size_t nBuffer = 0;
+    while (nBuffer < buffer.size() && !splats->empty())
+    {
+        buffer[nBuffer].first = **splats;
+        buffer[nBuffer].second = splats->currentId();
+        nBuffer++;
+        ++*splats;
+    }
+    return nBuffer;
+}
+
 } // namespace detail
 
 BlobInfo SimpleBlobStream::operator*() const
@@ -89,17 +120,18 @@ void FileSet::ReaderThreadBase::drain()
 
 FileSet::MySplatStream::MySplatStream(
     const FileSet &owner, ReaderThreadBase *reader)
-: owner(owner), readerThread(reader), thread(boost::ref(*readerThread))
+:
+    owner(owner), buffer("mem.FileSet.MySplatStream.buffer"),
+    readerThread(reader), thread(boost::ref(*readerThread))
 {
     isEmpty = false;
     bufferCur = 0;
+    firstId = 0;
     refill();
 }
 
 FileSet::MySplatStream::~MySplatStream()
 {
-    if (buffer.ptr)
-        readerThread->free(buffer);
     if (!isEmpty)
         readerThread->drain();
     thread.join();
@@ -107,7 +139,7 @@ FileSet::MySplatStream::~MySplatStream()
 
 SplatStream &FileSet::MySplatStream::operator++()
 {
-    MLSGPU_ASSERT(!isEmpty, std::out_of_range);
+    MLSGPU_ASSERT(bufferCur < buffer.size() || !isEmpty, std::out_of_range);
     bufferCur++;
     refill();
     return *this;
@@ -117,21 +149,35 @@ void FileSet::MySplatStream::refill()
 {
     while (true)
     {
-        while (!buffer.ptr || bufferCur == buffer.numSplats())
+        while (bufferCur == buffer.size())
         {
-            if (buffer.ptr)
-                readerThread->free(buffer);
-            buffer = readerThread->pop();
-            bufferCur = 0;
-            if (!buffer.ptr)
+            if (isEmpty)
+                return;
+            const ReaderThreadBase::Item item = readerThread->pop();
+            if (item.ptr == NULL)
             {
                 isEmpty = true;
                 return;
             }
+
+            bufferCur = 0;
+            buffer.resize(item.numSplats());
+            firstId = item.first;
+            const std::size_t fileId = item.first >> scanIdShift;
+#ifdef _OPENMP
+#pragma omp parallel for default(none) schedule(static) if(item.numSplats() >= 4096)
+#endif
+            for (std::size_t i = 0; i < item.numSplats(); i++)
+            {
+                buffer[i] = owner.files[fileId].decode(item.ptr, i);
+                // Test finiteness inside the parallel loop, so that we
+                // can quick skip over non-finite elements.
+                if (!buffer[i].isFinite())
+                    buffer[i].radius = -1.0;
+            }
+            readerThread->free(item);
         }
-        const std::size_t fileId = buffer.first >> scanIdShift;
-        nextSplat = owner.files[fileId].decode(buffer.ptr, bufferCur);
-        if (nextSplat.isFinite())
+        if (buffer[bufferCur].radius >= 0.0)
             return;
         bufferCur++;
     }

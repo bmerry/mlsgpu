@@ -66,7 +66,7 @@ public:
 
         void start() {}
         void stop() {}
-        void operator()(const ChunkId &chunkId, WorkItem &work);
+        void operator()(WorkItem &work);
     };
 };
 
@@ -76,7 +76,7 @@ public:
  * producers.
  */
 class MesherGroup : protected MesherGroupBase,
-    public WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>
+    public WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>
 {
 public:
     typedef MesherGroupBase::WorkItem WorkItem;
@@ -87,8 +87,6 @@ public:
     /**
      * Retrieve a functor that can be used in any thread to insert work into
      * the queue.
-     * @warning The returned function will not call @ref producerNext for you. It
-     * only calls @ref push to insert the mesh into the queue.
      */
     Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId);
 
@@ -119,6 +117,7 @@ public:
     struct WorkItem
     {
         cl_device_id key;
+        ChunkId chunkId;               ///< Chunk owning this item
         cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
         cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use
 
@@ -144,8 +143,6 @@ public:
         ScaleBiasFilter scaleBias;
         MeshFilterChain filterChain;
 
-        ChunkId curChunkId;
-
     public:
         typedef void result_type;
 
@@ -164,7 +161,7 @@ public:
         void stop();
 
         /// Called per work item
-        void operator()(const ChunkId &chunk, WorkItem &work);
+        void operator()(WorkItem &work);
     };
 };
 
@@ -175,10 +172,10 @@ public:
  */
 class DeviceWorkerGroup :
     protected DeviceWorkerGroupBase,
-    public WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id>
+    public WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id>
 {
 private:
-    typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, ChunkId, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
+    typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
     ProgressDisplay *progress;
     MesherGroup &outGroup;
 
@@ -241,9 +238,12 @@ class FineBucketGroup;
 class FineBucketGroupBase
 {
 public:
+    typedef SplatSet::FastBlobSet<SplatSet::VectorSet, std::vector<SplatSet::BlobData> > Splats;
+
     struct WorkItem
     {
-        SplatSet::VectorSet splats;
+        ChunkId chunkId;
+        Splats splats;
         Grid grid;
         Bucket::Recursion recursionState;
     };
@@ -252,7 +252,6 @@ public:
     {
     private:
         FineBucketGroup &owner;
-        ChunkId curChunkId;
 
     public:
         typedef void result_type;
@@ -261,18 +260,16 @@ public:
 
         /// Bucketing callback for blocks sized for device execution.
         void operator()(
-            const SplatSet::Traits<SplatSet::VectorSet>::subset_type &splats,
+            const ChunkId &chunkId,
+            const SplatSet::Traits<Splats>::subset_type &splats,
             const Grid &grid,
             const Bucket::Recursion &recursionState);
 
-        /// Called at beginning of pass
-        void start();
-
-        /// Called at end of pass
-        void stop();
-
         /// Front-end processing of one item
-        void operator()(const ChunkId &chunkId, WorkItem &work);
+        void operator()(WorkItem &work);
+
+        void start() {}
+        void stop() {}
     };
 };
 
@@ -284,10 +281,10 @@ public:
  */
 class FineBucketGroup :
     protected FineBucketGroupBase,
-    public WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker, FineBucketGroup>
+    public WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup>
 {
 public:
-    typedef WorkerGroup<FineBucketGroupBase::WorkItem, ChunkId, FineBucketGroupBase::Worker, FineBucketGroup> Base;
+    typedef WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup> BaseType;
     typedef FineBucketGroupBase::WorkItem WorkItem;
 
     void setProgress(ProgressDisplay *progress) { this->progress = progress; }

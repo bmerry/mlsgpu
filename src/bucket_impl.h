@@ -317,9 +317,24 @@ public:
  * This ignores @a maxCells. Instead, @a dims could be in either units of cells or
  * in units of @a maxCells, in which case we are using how many @a maxCells sized
  * blocks form each microblock.
+ *
+ * The @a numSplats and @a maxSplats are purely for heuristics: the microblocks will
+ * be made larger than the minimum if it seems likely that each microblock will still
+ * contain fewer than @a maxSplats cells.
+ *
+ * @param dims      Number of unit-sized cells in each dimension
+ * @param maxSplit  Maximum number of microblocks
+ * @param numSplats Total number of splats in the region (upper bound is okay)
+ * @param maxSplats Maximum target number of splats per bin
+ * @param maxCells  Soft upper bound on return value. It can be exceeded to satisfy maxSplit,
+ *                  but will constrain the density heuristic.
  */
 Grid::size_type chooseMicroSize(
-    const Grid::size_type dims[3], std::size_t maxSplit);
+    const Grid::size_type dims[3],
+    std::size_t maxSplit,
+    std::tr1::uint64_t numSplats,
+    std::tr1::uint64_t maxSplats,
+    Grid::size_type maxCells);
 
 template<typename Splats>
 bool bucketCallback(const Splats &, const Grid &,
@@ -399,11 +414,11 @@ void bucketRecurse(
             Grid::size_type subDims[3];
             for (unsigned int i = 0; i < 3; i++)
                 subDims[i] = divUp(cellDims[i], params.maxCells);
-            microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit);
-            Statistics::getStatistic<Statistics::Peak<Grid::size_type> >("bucket.microsize.peak") = microSize;
+            microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit, splats.maxSplats(), params.maxSplats, 1);
         }
         else
-            microSize = chooseMicroSize(cellDims, params.maxSplit);
+            microSize = chooseMicroSize(cellDims, params.maxSplit, splats.maxSplats(), params.maxSplats, params.maxCells);
+        Statistics::getStatistic<Statistics::Peak<Grid::size_type> >("bucket.microsize.peak") = microSize;
 
         if (chunkCells == 0)
             chunkCells = maxCellDim;

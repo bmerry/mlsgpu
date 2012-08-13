@@ -19,6 +19,7 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/ref.hpp>
+#include <boost/bind.hpp>
 #include "grid.h"
 #include "workers.h"
 #include "work_queue.h"
@@ -30,16 +31,18 @@
 #include "mesh_filter.h"
 #include "statistics.h"
 #include "errors.h"
+#include "thread_name.h"
 
 MesherGroupBase::Worker::Worker(MesherGroup &owner) : owner(owner) {}
 
-void MesherGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
+void MesherGroupBase::Worker::operator()(WorkItem &work)
 {
-    owner.input(chunkId, work);
+    owner.input(work);
 }
 
 MesherGroup::MesherGroup(std::size_t spare)
-    : WorkerGroup<MesherGroupBase::WorkItem, ChunkId, MesherGroupBase::Worker, MesherGroup>(
+    : WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>(
+        "mesher",
         1, spare,
         Statistics::getStatistic<Statistics::Variable>("mesher.push"),
         Statistics::getStatistic<Statistics::Variable>("mesher.pop.first"),
@@ -70,10 +73,11 @@ void MesherGroup::outputFunc(
     enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 
+    work->chunkId = chunkId;
     work->verticesEvent = wait[0];
     work->vertexKeysEvent = wait[1];
     work->trianglesEvent = wait[2];
-    push(chunkId, work);
+    push(work);
 }
 
 
@@ -86,6 +90,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     MlsShape shape)
 :
     Base(
+        "device",
         devices.size(), numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
         Statistics::getStatistic<Statistics::Variable>("device.worker.pop.first"),
@@ -170,17 +175,14 @@ DeviceWorkerGroupBase::Worker::Worker(
 
 void DeviceWorkerGroupBase::Worker::start()
 {
-    curChunkId = ChunkId();
-    owner.outGroup.producerStart(curChunkId);
     scaleBias.setScaleBias(owner.fullGrid);
 }
 
 void DeviceWorkerGroupBase::Worker::stop()
 {
-    owner.outGroup.producerStop(curChunkId);
 }
 
-void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
+void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 {
     cl_uint3 keyOffset;
     for (int i = 0; i < 3; i++)
@@ -203,9 +205,7 @@ void DeviceWorkerGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem 
     for (int i = 0; i < 3; i++)
         expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
 
-    owner.outGroup.producerNext(curChunkId, chunkId);
-    curChunkId = chunkId;
-    filterChain.setOutput(owner.outGroup.getOutputFunctor(chunkId));
+    filterChain.setOutput(owner.outGroup.getOutputFunctor(work.chunkId));
 
     {
         Statistics::Timer timer("device.worker.time");
@@ -234,7 +234,8 @@ FineBucketGroup::FineBucketGroup(
     Grid::size_type maxCells,
     std::size_t maxSplit)
 :
-    WorkerGroup<FineBucketGroup::WorkItem, ChunkId, FineBucketGroup::Worker, FineBucketGroup>(
+    WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
+        "bucket",
         numWorkers, spare,
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
         Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop.first"),
@@ -261,7 +262,7 @@ FineBucketGroup::FineBucketGroup(
 void FineBucketGroup::start(const Grid &fullGrid)
 {
     this->fullGrid = fullGrid;
-    this->Base::start();
+    this->BaseType::start();
 }
 
 FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner)
@@ -270,7 +271,8 @@ FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner)
 };
 
 void FineBucketGroupBase::Worker::operator()(
-    const SplatSet::Traits<SplatSet::VectorSet>::subset_type &splatSet,
+    const ChunkId &chunkId,
+    const SplatSet::Traits<Splats>::subset_type &splatSet,
     const Grid &grid,
     const Bucket::Recursion &recursionState)
 {
@@ -280,6 +282,7 @@ void FineBucketGroupBase::Worker::operator()(
     outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
+    outItem->chunkId = chunkId;
 
     CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
                                      0, splatSet.numSplats() * sizeof(Splat));
@@ -301,21 +304,10 @@ void FineBucketGroupBase::Worker::operator()(
     splats.reset(NULL, &outItem->unmapEvent);
     outItem->mapQueue.flush();
 
-    owner.outGroup.push(curChunkId, outItem);
+    owner.outGroup.push(outItem);
 }
 
-void FineBucketGroupBase::Worker::start()
-{
-    curChunkId = ChunkId();
-    owner.outGroup.producerStart(curChunkId);
-}
-
-void FineBucketGroupBase::Worker::stop()
-{
-    owner.outGroup.producerStop(curChunkId);
-}
-
-void FineBucketGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &work)
+void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 {
     Statistics::Timer timer("bucket.fine.exec");
 
@@ -332,8 +324,8 @@ void FineBucketGroupBase::Worker::operator()(const ChunkId &chunkId, WorkItem &w
         grid.setExtent(i, low, high);
     }
 
-    owner.outGroup.producerNext(curChunkId, chunkId);
-    curChunkId = chunkId;
+    work.splats.computeBlobs(grid.getSpacing(), owner.maxCells, NULL, false);
     Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
-                   boost::ref(*this), owner.progress, work.recursionState);
+                   boost::bind<void>(*this, work.chunkId, _1, _2, _3),
+                   owner.progress, work.recursionState);
 }
