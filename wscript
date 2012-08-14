@@ -174,9 +174,10 @@ def configure(conf):
     conf.env['LIB_BOOST'] = conf.env['LIB_BOOST_MATH'] + [
         'boost_program_options-mt',
         'boost_iostreams-mt',
-        'boost_thread-mt'
+        'boost_thread-mt',
+        'boost_system-mt'
     ]
-    conf.env['LIB_BOOST_TEST'] = ['boost_filesystem-mt', 'boost_system-mt']
+    conf.env['LIB_BOOST_TEST'] = ['boost_filesystem-mt']
 
     if conf.env['CXX_NAME'] == 'gcc':
         configure_variant_gcc(conf)

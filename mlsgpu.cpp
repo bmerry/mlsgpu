@@ -22,6 +22,7 @@
 #include <boost/progress.hpp>
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
+#include <boost/system/error_code.hpp>
 #include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
@@ -704,9 +705,13 @@ static void reportException(std::exception &e)
     cerr << '\n';
 
     std::string *file_name = boost::get_error_info<boost::errinfo_file_name>(e);
+    int *err = boost::get_error_info<boost::errinfo_errno>(e);
     if (file_name != NULL)
         cerr << *file_name << ": ";
-    cerr << e.what() << std::endl;
+    if (err != NULL && *err != 0)
+        cerr << boost::system::errc::make_error_code((boost::system::errc::errc_t) *err).message() << std::endl;
+    else
+        cerr << e.what() << std::endl;
 }
 
 int main(int argc, char **argv)

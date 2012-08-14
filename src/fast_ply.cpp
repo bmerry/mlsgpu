@@ -24,6 +24,8 @@
 #include <algorithm>
 #include <limits>
 #include <cstring>
+#include <cerrno>
+#include <memory>
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
@@ -126,21 +128,24 @@ static ReaderBase::size_type fieldSize(const FieldType f)
  * @throw FormatError on EOF
  * @throw std::ios::failure on other I/O error
  */
-static std::string getHeaderLine(std::istream &in) throw(FormatError, std::ios::failure)
+static std::string getHeaderLine(std::istream &in) throw(boost::exception)
 {
-    try
-    {
-        std::string line;
-        getline(in, line);
-        return line;
-    }
-    catch (std::ios::failure &e)
+    std::string line;
+    if (!getline(in, line))
     {
         if (in.eof())
             throw boost::enable_error_info(FormatError("End of file in PLY header"));
+        else if (in.bad())
+        {
+            throw boost::enable_error_info(std::ios::failure("Failed to read line from header"))
+                << boost::errinfo_errno(errno);
+        }
         else
-            throw;
+        {
+            throw boost::enable_error_info(std::ios::failure("Failed to read line from header"));
+        }
     }
+    return line;
 }
 
 static bool cpuLittleEndian()
@@ -172,7 +177,6 @@ void ReaderBase::readHeader(std::istream &in)
     size_type elements = 0;
     bool haveProperty[numProperties] = {};
 
-    in.exceptions(std::ios::failbit);
     std::string line = getHeaderLine(in);
     if (line != "ply")
         throw boost::enable_error_info(FormatError("PLY signature missing"));
@@ -332,17 +336,14 @@ ReaderBase::ReaderBase(const std::string &filename, float smooth)
         std::ifstream in;
         in.open(filename.c_str(), std::ios::in | std::ios::binary);
         if (!in)
-            throw std::ios::failure("Could not open file");
+            throw boost::enable_error_info(std::ios::failure("Could not open file"))
+                << boost::errinfo_errno(errno);
         readHeader(in);
     }
     catch (boost::exception &e)
     {
         e << boost::errinfo_file_name(filename);
         throw;
-    }
-    catch (std::ios::failure &e)
-    {
-        throw boost::enable_error_info(e) << boost::errinfo_file_name(filename);
     }
 }
 
@@ -359,6 +360,11 @@ MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &f
     : ReaderBase::Handle(owner)
 {
     mapping.open(filename);
+    if (!mapping.is_open())
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not create mapping"))
+            << boost::errinfo_errno(errno);
+    }
     if ((mapping.size() - owner.getHeaderSize()) / owner.getVertexSize() < owner.size())
         throw boost::enable_error_info(std::ios::failure("File is too small to contain all its vertices"));
     vertexPtr = mapping.data() + owner.getHeaderSize();
@@ -663,6 +669,12 @@ void MmapWriter::open(const std::string &filename)
     // TODO: check for overflow here
     params.new_file_size = header.size() + getNumVertices() * vertexSize + getNumTriangles() * triangleSize;
     mapping.reset(new boost::iostreams::mapped_file_sink(params));
+    if (!mapping->is_open())
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not create mapping"))
+            << boost::errinfo_errno(errno)
+            << boost::errinfo_file_name(filename);
+    }
 
     std::memcpy(mapping->data(), header.data(), header.size());
     vertexPtr = mapping->data() + header.size();

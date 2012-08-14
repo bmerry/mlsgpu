@@ -28,6 +28,7 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/foreach.hpp>
 #include <boost/type_traits/make_unsigned.hpp>
+#include <boost/exception/all.hpp>
 #include "tr1_unordered_map.h"
 #include <cassert>
 #include <cstdlib>
@@ -37,6 +38,7 @@
 #include <string>
 #include <ostream>
 #include <iomanip>
+#include <cerrno>
 #include "mesher.h"
 #include "fast_ply.h"
 #include "logging.h"
@@ -396,81 +398,91 @@ void StxxlMesher::write(std::ostream *progressStream)
 
         if (chunkTriangles > 0)
         {
-            writer.setNumVertices(chunkVertices);
-            writer.setNumTriangles(chunkTriangles);
-            writer.open(getOutputName(chunk.chunkId));
-            Statistics::getStatistic<Statistics::Counter>("output.files").add();
-
-            std::tr1::uint32_t writtenVertices = 0;
-            // Write out the valid vertices, simultaneously building externalRemap
-            VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
-            for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+            const std::string filename = getOutputName(chunk.chunkId);
+            try
             {
-                const Chunk::Clump &cc = chunk.clumps[j];
-                clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-                startVertex.push_back(writtenVertices);
-                if (clumps[cid].vertices >= thresholdVertices)
-                {
-                    vertices_type::const_iterator v = vertices.cbegin() + cc.firstVertex;
-                    for (std::size_t i = 0; i < cc.numInternalVertices; i++, ++v)
-                    {
-                        vb(*v);
-                    }
-                    writtenVertices += cc.numInternalVertices;
+                writer.setNumVertices(chunkVertices);
+                writer.setNumTriangles(chunkTriangles);
+                writer.open(filename);
+                Statistics::getStatistic<Statistics::Counter>("output.files").add();
 
-                    for (std::size_t i = 0; i < cc.numExternalVertices; i++, ++v)
-                    {
-                        externalRemap.push_back(writtenVertices);
-                        vb(*v);
-                        ++writtenVertices;
-                    }
-
-                    // Yes, numTriangles. That's easier to make add up to the total
-                    // than vertices (which share), and still a good indicator
-                    // of progress.
-                    if (progress != NULL)
-                        *progress += cc.numTriangles;
-                }
-                else
+                std::tr1::uint32_t writtenVertices = 0;
+                // Write out the valid vertices, simultaneously building externalRemap
+                VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
+                for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                 {
-                    // appends n copies of badIndex
-                    externalRemap.resize(externalRemap.size() + cc.numExternalVertices, badIndex);
-                }
-            }
-            vb.flush();
-
-            // Now write out the triangles
-            TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
-            for (std::size_t j = 0; j < chunk.clumps.size(); j++)
-            {
-                const Chunk::Clump &cc = chunk.clumps[j];
-                clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-                if (clumps[cid].vertices >= thresholdVertices)
-                {
-                    triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
-                    for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
+                    const Chunk::Clump &cc = chunk.clumps[j];
+                    clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+                    startVertex.push_back(writtenVertices);
+                    if (clumps[cid].vertices >= thresholdVertices)
                     {
-                        boost::array<std::tr1::uint32_t, 3> t = *tp;
-                        // Convert indices to account for compaction
-                        for (int k = 0; k < 3; k++)
+                        vertices_type::const_iterator v = vertices.cbegin() + cc.firstVertex;
+                        for (std::size_t i = 0; i < cc.numInternalVertices; i++, ++v)
                         {
-                            if (~t[k] < externalRemap.size())
-                            {
-                                t[k] = externalRemap[~t[k]];
-                                assert(t[k] != badIndex);
-                            }
-                            else
-                                t[k] += startVertex[j];
+                            vb(*v);
                         }
-                        tb(t);
-                    }
-                    if (progress != NULL)
-                        *progress += cc.numTriangles;
-                }
-            }
-            tb.flush();
+                        writtenVertices += cc.numInternalVertices;
 
-            writer.close();
+                        for (std::size_t i = 0; i < cc.numExternalVertices; i++, ++v)
+                        {
+                            externalRemap.push_back(writtenVertices);
+                            vb(*v);
+                            ++writtenVertices;
+                        }
+
+                        // Yes, numTriangles. That's easier to make add up to the total
+                        // than vertices (which share), and still a good indicator
+                        // of progress.
+                        if (progress != NULL)
+                            *progress += cc.numTriangles;
+                    }
+                    else
+                    {
+                        // appends n copies of badIndex
+                        externalRemap.resize(externalRemap.size() + cc.numExternalVertices, badIndex);
+                    }
+                }
+                vb.flush();
+
+                // Now write out the triangles
+                TriangleBuffer tb(writer, triangles_type::block_size / sizeof(triangles_type::value_type));
+                for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+                {
+                    const Chunk::Clump &cc = chunk.clumps[j];
+                    clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+                    if (clumps[cid].vertices >= thresholdVertices)
+                    {
+                        triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
+                        for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
+                        {
+                            boost::array<std::tr1::uint32_t, 3> t = *tp;
+                            // Convert indices to account for compaction
+                            for (int k = 0; k < 3; k++)
+                            {
+                                if (~t[k] < externalRemap.size())
+                                {
+                                    t[k] = externalRemap[~t[k]];
+                                    assert(t[k] != badIndex);
+                                }
+                                else
+                                    t[k] += startVertex[j];
+                            }
+                            tb(t);
+                        }
+                        if (progress != NULL)
+                            *progress += cc.numTriangles;
+                    }
+                }
+                tb.flush();
+
+                writer.close();
+            }
+            catch (std::ios::failure &e)
+            {
+                throw boost::enable_error_info(e)
+                    << boost::errinfo_file_name(filename)
+                    << boost::errinfo_errno(errno);
+            }
         }
     }
 }
