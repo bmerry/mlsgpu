@@ -377,9 +377,9 @@ void TestMls::testFitSphere()
         MLSGPU_ASSERT_DOUBLES_EQUAL(0.0f, v, eps);
 
         const float g[3] = {
-            2 * params[3] * x + params[0],
-            2 * params[3] * y + params[1],
-            2 * params[3] * z + params[2]
+            float(2 * params[3] * x + params[0]),
+            float(2 * params[3] * y + params[1]),
+            float(2 * params[3] * z + params[2])
         };
         MLSGPU_ASSERT_DOUBLES_EQUAL(splats[i].normal[0], g[0], eps);
         MLSGPU_ASSERT_DOUBLES_EQUAL(splats[i].normal[1], g[1], eps);

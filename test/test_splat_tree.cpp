@@ -115,9 +115,9 @@ void TestSplatTree::testBuild()
                 // Check against splats we must see
                 float corner[3] =
                 {
-                    x + offset[0],
-                    y + offset[1],
-                    z + offset[2]
+                    float(x + offset[0]),
+                    float(y + offset[1]),
+                    float(z + offset[2])
                 };
                 for (unsigned int i = 0; i < splats.size(); i++)
                 {
