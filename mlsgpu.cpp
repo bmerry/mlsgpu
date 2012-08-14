@@ -308,9 +308,20 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
 {
     const vector<string> &names = vm[Option::inputFile].as<vector<string> >();
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
+    if (names.size() > SplatSet::FileSet::maxFiles)
+    {
+        cerr << "Too many input files (" << names.size() << " > " << SplatSet::FileSet::maxFiles << ")\n";
+        exit(1);
+    }
     BOOST_FOREACH(const string &name, names)
     {
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
+        if (reader->size() > SplatSet::FileSet::maxFileSplats)
+        {
+            cerr << "Too many samples in " << name << " ("
+                << reader->size() << " > " << SplatSet::FileSet::maxFileSplats << ")\n";
+            exit(1);
+        }
         files.addFile(reader.get());
         reader.release();
     }

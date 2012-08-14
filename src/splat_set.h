@@ -449,6 +449,12 @@ public:
     /// Mask of the bits used to store the within-file splat ID
     static const splat_id splatIdMask;
 
+    /// Maximum number of files supported;
+    static const std::size_t maxFiles;
+
+    /// Maximum number of splats per file supported
+    static const std::size_t maxFileSplats;
+
     /**
      * Append a new file to the set. The set takes over ownership of the file.
      * This must not be called while a stream is in progress.

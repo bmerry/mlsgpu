@@ -92,6 +92,12 @@ BlobInfo SimpleBlobStream::operator*() const
 
 const unsigned int FileSet::scanIdShift = 40;
 const splat_id FileSet::splatIdMask = (splat_id(1) << scanIdShift) - 1;
+// An extra bit is subtracted because other bits of code use the top bit for a flag
+const std::size_t FileSet::maxFiles = std::size_t(1) << (std::numeric_limits<splat_id>::digits - 1 - scanIdShift);
+/* Would probably be safe to add 1, but I haven't tested the effects of having splats from
+ * different files have adjacent IDs. It's a big enough number anyway.
+ */
+const std::size_t FileSet::maxFileSplats = FileSet::splatIdMask;
 
 void FileSet::addFile(FastPly::ReaderBase *file)
 {
