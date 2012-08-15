@@ -345,7 +345,7 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState);
 
-    explicit HostBlock(FineBucketGroup &outGroup);
+    HostBlock(FineBucketGroup &outGroup, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
     void start(const Grid &fullGrid);
@@ -356,12 +356,12 @@ private:
     ChunkId curChunkId;
     FineBucketGroup &outGroup;
     Grid fullGrid;
-    Timeplot::Worker tworker;
+    Timeplot::Worker &tworker;
 };
 
 template<typename Splats>
-HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup)
-: outGroup(outGroup), tworker("bucket.coarse")
+HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup, Timeplot::Worker &tworker)
+: outGroup(outGroup), tworker(tworker)
 {
 }
 
@@ -448,6 +448,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const bool split = vm.count(Option::split);
     const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+    Timeplot::Worker mainWorker("main");
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -480,15 +481,14 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         FineBucketGroup fineBucketGroup(
             numBucketThreads, 1, deviceWorkerGroup,
             maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-        HostBlock<Splats> hostBlock(fineBucketGroup);
+        HostBlock<Splats> hostBlock(fineBucketGroup, mainWorker);
 
         Splats splats;
         prepareInputs(splats, vm, smooth);
         try
         {
-            Statistics::Timer timer("bbox.time");
+            Timeplot::Action timer("bbox", mainWorker, "bbox.time");
             splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
-            Log::log[Log::debug] << "Bbox time: " << timer.getElapsed() << std::endl;
         }
         catch (std::length_error &e) // TODO: should be a subclass of runtime_error
         {
@@ -543,7 +543,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
             try
             {
-                Statistics::Timer bucketTimer("host.block.exec");
+                Timeplot::Action bucketTimer("compute", mainWorker, "host.block.exec");
                 Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
                                boost::ref(hostBlock), &progress);
             }
@@ -569,7 +569,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         }
 
         {
-            Statistics::Timer timer("finalize.time");
+            Timeplot::Action timer("write", mainWorker, "finalize.time");
             mesher->write(&Log::log[Log::info]);
         }
     } // ends scope for grandTotalTimer

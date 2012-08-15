@@ -300,7 +300,7 @@ void FineBucketGroupBase::Worker::operator()(
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 {
-    Statistics::Timer timer("bucket.fine.exec");
+    Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
 
     /* The host transformed splats from world space into fullGrid space, so we need to
      * construct a new grid for this coordinate system.
