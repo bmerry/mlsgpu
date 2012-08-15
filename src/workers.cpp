@@ -33,33 +33,32 @@
 #include "errors.h"
 #include "thread_name.h"
 
-MesherGroupBase::Worker::Worker(MesherGroup &owner) : owner(owner) {}
+MesherGroupBase::Worker::Worker(MesherGroup &owner)
+    : WorkerBase("mesher", 0), owner(owner) {}
 
 void MesherGroupBase::Worker::operator()(WorkItem &work)
 {
+    Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
     owner.input(work);
 }
 
 MesherGroup::MesherGroup(std::size_t spare)
     : WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>(
         "mesher",
-        1, spare,
-        Statistics::getStatistic<Statistics::Variable>("mesher.push"),
-        Statistics::getStatistic<Statistics::Variable>("mesher.pop.first"),
-        Statistics::getStatistic<Statistics::Variable>("mesher.pop"),
-        Statistics::getStatistic<Statistics::Variable>("mesher.get"))
+        1, spare)
 {
     for (std::size_t i = 0; i < 1 + spare; i++)
         addPoolItem(boost::make_shared<WorkItem>());
     addWorker(new Worker(*this));
 }
 
-Marching::OutputFunctor MesherGroup::getOutputFunctor(const ChunkId &chunkId)
+Marching::OutputFunctor MesherGroup::getOutputFunctor(const ChunkId &chunkId, Timeplot::Worker &tworker)
 {
-    return boost::bind(&MesherGroup::outputFunc, this, chunkId, _1, _2, _3, _4);
+    return boost::bind(&MesherGroup::outputFunc, this, boost::ref(tworker), chunkId, _1, _2, _3, _4);
 }
 
 void MesherGroup::outputFunc(
+    Timeplot::Worker &tworker,
     const ChunkId &chunkId,
     const cl::CommandQueue &queue,
     const DeviceKeyMesh &mesh,
@@ -68,7 +67,7 @@ void MesherGroup::outputFunc(
 {
     MLSGPU_ASSERT(input, std::logic_error);
 
-    boost::shared_ptr<MesherWork> work = get();
+    boost::shared_ptr<MesherWork> work = get(tworker);
     std::vector<cl::Event> wait(3);
     enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
@@ -77,7 +76,7 @@ void MesherGroup::outputFunc(
     work->verticesEvent = wait[0];
     work->vertexKeysEvent = wait[1];
     work->trianglesEvent = wait[2];
-    push(work);
+    push(work, tworker);
 }
 
 
@@ -91,11 +90,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
 :
     Base(
         "device",
-        devices.size(), numWorkers, spare,
-        Statistics::getStatistic<Statistics::Variable>("device.worker.push"),
-        Statistics::getStatistic<Statistics::Variable>("device.worker.pop.first"),
-        Statistics::getStatistic<Statistics::Variable>("device.worker.pop"),
-        Statistics::getStatistic<Statistics::Variable>("device.worker.get")),
+        devices.size(), numWorkers, spare),
     progress(NULL), outGroup(outGroup),
     maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
 {
@@ -114,7 +109,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     for (std::size_t i = 0; i < numWorkers * devices.size(); i++)
     {
         const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
-        addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit, shape));
+        addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit, shape, i));
     }
 }
 
@@ -150,8 +145,9 @@ DeviceWorkerGroupBase::Worker::Worker(
     DeviceWorkerGroup &owner,
     const cl::Context &context, const cl::Device &device,
     int levels, bool keepBoundary, float boundaryLimit,
-    MlsShape shape)
+    MlsShape shape, int idx)
 :
+    WorkerBase("device", idx),
     owner(owner),
     key(device()),
     queue(context, device, CL_QUEUE_PROFILING_ENABLE),
@@ -178,10 +174,6 @@ void DeviceWorkerGroupBase::Worker::start()
     scaleBias.setScaleBias(owner.fullGrid);
 }
 
-void DeviceWorkerGroupBase::Worker::stop()
-{
-}
-
 void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 {
     cl_uint3 keyOffset;
@@ -205,10 +197,10 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
     for (int i = 0; i < 3; i++)
         expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
 
-    filterChain.setOutput(owner.outGroup.getOutputFunctor(work.chunkId));
+    filterChain.setOutput(owner.outGroup.getOutputFunctor(work.chunkId, getTimeplotWorker()));
 
     {
-        Statistics::Timer timer("device.worker.time");
+        Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
         cl::Event treeBuildEvent;
         std::vector<cl::Event> wait(1);
 
@@ -236,11 +228,7 @@ FineBucketGroup::FineBucketGroup(
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
         "bucket",
-        numWorkers, spare,
-        Statistics::getStatistic<Statistics::Variable>("bucket.fine.push"),
-        Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop.first"),
-        Statistics::getStatistic<Statistics::Variable>("bucket.fine.pop"),
-        Statistics::getStatistic<Statistics::Variable>("bucket.fine.get")),
+        numWorkers, spare),
     outGroup(outGroup),
     maxSplats(maxSplats),
     maxCells(maxCells),
@@ -249,7 +237,7 @@ FineBucketGroup::FineBucketGroup(
 {
     for (std::size_t i = 0; i < numWorkers; i++)
     {
-        addWorker(new Worker(*this));
+        addWorker(new Worker(*this, i));
     }
     for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
@@ -265,8 +253,8 @@ void FineBucketGroup::start(const Grid &fullGrid)
     this->BaseType::start();
 }
 
-FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner)
-    : owner(owner)
+FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner, int idx)
+    : WorkerBase("bucket.fine", idx), owner(owner)
 {
 };
 
@@ -278,33 +266,36 @@ void FineBucketGroupBase::Worker::operator()(
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = owner.outGroup.get();
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = owner.outGroup.get(getTimeplotWorker());
     outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
     outItem->chunkId = chunkId;
 
-    CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
-                                     0, splatSet.numSplats() * sizeof(Splat));
-
-    std::size_t pos = 0;
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
-    while (!splatStream->empty())
     {
-        splats[pos] = **splatStream;
-        ++*splatStream;
-        ++pos;
+        Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
+        CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
+                                         0, splatSet.numSplats() * sizeof(Splat));
+
+        std::size_t pos = 0;
+        boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
+        while (!splatStream->empty())
+        {
+            splats[pos] = **splatStream;
+            ++*splatStream;
+            ++pos;
+        }
+        assert(pos == splatSet.numSplats());
+
+        registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
+        registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
+        registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
+
+        splats.reset(NULL, &outItem->unmapEvent);
+        outItem->mapQueue.flush();
     }
-    assert(pos == splatSet.numSplats());
 
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
-    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
-
-    splats.reset(NULL, &outItem->unmapEvent);
-    outItem->mapQueue.flush();
-
-    owner.outGroup.push(outItem);
+    owner.outGroup.push(outItem, getTimeplotWorker());
 }
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)
@@ -326,6 +317,6 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 
     work.splats.computeBlobs(grid.getSpacing(), owner.maxCells, NULL, false);
     Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
-                   boost::bind<void>(*this, work.chunkId, _1, _2, _3),
+                   boost::bind<void>(boost::ref(*this), work.chunkId, _1, _2, _3),
                    owner.progress, work.recursionState);
 }

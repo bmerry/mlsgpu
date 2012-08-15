@@ -37,13 +37,21 @@
  */
 class Timer
 {
-private:
+public:
 #if TIMER_TYPE_POSIX
-    struct timespec start;
+    typedef struct timespec timestamp;
+#else
+    typedef LARGE_INTEGER timestamp;
 #endif
-#if TIMER_TYPE_WINDOWS
-    LARGE_INTEGER start;
-#endif
+
+    /// Obtain a timestamp that can be used with @ref getElapsed
+    static timestamp currentTime();
+
+    /// Measure the elapsed time between two events.
+    static double getElapsed(const timestamp &start, const timestamp &end);
+
+private:
+    timestamp start;
 
 public:
     /**

@@ -3,15 +3,15 @@
 
 #if TIMER_TYPE_POSIX
 
-Timer::Timer()
+Timer::timestamp Timer::currentTime()
 {
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    Timer::timestamp now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now;
 }
 
-double Timer::getElapsed() const
+double Timer::getElapsed(const timestamp &start, const timestamp &end)
 {
-    struct timespec end;
-    clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = end.tv_sec - start.tv_sec + 1e-9 * (end.tv_nsec - start.tv_nsec);
     return elapsed;
 }
@@ -20,21 +20,19 @@ double Timer::getElapsed() const
 
 #if TIMER_TYPE_WINDOWS
 
-Timer::Timer()
+Timer::timestamp Timer::currentTime() const
 {
+    timestamp start;
     BOOL ret = QueryPerformanceCounter(&start);
     if (!ret)
         throw std::runtime_error("QueryPerformanceCounter failed");
+    return start;
 }
 
-double Timer::getElapsed() const
+double Timer::getElapsed(const timestamp &start, timestamp &end) const
 {
-    LARGE_INTEGER end;
     LARGE_INTEGER freq;
     BOOL ret;
-    ret = QueryPerformanceCounter(&end);
-    if (!ret)
-        throw std::runtime_error("QueryPerformanceCounter failed");
     ret = QueryPerformanceFrequency(&freq);
     if (!ret)
         throw std::runtime_error("QueryPerformanceFrequency failed");
@@ -42,3 +40,14 @@ double Timer::getElapsed() const
 }
 
 #endif // TIMER_TYPE_WINDOWS
+
+Timer::Timer()
+{
+    start = currentTime();
+}
+
+double Timer::getElapsed() const
+{
+    timestamp end = currentTime();
+    return getElapsed(start, end);
+}

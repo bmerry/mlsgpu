@@ -16,6 +16,7 @@
 #include <vector>
 #include "testmain.h"
 #include "../src/worker_group.h"
+#include "../src/timeplot.h"
 
 namespace
 {
@@ -44,7 +45,7 @@ struct Item
 /**
  * Worker used by @ref Group and @ref GroupMulti.
  */
-class Worker
+class Worker : public WorkerBase
 {
 private:
     Sink &sink;
@@ -56,8 +57,8 @@ public:
     void start() { CPPUNIT_ASSERT(!running); running = true; }
     void stop() { CPPUNIT_ASSERT(running); running = false; }
     int getKey() const { return subset; }
-    explicit Worker(Sink &sink, int subset = 0)
-        : sink(sink), subset(subset), running(false) {}
+    explicit Worker(Sink &sink, int idx, int subset = 0)
+        : WorkerBase("test", idx), sink(sink), subset(subset), running(false) {}
 };
 
 /**
@@ -91,11 +92,13 @@ private:
     int last;
     int step;
     T &outGroup;
+    boost::shared_ptr<Timeplot::Worker> tworker;
 public:
     void operator()();
 
-    Producer(int first, int last, int step, T &outGroup)
-        : first(first), last(last), step(step), outGroup(outGroup)
+    Producer(int first, int last, int step, T &outGroup, int idx)
+        : first(first), last(last), step(step), outGroup(outGroup),
+        tworker(boost::make_shared<Timeplot::Worker>("test.producer", idx))
     {
     }
 };
@@ -111,31 +114,23 @@ void Worker::operator()(Item &item)
 }
 
 Group::Group(Sink &sink, std::size_t workers, std::size_t spare)
-    : WorkerGroup<Item, Worker, Group>("test", workers, spare,
-           Statistics::getStatistic<Statistics::Variable>("test.push"),
-           Statistics::getStatistic<Statistics::Variable>("test.pop.first"),
-           Statistics::getStatistic<Statistics::Variable>("test.pop"),
-           Statistics::getStatistic<Statistics::Variable>("test.get"))
+    : WorkerGroup<Item, Worker, Group>("test", workers, spare)
 {
     for (std::size_t i = 0; i < workers + spare; i++)
         addPoolItem(boost::make_shared<Item>());
     for (std::size_t i = 0; i < workers; i++)
-        addWorker(new Worker(sink));
+        addWorker(new Worker(sink, i));
 }
 
 GroupMulti::GroupMulti(Sink &sink, std::size_t numSets, std::size_t workers, std::size_t spare)
-    : WorkerGroupMulti<Item, Worker, GroupMulti, int>("test", numSets, workers, spare,
-           Statistics::getStatistic<Statistics::Variable>("test.push"),
-           Statistics::getStatistic<Statistics::Variable>("test.pop.first"),
-           Statistics::getStatistic<Statistics::Variable>("test.pop"),
-           Statistics::getStatistic<Statistics::Variable>("test.get"))
+    : WorkerGroupMulti<Item, Worker, GroupMulti, int>("test", numSets, workers, spare)
 {
     for (std::size_t s = 0; s < numSets; s++)
     {
         for (std::size_t i = 0; i < workers + spare; i++)
             addPoolItem(boost::make_shared<Item>(s));
         for (std::size_t i = 0; i < workers; i++)
-            addWorker(new Worker(sink, s));
+            addWorker(new Worker(sink, i, s));
     }
 }
 
@@ -144,9 +139,9 @@ void Producer<T>::operator()()
 {
     for (int i = first; i < last; i += step)
     {
-        boost::shared_ptr<Item> item = outGroup.get();
+        boost::shared_ptr<Item> item = outGroup.get(*tworker);
         item->value = i;
-        outGroup.push(item);
+        outGroup.push(item, *tworker);
     }
 }
 
@@ -174,7 +169,7 @@ void TestWorkerGroup::testStress()
     group.start();
     boost::thread_group producers;
     for (int i = 0; i < numProducers; i++)
-        producers.add_thread(new boost::thread(Producer<Group>(i, numbers, numProducers, group)));
+        producers.add_thread(new boost::thread(Producer<Group>(i, numbers, numProducers, group, i)));
     producers.join_all();
     group.stop();
 
@@ -209,7 +204,7 @@ void TestWorkerGroupMulti::testStress()
     group.start();
     boost::thread_group producers;
     for (int i = 0; i < numProducers; i++)
-        producers.add_thread(new boost::thread(Producer<GroupMulti>(i, numbers, numProducers, group)));
+        producers.add_thread(new boost::thread(Producer<GroupMulti>(i, numbers, numProducers, group, i)));
     producers.join_all();
     group.stop();
 

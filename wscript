@@ -358,6 +358,7 @@ def build(bld):
             'src/splat_set.cpp',
             'src/stxxl_log.cpp',
             'src/thread_name.cpp',
+            'src/timeplot.cpp',
             'src/timer.cpp']
     cl_sources = [
             'src/clh.cpp',

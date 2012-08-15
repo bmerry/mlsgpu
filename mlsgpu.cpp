@@ -51,6 +51,7 @@
 #include "src/progress.h"
 #include "src/clip.h"
 #include "src/mesh_filter.h"
+#include "src/timeplot.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -336,7 +337,7 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
  * the results to a @ref FineBucketGroup.
  */
 template<typename Splats>
-class HostBlock
+class HostBlock : public boost::noncopyable
 {
 public:
     void operator()(
@@ -355,11 +356,12 @@ private:
     ChunkId curChunkId;
     FineBucketGroup &outGroup;
     Grid fullGrid;
+    Timeplot::Worker tworker;
 };
 
 template<typename Splats>
 HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup)
-: outGroup(outGroup)
+: outGroup(outGroup), tworker("bucket.coarse")
 {
 }
 
@@ -376,7 +378,7 @@ void HostBlock<Splats>::operator()(
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
+    boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get(tworker);
     item->chunkId = curChunkId;
     item->grid = grid;
     item->recursionState = recursionState;
@@ -384,7 +386,7 @@ void HostBlock<Splats>::operator()(
     float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
-        Statistics::Timer timer("host.block.load");
+        Timeplot::Action timer("load", tworker, "host.block.load");
         assert(splats.numSplats() <= item->splats.capacity());
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
@@ -404,7 +406,7 @@ void HostBlock<Splats>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item);
+    outGroup.push(item, tworker);
 }
 
 template<typename Splats>
@@ -723,6 +725,8 @@ int main(int argc, char **argv)
         Log::log.setLevel(Log::warn);
     else if (vm.count(Option::debug))
         Log::log.setLevel(Log::debug);
+
+    Timeplot::init();
 
     std::vector<cl::Device> devices = CLH::findDevices(vm);
     if (devices.empty())
