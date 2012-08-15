@@ -15,6 +15,7 @@
 #include "splat_set.h"
 #include "errors.h"
 #include "misc.h"
+#include "timeplot.h"
 
 namespace SplatSet
 {
@@ -106,7 +107,8 @@ void FileSet::addFile(FastPly::ReaderBase *file)
 }
 
 FileSet::ReaderThreadBase::ReaderThreadBase(const FileSet &owner) :
-    owner(owner), outQueue(256), buffer("mem.FileSet.ReaderThread.buffer", owner.bufferSize)
+    owner(owner), outQueue(256), buffer("mem.FileSet.ReaderThread.buffer", owner.bufferSize),
+    tworker("reader")
 {
 }
 
