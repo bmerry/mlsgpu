@@ -337,7 +337,7 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
  * the results to a @ref FineBucketGroup.
  */
 template<typename Splats>
-class HostBlock : public boost::noncopyable
+class CoarseBucket : public boost::noncopyable
 {
 public:
     void operator()(
@@ -345,7 +345,7 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState);
 
-    HostBlock(FineBucketGroup &outGroup, Timeplot::Worker &tworker);
+    CoarseBucket(FineBucketGroup &outGroup, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
     void start(const Grid &fullGrid);
@@ -360,13 +360,13 @@ private:
 };
 
 template<typename Splats>
-HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup, Timeplot::Worker &tworker)
+CoarseBucket<Splats>::CoarseBucket(FineBucketGroup &outGroup, Timeplot::Worker &tworker)
 : outGroup(outGroup), tworker(tworker)
 {
 }
 
 template<typename Splats>
-void HostBlock<Splats>::operator()(
+void CoarseBucket<Splats>::operator()(
     const typename SplatSet::Traits<Splats>::subset_type &splats,
     const Grid &grid, const Bucket::Recursion &recursionState)
 {
@@ -386,7 +386,7 @@ void HostBlock<Splats>::operator()(
     float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
-        Timeplot::Action timer("load", tworker, "host.block.load");
+        Timeplot::Action timer("load", tworker, "bucket.coarse.load");
         assert(splats.numSplats() <= item->splats.capacity());
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
@@ -400,9 +400,9 @@ void HostBlock<Splats>::operator()(
             ++*splatStream;
         }
 
-        registry.getStatistic<Statistics::Variable>("host.block.splats").add(splats.numSplats());
-        registry.getStatistic<Statistics::Variable>("host.block.ranges").add(splats.numRanges());
-        registry.getStatistic<Statistics::Variable>("host.block.size").add
+        registry.getStatistic<Statistics::Variable>("bucket.coarse.splats").add(splats.numSplats());
+        registry.getStatistic<Statistics::Variable>("bucket.coarse.ranges").add(splats.numRanges());
+        registry.getStatistic<Statistics::Variable>("bucket.coarse.size").add
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
@@ -410,13 +410,13 @@ void HostBlock<Splats>::operator()(
 }
 
 template<typename Splats>
-void HostBlock<Splats>::start(const Grid &fullGrid)
+void CoarseBucket<Splats>::start(const Grid &fullGrid)
 {
     this->fullGrid = fullGrid;
 }
 
 template<typename Splats>
-void HostBlock<Splats>::stop()
+void CoarseBucket<Splats>::stop()
 {
 }
 
@@ -481,7 +481,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         FineBucketGroup fineBucketGroup(
             numBucketThreads, 1, deviceWorkerGroup,
             maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-        HostBlock<Splats> hostBlock(fineBucketGroup, mainWorker);
+        CoarseBucket<Splats> coarseBucket(fineBucketGroup, mainWorker);
 
         Splats splats;
         prepareInputs(splats, vm, smooth);
@@ -536,22 +536,22 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             fineBucketGroup.setProgress(&progress);
 
             // Start threads
-            hostBlock.start(grid);
+            coarseBucket.start(grid);
             fineBucketGroup.start(grid);
             deviceWorkerGroup.start(grid);
             mesherGroup.start();
 
             try
             {
-                Timeplot::Action bucketTimer("compute", mainWorker, "host.block.exec");
+                Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
                 Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
-                               boost::ref(hostBlock), &progress);
+                               boost::ref(coarseBucket), &progress);
             }
             catch (...)
             {
                 // This can't be handled using unwinding, because that would operate in
                 // the wrong order
-                hostBlock.stop();
+                coarseBucket.stop();
                 fineBucketGroup.stop();
                 deviceWorkerGroup.stop();
                 mesherGroup.stop();
@@ -562,7 +562,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
              * satisfy the requirement that stop() is only called after producers
              * are terminated.
              */
-            hostBlock.stop();
+            coarseBucket.stop();
             fineBucketGroup.stop();
             deviceWorkerGroup.stop();
             mesherGroup.stop();

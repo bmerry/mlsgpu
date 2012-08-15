@@ -227,7 +227,7 @@ FineBucketGroup::FineBucketGroup(
     std::size_t maxSplit)
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
-        "bucket",
+        "bucket.fine",
         numWorkers, spare),
     outGroup(outGroup),
     maxSplats(maxSplats),
