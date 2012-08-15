@@ -11,9 +11,11 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <cerrno>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/exception/all.hpp>
 #include "timeplot.h"
 #include "statistics.h"
 #include "timer.h"
@@ -22,16 +24,30 @@
 namespace Timeplot
 {
 
+static bool hasFile = false;
 static boost::mutex outputMutex;
-static Timer::timestamp startTime;
+static Timer::timestamp startTime = Timer::currentTime();
 static std::ofstream log;
 
-void init()
+void init(const std::string &filename)
 {
+    MLSGPU_ASSERT(!hasFile, state_error);
     startTime = Timer::currentTime();
-    log.open("timeplot.log");
-    log << std::fixed;
-    log.precision(9);
+    try
+    {
+        log.open(filename.c_str());
+        if (!log)
+            throw std::ios::failure("Could not open timeplot file");
+        log << std::fixed;
+        log.precision(9);
+        hasFile = true;
+    }
+    catch (std::ios::failure &e)
+    {
+        throw boost::enable_error_info(e)
+            << boost::errinfo_file_name(filename)
+            << boost::errinfo_errno(errno);
+    }
 }
 
 Worker::Worker(const std::string &name) : name(name), currentAction(NULL)
@@ -101,9 +117,12 @@ void Action::pause(Timer::timestamp time)
     elapsed += Timer::getElapsed(start, time);
 
     boost::lock_guard<boost::mutex> lock(outputMutex);
-    log << "EVENT " << worker.getName() << ' ' << name << ' '
-        << Timer::getElapsed(startTime, start) << ' '
-        << Timer::getElapsed(startTime, time) << '\n';
+    if (hasFile)
+    {
+        log << "EVENT " << worker.getName() << ' ' << name << ' '
+            << Timer::getElapsed(startTime, start) << ' '
+            << Timer::getElapsed(startTime, time) << '\n';
+    }
 }
 
 void Action::resume(Timer::timestamp time)

@@ -15,14 +15,22 @@
 #include "timer.h"
 #include "statistics.h"
 
+/**
+ * Record timing information.
+ */
 namespace Timeplot
 {
 
 /**
- * Initialize the timeplot subsystem. This must be called before any other
- * function in this namespace, to set a zero time.
+ * Initialize the timeplot subsystem. This function is optional; if it is
+ * not called, no timeplot data will be written, but statistics will still
+ * be updated as normal.
+ *
+ * @param filename          File to which the data are written.
+ * @throw std::ios::failure if the file could not be opened.
+ * @pre @ref init has not already been called.
  */
-void init();
+void init(const std::string &filename);
 
 class Action;
 

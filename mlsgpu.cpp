@@ -77,6 +77,7 @@ namespace Option
 
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
+    const char * const timeplot = "timeplot";
 
     const char * const maxHostSplats = "max-host-splats";
     const char * const maxDeviceSplats = "max-device-splats";
@@ -115,7 +116,8 @@ static void addStatisticsOptions(po::options_description &opts)
     po::options_description statistics("Statistics options");
     statistics.add_options()
         (Option::statistics,                          "Print information about internal statistics")
-        (Option::statisticsFile, po::value<string>(), "Direct statistics to file instead of stdout (implies --statistics)");
+        (Option::statisticsFile, po::value<string>(), "Direct statistics to file instead of stdout (implies --statistics)")
+        (Option::timeplot, po::value<string>(),       "Write timing data to file");
     opts.add(statistics);
 }
 
@@ -726,8 +728,6 @@ int main(int argc, char **argv)
     else if (vm.count(Option::debug))
         Log::log.setLevel(Log::debug);
 
-    Timeplot::init();
-
     std::vector<cl::Device> devices = CLH::findDevices(vm);
     if (devices.empty())
     {
@@ -753,6 +753,9 @@ int main(int argc, char **argv)
 
     try
     {
+        if (vm.count("timeplot"))
+            Timeplot::init(vm["timeplot"].as<string>());
+
         run(cd, vm[Option::outputFile].as<string>(), vm);
         unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();
         if (filesWritten == 0)
