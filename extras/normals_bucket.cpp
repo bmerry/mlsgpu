@@ -185,14 +185,11 @@ public:
     }
 };
 
-class NormalWorker : public NormalStats
+class NormalWorker : public WorkerBase, NormalStats
 {
 private:
     Statistics::Peak<std::tr1::uint64_t> &activeStat;
 public:
-    void start() {}
-    void stop() {}
-
     void operator()(NormalItem &item)
     {
         Statistics::Timer timer(computeStat);
@@ -280,7 +277,8 @@ public:
     }
 
     NormalWorker()
-        : activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
+        : WorkerBase("normals", 0),
+        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
     {
     }
 };
@@ -291,11 +289,7 @@ public:
     NormalWorkerGroup(std::size_t numWorkers, std::size_t spare, std::size_t maxSplats)
         : WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>(
             "normals",
-            numWorkers, spare,
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop.first"),
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop"),
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.get"))
+            numWorkers, spare)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
             addWorker(new NormalWorker);
@@ -305,7 +299,7 @@ public:
 };
 
 template<typename Splats>
-class BinProcessor
+class BinProcessor : public boost::noncopyable
 {
 private:
     NormalWorkerGroup &outGroup;
@@ -318,6 +312,7 @@ private:
     Timer histoTimer;
     bool first;
 
+    Timeplot::Worker tworker;
     Statistics::Variable &loadStat;
     Statistics::Variable &binStat;
     Statistics::Peak<std::tr1::uint64_t> &activeStat;
@@ -336,6 +331,7 @@ public:
         numNeighbors(numNeighbors), maxDistance2(maxDistance * maxDistance),
         progress(progress),
         first(true),
+        tworker("BinProcessor", 0),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
         binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size")),
         activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
@@ -353,7 +349,7 @@ public:
         if (recursionState.depth > 1)
             recursedStat.add(1);
 
-        boost::shared_ptr<NormalItem> item = outGroup.get();
+        boost::shared_ptr<NormalItem> item = outGroup.get(tworker);
         activeStat += subset.numSplats();
 
         {
@@ -373,7 +369,7 @@ public:
             item->progress = progress;
         }
         binStat.add(item->splats.size());
-        outGroup.push(item);
+        outGroup.push(item, tworker);
     }
 };
 
