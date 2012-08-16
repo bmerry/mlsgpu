@@ -12,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <cerrno>
+#include <cassert>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/lexical_cast.hpp>
@@ -134,6 +135,7 @@ void Action::resume(Timer::timestamp time)
 
 Action::~Action()
 {
+    assert(running); // Can't MLSGPU_ASSERT it because destructors must not throw
     Timer::timestamp stop = Timer::currentTime();
     pause(stop);
     if (stat != NULL)
