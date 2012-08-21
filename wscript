@@ -213,11 +213,6 @@ def configure(conf):
         use = 'STXXL',
         msg = 'Checking for STXXL')
 
-    cgal_cxxflags = []
-    if conf.env['CXX_NAME'] == 'gcc':
-        configure_variant_gcc(conf)
-        cgal_cxxflags += ['-frounding-math']
-
     if conf.options.enable_extras:
         conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
         conf.check_cxx(
