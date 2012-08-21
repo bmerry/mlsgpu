@@ -202,12 +202,9 @@ struct NormalItem
     ProgressDisplay *progress;
 };
 
-class NormalWorker : public NormalStats
+class NormalWorker : public WorkerBase, NormalStats
 {
 public:
-    void start() {}
-    void stop() {}
-
     void operator()(NormalItem &item)
     {
         Statistics::Timer timer(computeStat);
@@ -294,6 +291,8 @@ public:
         for (int i = 0; i < 3; i++)
             item.active[i].reset();
     }
+
+    NormalWorker() : WorkerBase("normals", 0) {}
 };
 
 class NormalWorkerGroup : public WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>
@@ -302,11 +301,7 @@ public:
     NormalWorkerGroup(std::size_t numWorkers, std::size_t spare)
         : WorkerGroup<NormalItem, NormalWorker, NormalWorkerGroup>(
             "normals",
-            numWorkers, spare,
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.push"),
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop.first"),
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.pop"),
-            Statistics::getStatistic<Statistics::Variable>("normal.worker.get"))
+            numWorkers, spare)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
             addWorker(new NormalWorker);
@@ -323,7 +318,8 @@ void processSlice(
     unsigned int K, float maxRadius,
     ProgressDisplay *progress)
 {
-    boost::shared_ptr<NormalItem> item = outGroup.get();
+    Timeplot::Worker dummy("dummy", 0);
+    boost::shared_ptr<NormalItem> item = outGroup.get(dummy);
     item->axis = axis;
     item->K = K;
     item->maxRadius = maxRadius;
@@ -333,7 +329,7 @@ void processSlice(
         item->active[i] = active[i];
     item->needsTree = needsTree;
     item->progress = progress;
-    outGroup.push(item);
+    outGroup.push(item, dummy);
 }
 
 typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 1024> SortStream;

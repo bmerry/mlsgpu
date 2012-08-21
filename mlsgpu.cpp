@@ -51,6 +51,7 @@
 #include "src/progress.h"
 #include "src/clip.h"
 #include "src/mesh_filter.h"
+#include "src/timeplot.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -76,6 +77,7 @@ namespace Option
 
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
+    const char * const timeplot = "timeplot";
 
     const char * const maxHostSplats = "max-host-splats";
     const char * const maxDeviceSplats = "max-device-splats";
@@ -114,7 +116,8 @@ static void addStatisticsOptions(po::options_description &opts)
     po::options_description statistics("Statistics options");
     statistics.add_options()
         (Option::statistics,                          "Print information about internal statistics")
-        (Option::statisticsFile, po::value<string>(), "Direct statistics to file instead of stdout (implies --statistics)");
+        (Option::statisticsFile, po::value<string>(), "Direct statistics to file instead of stdout (implies --statistics)")
+        (Option::timeplot, po::value<string>(),       "Write timing data to file");
     opts.add(statistics);
 }
 
@@ -336,7 +339,7 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
  * the results to a @ref FineBucketGroup.
  */
 template<typename Splats>
-class HostBlock
+class CoarseBucket : public boost::noncopyable
 {
 public:
     void operator()(
@@ -344,7 +347,7 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState);
 
-    explicit HostBlock(FineBucketGroup &outGroup);
+    CoarseBucket(FineBucketGroup &outGroup, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
     void start(const Grid &fullGrid);
@@ -355,16 +358,17 @@ private:
     ChunkId curChunkId;
     FineBucketGroup &outGroup;
     Grid fullGrid;
+    Timeplot::Worker &tworker;
 };
 
 template<typename Splats>
-HostBlock<Splats>::HostBlock(FineBucketGroup &outGroup)
-: outGroup(outGroup)
+CoarseBucket<Splats>::CoarseBucket(FineBucketGroup &outGroup, Timeplot::Worker &tworker)
+: outGroup(outGroup), tworker(tworker)
 {
 }
 
 template<typename Splats>
-void HostBlock<Splats>::operator()(
+void CoarseBucket<Splats>::operator()(
     const typename SplatSet::Traits<Splats>::subset_type &splats,
     const Grid &grid, const Bucket::Recursion &recursionState)
 {
@@ -376,7 +380,7 @@ void HostBlock<Splats>::operator()(
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get();
+    boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get(tworker);
     item->chunkId = curChunkId;
     item->grid = grid;
     item->recursionState = recursionState;
@@ -384,7 +388,7 @@ void HostBlock<Splats>::operator()(
     float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
-        Statistics::Timer timer("host.block.load");
+        Timeplot::Action timer("load", tworker, "bucket.coarse.load");
         assert(splats.numSplats() <= item->splats.capacity());
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
@@ -398,23 +402,23 @@ void HostBlock<Splats>::operator()(
             ++*splatStream;
         }
 
-        registry.getStatistic<Statistics::Variable>("host.block.splats").add(splats.numSplats());
-        registry.getStatistic<Statistics::Variable>("host.block.ranges").add(splats.numRanges());
-        registry.getStatistic<Statistics::Variable>("host.block.size").add
+        registry.getStatistic<Statistics::Variable>("bucket.coarse.splats").add(splats.numSplats());
+        registry.getStatistic<Statistics::Variable>("bucket.coarse.ranges").add(splats.numRanges());
+        registry.getStatistic<Statistics::Variable>("bucket.coarse.size").add
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item);
+    outGroup.push(item, tworker);
 }
 
 template<typename Splats>
-void HostBlock<Splats>::start(const Grid &fullGrid)
+void CoarseBucket<Splats>::start(const Grid &fullGrid)
 {
     this->fullGrid = fullGrid;
 }
 
 template<typename Splats>
-void HostBlock<Splats>::stop()
+void CoarseBucket<Splats>::stop()
 {
 }
 
@@ -446,6 +450,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const bool split = vm.count(Option::split);
     const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+    Timeplot::Worker mainWorker("main");
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -478,15 +483,14 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         FineBucketGroup fineBucketGroup(
             numBucketThreads, 1, deviceWorkerGroup,
             maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-        HostBlock<Splats> hostBlock(fineBucketGroup);
+        CoarseBucket<Splats> coarseBucket(fineBucketGroup, mainWorker);
 
         Splats splats;
         prepareInputs(splats, vm, smooth);
         try
         {
-            Statistics::Timer timer("bbox.time");
+            Timeplot::Action timer("bbox", mainWorker, "bbox.time");
             splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
-            Log::log[Log::debug] << "Bbox time: " << timer.getElapsed() << std::endl;
         }
         catch (std::length_error &e) // TODO: should be a subclass of runtime_error
         {
@@ -534,22 +538,22 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             fineBucketGroup.setProgress(&progress);
 
             // Start threads
-            hostBlock.start(grid);
+            coarseBucket.start(grid);
             fineBucketGroup.start(grid);
             deviceWorkerGroup.start(grid);
             mesherGroup.start();
 
             try
             {
-                Statistics::Timer bucketTimer("host.block.exec");
+                Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
                 Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
-                               boost::ref(hostBlock), &progress);
+                               boost::ref(coarseBucket), &progress);
             }
             catch (...)
             {
                 // This can't be handled using unwinding, because that would operate in
                 // the wrong order
-                hostBlock.stop();
+                coarseBucket.stop();
                 fineBucketGroup.stop();
                 deviceWorkerGroup.stop();
                 mesherGroup.stop();
@@ -560,14 +564,14 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
              * satisfy the requirement that stop() is only called after producers
              * are terminated.
              */
-            hostBlock.stop();
+            coarseBucket.stop();
             fineBucketGroup.stop();
             deviceWorkerGroup.stop();
             mesherGroup.stop();
         }
 
         {
-            Statistics::Timer timer("finalize.time");
+            Timeplot::Action timer("write", mainWorker, "finalize.time");
             mesher->write(&Log::log[Log::info]);
         }
     } // ends scope for grandTotalTimer
@@ -749,6 +753,9 @@ int main(int argc, char **argv)
 
     try
     {
+        if (vm.count("timeplot"))
+            Timeplot::init(vm["timeplot"].as<string>());
+
         run(cd, vm[Option::outputFile].as<string>(), vm);
         unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();
         if (filesWritten == 0)

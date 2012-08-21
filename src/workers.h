@@ -46,6 +46,7 @@
 #include "errors.h"
 #include "statistics.h"
 #include "worker_group.h"
+#include "timeplot.h"
 
 class MesherGroup;
 
@@ -54,7 +55,7 @@ class MesherGroupBase
 public:
     typedef MesherWork WorkItem;
 
-    class Worker
+    class Worker : public WorkerBase
     {
     private:
         MesherGroup &owner;
@@ -63,9 +64,6 @@ public:
         typedef void result_type;
 
         Worker(MesherGroup &owner);
-
-        void start() {}
-        void stop() {}
         void operator()(WorkItem &work);
     };
 };
@@ -88,7 +86,7 @@ public:
      * Retrieve a functor that can be used in any thread to insert work into
      * the queue.
      */
-    Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId);
+    Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId, Timeplot::Worker &tworker);
 
     MesherGroup(std::size_t spare);
 private:
@@ -96,6 +94,7 @@ private:
     friend class MesherGroupBase::Worker;
 
     void outputFunc(
+        Timeplot::Worker &tworker,
         const ChunkId &chunkId,
         const cl::CommandQueue &queue,
         const DeviceKeyMesh &mesh,
@@ -129,7 +128,7 @@ public:
         cl_device_id getKey() const { return key; }
     };
 
-    class Worker : public boost::noncopyable
+    class Worker : public WorkerBase
     {
     private:
         DeviceWorkerGroup &owner;
@@ -152,15 +151,9 @@ public:
             DeviceWorkerGroup &owner,
             const cl::Context &context, const cl::Device &device,
             int levels, bool keepBoundary, float boundaryLimit,
-            MlsShape shape);
+            MlsShape shape, int idx);
 
-        /// Called at beginning of pass
         void start();
-
-        /// Called at end of pass
-        void stop();
-
-        /// Called per work item
         void operator()(WorkItem &work);
     };
 };
@@ -248,7 +241,7 @@ public:
         Bucket::Recursion recursionState;
     };
 
-    class Worker
+    class Worker : public WorkerBase
     {
     private:
         FineBucketGroup &owner;
@@ -256,7 +249,7 @@ public:
     public:
         typedef void result_type;
 
-        Worker(FineBucketGroup &owner);
+        Worker(FineBucketGroup &owner, int idx);
 
         /// Bucketing callback for blocks sized for device execution.
         void operator()(
@@ -265,11 +258,7 @@ public:
             const Grid &grid,
             const Bucket::Recursion &recursionState);
 
-        /// Front-end processing of one item
         void operator()(WorkItem &work);
-
-        void start() {}
-        void stop() {}
     };
 };
 

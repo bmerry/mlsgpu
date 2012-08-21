@@ -39,6 +39,7 @@
 #include "progress.h"
 #include "allocator.h"
 #include "circular_buffer.h"
+#include "timeplot.h"
 #include "tr1_cstdint.h"
 
 template<typename BaseType>
@@ -544,6 +545,7 @@ private:
         WorkQueue<Item> outQueue;
 
         CircularBuffer buffer;
+        Timeplot::Worker tworker;
 
     public:
         explicit ReaderThreadBase(const FileSet &owner);

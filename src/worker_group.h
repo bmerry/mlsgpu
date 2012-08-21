@@ -25,6 +25,48 @@
 #include "statistics.h"
 #include "errors.h"
 #include "thread_name.h"
+#include "timeplot.h"
+
+/**
+ * Base class from which workers may derive. They are not required to do so,
+ * but if not they must provide the same interface.
+ */
+class WorkerBase : public boost::noncopyable
+{
+private:
+    Timeplot::Worker tworker;
+public:
+    /**
+     * Constructor. The @ref Timeplot::Worker is given a name composed of @a
+     * name and @a idx. It is thus sane to pass the same name for all workers
+     * in a group.
+     *
+     * @param name     Name for the worker.
+     * @param idx      Number of the worker within the pool (zero-based).
+     */
+    WorkerBase(const std::string &name, int idx)
+        : tworker(name, idx) {}
+
+    /**
+     * Called when the group starts. Reimplement if special action is needed.
+     * Note that a group can be started and stopped multiple time, so this is
+     * not equivalent to a constructor.
+     */
+    void start() {}
+
+    /**
+     * Called when the group stops. Reimplement if special action is needed.
+     * Note that a group can be started and stopped multiple time, so this is
+     * not equivalent to a destructor.
+     */
+    void stop() {}
+
+    /**
+     * Retrieve the @ref Timeplot::Worker to use for recording actions associated
+     * with this worker.
+     */
+    Timeplot::Worker &getTimeplotWorker() { return tworker; }
+};
 
 /**
  * Base class for @ref WorkerGroup that handles only the threads, workers and pool,
@@ -47,9 +89,9 @@ public:
      * it turns out there is nothing to do. Failure to do so will lead to the
      * item being lost to the pool, and possibly deadlock.
      */
-    boost::shared_ptr<WorkItem> get()
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker)
     {
-        Statistics::Timer timer(getStat);
+        Timeplot::Action timer("get", tworker, getStat);
         return itemPool.pop();
     }
 
@@ -58,9 +100,9 @@ public:
      *
      * @pre @a item was obtained by @ref get.
      */
-    void push(boost::shared_ptr<WorkItem> item)
+    void push(boost::shared_ptr<WorkItem> item, Timeplot::Worker &tworker)
     {
-        Statistics::Timer timer(pushStat);
+        Timeplot::Action timer("push", tworker, pushStat);
         static_cast<Derived *>(this)->pushImpl(item);
     }
 
@@ -105,6 +147,12 @@ public:
         return workers.size();
     }
 
+    /// Obtain the statistic for reporting compute times
+    Statistics::Variable &getComputeStat() const
+    {
+        return computeStat;
+    }
+
 protected:
     /**
      * Register a worker during construction.
@@ -141,21 +189,17 @@ protected:
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
-     * @param pushStat       Statistic for time blocked in @ref push.
-     * @param firstPopStat   Statistic for time blocked in the first call to @ref WorkQueue::pop.
-     * @param popStat        Statistic for time blocked in @ref WorkQueue::pop after the first time.
-     * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroupPool(const std::string &name,
-                    std::size_t numWorkers, std::size_t spare,
-                    Statistics::Variable &pushStat,
-                    Statistics::Variable &firstPopStat,
-                    Statistics::Variable &popStat,
-                    Statistics::Variable &getStat)
+                    std::size_t numWorkers, std::size_t spare)
         : threadName(name), itemPool(numWorkers + spare),
-        pushStat(pushStat), firstPopStat(firstPopStat), popStat(popStat), getStat(getStat)
+        pushStat(Statistics::getStatistic<Statistics::Variable>(name + ".push")),
+        firstPopStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop.first")),
+        popStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop")),
+        getStat(Statistics::getStatistic<Statistics::Variable>(name + ".get")),
+        computeStat(Statistics::getStatistic<Statistics::Variable>(name + ".compute"))
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         workers.reserve(numWorkers);
@@ -174,24 +218,25 @@ private:
 
         void operator()()
         {
+            Timeplot::Worker &tworker = worker.getTimeplotWorker();
             try
             {
                 thread_set_name(owner.threadName);
                 bool firstPop = true;
                 while (true)
                 {
-                    Timer timer;
-                    boost::shared_ptr<WorkItem> item = owner.popImpl(worker);
+                    boost::shared_ptr<WorkItem> item;
+                    {
+                        Timeplot::Action timer("pop", tworker, firstPop ? owner.firstPopStat : owner.popStat);
+                        item = owner.popImpl(worker);
+                    }
                     if (!item.get())
                         break; // we have been asked to shut down
-                    if (firstPop)
-                    {
-                        firstPop = false;
-                        owner.firstPopStat.add(timer.getElapsed());
-                    }
-                    else
-                        owner.popStat.add(timer.getElapsed());
+                    firstPop = false;
+
                     worker(*item);
+
+                    Timeplot::Action timer("push", tworker, owner.pushStat);
                     owner.itemPool.push(item);
                 }
                 worker.stop();
@@ -225,6 +270,7 @@ private:
     Statistics::Variable &firstPopStat;
     Statistics::Variable &popStat;
     Statistics::Variable &getStat;
+    Statistics::Variable &computeStat;
 };
 
 /**
@@ -277,20 +323,12 @@ public:
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
-     * @param pushStat       Statistic for time blocked in @ref push.
-     * @param firstPopStat   Statistic for time blocked in first call to @ref WorkQueue::pop.
-     * @param popStat        Statistic for time blocked in subsequent calls to @ref WorkQueue::pop.
-     * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroup(const std::string &name,
-                std::size_t numWorkers, std::size_t spare,
-                Statistics::Variable &pushStat,
-                Statistics::Variable &firstPopStat,
-                Statistics::Variable &popStat,
-                Statistics::Variable &getStat)
-        : BaseType(name, numWorkers, spare, pushStat, firstPopStat, popStat, getStat),
+                std::size_t numWorkers, std::size_t spare)
+        : BaseType(name, numWorkers, spare),
           workQueue(numWorkers + spare)
     {
     }
@@ -362,22 +400,14 @@ public:
      * @param numSets        Number of sets.
      * @param numWorkers     Number of worker threads to use <em>per set</em>.
      * @param spare          Number of work items to have available in the pool when all workers are busy, <em>per set</em>.
-     * @param pushStat       Statistic for time blocked in @ref push.
-     * @param firstPopStat   Statistic for time blocked in first call to @ref WorkQueue::pop.
-     * @param popStat        Statistic for time blocked in subsequent calls to @ref WorkQueue::pop.
-     * @param getStat        Statistic for time blocked in @ref get.
      *
      * @pre @a numSets &gt; 0.
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroupMulti(
         const std::string &name,
-        std::size_t numSets, std::size_t numWorkers, std::size_t spare,
-        Statistics::Variable &pushStat,
-        Statistics::Variable &firstPopStat,
-        Statistics::Variable &popStat,
-        Statistics::Variable &getStat)
-        : BaseType(name, numWorkers * numSets, spare * numSets, pushStat, firstPopStat, popStat, getStat),
+        std::size_t numSets, std::size_t numWorkers, std::size_t spare)
+        : BaseType(name, numWorkers * numSets, spare * numSets),
         workQueueCapacity(numWorkers + spare)
     {
         MLSGPU_ASSERT(numSets > 0, std::invalid_argument);
