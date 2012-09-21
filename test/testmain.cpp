@@ -122,7 +122,6 @@ static po::variables_map processOptions(int argc, const char **argv)
 }
 
 int main(int argc, const char **argv)
-
 {
     try
     {

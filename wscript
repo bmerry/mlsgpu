@@ -69,6 +69,7 @@ def options(opt):
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
     opt.add_option('--enable-extras', action = 'store_true', default = False, help = 'Build extra internal tools')
     opt.add_option('--no-tests', action = 'store_true', default = False, help = 'Do not run unit tests')
+    opt.add_option('--without-mpi', dest = 'mpi', action = 'store_false', default = True, help = 'Do not build for MPI')
 
 def configure_variant(conf):
     if conf.env['assertions']:
@@ -79,7 +80,22 @@ def configure_variant(conf):
     if conf.env['unit_tests']:
         conf.define('UNIT_TESTS', 1, quote = False)
 
+def configure_mpi(conf):
+    if conf.options.mpi:
+        try:
+            conf.check_cfg(path = 'mpicxx', args = '--showme:compile',
+                    package = '', uselib_store = 'MPI')
+            conf.check_cfg(path = 'mpicxx', args = '--showme:link',
+                    package = '', uselib_store = 'MPI')
+            have_mpi = True
+        except waflib.Errors.ConfigurationError:
+            have_mpi = False
+
+    if have_mpi:
+        conf.define('HAVE_MPI', 1, quote = False)
+
 def configure_variant_gcc(conf):
+    configure_mpi(conf)
     ccflags = ['-Wall', '-W', '-pthread', '-fopenmp']
     conf.env.append_value('LINKFLAGS', ['-pthread', '-fopenmp'])
     if conf.env['optimize']:
@@ -423,7 +439,7 @@ def build(bld):
         if not bld.options.no_tests:
             test_features += ' test'
         test_sources = bld.path.ant_glob('test/*.cpp')
-        test_use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl']
+        test_use = ['CPPUNIT', 'BOOST_TEST', 'MPI', 'libmls_core', 'libmls_cl']
         if bld.env['extras']:
             test_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
             test_use.append('EIGEN')
