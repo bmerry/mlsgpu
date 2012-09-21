@@ -13,18 +13,22 @@
 #include <boost/thread.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
+#include <vector>
 #include "../testutil.h"
 #include "../../src/worker_group_mpi.h"
 #include <mpi.h>
 
-class ScatterItemTest
+namespace
+{
+
+class Item
 {
 private:
     int value;
 
 public:
-    ScatterItemTest() : value(-1) {}
-    explicit ScatterItemTest(int value) : value(value) {}
+    Item() : value(-1) {}
+    explicit Item(int value) : value(value) {}
 
     void set(int value) { this->value = value; }
 
@@ -32,25 +36,25 @@ public:
     void recv(MPI_Comm comm, int source);
 };
 
-void ScatterItemTest::send(MPI_Comm comm, int dest)
+void Item::send(MPI_Comm comm, int dest)
 {
     MPI_Send(&value, 1, MPI_INT, dest, MLSGPU_TAG_WORK, comm);
 }
 
-void ScatterItemTest::recv(MPI_Comm comm, int source)
+void Item::recv(MPI_Comm comm, int source)
 {
     MPI_Recv(&value, 1, MPI_INT, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
 
-class ScatterGroupTest : public WorkerGroupScatter<ScatterItemTest, ScatterGroupTest>
+class ScatterGroup : public WorkerGroupScatter<Item, ScatterGroup>
 {
 public:
-    ScatterGroupTest(std::size_t numWorkers, std::size_t spare, MPI_Comm comm)
-        : WorkerGroupScatter<ScatterItemTest, ScatterGroupTest>("ScatterGroupTest", numWorkers, spare, comm)
+    ScatterGroup(std::size_t numWorkers, std::size_t spare, MPI_Comm comm)
+        : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, spare, comm)
     {
         for (std::size_t i = 0; i < numWorkers + spare; i++)
         {
-            addPoolItem(boost::make_shared<ScatterItemTest>());
+            addPoolItem(boost::make_shared<Item>());
         }
     }
 };
@@ -58,41 +62,71 @@ public:
 /**
  * Class that receives work-items and sends to one process.
  */
-class ReturnWorkerTest : public WorkerBase
+class ReturnWorker : public WorkerBase
 {
 private:
     MPI_Comm comm;
     int dest;
 public:
-    ReturnWorkerTest(const std::string &name, int idx, MPI_Comm comm, int dest)
+    ReturnWorker(const std::string &name, int idx, MPI_Comm comm, int dest)
         : WorkerBase(name, idx), comm(comm), dest(dest)
     {
     }
 
-    void operator()(ScatterItemTest &item)
+    void operator()(Item &item)
     {
         item.send(comm, dest);
     }
 
     void stop()
     {
-        ScatterItemTest marker(-2);
+        Item marker(-2);
         marker.send(comm, dest);
     }
 };
 
-class ReturnGroupTest : public WorkerGroup<ScatterItemTest, ReturnWorkerTest, ReturnGroupTest>
+class ReturnGroup : public WorkerGroup<Item, ReturnWorker, ReturnGroup>
 {
 public:
-    ReturnGroupTest(std::size_t numWorkers, std::size_t spare, MPI_Comm comm, int dest)
-        : WorkerGroup<ScatterItemTest, ReturnWorkerTest, ReturnGroupTest>("ReturnGroupTest", numWorkers, spare)
+    ReturnGroup(std::size_t numWorkers, std::size_t spare, MPI_Comm comm, int dest)
+        : WorkerGroup<Item, ReturnWorker, ReturnGroup>("ReturnGroup", numWorkers, spare)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
-            addWorker(new ReturnWorkerTest("ReturnWorkerTest", i, comm, dest));
+            addWorker(new ReturnWorker("ReturnWorker", i, comm, dest));
         for (std::size_t i = 0; i < numWorkers + spare; i++)
-            addPoolItem(boost::make_shared<ScatterItemTest>());
+            addPoolItem(boost::make_shared<Item>());
     }
 };
+
+class ScatterProducer
+{
+private:
+    MPI_Comm comm;
+    int items;
+
+public:
+    ScatterProducer(MPI_Comm comm, int items)
+        : comm(comm), items(items)
+    {
+    }
+
+    void operator()() const
+    {
+        Timeplot::Worker tworker("test");
+        ScatterGroup sendGroup(3, 3, comm);
+        sendGroup.start();
+        for (int i = 0; i < items; i++)
+        {
+            boost::shared_ptr<Item> item;
+            item = sendGroup.get(tworker);
+            item->set(i);
+            sendGroup.push(item, tworker);
+        }
+        sendGroup.stop();
+    }
+};
+
+} // anonymous namespace
 
 class TestWorkerGroupScatter : public CppUnit::TestFixture
 {
@@ -131,39 +165,43 @@ void TestWorkerGroupScatter::tearDown()
 void TestWorkerGroupScatter::testIntracomm()
 {
     const int root = 0;
-    ReturnGroupTest returnGroup(3, 1, masterComm, root);
-    RequesterScatter<ScatterItemTest, ReturnGroupTest> req("scatter", comm, returnGroup, root);
+    ReturnGroup returnGroup(3, 1, masterComm, root);
+    RequesterScatter<Item, ReturnGroup> req("scatter", comm, returnGroup, root);
     boost::thread thread(boost::ref(req));
     returnGroup.start();
 
     int rank;
     int size;
+    bool pass = true;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
     if (rank == root)
     {
-        Timeplot::Worker tworker("test");
         const int items = 100;
-        // TODO: put this into separate thread, to avoid assumption of buffering
-        ScatterGroupTest sendGroup(3, 3, comm);
-        sendGroup.start();
-        for (int i = 0; i < items; i++)
-        {
-            boost::shared_ptr<ScatterItemTest> item;
-            item = sendGroup.get(tworker);
-            item->set(i);
-            sendGroup.push(item, tworker);
-        }
-        sendGroup.stop();
+        boost::thread producer(ScatterProducer(comm, items));
+        std::vector<bool> seen(items, false);
+        int shutdowns = 0;
 
         for (int i = 0; i < items + size; i++)
         {
             int value = -1;
             MPI_Recv(&value, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_WORK, masterComm, MPI_STATUS_IGNORE);
-            // TODO: validate it
+            if (value == -2)
+            {
+                shutdowns++;
+            }
+            else
+            {
+                if (value < 0 || value >= items || seen[value])
+                    pass = false;
+                seen[value] = true;
+            }
         }
+        producer.join();
     }
 
     thread.join();
     returnGroup.stop();
+
+    CPPUNIT_ASSERT(pass);
 }
