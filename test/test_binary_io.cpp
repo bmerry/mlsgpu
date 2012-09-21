@@ -15,7 +15,7 @@
 #include <sstream>
 #include <algorithm>
 #include <limits>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/binary_io.h"
 
 /// Tests for @ref readBinary and @ref writeBinary

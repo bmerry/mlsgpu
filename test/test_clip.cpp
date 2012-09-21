@@ -25,7 +25,7 @@
 #include "../src/clip.h"
 #include "../src/clh.h"
 #include "test_clh.h"
-#include "testmain.h"
+#include "testutil.h"
 
 /**
  * Tests @ref Clip.

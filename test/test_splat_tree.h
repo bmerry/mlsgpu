@@ -13,7 +13,7 @@
 
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/splat.h"
 #include "../src/grid.h"
 #include "../src/splat_tree.h"

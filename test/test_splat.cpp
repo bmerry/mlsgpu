@@ -11,7 +11,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <algorithm>
 #include <vector>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/splat.h"
 
 using namespace std;

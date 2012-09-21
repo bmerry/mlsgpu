@@ -1,6 +1,7 @@
 import os.path
 
 import waflib.Errors
+import waflib.Tools.waf_unit_test
 
 APPNAME = 'mlsgpu'
 VERSION = '0.99'
@@ -91,8 +92,7 @@ def configure_mpi(conf):
         except waflib.Errors.ConfigurationError:
             have_mpi = False
 
-    if have_mpi:
-        conf.define('HAVE_MPI', 1, quote = False)
+    conf.env['mpi'] = have_mpi
 
 def configure_variant_gcc(conf):
     configure_mpi(conf)
@@ -438,15 +438,36 @@ def build(bld):
         test_features = 'cxx cxxprogram'
         if not bld.options.no_tests:
             test_features += ' test'
-        test_sources = bld.path.ant_glob('test/*.cpp')
-        test_use = ['CPPUNIT', 'BOOST_TEST', 'MPI', 'libmls_core', 'libmls_cl']
+        nonmpi_sources = bld.path.ant_glob('test/test_*.cpp') + ['test/testmain.cpp']
+        mpi_sources = bld.path.ant_glob('test/mpi/*.cpp')
+        common_sources = [
+                'test/manifold.cpp',
+                'test/memory_reader.cpp',
+                'test/memory_writer.cpp',
+                'test/testutil.cpp']
+
+        test_use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl']
         if bld.env['extras']:
             test_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
             test_use.append('EIGEN')
+
+        # TODO: use a static library for common_sources
         bld.program(
                 features = test_features,
-                source = test_sources,
+                source = nonmpi_sources + common_sources,
                 target = 'testmain',
                 use = test_use,
                 install_path = None)
+        if bld.env['mpi']:
+            gen = bld.program(
+                    features = test_features,
+                    source = mpi_sources + common_sources,
+                    target = 'testmpi',
+                    use = test_use + ['MPI'],
+                    install_path = None)
+            # Find the unit test task and modify it to run through mpirun
+            gen.post() # Forces the task to be generated
+            for task in gen.tasks:
+                if isinstance(task, waflib.Tools.waf_unit_test.utest):
+                    task.ut_exec = ['mpirun', '-n', '4', task.inputs[0].abspath()]
         bld.add_post_fun(print_unit_tests)

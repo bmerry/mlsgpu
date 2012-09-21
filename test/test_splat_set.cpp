@@ -34,7 +34,7 @@
 #include "../src/fast_ply.h"
 #include "test_splat_set.h"
 #include "memory_reader.h"
-#include "testmain.h"
+#include "testutil.h"
 
 using namespace std;
 using namespace SplatSet;

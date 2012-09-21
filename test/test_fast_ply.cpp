@@ -32,7 +32,7 @@
 #include "../src/fast_ply.h"
 #include "../src/splat.h"
 #include "memory_reader.h"
-#include "testmain.h"
+#include "testutil.h"
 
 using namespace std;
 using namespace FastPly;

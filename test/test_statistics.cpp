@@ -16,7 +16,7 @@
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include "../src/statistics.h"
-#include "testmain.h"
+#include "testutil.h"
 
 /**
  * Test for the @ref Statistics::Statistic base class.

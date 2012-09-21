@@ -13,7 +13,7 @@
 #include <sstream>
 #include <string>
 #include "../src/ply.h"
-#include "testmain.h"
+#include "testutil.h"
 
 using namespace std;
 

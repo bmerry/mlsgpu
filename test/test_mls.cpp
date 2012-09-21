@@ -22,7 +22,7 @@
 #include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "../src/clh.h"
 #include "../src/splat.h"

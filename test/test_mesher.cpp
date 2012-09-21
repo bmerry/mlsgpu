@@ -32,7 +32,7 @@
 #include <boost/foreach.hpp>
 #include <boost/array.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/fast_ply.h"
 #include "../src/mesher.h"
 #include "test_clh.h"

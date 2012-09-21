@@ -12,7 +12,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <vector>
 #include <cstddef>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_splat_tree.h"
 #include "../src/splat.h"
 #include "../src/grid.h"

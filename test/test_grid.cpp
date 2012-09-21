@@ -12,7 +12,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <utility>
 #include <boost/numeric/conversion/converter.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/grid.h"
 
 using namespace std;

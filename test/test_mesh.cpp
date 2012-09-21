@@ -17,7 +17,7 @@
 #include <vector>
 #include <boost/array.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "../src/mesh.h"
 

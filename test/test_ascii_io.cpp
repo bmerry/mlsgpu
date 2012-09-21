@@ -14,7 +14,7 @@
 #include <boost/tr1/cmath.hpp>
 #include <limits>
 #include "../src/ascii_io.h"
-#include "testmain.h"
+#include "testutil.h"
 
 using namespace std;
 using namespace std::tr1;

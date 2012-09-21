@@ -28,7 +28,7 @@
 #include <cstring>
 #include "../src/tr1_cstdint.h"
 #include <boost/tr1/random.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_splat_set.h"
 #include "../src/bucket.h"
 #include "../src/bucket_internal.h"

@@ -14,7 +14,7 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <algorithm>
 #include <vector>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/worker_group.h"
 #include "../src/timeplot.h"
 

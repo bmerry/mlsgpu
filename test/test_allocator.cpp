@@ -10,7 +10,7 @@
 
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/statistics.h"
 #include "../src/allocator.h"
 

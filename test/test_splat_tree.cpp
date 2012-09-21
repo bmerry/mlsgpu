@@ -15,7 +15,7 @@
 #include <numeric>
 #include <algorithm>
 #include <boost/tr1/random.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/splat.h"
 #include "../src/grid.h"
 #include "../src/splat_tree.h"

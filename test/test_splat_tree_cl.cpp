@@ -17,7 +17,7 @@
 #include <cstddef>
 #include <vector>
 #include <cmath>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "test_splat_tree.h"
 #include "../src/splat_tree_cl.h"

@@ -15,7 +15,7 @@
 #include <boost/bind.hpp>
 #include <boost/tr1/random.hpp>
 #include <boost/thread.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/circular_buffer.h"
 #include "../src/work_queue.h"
 #include "../src/tr1_cstdint.h"

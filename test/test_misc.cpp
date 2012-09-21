@@ -10,7 +10,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include "../src/tr1_cstdint.h"
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/misc.h"
 
 using namespace std;

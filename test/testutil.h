@@ -4,8 +4,8 @@
  * Common definitions for tests.
  */
 
-#ifndef TESTMAIN_H
-#define TESTMAIN_H
+#ifndef TESTUTIL_H
+#define TESTUTIL_H
 
 #if HAVE_CONFIG_H
 # include <config.h>
@@ -74,5 +74,13 @@ private:
  * @see @ref MLSGPU_ASSERT_DOUBLES_EQUAL
  */
 void mlsgpuAssertDoublesEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine);
+
+/**
+ * Main program implementation.
+ *
+ * @param isMaster Whether this is the master MPI process (true for single-process).
+ * @return Status to return from @c main.
+ */
+int runTests(int argc, const char **argv, bool isMaster);
 
 #endif /* !TESTMAIN_H */

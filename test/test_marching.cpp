@@ -23,7 +23,7 @@
 #include <boost/array.hpp>
 #include <boost/ref.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "memory_writer.h"
 #include "manifold.h"

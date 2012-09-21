@@ -19,7 +19,7 @@
 #include <boost/bind.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/work_queue.h"
 
 using namespace std;
