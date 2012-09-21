@@ -134,6 +134,7 @@ void TestWorkerGroupScatter::testIntracomm()
     ReturnGroupTest returnGroup(3, 1, masterComm, root);
     RequesterScatter<ScatterItemTest, ReturnGroupTest> req("scatter", comm, returnGroup, root);
     boost::thread thread(boost::ref(req));
+    returnGroup.start();
 
     int rank;
     int size;
@@ -145,6 +146,7 @@ void TestWorkerGroupScatter::testIntracomm()
         const int items = 100;
         // TODO: put this into separate thread, to avoid assumption of buffering
         ScatterGroupTest sendGroup(3, 3, comm);
+        sendGroup.start();
         for (int i = 0; i < items; i++)
         {
             boost::shared_ptr<ScatterItemTest> item;

@@ -16,7 +16,7 @@
 enum
 {
     MLSGPU_TAG_NEED_WORK = 0,   ///< Requester wants work to do
-    MLSGPU_TAG_STOP = 1,        ///< Tells requester to shut down
+    MLSGPU_TAG_HAS_WORK = 1,    ///< Tells requester to either retrieve work or shut down
     MLSGPU_TAG_WORK = 2         ///< Generic tag for transmitting a work item
 };
 
@@ -45,6 +45,9 @@ public:
         MPI_Status status;
         MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_NEED_WORK, comm, &status);
 
+        // Tell it there is a work item coming
+        int hasWork = 1;
+        MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_HAS_WORK, comm);
         // Send it the work item
         item.send(comm, status.MPI_SOURCE);
     }
@@ -78,15 +81,13 @@ public:
     {
         while (true)
         {
+            int hasWork;
             MPI_Status status;
             MPI_Send(NULL, 0, MPI_INT, root, MLSGPU_TAG_NEED_WORK, comm);
             /* We will either get some work or a request to shut down */
-            MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &status);
-            if (status.MPI_TAG == MLSGPU_TAG_STOP)
-            {
-                MPI_Recv(NULL, 0, MPI_INT, status.MPI_SOURCE, status.MPI_TAG, comm, MPI_STATUS_IGNORE);
+            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_HAS_WORK, comm, &status);
+            if (!hasWork)
                 break;
-            }
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
@@ -148,7 +149,10 @@ public:
             MPI_Comm_size(comm, &size);
         /* Shut down the receivers */
         for (int i = 0; i < size; i++)
-            MPI_Send(NULL, 0, MPI_INT, i, MLSGPU_TAG_STOP, comm);
+        {
+            int hasWork = 0;
+            MPI_Send(&hasWork, 1, MPI_INT, i, MLSGPU_TAG_HAS_WORK, comm);
+        }
     }
 };
 
