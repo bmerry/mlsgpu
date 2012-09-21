@@ -15,8 +15,9 @@
 
 enum
 {
-    MLSGPU_TAG_NEED_WORK = 0,
-    MLSGPU_TAG_STOP = 1
+    MLSGPU_TAG_NEED_WORK = 0,   ///< Requester wants work to do
+    MLSGPU_TAG_STOP = 1,        ///< Tells requester to shut down
+    MLSGPU_TAG_WORK = 2         ///< Generic tag for transmitting a work item
 };
 
 /**
@@ -31,9 +32,12 @@ class WorkerScatter : public WorkerBase
 public:
     /**
      * Constructor.
+     * @param name    Name for the worker.
+     * @param idx     Index of the worker within the parent's workers.
      * @param comm    Communicator used to communicate with requesters.
      */
-    explicit WorkerScatter(MPI_Comm comm) : comm(comm) {}
+    WorkerScatter(const std::string &name, int idx, MPI_Comm comm)
+        : WorkerBase(name, idx), comm(comm) {}
 
     void operator()(WorkItem &item)
     {
@@ -59,17 +63,18 @@ private:
  * the item class, which takes the communicator and the source.
  */
 template<typename WorkItem, typename Group>
-class RequesterScatter
+class RequesterScatter : public boost::noncopyable
 {
 private:
     MPI_Comm comm;
     Group &outGroup;
     int root;
+    Timeplot::Worker tworker;
 public:
-    RequesterScatter(MPI_Comm comm, Group &outGroup, int root)
-        : comm(comm), outGroup(outGroup), root(root) {}
+    RequesterScatter(const std::string &name, MPI_Comm comm, Group &outGroup, int root)
+        : comm(comm), outGroup(outGroup), root(root), tworker(name) {}
 
-    void operator()() const
+    void operator()()
     {
         while (true)
         {
@@ -84,9 +89,9 @@ public:
             }
             else
             {
-                boost::shared_ptr<WorkItem> item = outGroup.get();
+                boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
                 item->recv(comm, status.MPI_SOURCE);
-                outGroup.push(item);
+                outGroup.push(item, tworker);
             }
         }
     }
@@ -124,7 +129,7 @@ public:
         comm(comm)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
-            addWorker(new WorkerScatter<WorkItem>(comm));
+            addWorker(new WorkerScatter<WorkItem>(name + ".worker", i, comm));
     }
 
     /**

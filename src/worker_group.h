@@ -333,6 +333,15 @@ public:
     {
     }
 
+    /**
+     * Shut down the worker threads.
+     */
+    void stopImpl()
+    {
+        for (std::size_t i = 0; i < this->numWorkers(); i++)
+            workQueue.push(boost::shared_ptr<WorkItem>());
+    }
+
 private:
     /**
      * Enqueue an item of work.
@@ -351,15 +360,6 @@ private:
     {
         (void) &worker;
         return workQueue.pop();
-    }
-
-    /**
-     * Shut down the worker threads.
-     */
-    void stopImpl()
-    {
-        for (std::size_t i = 0; i < this->numWorkers(); i++)
-            workQueue.push(boost::shared_ptr<WorkItem>());
     }
 
     /// Work queue
