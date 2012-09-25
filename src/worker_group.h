@@ -135,10 +135,27 @@ public:
     void stop()
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), state_error);
-        static_cast<Derived *>(this)->stopImpl();
+        static_cast<Derived *>(this)->stopPreJoin();
         for (std::size_t i = 0; i < threads.size(); i++)
             threads[i].join();
         threads.clear();
+        static_cast<Derived *>(this)->stopPostJoin();
+    }
+
+    /**
+     * Take shutdown actions prior to joining the worker threads. This is a hook
+     * that subclasses may override.
+     */
+    void stopPreJoin()
+    {
+    }
+
+    /**
+     * Take shutdown actions after the worker threads have been joined. This is
+     * a hook that subclasses may override.
+     */
+    void stopPostJoin()
+    {
     }
 
     /// Returns the number of workers.
@@ -336,7 +353,7 @@ public:
     /**
      * Shut down the worker threads.
      */
-    void stopImpl()
+    void stopPreJoin()
     {
         for (std::size_t i = 0; i < this->numWorkers(); i++)
             workQueue.push(boost::shared_ptr<WorkItem>());
@@ -443,7 +460,7 @@ private:
     /**
      * Shut down the worker threads.
      */
-    void stopImpl()
+    void stopPreJoin()
     {
         const std::size_t workersPerSet = this->numWorkers() / workQueues.size();
         BOOST_FOREACH(typename work_queues_type::reference q, workQueues)

@@ -136,11 +136,11 @@ public:
     /**
      * Overrides the base class to send a shutdown message to all the requesters.
      */
-    void stopImpl()
+    void stopPostJoin()
     {
         int size;
         int isInter;
-        WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>::stopImpl();
+        WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>::stopPostJoin();
 
         MPI_Comm_test_inter(comm, &isInter);
         if (isInter)
@@ -150,8 +150,10 @@ public:
         /* Shut down the receivers */
         for (int i = 0; i < size; i++)
         {
+            MPI_Status status;
             int hasWork = 0;
-            MPI_Send(&hasWork, 1, MPI_INT, i, MLSGPU_TAG_HAS_WORK, comm);
+            MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_NEED_WORK, comm, &status);
+            MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_HAS_WORK, comm);
         }
     }
 };
