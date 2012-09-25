@@ -282,32 +282,32 @@ void validateOptions(const po::variables_map &vm)
     {
         std::ostringstream msg;
         msg << "Value of --levels must be in the range 1 to " << maxLevels;
-        throw po::invalid_option_value(msg.str());
+        throw invalid_option(msg.str());
     }
     if (subsampling < MlsFunctor::subsamplingMin)
     {
         std::ostringstream msg;
         msg << "Value of --subsampling must be at least " << MlsFunctor::subsamplingMin;
-        throw po::invalid_option_value(msg.str());
+        throw invalid_option(msg.str());
     }
     if (maxDeviceSplats < 1)
-        throw po::invalid_option_value("Value of --max-device-splats must be positive");
+        throw invalid_option("Value of --max-device-splats must be positive");
     if (maxHostSplats < maxDeviceSplats)
-        throw po::invalid_option_value("Value of --max-host-splats must be at least that of --max-device-splats");
+        throw invalid_option("Value of --max-host-splats must be at least that of --max-device-splats");
     if (maxSplit < 8)
-        throw po::invalid_option_value("Value of --max-split must be at least 8");
+        throw invalid_option("Value of --max-split must be at least 8");
     if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
-        throw po::invalid_option_value("Sum of --subsampling and --levels is too large");
+        throw invalid_option("Sum of --subsampling and --levels is too large");
     const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
     if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
-        throw po::invalid_option_value("Sum of --subsampling and --levels is too small");
+        throw invalid_option("Sum of --subsampling and --levels is too small");
 
     if (bucketThreads < 1)
-        throw po::invalid_option_value("Value of --bucket-threads must be at least 1");
+        throw invalid_option("Value of --bucket-threads must be at least 1");
     if (deviceThreads < 1)
-        throw po::invalid_option_value("Value of --device-threads must be at least 1");
+        throw invalid_option("Value of --device-threads must be at least 1");
     if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
-        throw po::invalid_option_value("Value of --fit-prune must be in [0, 1]");
+        throw invalid_option("Value of --fit-prune must be in [0, 1]");
 }
 
 CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
@@ -350,7 +350,7 @@ void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsa
         std::ostringstream msg;
         msg << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
             << "but only " << deviceTotalMemory << " available.\n"
-            << "Try reducing --levels, increasing --subsampling or decreasing --max-device-splats.";
+            << "Try reducing --levels or --max-device-splats, or increasing --subsampling.";
         throw CLH::invalid_device(device, msg.str());
     }
 

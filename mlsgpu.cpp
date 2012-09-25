@@ -230,7 +230,7 @@ int main(int argc, char **argv)
     {
         validateOptions(vm);
     }
-    catch (po::error &e)
+    catch (invalid_option &e)
     {
         cerr << e.what() << endl;
         exit(1);

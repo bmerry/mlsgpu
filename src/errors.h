@@ -43,6 +43,15 @@ public:
     explicit state_error(const std::string &msg) : std::logic_error(msg) {}
 };
 
+/**
+ * A command-line option is semantically invalid.
+ */
+class invalid_option : public std::runtime_error
+{
+public:
+    explicit invalid_option(const std::string &msg) : std::runtime_error(msg) {}
+};
+
 #endif /* !MLSGPU_ERRORS_H */
 
 /* This part is outside the include guard so that it can be redefined after resetting

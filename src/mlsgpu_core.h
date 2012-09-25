@@ -83,7 +83,7 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
  * Check that command-line option values are valid and in range.
  * @param vm    Command-line options.
  *
- * @throw boost::program_options::error if any of the options were invalid.
+ * @throw invalid_option if any of the options were invalid.
  */
 void validateOptions(const boost::program_options::variables_map &vm);
 
