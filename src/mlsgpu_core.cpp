@@ -310,6 +310,16 @@ void validateOptions(const po::variables_map &vm)
         throw invalid_option("Value of --fit-prune must be in [0, 1]");
 }
 
+void setLogLevel(const po::variables_map &vm)
+{
+    if (vm.count(Option::quiet))
+        Log::log.setLevel(Log::warn);
+    else if (vm.count(Option::debug))
+        Log::log.setLevel(Log::debug);
+    else
+        Log::log.setLevel(Log::info);
+}
+
 CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
 {
     const int levels = vm[Option::levels].as<int>();

@@ -88,6 +88,11 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 void validateOptions(const boost::program_options::variables_map &vm);
 
 /**
+ * Set the logging level based on the command-line options.
+ */
+void setLogLevel(const boost::program_options::variables_map &vm);
+
+/**
  * Estimate the per-device resource usage based on command-line options.
  */
 CLH::ResourceUsage resourceUsage(const boost::program_options::variables_map &vm);

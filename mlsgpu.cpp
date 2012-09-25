@@ -214,10 +214,7 @@ int main(int argc, char **argv)
     Log::log.setLevel(Log::info);
 
     po::variables_map vm = processOptions(argc, argv);
-    if (vm.count(Option::quiet))
-        Log::log.setLevel(Log::warn);
-    else if (vm.count(Option::debug))
-        Log::log.setLevel(Log::debug);
+    setLogLevel(vm);
 
     std::vector<cl::Device> devices = CLH::findDevices(vm);
     if (devices.empty())
