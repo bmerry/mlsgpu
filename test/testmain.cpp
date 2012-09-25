@@ -10,5 +10,5 @@
 
 int main(int argc, const char **argv)
 {
-    return runTests(argc, argv, false);
+    return runTests(argc, argv, true);
 }
