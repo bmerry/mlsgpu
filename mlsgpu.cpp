@@ -52,6 +52,7 @@
 #include "src/clip.h"
 #include "src/mesh_filter.h"
 #include "src/timeplot.h"
+#include "src/coarse_bucket.h"
 
 namespace po = boost::program_options;
 using namespace std;
@@ -332,97 +333,6 @@ static void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm,
 }
 
 /**
- * Handles coarse-level bucketing from external storage. Unlike @ref
- * DeviceWorkerGroupBase::Worker and @ref FineBucketGroupBase::Worker, there
- * is only expected to be one of these, and it does not run in a separate
- * thread. It produces coarse buckets, read the splats into memory and pushes
- * the results to a @ref FineBucketGroup.
- */
-template<typename Splats>
-class CoarseBucket : public boost::noncopyable
-{
-public:
-    void operator()(
-        const typename SplatSet::Traits<Splats>::subset_type &splatSet,
-        const Grid &grid,
-        const Bucket::Recursion &recursionState);
-
-    CoarseBucket(FineBucketGroup &outGroup, Timeplot::Worker &tworker);
-
-    /// Prepares for a pass
-    void start(const Grid &fullGrid);
-
-    /// Ends a pass
-    void stop();
-private:
-    ChunkId curChunkId;
-    FineBucketGroup &outGroup;
-    Grid fullGrid;
-    Timeplot::Worker &tworker;
-};
-
-template<typename Splats>
-CoarseBucket<Splats>::CoarseBucket(FineBucketGroup &outGroup, Timeplot::Worker &tworker)
-: outGroup(outGroup), tworker(tworker)
-{
-}
-
-template<typename Splats>
-void CoarseBucket<Splats>::operator()(
-    const typename SplatSet::Traits<Splats>::subset_type &splats,
-    const Grid &grid, const Bucket::Recursion &recursionState)
-{
-    if (recursionState.chunk != curChunkId.coords)
-    {
-        curChunkId.gen++;
-        curChunkId.coords = recursionState.chunk;
-    }
-
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-
-    boost::shared_ptr<FineBucketGroup::WorkItem> item = outGroup.get(tworker);
-    item->chunkId = curChunkId;
-    item->grid = grid;
-    item->recursionState = recursionState;
-    item->splats.clear();
-    float invSpacing = 1.0f / fullGrid.getSpacing();
-
-    {
-        Timeplot::Action timer("load", tworker, "bucket.coarse.load");
-        assert(splats.numSplats() <= item->splats.capacity());
-
-        boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-        while (!splatStream->empty())
-        {
-            Splat splat = **splatStream;
-            /* Transform the splats into the grid's coordinate system */
-            fullGrid.worldToVertex(splat.position, splat.position);
-            splat.radius *= invSpacing;
-            item->splats.push_back(splat);
-            ++*splatStream;
-        }
-
-        registry.getStatistic<Statistics::Variable>("bucket.coarse.splats").add(splats.numSplats());
-        registry.getStatistic<Statistics::Variable>("bucket.coarse.ranges").add(splats.numRanges());
-        registry.getStatistic<Statistics::Variable>("bucket.coarse.size").add
-            (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
-    }
-
-    outGroup.push(item, tworker);
-}
-
-template<typename Splats>
-void CoarseBucket<Splats>::start(const Grid &fullGrid)
-{
-    this->fullGrid = fullGrid;
-}
-
-template<typename Splats>
-void CoarseBucket<Splats>::stop()
-{
-}
-
-/**
  * Main execution.
  *
  * @param devices         List of OpenCL devices to use
@@ -483,7 +393,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         FineBucketGroup fineBucketGroup(
             numBucketThreads, 1, deviceWorkerGroup,
             maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
-        CoarseBucket<Splats> coarseBucket(fineBucketGroup, mainWorker);
+        CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
         Splats splats;
         prepareInputs(splats, vm, smooth);
