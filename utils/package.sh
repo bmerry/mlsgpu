@@ -4,7 +4,7 @@ set -e
 PKGDIR=mlsgpu-package
 rm -rf $PKGDIR
 mkdir $PKGDIR
-cp build/mlsgpu build/testmain $PKGDIR
+cp build/mlsgpu build/testmain build/testmpi $PKGDIR
 cp $HOME/src/stxxl-1.3.1-chpc/lib/libstxxl.so.1 $PKGDIR
 for i in \
     libclogs.so.1 \
