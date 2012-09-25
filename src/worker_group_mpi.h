@@ -132,7 +132,7 @@ public:
         comm(comm), requesters(requesters)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
-            addWorker(new WorkerScatter<WorkItem>(name + ".worker", i, comm));
+            this->addWorker(new WorkerScatter<WorkItem>(name + ".worker", i, comm));
     }
 
     /**
@@ -254,7 +254,7 @@ public:
     WorkerGroupGather(const std::string &name, std::size_t spare, MPI_Comm comm, int root)
         : WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>(name, 1, spare)
     {
-        addWorker(new WorkerGather<WorkItem>(name, comm, root));
+        this->addWorker(new WorkerGather<WorkItem>(name, comm, root));
     }
 };
 
