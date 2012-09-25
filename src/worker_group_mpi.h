@@ -15,9 +15,10 @@
 
 enum
 {
-    MLSGPU_TAG_NEED_WORK = 0,   ///< Requester wants work to do
-    MLSGPU_TAG_HAS_WORK = 1,    ///< Tells requester to either retrieve work or shut down
-    MLSGPU_TAG_WORK = 2         ///< Generic tag for transmitting a work item
+    MLSGPU_TAG_SCATTER_NEED_WORK = 0,   ///< Requester wants work to do
+    MLSGPU_TAG_SCATTER_HAS_WORK = 1,    ///< Tells requester to either retrieve work or shut down
+    MLSGPU_TAG_GATHER_HAS_WORK = 2,     ///< Tells the receiver to either receive work or decrement refcount
+    MLSGPU_TAG_WORK = 3                 ///< Generic tag for transmitting a work item
 };
 
 /**
@@ -43,11 +44,11 @@ public:
     {
         /* Wait for a receiver to be ready */
         MPI_Status status;
-        MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_NEED_WORK, comm, &status);
+        MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
 
         // Tell it there is a work item coming
         int hasWork = 1;
-        MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_HAS_WORK, comm);
+        MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
         // Send it the work item
         item.send(comm, status.MPI_SOURCE);
     }
@@ -83,9 +84,9 @@ public:
         {
             int hasWork;
             MPI_Status status;
-            MPI_Send(NULL, 0, MPI_INT, root, MLSGPU_TAG_NEED_WORK, comm);
+            MPI_Send(NULL, 0, MPI_INT, root, MLSGPU_TAG_SCATTER_NEED_WORK, comm);
             /* We will either get some work or a request to shut down */
-            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_HAS_WORK, comm, &status);
+            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
             if (!hasWork)
                 break;
             else
@@ -100,7 +101,7 @@ public:
 
 /**
  * Worker group that handles distribution of work items to other MPI nodes.
- * Each @c WorkerGroupScatter is associated with multiple @ref ReceiverScatter
+ * Each @c WorkerGroupScatter is associated with multiple @ref RequesterScatter
  * instances on other nodes.
  *
  * When @ref stop is called, messages are sent to the requesters to shut them
@@ -146,8 +147,8 @@ public:
         {
             MPI_Status status;
             int hasWork = 0;
-            MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_NEED_WORK, comm, &status);
-            MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_HAS_WORK, comm);
+            MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+            MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
         }
     }
 };
@@ -174,21 +175,21 @@ public:
      * @param root      Target for messages.
      */
     WorkerGather(const std::string &name, MPI_Comm comm, int root)
-        : WorkerBase(name), comm(comm), root(root)
+        : WorkerBase(name, 0), comm(comm), root(root)
     {
     }
 
     void operator()(WorkItem &item)
     {
         int hasWork = 1;
-        MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_HAS_WORK, comm);
+        MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
         item.send(comm, root);
     }
 
     void stop()
     {
         int hasWork = 0;
-        MPI_Send(&hasWork, 0, MPI_INT, root, MLSGPU_TAG_HAS_WORK, comm);
+        MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
     }
 };
 
@@ -220,14 +221,14 @@ public:
         {
             int hasWork;
             MPI_Status status;
-            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_HAS_WORK, comm, &status);
+            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
             if (!hasWork)
                 senders--;
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
                 item->recv(comm, status.MPI_SOURCE);
-                outGroup.push(tworker);
+                outGroup.push(item, tworker);
             }
         }
     }
@@ -251,7 +252,7 @@ public:
      * @param root      Destination for the items within @a comm.
      */
     WorkerGroupGather(const std::string &name, std::size_t spare, MPI_Comm comm, int root)
-        : WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>(name, 1, spare)
+        : WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>(name, 1, spare)
     {
         addWorker(new WorkerGather<WorkItem>(name, comm, root));
     }
