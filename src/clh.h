@@ -25,6 +25,27 @@ namespace Statistics
 namespace CLH
 {
 
+/**
+ * Exception thrown when an OpenCL device cannot be used.
+ */
+class invalid_device : public std::runtime_error
+{
+private:
+    cl::Device device;
+public:
+    invalid_device(const cl::Device &device, const std::string &msg)
+        : std::runtime_error(device.getInfo<CL_DEVICE_NAME>() + ": " + msg) {}
+
+    cl::Device getDevice() const
+    {
+        return device;
+    }
+
+    virtual ~invalid_device() throw()
+    {
+    }
+};
+
 namespace detail
 {
 

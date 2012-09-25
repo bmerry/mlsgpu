@@ -40,7 +40,7 @@ static void mlsgpuThrow(const char *filename, int line, const char *msg,
 class state_error : public std::logic_error
 {
 public:
-    state_error(const std::string &msg) : std::logic_error(msg) {}
+    explicit state_error(const std::string &msg) : std::logic_error(msg) {}
 };
 
 #endif /* !MLSGPU_ERRORS_H */

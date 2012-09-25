@@ -191,8 +191,10 @@ public:
     /**
      * Checks whether the device can support this class at all. At the time of
      * writing, this just means that it needs image support.
+     *
+     * @throw CLH::invalid_device if the device cannot be used
      */
-    static bool validateDevice(const cl::Device &device);
+    static void validateDevice(const cl::Device &device);
 
     /**
      * Estimates the device resources needed, based on the constructor

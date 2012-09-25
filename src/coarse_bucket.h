@@ -1,13 +1,7 @@
 /**
+ * @file
+ *
  * Handles coarse-grained bucketing for external storage.
- */
-
-/**
- * Handles coarse-level bucketing from external storage. Unlike @ref
- * DeviceWorkerGroupBase::Worker and @ref FineBucketGroupBase::Worker, there
- * is only expected to be one of these, and it does not run in a separate
- * thread. It produces coarse buckets, read the splats into memory and pushes
- * the results to a @ref FineBucketGroup.
  */
 
 #ifndef COARSE_BUCKET_H
@@ -25,6 +19,14 @@
 #include "timeplot.h"
 #include "mesher.h"
 #include "statistics.h"
+
+/**
+ * Handles coarse-level bucketing from external storage. Unlike @ref
+ * DeviceWorkerGroupBase::Worker and @ref FineBucketGroupBase::Worker, there
+ * is only expected to be one of these, and it does not run in a separate
+ * thread. It produces coarse buckets, read the splats into memory and pushes
+ * the results to a @ref FineBucketGroup.
+ */
 
 template<typename Splats, typename OutGroup>
 class CoarseBucket : public boost::noncopyable

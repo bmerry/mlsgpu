@@ -420,8 +420,10 @@ public:
     /**
      * Checks whether a device is suitable for use with this class. At the time
      * of writing, the only requirement is that images are supported.
+     *
+     * @throw CLH::invalid_device if the device cannot be used.
      */
-    static bool validateDevice(const cl::Device &device);
+    static void validateDevice(const cl::Device &device);
 
     /**
      * Returns the maximum number of vertices that may be passed in a call

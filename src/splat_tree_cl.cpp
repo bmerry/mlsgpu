@@ -25,11 +25,10 @@
 #include "errors.h"
 #include "statistics.h"
 
-bool SplatTreeCL::validateDevice(const cl::Device &device)
+void SplatTreeCL::validateDevice(const cl::Device &device)
 {
     if (!device.getInfo<CL_DEVICE_IMAGE_SUPPORT>())
-        return false;
-    return true;
+        throw CLH::invalid_device(device, "image support is required");
 }
 
 CLH::ResourceUsage SplatTreeCL::resourceUsage(

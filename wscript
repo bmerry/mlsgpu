@@ -384,7 +384,8 @@ def build(bld):
             'src/splat_tree_host.cpp',
             'src/splat_tree_cl.cpp',
             'src/statistics_cl.cpp',
-            'src/workers.cpp']
+            'src/workers.cpp',
+            'src/mlsgpu_core.cpp']
     bld(
             features = ['cxx', 'provenance'],
             source = 'src/provenance.cpp',

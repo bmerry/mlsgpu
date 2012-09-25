@@ -229,11 +229,10 @@ void Marching::makeTables()
     assert(keyTable.getInfo<CL_MEM_SIZE>() == KEY_TABLE_BYTES);
 }
 
-bool Marching::validateDevice(const cl::Device &device)
+void Marching::validateDevice(const cl::Device &device)
 {
     if (!device.getInfo<CL_DEVICE_IMAGE_SUPPORT>())
-        return false;
-    return true;
+        throw CLH::invalid_device(device, "images are not supported");
 }
 
 std::tr1::uint64_t Marching::getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight)
