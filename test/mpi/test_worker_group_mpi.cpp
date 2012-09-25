@@ -107,35 +107,6 @@ public:
     }
 };
 
-class Producer
-{
-private:
-    MPI_Comm comm;
-    std::size_t requesters;
-    int items;
-
-public:
-    Producer(MPI_Comm comm, std::size_t requesters, int items)
-        : comm(comm), requesters(requesters), items(items)
-    {
-    }
-
-    void operator()() const
-    {
-        Timeplot::Worker tworker("test");
-        ScatterGroup sendGroup(3, 3, requesters, comm);
-        sendGroup.start();
-        for (int i = 0; i < items; i++)
-        {
-            boost::shared_ptr<Item> item;
-            item = sendGroup.get(tworker);
-            item->set(i);
-            sendGroup.push(item, tworker);
-        }
-        sendGroup.stop();
-    }
-};
-
 class ConsumerWorker : public WorkerBase
 {
 private:
@@ -245,14 +216,24 @@ void TestWorkerGroupScatter::testIntracomm()
         int size;
         MPI_Comm_size(outComm, &size);
 
-        Producer producer(outComm, size, items);
         ConsumerGroup consumer(2, values);
         ReceiverGather<Item, ConsumerGroup> receiver("ReceiverGather", consumer, inComm, size);
+        ScatterGroup sendGroup(3, 3, size, outComm);
+
+        sendGroup.start();
         boost::thread receiverThread(boost::ref(receiver));
         consumer.start();
 
-        producer(); // TODO: fold into this function
+        Timeplot::Worker tworker("producer");
+        for (std::size_t i = 0; i < items; i++)
+        {
+            boost::shared_ptr<Item> item;
+            item = sendGroup.get(tworker);
+            item->set(i);
+            sendGroup.push(item, tworker);
+        }
 
+        sendGroup.stop();
         receiverThread.join();
         consumer.stop();
 
