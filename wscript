@@ -203,10 +203,18 @@ def configure(conf):
     conf.define('PROVENANCE_VARIANT', conf.options.variant)
 
     if conf.env['unit_tests']:
-        conf.check_cxx(
-            features = ['cxx', 'cxxprogram'],
-            header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT',
-            msg = 'Checking for cppunit')
+        try:
+            conf.check_cxx(
+                features = ['cxx', 'cxxprogram'],
+                header_name = 'cppunit/Test.h', lib = 'cppunit', uselib_store = 'CPPUNIT',
+                msg = 'Checking for cppunit')
+        except waflib.Errors.ConfigurationError:
+            # A cppunit installed from source uses symbols from libdl but does not link
+            # against it. The Ubuntu package does link correctly.
+            conf.check_cxx(
+                features = ['cxx', 'cxxprogram'],
+                header_name = 'cppunit/Test.h', lib = ['cppunit', 'dl'], uselib_store = 'CPPUNIT',
+                msg = 'Checking for cppunit')
     if conf.options.cl_headers:
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     else:
