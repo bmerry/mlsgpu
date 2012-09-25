@@ -69,13 +69,13 @@ template<typename WorkItem, typename Group>
 class RequesterScatter : public boost::noncopyable
 {
 private:
-    MPI_Comm comm;
     Group &outGroup;
-    int root;
+    MPI_Comm comm;
+    const int root;
     Timeplot::Worker tworker;
 public:
-    RequesterScatter(const std::string &name, MPI_Comm comm, Group &outGroup, int root)
-        : comm(comm), outGroup(outGroup), root(root), tworker(name) {}
+    RequesterScatter(const std::string &name, Group &outGroup, MPI_Comm comm, int root)
+        : outGroup(outGroup), comm(comm), root(root), tworker(name) {}
 
     void operator()()
     {
@@ -101,9 +101,7 @@ public:
 /**
  * Worker group that handles distribution of work items to other MPI nodes.
  * Each @c WorkerGroupScatter is associated with multiple @ref ReceiverScatter
- * instances on other nodes. There must be one requester for each member of the
- * (remote) group of the provided communicator. Thus, when using an
- * intracommunicator there must also be a requester for oneself.
+ * instances on other nodes.
  *
  * When @ref stop is called, messages are sent to the requesters to shut them
  * down.
@@ -113,6 +111,7 @@ class WorkerGroupScatter : public WorkerGroup<WorkItem, WorkerScatter<WorkItem>,
 {
 private:
     MPI_Comm comm;
+    const std::size_t requesters;
 public:
     /**
      * Constructor. The derived class must still generate the pool items, but it is
@@ -121,13 +120,15 @@ public:
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
      * @param spare          Number of work items to have available in the pool when all workers are busy.
+     * @param requesters     Number of requesters which need to be shut down at the end.
      * @param comm           Communicator to use. The remote group must have an associated requester per member.
      */
     WorkerGroupScatter(const std::string &name,
                        std::size_t numWorkers, std::size_t spare,
+                       std::size_t requesters,
                        MPI_Comm comm)
         : WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>(name, numWorkers, spare),
-        comm(comm)
+        comm(comm), requesters(requesters)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
             addWorker(new WorkerScatter<WorkItem>(name + ".worker", i, comm));
@@ -138,23 +139,121 @@ public:
      */
     void stopPostJoin()
     {
-        int size;
-        int isInter;
         WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>::stopPostJoin();
 
-        MPI_Comm_test_inter(comm, &isInter);
-        if (isInter)
-            MPI_Comm_remote_size(comm, &size);
-        else
-            MPI_Comm_size(comm, &size);
         /* Shut down the receivers */
-        for (int i = 0; i < size; i++)
+        for (std::size_t i = 0; i < requesters; i++)
         {
             MPI_Status status;
             int hasWork = 0;
             MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_NEED_WORK, comm, &status);
             MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_HAS_WORK, comm);
         }
+    }
+};
+
+
+/**
+ * A worker that is suitable for use with @ref WorkerGroupGather. When it pulls
+ * an item from the queue, it first informs the remote that it has some work,
+ * then sends it. When the queue is drained, it instead tells the remote to
+ * shut down.
+ */
+template<typename WorkItem>
+class WorkerGather : public WorkerBase
+{
+private:
+    MPI_Comm comm;
+    int root;
+public:
+    /**
+     * Constructor.
+     *
+     * @param name      Name for the worker.
+     * @param comm      Communicator to communicate with the remote end.
+     * @param root      Target for messages.
+     */
+    WorkerGather(const std::string &name, MPI_Comm comm, int root)
+        : WorkerBase(name), comm(comm), root(root)
+    {
+    }
+
+    void operator()(WorkItem &item)
+    {
+        int hasWork = 1;
+        MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_HAS_WORK, comm);
+        item.send(comm, root);
+    }
+
+    void stop()
+    {
+        int hasWork = 0;
+        MPI_Send(&hasWork, 0, MPI_INT, root, MLSGPU_TAG_HAS_WORK, comm);
+    }
+};
+
+/**
+ * Counterpart to @ref WorkerGather that receives the messages and
+ * places them into a @ref WorkerGroup. The receiver is run by calling its
+ * <code>operator()</code> (it may thus be used with @c boost::thread). When
+ * there is no more data to receive it will terminate, although it will not
+ * stop the group it is feeding.
+ */
+template<typename WorkItem, typename Group>
+class ReceiverGather : public boost::noncopyable
+{
+private:
+    Group &outGroup;
+    MPI_Comm comm;
+    std::size_t senders;
+    Timeplot::Worker tworker;
+
+public:
+    ReceiverGather(const std::string &name, Group &outGroup, MPI_Comm comm, std::size_t senders)
+        : outGroup(outGroup), comm(comm), senders(senders), tworker(name)
+    {
+    }
+
+    void operator()()
+    {
+        while (senders > 0)
+        {
+            int hasWork;
+            MPI_Status status;
+            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_HAS_WORK, comm, &status);
+            if (!hasWork)
+                senders--;
+            else
+            {
+                boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
+                item->recv(comm, status.MPI_SOURCE);
+                outGroup.push(tworker);
+            }
+        }
+    }
+};
+
+/**
+ * Worker group that handles sending items from a queue to a @ref
+ * ReceiverGather running on another MPI process.
+ */
+template<typename WorkItem, typename Derived>
+class WorkerGroupGather : public WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>
+{
+public:
+    /**
+     * Constructor. This takes care of constructing the (single) worker, but does not
+     * generate the item pool. The subclass must place @a spare + 1 items in the pool.
+     *
+     * @param name      Name for the group (also for the worker).
+     * @param spare     Number of extra available workitems (after the first).
+     * @param comm      Communicator to send the items.
+     * @param root      Destination for the items within @a comm.
+     */
+    WorkerGroupGather(const std::string &name, std::size_t spare, MPI_Comm comm, int root)
+        : WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>(name, 1, spare)
+    {
+        addWorker(new WorkerGather<WorkItem>(name, comm, root));
     }
 };
 

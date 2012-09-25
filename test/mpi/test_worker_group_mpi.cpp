@@ -49,8 +49,8 @@ void Item::recv(MPI_Comm comm, int source)
 class ScatterGroup : public WorkerGroupScatter<Item, ScatterGroup>
 {
 public:
-    ScatterGroup(std::size_t numWorkers, std::size_t spare, MPI_Comm comm)
-        : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, spare, comm)
+    ScatterGroup(std::size_t numWorkers, std::size_t spare, std::size_t requesters, MPI_Comm comm)
+        : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, spare, requesters, comm)
     {
         for (std::size_t i = 0; i < numWorkers + spare; i++)
         {
@@ -102,18 +102,19 @@ class ScatterProducer
 {
 private:
     MPI_Comm comm;
+    std::size_t requesters;
     int items;
 
 public:
-    ScatterProducer(MPI_Comm comm, int items)
-        : comm(comm), items(items)
+    ScatterProducer(MPI_Comm comm, std::size_t requesters, int items)
+        : comm(comm), requesters(requesters), items(items)
     {
     }
 
     void operator()() const
     {
         Timeplot::Worker tworker("test");
-        ScatterGroup sendGroup(3, 3, comm);
+        ScatterGroup sendGroup(3, 3, requesters, comm);
         sendGroup.start();
         for (int i = 0; i < items; i++)
         {
@@ -166,7 +167,7 @@ void TestWorkerGroupScatter::testIntracomm()
 {
     const int root = 0;
     ReturnGroup returnGroup(3, 1, masterComm, root);
-    RequesterScatter<Item, ReturnGroup> req("scatter", comm, returnGroup, root);
+    RequesterScatter<Item, ReturnGroup> req("scatter", returnGroup, comm, root);
     boost::thread thread(boost::ref(req));
     returnGroup.start();
 
@@ -178,7 +179,7 @@ void TestWorkerGroupScatter::testIntracomm()
     if (rank == root)
     {
         const int items = 100;
-        boost::thread producer(ScatterProducer(comm, items));
+        boost::thread producer(ScatterProducer(comm, size, items));
         std::vector<bool> seen(items, false);
         int shutdowns = 0;
 
