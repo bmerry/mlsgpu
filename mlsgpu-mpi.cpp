@@ -268,7 +268,7 @@ static void run(
     MPI_Comm gatherComm;
 
     MPI_Comm_rank(comm, &rank);
-    MPI_Comm_rank(comm, &size);
+    MPI_Comm_size(comm, &size);
     MPI_Comm_dup(comm, &scatterComm);
     MPI_Comm_dup(comm, &gatherComm);
     /* Work out how many slaves there will be */
