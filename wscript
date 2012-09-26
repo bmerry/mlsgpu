@@ -359,10 +359,12 @@ def print_unit_tests(bld):
             Logs.pprint(color, err.decode('utf-8'))
 
 def build(bld):
-    bld(
+    make_kernels = bld(
             rule = 'python ${SRC} ${TGT}',
             source = ['utils/clc2cpp.py'] + bld.path.ant_glob('kernels/*.cl'),
             target = 'src/kernels.cpp')
+    make_kernels.post() # To allow dep tracker to find the target
+
     core_sources = [
             'src/bucket.cpp',
             'src/circular_buffer.cpp',
