@@ -286,14 +286,17 @@ void StxxlMesher::add(MesherWork &work)
 
     HostKeyMesh &mesh = work.mesh;
 
-    work.trianglesEvent.wait();
+    if (work.hasEvents)
+        work.trianglesEvent.wait();
     computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpNodes);
     updateGlobalClumps(tmpNodes, mesh.triangles, tmpClumpId);
 
-    work.vertexKeysEvent.wait();
+    if (work.hasEvents)
+        work.vertexKeysEvent.wait();
     updateClumpKeyMap(mesh.vertexKeys, tmpClumpId);
 
-    work.verticesEvent.wait();
+    if (work.hasEvents)
+        work.verticesEvent.wait();
     updateLocalClumps(chunk, tmpClumpId, mesh);
 }
 

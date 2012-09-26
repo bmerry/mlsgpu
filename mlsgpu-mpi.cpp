@@ -55,34 +55,38 @@
 namespace po = boost::program_options;
 using namespace std;
 
+template<>
+void sendItem(const FineBucketGroup::WorkItem &item, MPI_Comm comm, int dest)
+{
+    Serialize::send(item.chunkId, comm, dest);
+    Serialize::send(item.grid, comm, dest);
+    Serialize::send(item.recursionState, comm, dest);
+    Serialize::send(item.splats, comm, dest);
+}
+
+template<>
+void recvItem(FineBucketGroup::WorkItem &item, MPI_Comm comm, int source)
+{
+    Serialize::recv(item.chunkId, comm, source);
+    Serialize::recv(item.grid, comm, source);
+    Serialize::recv(item.recursionState, comm, source);
+    Serialize::recv(item.splats, comm, source);
+}
+
+template<>
+void sendItem(const MesherGroup::WorkItem &item, MPI_Comm comm, int dest)
+{
+    Serialize::send(item, comm, dest);
+}
+
+template<>
+void recvItem(MesherGroup::WorkItem &item, MPI_Comm comm, int dest)
+{
+    Serialize::recv(item, comm, dest);
+}
+
 namespace
 {
-
-/**
- * Representation of the Grid data type that can safely be turned into an MPI data type.
- */
-struct RawGrid
-{
-    float reference[3];
-    float spacing;
-    int extents[6]; // x-lo, x-hi, y-lo, y-hi, z-lo, z-hi
-};
-
-static void registerGridType(MPI_Datatype *datatype)
-{
-    int lengths[3] = {3, 1, 6};
-    MPI_Aint displacements[3] =
-    {
-        offsetof(RawGrid, reference),
-        offsetof(RawGrid, spacing),
-        offsetof(RawGrid, extents)
-    };
-    MPI_Datatype types[3] = { MPI_FLOAT, MPI_FLOAT, MPI_INT };
-
-    MPI_Type_create_struct(3, lengths, displacements, types, &gridType);
-    MPI_Type_set_name(gridType, "Grid");
-    MPI_Type_commit(&gridType);
-}
 
 /**
  * Function object for doing the GPU work. There is one slave launched
@@ -177,7 +181,8 @@ void Slave::operator()() const
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);
 
-    const Grid grid = Serialize::recv(controlComm, controlRoot);
+    Grid grid;
+    Serialize::recv(grid, controlComm, controlRoot);
 
     fineBucketGroup.start(grid);
     deviceWorkerGroup.start(grid);

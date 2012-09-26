@@ -365,6 +365,7 @@ void TestMesherBase::add(
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.verticesEvent);
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.vertexKeysEvent);
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.trianglesEvent);
+    work.hasEvents = true;
     queue.flush();
 
     work.chunkId = chunkId;
@@ -1120,6 +1121,7 @@ void TestMesherBase::testRandom()
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.verticesEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.vertexKeysEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.trianglesEvent);
+                block.work.hasEvents = true;
                 queue.flush();
                 functor(block.work);
             }

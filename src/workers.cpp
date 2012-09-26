@@ -73,6 +73,7 @@ void MesherGroup::outputFunc(
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 
     work->chunkId = chunkId;
+    work->hasEvents = true;
     work->verticesEvent = wait[0];
     work->vertexKeysEvent = wait[1];
     work->trianglesEvent = wait[2];

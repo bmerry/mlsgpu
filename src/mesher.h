@@ -103,6 +103,7 @@ struct MesherWork
 {
     ChunkId chunkId;               ///< Chunk containing this mesh
     HostKeyMesh mesh;              ///< Mesh data (may be empty)
+    bool hasEvents;                ///< If false, the event fields have undefined values
     cl::Event verticesEvent;       ///< Signaled when vertices may be read
     cl::Event vertexKeysEvent;     ///< Signaled when vertex keys may be read
     cl::Event trianglesEvent;      ///< Signaled when triangles may be read

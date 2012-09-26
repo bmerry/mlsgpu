@@ -421,7 +421,7 @@ def build(bld):
                 features = ['cxx', 'cxxstlib'],
                 source = mpi_sources,
                 target = 'mls_mpi',
-                use = 'BOOST MPI',
+                use = 'OPENCL BOOST MPI',
                 name = 'libmls_mpi')
         bld.program(
                 source = 'mlsgpu-mpi.cpp',
