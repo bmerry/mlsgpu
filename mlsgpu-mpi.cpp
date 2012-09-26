@@ -436,8 +436,8 @@ static void run(
 int main(int argc, char **argv)
 {
     int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_SERIALIZED, &provided);
-    if (provided < MPI_THREAD_SERIALIZED)
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+    if (provided < MPI_THREAD_MULTIPLE)
     {
         std::cerr << "MPI implementation does not provide the required level of thread support\n";
         MPI_Finalize();
