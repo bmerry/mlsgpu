@@ -394,6 +394,8 @@ def build(bld):
             'src/statistics_cl.cpp',
             'src/workers.cpp',
             'src/mlsgpu_core.cpp']
+    mpi_sources = [
+            'src/serialize.cpp']
     bld(
             features = ['cxx', 'provenance'],
             source = 'src/provenance.cpp',
@@ -414,6 +416,17 @@ def build(bld):
             source = 'mlsgpu.cpp',
             target = 'mlsgpu',
             use = ['libmls_cl', 'libmls_core', 'provenance'])
+    if bld.env['mpi']:
+        bld(
+                features = ['cxx', 'cxxstlib'],
+                source = mpi_sources,
+                target = 'mls_mpi',
+                use = 'BOOST MPI',
+                name = 'libmls_mpi')
+        bld.program(
+                source = 'mlsgpu-mpi.cpp',
+                target = 'mlsgpu-mpi',
+                use = ['libmls_cl', 'libmls_core', 'libmls_mpi', 'provenance', 'MPI'])
 
     if bld.env['extras']:
         bld.program(

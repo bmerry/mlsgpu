@@ -12,14 +12,7 @@
 #endif
 #include <mpi.h>
 #include "worker_group.h"
-
-enum
-{
-    MLSGPU_TAG_SCATTER_NEED_WORK = 0,   ///< Requester wants work to do
-    MLSGPU_TAG_SCATTER_HAS_WORK = 1,    ///< Tells requester to either retrieve work or shut down
-    MLSGPU_TAG_GATHER_HAS_WORK = 2,     ///< Tells the receiver to either receive work or decrement refcount
-    MLSGPU_TAG_WORK = 3                 ///< Generic tag for transmitting a work item
-};
+#include "tags.h"
 
 /**
  * Transmits an item by calling its @c send member. For items that do not have this
@@ -132,7 +125,7 @@ class WorkerGroupScatter : public WorkerGroup<WorkItem, WorkerScatter<WorkItem>,
 private:
     MPI_Comm comm;
     const std::size_t requesters;
-public:
+protected:
     /**
      * Constructor. The derived class must still generate the pool items, but it is
      * not responsible for the workers.
@@ -154,6 +147,7 @@ public:
             this->addWorker(new WorkerScatter<WorkItem>(name + ".worker", i, comm));
     }
 
+public:
     /**
      * Overrides the base class to send a shutdown message to all the requesters.
      */
@@ -224,8 +218,8 @@ class ReceiverGather : public boost::noncopyable
 {
 private:
     Group &outGroup;
-    MPI_Comm comm;
-    std::size_t senders;
+    const MPI_Comm comm;
+    const std::size_t senders;
     Timeplot::Worker tworker;
 
 public:
@@ -236,13 +230,14 @@ public:
 
     void operator()()
     {
-        while (senders > 0)
+        std::size_t rem = senders;
+        while (rem > 0)
         {
             int hasWork;
             MPI_Status status;
             MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
             if (!hasWork)
-                senders--;
+                rem--;
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
@@ -260,7 +255,7 @@ public:
 template<typename WorkItem, typename Derived>
 class WorkerGroupGather : public WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>
 {
-public:
+protected:
     /**
      * Constructor. This takes care of constructing the (single) worker, but does not
      * generate the item pool. The subclass must place @a spare + 1 items in the pool.
