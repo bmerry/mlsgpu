@@ -6,6 +6,9 @@
 # define __CL_ENABLE_EXCEPTIONS
 #endif
 
+#if HAVE_CONFIG_H
+# include <config.h>
+#endif
 #include <boost/program_options.hpp>
 #include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
