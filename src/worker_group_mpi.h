@@ -22,10 +22,30 @@ enum
 };
 
 /**
+ * Transmits an item by calling its @c send member. For items that do not have this
+ * member, this template can be specialized.
+ */
+template<typename Item>
+void sendItem(const Item &item, MPI_Comm comm, int dest)
+{
+    item.send(comm, dest);
+}
+
+/**
+ * Receives an item by calling its @c recv member. For items that do not have this
+ * member, this template can be specialized.
+ */
+template<typename Item>
+void recvItem(Item &item, MPI_Comm comm, int source)
+{
+    item.recv(comm, source);
+}
+
+/**
  * A worker that is suitable for use with @ref WorkerGroupScatter. It processes
  * items by first waiting for a request for work, then transmitting the item to
- * the requester by using its @c send method, passing the communicator and the
- * rank of the receiver.
+ * the requester using @ref sendItem, passing the communicator and the rank of
+ * the receiver.
  */
 template<typename WorkItem>
 class WorkerScatter : public WorkerBase
@@ -50,7 +70,7 @@ public:
         int hasWork = 1;
         MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
         // Send it the work item
-        item.send(comm, status.MPI_SOURCE);
+        sendItem(item, comm, status.MPI_SOURCE);
     }
 private:
     MPI_Comm comm;
@@ -63,8 +83,7 @@ private:
  * boost::thread). When there is no more data to receive it will terminate,
  * although it will not stop the group it is feeding.
  *
- * The actual receiving of data is implemented by a @c recv() method in
- * the item class, which takes the communicator and the source.
+ * The actual receiving of data is implemented by @ref recvItem.
  */
 template<typename WorkItem, typename Group>
 class RequesterScatter : public boost::noncopyable
@@ -92,7 +111,7 @@ public:
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
-                item->recv(comm, status.MPI_SOURCE);
+                recvItem(*item, comm, status.MPI_SOURCE);
                 outGroup.push(item, tworker);
             }
         }
@@ -183,7 +202,7 @@ public:
     {
         int hasWork = 1;
         MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
-        item.send(comm, root);
+        sendItem(item, comm, root);
     }
 
     void stop()
@@ -227,7 +246,7 @@ public:
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
-                item->recv(comm, status.MPI_SOURCE);
+                recvItem(*item, comm, status.MPI_SOURCE);
                 outGroup.push(item, tworker);
             }
         }

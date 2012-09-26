@@ -33,13 +33,13 @@ public:
     int get() const { return value; }
     void set(int value) { this->value = value; }
 
-    void send(MPI_Comm comm, int dest);
+    void send(MPI_Comm comm, int dest) const;
     void recv(MPI_Comm comm, int source);
 };
 
-void Item::send(MPI_Comm comm, int dest)
+void Item::send(MPI_Comm comm, int dest) const
 {
-    MPI_Send(&value, 1, MPI_INT, dest, MLSGPU_TAG_WORK, comm);
+    MPI_Send(const_cast<int *>(&value), 1, MPI_INT, dest, MLSGPU_TAG_WORK, comm);
 }
 
 void Item::recv(MPI_Comm comm, int source)
