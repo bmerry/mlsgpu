@@ -4,6 +4,10 @@
  * Transmission of assorted data structures through MPI.
  */
 
+#ifndef __CL_ENABLE_EXCEPTIONS
+# define __CL_ENABLE_EXCEPTIONS
+#endif
+
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
