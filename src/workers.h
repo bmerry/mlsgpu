@@ -167,10 +167,17 @@ class DeviceWorkerGroup :
     protected DeviceWorkerGroupBase,
     public WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id>
 {
+public:
+    /**
+     * Functor that generates an output function given the current chunk ID and
+     * worker. This is used to abstract the downstream worker group class.
+     */
+    typedef boost::function<Marching::OutputFunctor(const ChunkId &, Timeplot::Worker &)> OutputGenerator;
+
 private:
     typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
     ProgressDisplay *progress;
-    MesherGroup &outGroup;
+    OutputGenerator outputGenerator;
 
     Grid fullGrid;
     const std::size_t maxSplats;
@@ -199,7 +206,7 @@ public:
      */
     DeviceWorkerGroup(
         std::size_t numWorkers, std::size_t spare,
-        MesherGroup &outGroup,
+        OutputGenerator outputGenerator,
         const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         std::size_t maxSplats, Grid::size_type maxCells,
         int levels, int subsampling, bool keepBoundary, float boundaryLimit,

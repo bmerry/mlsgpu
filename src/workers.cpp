@@ -83,7 +83,7 @@ void MesherGroup::outputFunc(
 
 DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers, std::size_t spare,
-    MesherGroup &outGroup,
+    OutputGenerator outputGenerator,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     std::size_t maxSplats, Grid::size_type maxCells,
     int levels, int subsampling, bool keepBoundary, float boundaryLimit,
@@ -92,7 +92,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     Base(
         "device",
         devices.size(), numWorkers, spare),
-    progress(NULL), outGroup(outGroup),
+    progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
 {
     for (std::size_t i = 0; i < (numWorkers + spare) * devices.size(); i++)
@@ -198,7 +198,7 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
     for (int i = 0; i < 3; i++)
         expandedSize[i] = roundUp(size[i], MlsFunctor::wgs[i]);
 
-    filterChain.setOutput(owner.outGroup.getOutputFunctor(work.chunkId, getTimeplotWorker()));
+    filterChain.setOutput(owner.outputGenerator(work.chunkId, getTimeplotWorker()));
 
     {
         Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());

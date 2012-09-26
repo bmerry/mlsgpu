@@ -154,6 +154,59 @@ public:
     }
 };
 
+class OutputFunctor
+{
+private:
+    GatherGroup &outGroup;
+    ChunkId chunkId;
+    Timeplot::Worker &tworker;
+
+public:
+    typedef void result_type;
+
+    OutputFunctor(GatherGroup &outGroup, const ChunkId &chunkId, Timeplot::Worker &tworker)
+        : outGroup(outGroup), chunkId(chunkId), tworker(tworker)
+    {
+    }
+
+    void operator()(
+        const cl::CommandQueue &queue,
+        const DeviceKeyMesh &mesh,
+        const std::vector<cl::Event> *events,
+        cl::Event *event)
+    {
+        boost::shared_ptr<MesherWork> work = outGroup.get(tworker);
+        std::vector<cl::Event> wait(3);
+        enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
+        CLH::enqueueMarkerWithWaitList(queue, &wait, event);
+
+        work->chunkId = chunkId;
+        work->hasEvents = true;
+        work->verticesEvent = wait[0];
+        work->vertexKeysEvent = wait[1];
+        work->trianglesEvent = wait[2];
+        outGroup.push(work, tworker);
+    }
+};
+
+class GetOutputFunctor
+{
+private:
+    GatherGroup &outGroup;
+public:
+    typedef Marching::OutputFunctor result_type;
+
+    explicit GetOutputFunctor(GatherGroup &outGroup)
+        : outGroup(outGroup)
+    {
+    }
+
+    result_type operator()(const ChunkId &chunkId, Timeplot::Worker &tworker) const
+    {
+        return OutputFunctor(outGroup, chunkId, tworker);
+    }
+};
+
 void Slave::operator()() const
 {
     const int subsampling = vm[Option::subsampling].as<int>();
@@ -172,7 +225,7 @@ void Slave::operator()() const
 
     GatherGroup gatherGroup(devices.size() * numDeviceThreads, gatherComm, gatherRoot);
     DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numBucketThreads, gatherGroup,
+        numDeviceThreads, numBucketThreads, GetOutputFunctor(gatherGroup),
         devices, maxDeviceSplats, blockCells, levels, subsampling,
         keepBoundary, boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(
