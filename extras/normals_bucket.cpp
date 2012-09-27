@@ -188,7 +188,7 @@ public:
 class NormalWorker : public WorkerBase, NormalStats
 {
 private:
-    Statistics::Peak<std::tr1::uint64_t> &activeStat;
+    Statistics::Peak &activeStat;
 public:
     void operator()(NormalItem &item)
     {
@@ -278,7 +278,7 @@ public:
 
     NormalWorker()
         : WorkerBase("normals", 0),
-        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak"))
+        activeStat(Statistics::getStatistic<Statistics::Peak>("active.peak"))
     {
     }
 };
@@ -315,7 +315,7 @@ private:
     Timeplot::Worker tworker;
     Statistics::Variable &loadStat;
     Statistics::Variable &binStat;
-    Statistics::Peak<std::tr1::uint64_t> &activeStat;
+    Statistics::Peak &activeStat;
     Statistics::Counter &recursedStat;
 
 public:
@@ -334,7 +334,7 @@ public:
         tworker("BinProcessor", 0),
         loadStat(Statistics::getStatistic<Statistics::Variable>("load.time")),
         binStat(Statistics::getStatistic<Statistics::Variable>("load.bin.size")),
-        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
+        activeStat(Statistics::getStatistic<Statistics::Peak>("active.peak")),
         recursedStat(Statistics::getStatistic<Statistics::Counter>("recursed"))
     {}
 

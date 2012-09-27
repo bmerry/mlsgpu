@@ -27,7 +27,14 @@
 #include <boost/noncopyable.hpp>
 #include <boost/iterator/iterator_adaptor.hpp>
 #include <boost/type_traits/remove_pointer.hpp>
+#include <boost/serialization/serialization.hpp>
+#include <boost/serialization/split_member.hpp>
+#include <boost/serialization/export.hpp>
+#include <boost/serialization/base_object.hpp>
+#include <boost/serialization/assume_abstract.hpp>
+#include <memory>
 #include "timer.h"
+#include "tr1_cstdint.h"
 
 class TestCounter;
 class TestVariable;
@@ -46,8 +53,14 @@ namespace Statistics
 class Statistic : public boost::noncopyable
 {
     friend std::ostream &operator<<(std::ostream &o, const Statistic &data);
+    friend class boost::serialization::access;
 private:
-    const std::string name;         ///< Name of the statistic
+    std::string name;         ///< Name of the statistic
+
+    Statistic() {} // for serialization
+
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int);
 
 protected:
     mutable boost::mutex mutex;     ///< Mutex protecting access to the sample data
@@ -61,6 +74,13 @@ protected:
 public:
     Statistic(const std::string &name);
     virtual ~Statistic();
+
+    /**
+     * Merge another set of samples into this one.
+     *
+     * @throw bad_cast if @a other does not have the same type as @c this.
+     */
+    virtual void merge(const Statistic &other) = 0;
 
     const std::string &getName() const;  ///< Returns the name of the statistic (thread-safe)
 };
@@ -79,8 +99,14 @@ std::ostream &operator <<(std::ostream &o, const Statistic &stat);
 class Counter : public Statistic
 {
     friend class ::TestCounter;
+    friend class boost::serialization::access;
 private:
     unsigned long long total;
+
+    Counter() : Statistic("") {} // for serialization
+
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int);
 
 protected:
     virtual void write(std::ostream &o) const;
@@ -93,6 +119,8 @@ public:
 
     /// Return the total value of the counter
     unsigned long long getTotal() const;
+
+    virtual void merge(const Statistic &other);
 };
 
 /**
@@ -101,12 +129,18 @@ public:
 class Variable : public Statistic
 {
     friend class ::TestVariable;
+    friend class boost::serialization::access;
 private:
     double sum;             ///< sum of samples
     double sum2;            ///< sum of squares of samples
     unsigned long long n;   ///< number of samples
 
     double getVarianceUnlocked() const;  ///< compute variance with the caller taking the lock
+
+    Variable() : Statistic("") {} // for serialization
+
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int);
 
 protected:
     virtual void write(std::ostream &o) const;
@@ -133,6 +167,8 @@ public:
      * @throw std::length_error if less than two samples have been added.
      */
     double getVariance() const;                 ///< Return the sample variance
+
+    virtual void merge(const Statistic &other);
 };
 
 /**
@@ -140,77 +176,54 @@ public:
  * state, the current value and the maximum are default-initialized. It is operated
  * on using @c =, @c += and @c -=.
  */
-template<typename T>
 class Peak : public Statistic
 {
     friend class ::TestPeak;
+    friend class boost::serialization::access;
+public:
+    typedef std::tr1::int64_t value_type;
+
 private:
-    T current;
-    T peak;
+    value_type current;
+    value_type peak;
+
+    Peak() : Statistic("") {} // for serialization
+
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int);
 
 protected:
-    virtual void write(std::ostream &o) const
-    {
-        o << peak;
-    }
+    virtual void write(std::ostream &o) const;
 
     /**
      * Replaces the current value.
      *
      * @pre The caller must hold the lock.
      */
-    void set(T x)
-    {
-        current = x;
-        if (peak < current)
-            peak = current;
-    }
+    void set(value_type x);
 
 public:
     /**
      * Construct, setting a name and default-initializing the current and maximum values.
      */
-    Peak(const std::string &name) : Statistic(name), current(), peak () {}
+    Peak(const std::string &name);
 
-    /**
-     * Increment the current value by @a x.
-     */
-    Peak<T> &operator+=(T x)
-    {
-        boost::lock_guard<boost::mutex> _(mutex);
-        set(current + x);
-        return *this;
-    }
+    /// Increment the current value by @a x.
+    Peak &operator+=(value_type x);
 
     /// Decrement the current value by @a x.
-    Peak<T> &operator-=(T x)
-    {
-        boost::lock_guard<boost::mutex> _(mutex);
-        set(current - x);
-        return *this;
-    }
+    Peak &operator-=(value_type x);
 
     /// Set the current value to @a x.
-    Peak<T> &operator=(T x)
-    {
-        boost::lock_guard<boost::mutex> _(mutex);
-        set(x);
-        return *this;
-    }
+    Peak &operator=(value_type x);
 
     /// Retrieve the current value.
-    T get() const
-    {
-        boost::lock_guard<boost::mutex> _(mutex);
-        return current;
-    }
+    value_type get() const;
 
     /// Retrieves the highest value that has been set.
-    T getMax() const
-    {
-        boost::lock_guard<boost::mutex> _(mutex);
-        return peak;
-    }
+    value_type getMax() const;
+
+    virtual void merge(const Statistic &other);
 };
 
 /**
@@ -287,9 +300,38 @@ namespace detail
  */
 class Registry
 {
+    friend class boost::serialization::access;
 private:
     boost::ptr_map<std::string, Statistic> statistics;
     mutable boost::mutex mutex;  ///< Mutex protecting access to the statistics map
+
+    template<typename Archive>
+    void save(Archive &ar, const unsigned int) const
+    {
+        ar & statistics.size();
+        for (boost::ptr_map<std::string, Statistic>::const_iterator i = statistics.begin(); i != statistics.end(); ++i)
+        {
+            ar & i->first;
+            ar & i->second;
+        }
+    }
+
+    template<typename Archive>
+    void load(Archive &ar, const unsigned int)
+    {
+        boost::ptr_map<std::string, Statistic>::size_type size;
+        ar & size;
+        for (std::size_t i = 0; i < size; i++)
+        {
+            std::string name;
+            std::auto_ptr<Statistic> stat;
+            ar & name;
+            ar & stat;
+            statistics.insert(name, stat);
+        }
+    }
+
+    BOOST_SERIALIZATION_SPLIT_MEMBER()
 
 public:
     typedef detail::pair_second_iterator<boost::ptr_map<std::string, Statistic>::iterator> iterator;
@@ -328,6 +370,13 @@ public:
     /**
      * @}
      */
+
+    /**
+     * Merge in samples from another registry. Statistics with the same
+     * name are matched up. They must then have the same type, or else
+     * @c bad_cast is thrown and the current registry is corrupted!
+     */
+    void merge(const Registry &other);
 };
 
 /**
@@ -337,6 +386,8 @@ public:
  * thread updates two statistics, it is possible that the stream output will
  * contain one update and not the other. However, the set of statistics (i.e.
  * just the names) will be atomic.
+ *
+ * This is intended for human-readable output. It is not a serialization format.
  */
 std::ostream &operator <<(std::ostream &o, const Registry &reg);
 
@@ -369,5 +420,11 @@ static inline T &getStatistic(const std::string &name)
 }
 
 } // namespace Statistics
+
+BOOST_SERIALIZATION_ASSUME_ABSTRACT(Statistics::Statistic)
+BOOST_CLASS_EXPORT_KEY(Statistics::Statistic)
+BOOST_CLASS_EXPORT_KEY(Statistics::Counter)
+BOOST_CLASS_EXPORT_KEY(Statistics::Variable)
+BOOST_CLASS_EXPORT_KEY(Statistics::Peak)
 
 #endif /* !MLSGPU_STATISTICS_H */

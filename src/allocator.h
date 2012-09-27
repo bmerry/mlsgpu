@@ -42,13 +42,13 @@ private:
      * The statistic in which we store total allocated memory. It may be @c NULL
      * (and will be if this allocator is default-constructed).
      */
-    Statistics::Peak<typename BaseAllocator::size_type> *usage;
+    Statistics::Peak *usage;
 
     /**
      * The statistic for storing the global total memory allocation. It may be
      * @c NULL (and will be if this allocator is default-constructed).
      */
-    Statistics::Peak<typename BaseAllocator::size_type> *allUsage;
+    Statistics::Peak *allUsage;
 
 public:
     /// Underlying allocator type
@@ -64,8 +64,8 @@ public:
      *                functionally equivalent to @a usage.
      * @param base    The underlying allocator providing the real functionality.
      */
-    explicit Allocator(Statistics::Peak<typename BaseAllocator::size_type> *usage = NULL,
-                       Statistics::Peak<typename BaseAllocator::size_type> *allUsage = NULL,
+    explicit Allocator(Statistics::Peak *usage = NULL,
+                       Statistics::Peak *allUsage = NULL,
                        const BaseAllocator &base = BaseAllocator()) throw()
         : BaseAllocator(base), usage(usage), allUsage(allUsage) {}
 
@@ -148,8 +148,8 @@ Alloc makeAllocator(const std::string &name)
 {
     typedef typename Alloc::size_type size_type;
     Statistics::Registry &registry = Statistics::Registry::getInstance();
-    Statistics::Peak<size_type> &allStat = registry.getStatistic<Statistics::Peak<size_type> >("mem.all");
-    Statistics::Peak<size_type> &myStat = registry.getStatistic<Statistics::Peak<size_type> >(name);
+    Statistics::Peak &allStat = registry.getStatistic<Statistics::Peak>("mem.all");
+    Statistics::Peak &myStat = registry.getStatistic<Statistics::Peak>(name);
 
     return Alloc(&myStat, &allStat);
 }

@@ -90,7 +90,7 @@ static void flushEventTimes(bool finalize)
         if (good)
             stat.add(total);
         savedEvents.pop();
-        getStatistic<Peak<std::size_t> >("events.peak") -= 1;
+        getStatistic<Peak>("events.peak") -= 1;
     }
 }
 
@@ -100,7 +100,7 @@ void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
     {
         boost::lock_guard<boost::mutex> lock(savedEventsMutex);
         savedEvents.push(std::make_pair(events, boost::ref(stat)));
-        getStatistic<Peak<std::size_t> >("events.peak") += 1;
+        getStatistic<Peak>("events.peak") += 1;
         flushEventTimes(false);
     }
 }

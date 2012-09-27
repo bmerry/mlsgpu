@@ -377,8 +377,8 @@ void bucketRecurse(
     const typename ProcessorType<Splats>::type &process,
     const Recursion &recursionState)
 {
-    Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak") = recursionState.depth;
-    Statistics::getStatistic<Statistics::Peak<std::size_t> >("bucket.totalRanges.peak") = recursionState.totalRanges;
+    Statistics::getStatistic<Statistics::Peak>("bucket.depth.peak") = recursionState.depth;
+    Statistics::getStatistic<Statistics::Peak>("bucket.totalRanges.peak") = recursionState.totalRanges;
 
     Grid::size_type cellDims[3];
     for (int i = 0; i < 3; i++)
@@ -418,7 +418,7 @@ void bucketRecurse(
         }
         else
             microSize = chooseMicroSize(cellDims, params.maxSplit, splats.maxSplats(), params.maxSplats, params.maxCells);
-        Statistics::getStatistic<Statistics::Peak<Grid::size_type> >("bucket.microsize.peak") = microSize;
+        Statistics::getStatistic<Statistics::Peak>("bucket.microsize.peak") = microSize;
 
         if (chunkCells == 0)
             chunkCells = maxCellDim;

@@ -70,6 +70,8 @@
                                     class="library">boost_math_c99</systemitem></para></listitem>
                         <listitem><para><systemitem
                                     class="library">boost_math_c99f</systemitem></para></listitem>
+                        <listitem><para><systemitem
+                                    class="library">boost_serialization</systemitem></para></listitem>
                     </itemizedlist>
                 </listitem>
                 <listitem><para><ulink

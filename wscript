@@ -191,7 +191,8 @@ def configure(conf):
         'boost_program_options-mt',
         'boost_iostreams-mt',
         'boost_thread-mt',
-        'boost_system-mt'
+        'boost_system-mt',
+        'boost_serialization-mt'
     ]
     conf.env['LIB_BOOST_TEST'] = ['boost_filesystem-mt']
 

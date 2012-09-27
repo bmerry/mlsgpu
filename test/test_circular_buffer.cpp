@@ -69,7 +69,7 @@ void TestCircularBuffer::testSize()
 
 void TestCircularBuffer::testStatistics()
 {
-    typedef Statistics::Peak<std::size_t> Peak;
+    typedef Statistics::Peak Peak;
     Peak &allStat = Statistics::getStatistic<Peak>("mem.all");
     std::size_t oldMem = allStat.get();
 

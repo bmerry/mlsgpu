@@ -8,6 +8,12 @@
 # include <config.h>
 #endif
 
+/* Do not remove these! There are needed to ensure that BOOST_CLASS_EXPORT_IMPLEMENT
+ * does the right things.
+ */
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+
 #include <string>
 #include <stdexcept>
 #include <cmath>
@@ -42,6 +48,12 @@ std::ostream &operator<<(std::ostream &o, const Statistic &stat)
     return o;
 }
 
+template<typename Archive>
+void Statistic::serialize(Archive &ar, const unsigned int)
+{
+    ar & name;
+}
+
 
 Counter::Counter(const std::string &name) : Statistic(name), total(0)
 {
@@ -62,6 +74,20 @@ unsigned long long Counter::getTotal() const
 {
     return total;
 }
+
+void Counter::merge(const Statistic &other)
+{
+    const Counter &stat = dynamic_cast<const Counter &>(other);
+    total += stat.total;
+}
+
+template<typename Archive>
+void Counter::serialize(Archive &ar, const unsigned int)
+{
+    ar & boost::serialization::base_object<Statistic>(*this);
+    ar & total;
+}
+
 
 Variable::Variable(const std::string &name) : Statistic(name), sum(0.0), sum2(0.0), n(0)
 {
@@ -117,6 +143,90 @@ void Variable::write(std::ostream &o) const
         o << "+/- " << std::sqrt(getVarianceUnlocked()) << ' ';
     o << "[" << n << "]";
 }
+
+void Variable::merge(const Statistic &other)
+{
+    const Variable &stat = dynamic_cast<const Variable &>(other);
+    sum += stat.sum;
+    sum2 += stat.sum2;
+    n += stat.n;
+}
+
+template<typename Archive>
+void Variable::serialize(Archive &ar, const unsigned int)
+{
+    ar & boost::serialization::base_object<Statistic>(*this);
+    ar & sum;
+    ar & sum2;
+    ar & n;
+}
+
+
+Peak::Peak(const std::string &name) : Statistic(name), current(0), peak (0)
+{
+}
+
+void Peak::write(std::ostream &o) const
+{
+    o << peak;
+}
+
+void Peak::set(value_type x)
+{
+    current = x;
+    if (peak < current)
+        peak = current;
+}
+
+Peak &Peak::operator+=(value_type x)
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    set(current + x);
+    return *this;
+}
+
+Peak &Peak::operator-=(value_type x)
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    set(current - x);
+    return *this;
+}
+
+Peak &Peak::operator=(value_type x)
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    set(x);
+    return *this;
+}
+
+Peak::value_type Peak::get() const
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    return current;
+}
+
+/// Retrieves the highest value that has been set.
+Peak::value_type Peak::getMax() const
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    return peak;
+}
+
+void Peak::merge(const Statistic &other)
+{
+    const Peak &stat = dynamic_cast<const Peak &>(other);
+    if (stat.peak > peak)
+        peak = stat.peak;
+}
+
+template<typename Archive>
+void Peak::serialize(Archive &ar, const unsigned int)
+{
+    ar & boost::serialization::base_object<Statistic>(*this);
+    ar & current;
+    ar & peak;
+}
+
 
 Timer::Timer(const std::string &name)
     : stat(getStatistic<Variable>(name))
@@ -178,4 +288,22 @@ std::ostream &operator<<(std::ostream &o, const Registry &reg)
     return o;
 }
 
+/* Explicitly instantiate the template member functions for text archives.
+ * This is necessary to ensure that they exist at runtime, because they're only
+ * implemented inside this file.
+ */
+template void Statistic::serialize(boost::archive::text_oarchive &ar, const unsigned int version);
+template void Statistic::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
+template void Counter::serialize(boost::archive::text_oarchive &ar, const unsigned int version);
+template void Counter::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
+template void Variable::serialize(boost::archive::text_oarchive &ar, const unsigned int version);
+template void Variable::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
+template void Peak::serialize(boost::archive::text_oarchive &ar, const unsigned int version);
+template void Peak::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
+
 } // namespace Statistics
+
+BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Statistic)
+BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Variable)
+BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Counter)
+BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Peak)

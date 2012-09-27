@@ -87,7 +87,7 @@ public:
 struct Slice : public boost::noncopyable
 {
     std::tr1::uint64_t index; ///< Sequential number of the slice
-    Statistics::Peak<std::tr1::uint64_t> &activeStat;
+    Statistics::Peak &activeStat;
     Statistics::Container::vector<Splat> splats;
 
     Eigen::MatrixXf points;
@@ -136,7 +136,7 @@ struct Slice : public boost::noncopyable
     }
 
     Slice() :
-        activeStat(Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active.peak")),
+        activeStat(Statistics::getStatistic<Statistics::Peak>("active.peak")),
         splats("mem.splats")
     {}
 
@@ -337,8 +337,8 @@ typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 102
 void runSweepDiscrete(SplatSet::SplatStream *splatStream, ProgressDisplay *progress,
                       bool compute, int axis, unsigned int K, float radius)
 {
-    Statistics::Peak<std::tr1::uint64_t> &active3Stat =
-        Statistics::getStatistic<Statistics::Peak<std::tr1::uint64_t> >("active3.peak");
+    Statistics::Peak &active3Stat =
+        Statistics::getStatistic<Statistics::Peak>("active3.peak");
     Statistics::Variable &loadTime = Statistics::getStatistic<Statistics::Variable>("load.time");
     std::tr1::uint64_t nSplats = 0;
     Timer latency;
