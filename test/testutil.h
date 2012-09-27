@@ -78,7 +78,8 @@ void mlsgpuAssertDoublesEqual(double expected, double actual, double eps, const 
 /**
  * Main program implementation.
  *
- * @param isMaster Whether this is the master MPI process (true for single-process).
+ * @param argc, argv  Command-line arguments
+ * @param isMaster    Whether this is the master MPI process (true for single-process).
  * @return Status to return from @c main.
  */
 int runTests(int argc, const char **argv, bool isMaster);

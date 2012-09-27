@@ -19,6 +19,17 @@ struct MesherWork;
 namespace Bucket { struct Recursion; }
 namespace SplatSet { struct VectorSet; }
 
+/**
+ * Transmission of assorted data structures through MPI.
+ *
+ * Each of the @c send functions sends one object to a single destination,
+ * while the @c recv functions can receive from either a named destination or
+ * @c MPI_ANY_SOURCE. The sends are all blocking standard-mode. All communications
+ * use @ref MLSGPU_TAG_WORK.
+ *
+ * Before using any of the @c send or @c recv functions, one must first call
+ * @ref init.
+ */
 namespace Serialize
 {
 

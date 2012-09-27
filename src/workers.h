@@ -171,6 +171,8 @@ public:
     /**
      * Functor that generates an output function given the current chunk ID and
      * worker. This is used to abstract the downstream worker group class.
+     *
+     * @see @ref DeviceWorkerGroup::DeviceWorkerGroup
      */
     typedef boost::function<Marching::OutputFunctor(const ChunkId &, Timeplot::Worker &)> OutputGenerator;
 
@@ -194,7 +196,9 @@ public:
      *
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
      * @param spare              Number of work items to have available in the pool when all workers are busy.
-     * @param outGroup           Downstream mesher group which receives output blocks.
+     * @param outputGenerator    Output handler generator. The generator is passed a chunk
+     *                           ID and @ref Timeplot::Worker, and returns a @ref Marching::OutputFunctor which
+     *                           which will receive the output blocks for the corresponding chunk.
      * @param devices            OpenCL context and device to run on, with associated contexts.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
