@@ -54,11 +54,11 @@ private:
 /**
  * Macro wrapper around @ref mlsgpuAssertDoublesEqual.
  */
-#define MLSGPU_ASSERT_DOUBLES_EQUAL(actual, expected, eps) \
-    mlsgpuAssertDoublesEqual(actual, expected, eps, CPPUNIT_SOURCELINE())
+#define MLSGPU_ASSERT_DOUBLES_EQUAL(expected, actual, eps) \
+    mlsgpuAssertDoublesEqual( (expected), (actual), (eps), CPPUNIT_SOURCELINE())
 
 /**
- * Variant of @c CppUnit::assertDoublesEqual that accepts relative or absolute error.
+ * Variant of @c CppUnit::assertDoubleEquals that accepts relative or absolute error.
  *
  * - If @a expected or @a actual are both NaN, passes.
  * - If one of @a expected or @a actual is NaN, fails.
@@ -74,6 +74,23 @@ private:
  * @see @ref MLSGPU_ASSERT_DOUBLES_EQUAL
  */
 void mlsgpuAssertDoublesEqual(double expected, double actual, double eps, const CppUnit::SourceLine &sourceLine);
+
+/**
+ * Macro wrapper around @ref mlsgpuAssertEqual. This is like @c CPPUNIT_ASSERT_EQUAL,
+ * but allows the two values to have different types. The expected value is coerced to
+ * the type of the actual value.
+ */
+#define MLSGPU_ASSERT_EQUAL(expected, actual) \
+    (mlsgpuAssertEqual( (expected), (actual), CPPUNIT_SOURCELINE(), "" ) )
+
+/**
+ * Variant of @c CppUnit::assertEquals that accepts two different types.
+ */
+template<typename E, typename A>
+void mlsgpuAssertEqual(const E &expected, const A &actual, CppUnit::SourceLine sourceLine, const std::string &msg)
+{
+    CppUnit::assertEquals(static_cast<A>(expected), actual, sourceLine, msg);
+}
 
 /**
  * Main program implementation.

@@ -487,7 +487,7 @@ def build(bld):
                     features = test_features,
                     source = mpi_sources + common_sources,
                     target = 'testmpi',
-                    use = test_use + ['MPI'],
+                    use = test_use + ['libmls_mpi', 'MPI'],
                     install_path = None)
             # Find the unit test task and modify it to run through mpirun
             gen.post() # Forces the task to be generated

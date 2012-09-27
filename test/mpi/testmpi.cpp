@@ -9,6 +9,7 @@
 #include <iostream>
 #include <mpi.h>
 #include "../testutil.h"
+#include "../../src/serialize.h"
 
 int main(int argc, char **argv)
 {
@@ -30,6 +31,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    Serialize::init();
     bool isMaster = (rank == 0);
     int ret = runTests(argc, (const char **) argv, isMaster);
 
