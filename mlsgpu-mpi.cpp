@@ -19,6 +19,7 @@
 #include <boost/progress.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
 #include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
@@ -238,6 +239,18 @@ void Slave::operator()() const
         "requester", fineBucketGroup, scatterComm, scatterRoot);
 
     Grid grid;
+    /* If the slave shares a node with the master, then OpenMPI busy-waits
+     * here which takes CPU cycles away from the bounding box pass. Rather
+     * sleep until something happens.
+     */
+    {
+        int flag;
+        do
+        {
+            MPI_Iprobe(controlRoot, MPI_ANY_TAG, controlComm, &flag, MPI_STATUS_IGNORE);
+            boost::this_thread::sleep(boost::posix_time::seconds(1));
+        } while (!flag);
+    }
     Serialize::recv(grid, controlComm, controlRoot);
 
     fineBucketGroup.start(grid);
