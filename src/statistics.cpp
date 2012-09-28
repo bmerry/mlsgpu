@@ -20,8 +20,10 @@
 #include <vector>
 #include <utility>
 #include <queue>
+#include <sstream>
 #include <boost/foreach.hpp>
 #include <boost/thread/locks.hpp>
+#include <boost/ptr_container/serialize_ptr_map.hpp>
 #include "statistics.h"
 
 namespace Statistics
@@ -40,9 +42,23 @@ const std::string &Statistic::getName() const
     return name;
 }
 
+Statistic *Statistic::clone() const
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+
+    std::stringstream s;
+    boost::archive::text_oarchive oa(s);
+    oa << this;
+
+    Statistic *cloned = NULL;
+    boost::archive::text_iarchive ia(s);
+    ia >> cloned;
+    return cloned;
+}
+
 std::ostream &operator<<(std::ostream &o, const Statistic &stat)
 {
-    boost::lock_guard<boost::mutex> _(stat.mutex);
+    boost::lock_guard<boost::mutex> lock(stat.mutex);
     o << stat.getName() << ": ";
     stat.write(o);
     return o;
@@ -66,7 +82,7 @@ void Counter::write(std::ostream &o) const
 
 void Counter::add(unsigned long long incr)
 {
-    boost::lock_guard<boost::mutex> _(mutex);
+    boost::lock_guard<boost::mutex> lock(mutex);
     total += incr;
 }
 
@@ -95,7 +111,7 @@ Variable::Variable(const std::string &name) : Statistic(name), sum(0.0), sum2(0.
 
 void Variable::add(double value)
 {
-    boost::lock_guard<boost::mutex> _(mutex);
+    boost::lock_guard<boost::mutex> lock(mutex);
     sum += value;
     sum2 += value * value;
     n++;
@@ -103,13 +119,13 @@ void Variable::add(double value)
 
 unsigned long long Variable::getNumSamples() const
 {
-    boost::lock_guard<boost::mutex> _(mutex);
+    boost::lock_guard<boost::mutex> lock(mutex);
     return n;
 }
 
 double Variable::getMean() const
 {
-    boost::lock_guard<boost::mutex> _(mutex);
+    boost::lock_guard<boost::mutex> lock(mutex);
     if (n < 1)
         throw std::length_error("Cannot compute mean without at least 1 sample");
     return sum / n;
@@ -131,7 +147,7 @@ double Variable::getVarianceUnlocked() const
 
 double Variable::getVariance() const
 {
-    boost::lock_guard<boost::mutex> _(mutex);
+    boost::lock_guard<boost::mutex> lock(mutex);
     return getVarianceUnlocked();
 }
 
@@ -278,6 +294,30 @@ Registry::const_iterator Registry::end() const
     return const_iterator(statistics.end());
 }
 
+template<typename Archive>
+void Registry::serialize(Archive &ar, const unsigned int)
+{
+    ar & statistics;
+}
+
+void Registry::merge(const Registry &other)
+{
+    for (const_iterator i = other.begin(); i != other.end(); i++)
+    {
+        boost::ptr_map<std::string, Statistic>::iterator pos = statistics.find(i->getName());
+        if (pos == statistics.end())
+        {
+            Statistic *clone = i->clone();
+            std::string name = clone->getName();
+            statistics.insert(name, clone);
+        }
+        else
+        {
+            pos->second->merge(*i);
+        }
+    }
+}
+
 std::ostream &operator<<(std::ostream &o, const Registry &reg)
 {
     boost::lock_guard<boost::mutex> _(reg.mutex);
@@ -300,6 +340,8 @@ template void Variable::serialize(boost::archive::text_oarchive &ar, const unsig
 template void Variable::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
 template void Peak::serialize(boost::archive::text_oarchive &ar, const unsigned int version);
 template void Peak::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
+template void Registry::serialize(boost::archive::text_oarchive &ar, const unsigned int version);
+template void Registry::serialize(boost::archive::text_iarchive &ar, const unsigned int version);
 
 } // namespace Statistics
 
@@ -307,3 +349,4 @@ BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Statistic)
 BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Variable)
 BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Counter)
 BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Peak)
+BOOST_CLASS_EXPORT_IMPLEMENT(Statistics::Registry)

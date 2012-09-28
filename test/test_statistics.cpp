@@ -413,14 +413,16 @@ Statistics::Statistic *TestPeak::createStatistic(const std::string &name) const
     return new Statistics::Peak(name);
 }
 
-class TestStatisticRegistry : public CppUnit::TestFixture
+class TestStatisticsRegistry : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestStatisticRegistry);
+    CPPUNIT_TEST_SUITE(TestStatisticsRegistry);
     CPPUNIT_TEST(testGetInstance);
     CPPUNIT_TEST(testGetStatistic);
     CPPUNIT_TEST(testStream);
     CPPUNIT_TEST(testIterate);
     CPPUNIT_TEST(testConstIterate);
+    CPPUNIT_TEST(testSerialize);
+    CPPUNIT_TEST(testMerge);
     CPPUNIT_TEST_SUITE_END();
 private:
     Statistics::Registry registry;
@@ -430,14 +432,16 @@ private:
     void testStream();            ///< Test ostream output
     void testIterate();           ///< Test iteration over a non-const registry
     void testConstIterate();      ///< Test iteration over a const registry
+    void testSerialize();         ///< Test serialization and deserialization
+    void testMerge();             ///< Test @ref Statistics::Registry::merge
 
 public:
     void setUp();
     void tearDown();
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStatisticRegistry, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStatisticsRegistry, TestSet::perBuild());
 
-void TestStatisticRegistry::setUp()
+void TestStatisticsRegistry::setUp()
 {
     registry.getStatistic<Statistics::Variable>("stat0");
 
@@ -453,11 +457,11 @@ void TestStatisticRegistry::setUp()
     counter.add(100);
 }
 
-void TestStatisticRegistry::tearDown()
+void TestStatisticsRegistry::tearDown()
 {
 }
 
-void TestStatisticRegistry::testGetInstance()
+void TestStatisticsRegistry::testGetInstance()
 {
     Statistics::Registry &reg = Statistics::Registry::getInstance();
     CPPUNIT_ASSERT(&reg != NULL);
@@ -466,7 +470,7 @@ void TestStatisticRegistry::testGetInstance()
     CPPUNIT_ASSERT_MESSAGE("Singleton reference should not move", &reg == &reg2);
 }
 
-void TestStatisticRegistry::testGetStatistic()
+void TestStatisticsRegistry::testGetStatistic()
 {
     // Get a known statistic
     Statistics::Variable &stat1 = registry.getStatistic<Statistics::Variable>("stat1");
@@ -480,7 +484,7 @@ void TestStatisticRegistry::testGetStatistic()
     CPPUNIT_ASSERT_THROW(registry.getStatistic<Statistics::Variable>("counter"), std::bad_cast);
 }
 
-void TestStatisticRegistry::testStream()
+void TestStatisticsRegistry::testStream()
 {
     std::ostringstream s;
     s << registry;
@@ -491,7 +495,7 @@ void TestStatisticRegistry::testStream()
             "stat3: 12 : 4 +/- 2 [3]\n"), s.str());
 }
 
-void TestStatisticRegistry::testIterate()
+void TestStatisticsRegistry::testIterate()
 {
     BOOST_FOREACH(Statistics::Statistic &s, registry)
     {
@@ -516,7 +520,7 @@ void TestStatisticRegistry::testIterate()
     CPPUNIT_ASSERT_EQUAL(101ULL, counter.getTotal());
 }
 
-void TestStatisticRegistry::testConstIterate()
+void TestStatisticsRegistry::testConstIterate()
 {
     const Statistics::Statistic &counter = registry.getStatistic<Statistics::Counter>("counter");
     const Statistics::Statistic &stat0 = registry.getStatistic<Statistics::Variable>("stat0");
@@ -533,4 +537,43 @@ void TestStatisticRegistry::testConstIterate()
     CPPUNIT_ASSERT_EQUAL(&*cur, &stat3);
     cur++;
     CPPUNIT_ASSERT(cur == registry.end());
+}
+
+void TestStatisticsRegistry::testSerialize()
+{
+    std::stringstream s;
+    boost::archive::text_oarchive oa(s);
+    oa << registry;
+
+    boost::archive::text_iarchive ia(s);
+    Statistics::Registry newRegistry;
+    ia >> newRegistry;
+
+    std::ostringstream oldStr, newStr;
+    oldStr << registry;
+    newStr << newRegistry;
+
+    CPPUNIT_ASSERT_EQUAL(oldStr.str(), newStr.str());
+}
+
+void TestStatisticsRegistry::testMerge()
+{
+    Statistics::Registry other;
+
+    Statistics::Variable &stat0 = registry.getStatistic<Statistics::Variable>("stat0");
+    stat0.add(12.0);
+    Statistics::Counter &counter = registry.getStatistic<Statistics::Counter>("counter");
+    counter.add(17);
+    Statistics::Variable &extra = registry.getStatistic<Statistics::Variable>("extra");
+    extra.add(3.0);
+
+    registry.merge(other);
+    std::ostringstream s;
+    s << registry;
+    CPPUNIT_ASSERT_EQUAL(std::string(
+            "counter: 117\n"
+            "extra: 3 : 3 [1]\n"
+            "stat0: 12 : 12 [1]\n"
+            "stat1: 1 : 1 [1]\n"
+            "stat3: 12 : 4 +/- 2 [3]\n"), s.str());
 }

@@ -48,7 +48,13 @@ namespace Statistics
 
 /**
  * Object that holds accumulated data about a statistic. This is a virtual base
- * class that is subclassed to define different types of statistics.
+ * class that is subclassed to define different types of statistics. All subclasses
+ * must implement serialization: this is required by the implementation of the
+ * @ref clone method and by @ref Registry::merge.
+ *
+ * Serialization of statistics is @em not thread-safe. It should only be done in
+ * situations where it is guaranteed that no other threads are accessing the
+ * statistic.
  */
 class Statistic : public boost::noncopyable
 {
@@ -83,6 +89,13 @@ public:
     virtual void merge(const Statistic &other) = 0;
 
     const std::string &getName() const;  ///< Returns the name of the statistic (thread-safe)
+
+    /**
+     * Create a clone of the statistic, with the same name, type and values.
+     * The caller is responsible for deleting the new statistic when it is
+     * no longer needed.
+     */
+    Statistic *clone() const;
 };
 
 /**
@@ -306,32 +319,7 @@ private:
     mutable boost::mutex mutex;  ///< Mutex protecting access to the statistics map
 
     template<typename Archive>
-    void save(Archive &ar, const unsigned int) const
-    {
-        ar & statistics.size();
-        for (boost::ptr_map<std::string, Statistic>::const_iterator i = statistics.begin(); i != statistics.end(); ++i)
-        {
-            ar & i->first;
-            ar & i->second;
-        }
-    }
-
-    template<typename Archive>
-    void load(Archive &ar, const unsigned int)
-    {
-        boost::ptr_map<std::string, Statistic>::size_type size;
-        ar & size;
-        for (std::size_t i = 0; i < size; i++)
-        {
-            std::string name;
-            std::auto_ptr<Statistic> stat;
-            ar & name;
-            ar & stat;
-            statistics.insert(name, stat);
-        }
-    }
-
-    BOOST_SERIALIZATION_SPLIT_MEMBER()
+    void serialize(Archive &ar, const unsigned int);
 
 public:
     typedef detail::pair_second_iterator<boost::ptr_map<std::string, Statistic>::iterator> iterator;
@@ -375,6 +363,8 @@ public:
      * Merge in samples from another registry. Statistics with the same
      * name are matched up. They must then have the same type, or else
      * @c bad_cast is thrown and the current registry is corrupted!
+     *
+     * This function is @em not thread-safe.
      */
     void merge(const Registry &other);
 };
@@ -426,5 +416,6 @@ BOOST_CLASS_EXPORT_KEY(Statistics::Statistic)
 BOOST_CLASS_EXPORT_KEY(Statistics::Counter)
 BOOST_CLASS_EXPORT_KEY(Statistics::Variable)
 BOOST_CLASS_EXPORT_KEY(Statistics::Peak)
+BOOST_CLASS_EXPORT_KEY(Statistics::Registry)
 
 #endif /* !MLSGPU_STATISTICS_H */
