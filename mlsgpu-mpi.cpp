@@ -14,8 +14,11 @@
 #include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/progress.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
 #include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
@@ -246,6 +249,15 @@ void Slave::operator()() const
     fineBucketGroup.stop();
     deviceWorkerGroup.stop();
     gatherGroup.stop();
+
+    /* Gather up the statistics */
+    Statistics::finalizeEventTimes();
+    std::ostringstream statsStream;
+    boost::archive::text_oarchive oa(statsStream);
+    oa << Statistics::Registry::getInstance();
+    std::string statsStr = statsStream.str();
+    MPI_Send(const_cast<char *>(statsStr.data()), statsStr.length(), MPI_CHAR,
+             controlRoot, MLSGPU_TAG_WORK, controlComm);
 }
 
 /**
@@ -423,7 +435,28 @@ static void run(
                 mesher->write(&Log::log[Log::info]);
             }
         } // ends scope for grandTotalTimer
-        Statistics::finalizeEventTimes();
+
+        for (int slave = 0; slave < size; slave++)
+            if (slaveMask[slave])
+            {
+                MPI_Status status;
+                MPI_Probe(MPI_ANY_SOURCE, MLSGPU_TAG_WORK, comm, &status);
+                int length;
+                MPI_Get_count(&status, MPI_CHAR, &length);
+                boost::scoped_array<char> data(new char[length]);
+                MPI_Recv(data.get(), length, MPI_CHAR, status.MPI_SOURCE, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+
+                if (slave != root) // root will already share our registry
+                {
+                    std::string statsStr(data.get(), length);
+                    std::istringstream statsStream(statsStr);
+                    boost::archive::text_iarchive ia(statsStream);
+                    Statistics::Registry slaveRegistry;
+                    ia >> slaveRegistry;
+                    Statistics::Registry::getInstance().merge(slaveRegistry);
+                }
+            }
+
         writeStatistics(vm);
     }
 
