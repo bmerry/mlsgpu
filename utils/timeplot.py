@@ -60,16 +60,19 @@ def draw(workers):
     ax.set_xlabel('Time')
     yticks = []
     yticklabels = []
-    for i, w in enumerate(workers):
-        xranges = []
-        colors = []
-        for a in w.actions:
-            xranges.append((a.start, a.stop - a.start))
-            colors.append(a.get_color())
-        yrange = (i, 1)
-        ax.broken_barh(xranges, yrange, facecolors = colors, antialiased = True)
-        yticks.append(i + 0.5)
-        yticklabels.append(w.name)
+    bias = 0
+    for group in workers:
+        for i, w in enumerate(group):
+            xranges = []
+            colors = []
+            for a in w.actions:
+                xranges.append((a.start, a.stop - a.start))
+                colors.append(a.get_color())
+            yrange = (i + bias, 1)
+            ax.broken_barh(xranges, yrange, facecolors = colors, antialiased = True)
+            yticks.append(i + bias + 0.5)
+            yticklabels.append(w.name)
+        bias += len(group) + 0.5
     ax.set_yticks(yticks)
     ax.set_yticklabels(yticklabels)
 
@@ -84,13 +87,14 @@ def draw(workers):
     plt.show()
 
 def main():
-    data = []
+    groups = []
     if len(sys.argv) > 1:
-        with open(sys.argv[1], 'r') as f:
-            data = load_data(f)
+        for fname in sys.argv[1:]:
+            with open(fname, 'r') as f:
+                groups.append(load_data(f))
     else:
-        data = load_data(sys.stdin)
-    draw(data)
+        groups.append(load_data(sys.stdin))
+    draw(groups)
 
 if __name__ == '__main__':
     main()
