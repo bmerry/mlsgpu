@@ -85,14 +85,25 @@ public:
      * Retrieve an unused item from the pool to be populated with work. This
      * may block if all the items are currently in use.
      *
-     * @warning The returned item @em must be enqueued with @ref push, even if
-     * it turns out there is nothing to do. Failure to do so will lead to the
+     * @warning The returned item @em must either be enqueued with @ref push or
+     * returned to the pool with @ref unget. Failure to do so will lead to the
      * item being lost to the pool, and possibly deadlock.
      */
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker)
     {
         Timeplot::Action timer("get", tworker, getStat);
         return itemPool.pop();
+    }
+
+    /**
+     * Return an object obtained with @ref get back to the pool. This only
+     * needs to be called if one called @ref get and subsequently decided that
+     * there was no work to do be done after all. This should not be called if
+     * the item was passed to @ref push.
+     */
+    void unget(boost::shared_ptr<WorkItem> item)
+    {
+        itemPool.push(item);
     }
 
     /**

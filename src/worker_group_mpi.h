@@ -103,6 +103,12 @@ public:
         Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("RequesterScatter.recv");
         while (true)
         {
+            /**
+             * Don't try to receive work until we have a slot in the queue, as otherwise
+             * we may starve some other process or hold up the scatter worker on the master.
+             */
+            boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
+
             int hasWork;
             MPI_Status status;
             {
@@ -115,10 +121,12 @@ public:
                 MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
             }
             if (!hasWork)
+            {
+                outGroup.unget(item);
                 break;
+            }
             else
             {
-                boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
                 {
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
