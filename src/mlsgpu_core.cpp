@@ -237,30 +237,40 @@ void writeStatistics(const po::variables_map &vm, bool force)
 {
     if (force || vm.count(Option::statistics) || vm.count(Option::statisticsFile))
     {
-        std::ostream *out;
-        std::ofstream outf;
-        if (vm.count(Option::statisticsFile))
+        std::string name = "<stdout>";
+        try
         {
-            const std::string &name = vm[Option::statisticsFile].as<std::string>();
-            outf.open(name.c_str());
-            out = &outf;
-        }
-        else
-        {
-            out = &std::cout;
-        }
+            std::ostream *out;
+            std::ofstream outf;
+            if (vm.count(Option::statisticsFile))
+            {
+                name = vm[Option::statisticsFile].as<std::string>();
+                outf.open(name.c_str());
+                out = &outf;
+            }
+            else
+            {
+                out = &std::cout;
+            }
 
-        boost::io::ios_exception_saver saver(*out);
-        out->exceptions(std::ios::failbit | std::ios::badbit);
-        *out << "mlsgpu version: " << provenanceVersion() << '\n';
-        *out << "mlsgpu variant: " << provenanceVariant() << '\n';
-        *out << "mlsgpu options:" << makeOptions(vm) << '\n';
-        {
-            boost::io::ios_precision_saver saver2(*out);
-            out->precision(15);
-            *out << Statistics::Registry::getInstance();
+            boost::io::ios_exception_saver saver(*out);
+            out->exceptions(std::ios::failbit | std::ios::badbit);
+            *out << "mlsgpu version: " << provenanceVersion() << '\n';
+            *out << "mlsgpu variant: " << provenanceVariant() << '\n';
+            *out << "mlsgpu options:" << makeOptions(vm) << '\n';
+            {
+                boost::io::ios_precision_saver saver2(*out);
+                out->precision(15);
+                *out << Statistics::Registry::getInstance();
+            }
+            *out << *stxxl::stats::get_instance();
         }
-        *out << *stxxl::stats::get_instance();
+        catch (std::ios::failure &e)
+        {
+            throw boost::enable_error_info(e)
+                << boost::errinfo_file_name(name)
+                << boost::errinfo_errno(errno);
+        }
     }
 }
 
