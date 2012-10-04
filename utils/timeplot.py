@@ -12,7 +12,10 @@ class Action(object):
             'get': 'yellow',
             'pop': 'red',
             'load': 'blue',
-            'write': 'orange'
+            'write': 'orange',
+            'send': 'purple',
+            'recv': 'cyan',
+            'wait': 'pink'
     }
 
     def __init__(self, name, start, stop):
