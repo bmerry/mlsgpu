@@ -190,30 +190,40 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 {
     if (force || vm.count(Option::statistics) || vm.count(Option::statisticsFile))
     {
-        ostream *out;
-        ofstream outf;
-        if (vm.count(Option::statisticsFile))
+        string name = "<stdout>";
+        try
         {
-            const string &name = vm[Option::statisticsFile].as<string>();
-            outf.open(name.c_str());
-            out = &outf;
-        }
-        else
-        {
-            out = &std::cout;
-        }
+            ostream *out;
+            ofstream outf;
+            if (vm.count(Option::statisticsFile))
+            {
+                name = vm[Option::statisticsFile].as<string>();
+                outf.open(name.c_str());
+                out = &outf;
+            }
+            else
+            {
+                out = &std::cout;
+            }
 
-        boost::io::ios_exception_saver saver(*out);
-        out->exceptions(ios::failbit | ios::badbit);
-        *out << "mlsgpu version: " << provenanceVersion() << '\n';
-        *out << "mlsgpu variant: " << provenanceVariant() << '\n';
-        *out << "mlsgpu options:" << makeOptions(vm) << '\n';
-        {
-            boost::io::ios_precision_saver saver2(*out);
-            out->precision(15);
-            *out << Statistics::Registry::getInstance();
+            boost::io::ios_exception_saver saver(*out);
+            out->exceptions(ios::failbit | ios::badbit);
+            *out << "mlsgpu version: " << provenanceVersion() << '\n';
+            *out << "mlsgpu variant: " << provenanceVariant() << '\n';
+            *out << "mlsgpu options:" << makeOptions(vm) << '\n';
+            {
+                boost::io::ios_precision_saver saver2(*out);
+                out->precision(15);
+                *out << Statistics::Registry::getInstance();
+            }
+            *out << *stxxl::stats::get_instance();
         }
-        *out << *stxxl::stats::get_instance();
+        catch (std::ios::failure &e)
+        {
+            throw boost::enable_error_info(e)
+                << boost::errinfo_file_name(name)
+                << boost::errinfo_errno(errno);
+        }
     }
 }
 
