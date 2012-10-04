@@ -57,13 +57,19 @@ public:
     {
         /* Wait for a receiver to be ready */
         MPI_Status status;
-        MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+        {
+            Timeplot::Action action("recv", getTimeplotWorker());
+            MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+        }
 
-        // Tell it there is a work item coming
-        int hasWork = 1;
-        MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
-        // Send it the work item
-        sendItem(item, comm, status.MPI_SOURCE);
+        {
+            Timeplot::Action action("send", getTimeplotWorker());
+            // Tell it there is a work item coming
+            int hasWork = 1;
+            MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+            // Send it the work item
+            sendItem(item, comm, status.MPI_SOURCE);
+        }
     }
 private:
     MPI_Comm comm;
@@ -92,19 +98,31 @@ public:
 
     void operator()()
     {
+        Statistics::Variable &sendStat = Statistics::getStatistic<Statistics::Variable>("RequesterScatter.send");
+        Statistics::Variable &waitStat = Statistics::getStatistic<Statistics::Variable>("RequesterScatter.wait");
+        Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("RequesterScatter.recv");
         while (true)
         {
             int hasWork;
             MPI_Status status;
-            MPI_Send(NULL, 0, MPI_INT, root, MLSGPU_TAG_SCATTER_NEED_WORK, comm);
-            /* We will either get some work or a request to shut down */
-            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
+            {
+                Timeplot::Action action("send", tworker, sendStat);
+                MPI_Send(NULL, 0, MPI_INT, root, MLSGPU_TAG_SCATTER_NEED_WORK, comm);
+            }
+            {
+                Timeplot::Action action("wait", tworker, waitStat);
+                /* We will either get some work or a request to shut down */
+                MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
+            }
             if (!hasWork)
                 break;
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
-                recvItem(*item, comm, status.MPI_SOURCE);
+                {
+                    Timeplot::Action action("recv", tworker, recvStat);
+                    recvItem(*item, comm, status.MPI_SOURCE);
+                }
                 outGroup.push(item, tworker);
             }
         }
@@ -194,6 +212,7 @@ public:
 
     void operator()(WorkItem &item)
     {
+        Timeplot::Action action("send", getTimeplotWorker());
         int hasWork = 1;
         MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
         sendItem(item, comm, root);
@@ -231,17 +250,25 @@ public:
     void operator()()
     {
         std::size_t rem = senders;
+        Statistics::Variable &waitStat = Statistics::getStatistic<Statistics::Variable>("ReceiverGather.wait");
+        Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("ReceiverGather.recv");
         while (rem > 0)
         {
             int hasWork;
             MPI_Status status;
-            MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
+            {
+                Timeplot::Action action("wait", tworker, waitStat);
+                MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
+            }
             if (!hasWork)
                 rem--;
             else
             {
                 boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
-                recvItem(*item, comm, status.MPI_SOURCE);
+                {
+                    Timeplot::Action action("recv", tworker, recvStat);
+                    recvItem(*item, comm, status.MPI_SOURCE);
+                }
                 outGroup.push(item, tworker);
             }
         }
