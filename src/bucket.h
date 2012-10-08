@@ -175,7 +175,7 @@ void bucket(const Splats &splats,
             bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
-            ProgressDisplay *progress = NULL,
+            ProgressMeter *progress = NULL,
             const Recursion &recursionState = Recursion());
 
 } // namespace Bucket

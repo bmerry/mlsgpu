@@ -178,7 +178,7 @@ public:
 
 private:
     typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
-    ProgressDisplay *progress;
+    ProgressMeter *progress;
     OutputGenerator outputGenerator;
 
     Grid fullGrid;
@@ -234,7 +234,7 @@ public:
      * Sets a progress display that will be updated by the number of cells
      * processed.
      */
-    void setProgress(ProgressDisplay *progress) { this->progress = progress; }
+    void setProgress(ProgressMeter *progress) { this->progress = progress; }
 };
 
 class FineBucketGroup;
@@ -287,7 +287,7 @@ public:
     typedef WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup> BaseType;
     typedef FineBucketGroupBase::WorkItem WorkItem;
 
-    void setProgress(ProgressDisplay *progress) { this->progress = progress; }
+    void setProgress(ProgressMeter *progress) { this->progress = progress; }
 
     FineBucketGroup(
         std::size_t numWorkers, std::size_t spare,
@@ -306,7 +306,7 @@ private:
     std::size_t maxSplats;
     Grid::size_type maxCells;
     std::size_t maxSplit;
-    ProgressDisplay *progress;
+    ProgressMeter *progress;
 
     friend class FineBucketGroupBase::Worker;
 };

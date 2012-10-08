@@ -83,12 +83,12 @@ struct BucketParameters
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
     bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
-    ProgressDisplay *progress;          ///< Progress display to update for empty cells
+    ProgressMeter *progress;            ///< Progress display to update for empty cells
 
     BucketParameters(std::tr1::uint64_t maxSplats,
                      Grid::size_type maxCells,
                      bool maxCellsHint, std::size_t maxSplit,
-                     ProgressDisplay *progress)
+                     ProgressMeter *progress)
         : maxSplats(maxSplats), maxCells(maxCells),
         maxCellsHint(maxCellsHint),
         maxSplit(maxSplit), progress(progress) {}
@@ -489,7 +489,7 @@ void bucket(const Splats &splats,
             bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
-            ProgressDisplay *progress,
+            ProgressMeter *progress,
             const Recursion &recursionState)
 {
     detail::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
