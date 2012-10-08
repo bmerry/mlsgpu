@@ -22,7 +22,7 @@
  * An abstraction of a progress meter. It supports large integral progress values.
  * The display of the progress is left to concrete subclasses.
  */
-class ProgressMeter : public boost::noncopyable
+class ProgressMeter
 {
 public:
     /// Type to store progress amounts
@@ -30,17 +30,17 @@ public:
 
     virtual ~ProgressMeter() {}
 
-    /// Add 1 to the progress, return the new value
-    virtual size_type operator++() = 0;
+    /// Add 1 to the progress
+    virtual void operator++();
 
-    /// Add a given amount to the progress, return the new value
-    virtual size_type operator+=(size_type increment) = 0;
+    /// Add a given amount to the progress
+    virtual void operator+=(size_type increment) = 0;
 };
 
 /**
  * A thread-safe progress meter which displays ASCII-art progress.
  */
-class ProgressDisplay : public ProgressMeter
+class ProgressDisplay : public ProgressMeter, public boost::noncopyable
 {
 public:
     /**
@@ -56,8 +56,7 @@ public:
                              const std::string &s2 = "",
                              const std::string &s3 = "");
 
-    virtual size_type operator++();
-    virtual size_type operator+=(std::tr1::uintmax_t increment);
+    virtual void operator+=(std::tr1::uintmax_t increment);
 
     size_type count() const;     ///< Current value
     size_type expected_count() const;  ///< Value at completion

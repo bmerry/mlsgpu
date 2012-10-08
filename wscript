@@ -398,7 +398,8 @@ def build(bld):
             'src/workers.cpp',
             'src/mlsgpu_core.cpp']
     mpi_sources = [
-            'src/serialize.cpp']
+            'src/serialize.cpp',
+            'src/progress_mpi.cpp']
     bld(
             features = ['cxx', 'provenance'],
             source = 'src/provenance.cpp',
