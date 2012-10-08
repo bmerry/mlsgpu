@@ -17,7 +17,7 @@
 #include <boost/tr1/random.hpp>
 #include <boost/bind.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
-#include "../test/testmain.h"
+#include "../test/testutil.h"
 #include "knng.h"
 
 typedef Eigen::Vector3f Point;

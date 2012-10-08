@@ -474,7 +474,7 @@ def build(bld):
 
         test_use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl']
         if bld.env['extras']:
-            test_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
+            nonmpi_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
             test_use.append('EIGEN')
 
         # TODO: use a static library for common_sources
