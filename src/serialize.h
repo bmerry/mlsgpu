@@ -17,7 +17,7 @@ class Grid;
 struct ChunkId;
 struct MesherWork;
 namespace Bucket { struct Recursion; }
-namespace SplatSet { struct VectorSet; }
+namespace SplatSet { class VectorSet; }
 
 /**
  * Transmission of assorted data structures through MPI.

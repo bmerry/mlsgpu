@@ -48,7 +48,8 @@ Statistic *Statistic::clone() const
 
     std::stringstream s;
     boost::archive::text_oarchive oa(s);
-    oa << this;
+    const Statistic *thisPtr = this; // clang wants an lvalue
+    oa << thisPtr;
 
     Statistic *cloned = NULL;
     boost::archive::text_iarchive ia(s);
