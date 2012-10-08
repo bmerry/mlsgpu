@@ -25,7 +25,7 @@
  * To reduce CPU load on the root when using a busy-wait implementation of MPI
  * (e.g. OpenMPI), the communicator is polled on an interval.
  *
- * The root process must also call @ref operator() to receive the updates. This
+ * The root process must also call @c operator() to receive the updates. This
  * will typically be done in a separate thread.
  *
  * The constructor and destructor are local operations. In fact, there is no

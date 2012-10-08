@@ -66,7 +66,7 @@ private:
     unsigned int ticsShown;      ///< Number of tick marks already displayed
     size_type nextTic;           ///< Progress amount at which the next tick will be shown
 
-    size_type total;
+    size_type total;             ///< Total amount of progress expected
     size_type totalQ;            ///< @ref total / @ref totalTics
     size_type totalR;            ///< @ref total % @ref totalTics
 
