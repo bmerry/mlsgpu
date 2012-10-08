@@ -16,26 +16,32 @@
 #include "progress_mpi.h"
 
 ProgressMPI::ProgressMPI(ProgressMeter *parent, size_type total, MPI_Comm comm, int root)
-    : parent(parent), root(root), total(total), unsent(0)
+    : parent(parent), comm(comm), root(root), total(total), thresh(total / 1000), unsent(0)
 {
-    MPI_Comm_dup(comm, &this->comm);
 }
 
 void ProgressMPI::operator+=(size_type inc)
 {
     boost::lock_guard<boost::mutex> lock(mutex);
     unsent += inc;
+    if (unsent > thresh)
+        syncUnlocked();
 }
 
-void ProgressMPI::sync()
+void ProgressMPI::syncUnlocked()
 {
-    boost::lock_guard<boost::mutex> lock(mutex);
     if (unsent != 0)
     {
         long long buf = unsent;
         MPI_Bsend(&buf, 1, MPI_LONG_LONG, root, MLSGPU_TAG_PROGRESS, comm);
         unsent = 0;
     }
+}
+
+void ProgressMPI::sync()
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    syncUnlocked();
 }
 
 void ProgressMPI::operator()() const

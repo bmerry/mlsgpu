@@ -48,6 +48,7 @@
 #include "src/work_queue.h"
 #include "src/workers.h"
 #include "src/progress.h"
+#include "src/progress_mpi.h"
 #include "src/clip.h"
 #include "src/mesh_filter.h"
 #include "src/timeplot.h"
@@ -107,17 +108,21 @@ private:
     int scatterRoot;
     MPI_Comm gatherComm;
     int gatherRoot;
+    MPI_Comm progressComm;
+    int progressRoot;
 
 public:
     Slave(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
           const po::variables_map &vm,
           MPI_Comm controlComm, int controlRoot,
           MPI_Comm scatterComm, int scatterRoot,
-          MPI_Comm gatherComm, int gatherRoot)
+          MPI_Comm gatherComm, int gatherRoot,
+          MPI_Comm progressComm, int progressRoot)
         : devices(devices), vm(vm),
         controlComm(controlComm), controlRoot(controlRoot),
         scatterComm(scatterComm), scatterRoot(scatterRoot),
-        gatherComm(gatherComm), gatherRoot(gatherRoot)
+        gatherComm(gatherComm), gatherRoot(gatherRoot),
+        progressComm(progressComm), progressRoot(progressRoot)
     {
     }
 
@@ -253,6 +258,14 @@ void Slave::operator()() const
     }
     Serialize::recv(grid, controlComm, controlRoot);
 
+    /* NB: this does not yet support multi-pass algorithms. Currently there
+     * are none, however.
+     */
+
+    ProgressMPI progress(NULL, grid.numCells(), progressComm, progressRoot);
+    deviceWorkerGroup.setProgress(&progress);
+    fineBucketGroup.setProgress(&progress);
+
     fineBucketGroup.start(grid);
     deviceWorkerGroup.start(grid);
     gatherGroup.start();
@@ -262,6 +275,7 @@ void Slave::operator()() const
     fineBucketGroup.stop();
     deviceWorkerGroup.stop();
     gatherGroup.stop();
+    progress.sync();
 
     /* Gather up the statistics */
     Statistics::finalizeEventTimes();
@@ -291,11 +305,13 @@ static void run(
     int rank, size;
     MPI_Comm scatterComm;
     MPI_Comm gatherComm;
+    MPI_Comm progressComm;
 
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
     MPI_Comm_dup(comm, &scatterComm);
     MPI_Comm_dup(comm, &gatherComm);
+    MPI_Comm_dup(comm, &progressComm);
     /* Work out how many slaves there will be */
     int isSlave = devices.empty() ? 0 : 1;
     vector<int> slaveMask(size);
@@ -306,7 +322,8 @@ static void run(
     {
         slaveThread.reset(new boost::thread(Slave(
                     devices, vm,
-                    comm, root, scatterComm, root, gatherComm, root)));
+                    comm, root, scatterComm, root, gatherComm, root,
+                    progressComm, root)));
     }
 
     if (rank == root)
@@ -407,6 +424,7 @@ static void run(
                 Statistics::Timer timer(passName.str());
 
                 ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+                ProgressMPI progressMPI(&progress, grid.numCells(), progressComm, 0);
 
                 mesherGroup.setInputFunctor(mesher->functor(pass));
 
@@ -415,12 +433,13 @@ static void run(
                 scatterGroup.start();
                 boost::thread receiverThread(boost::ref(receiver));
                 mesherGroup.start();
+                boost::thread progressThread(boost::ref(progressMPI));
 
                 try
                 {
                     Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
                     Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
-                                   boost::ref(coarseBucket), &progress);
+                                   boost::ref(coarseBucket), &progressMPI);
                 }
                 catch (...)
                 {
@@ -430,6 +449,9 @@ static void run(
                     scatterGroup.stop();
                     receiverThread.join();
                     mesherGroup.stop();
+                    progressMPI.sync();
+                    progressThread.interrupt();
+                    progressThread.join();
                     throw;
                 }
 
@@ -441,6 +463,8 @@ static void run(
                 scatterGroup.stop();
                 receiverThread.join();
                 mesherGroup.stop();
+                progressMPI.sync();
+                progressThread.join();
             }
 
             {

@@ -25,10 +25,28 @@ class TestProgressMPI : public CppUnit::TestFixture
     CPPUNIT_TEST(testSimple);
     CPPUNIT_TEST_SUITE_END();
 
+public:
+    virtual void setUp();
+    virtual void tearDown();
+
 private:
+    MPI_Comm comm;
+
     void testSimple();
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestProgressMPI, TestSet::perCommit());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestProgressMPI, TestSet::perBuild());
+
+void TestProgressMPI::setUp()
+{
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+}
+
+void TestProgressMPI::tearDown()
+{
+    MPI_Comm_free(&comm);
+    MPI_Barrier(MPI_COMM_WORLD);
+}
 
 void TestProgressMPI::testSimple()
 {
