@@ -4,6 +4,7 @@ rm -rf build/coverage
 mkdir -p build/coverage
 lcov --directory build --zerocounters
 build/testmain --test=commit
+mpirun -n 2 build/testmpi --test=commit
 lcov --capture --directory build --base $PWD/build -o build/coverage_full.info
 lcov --remove build/coverage_full.info \
     '/usr/include/*' \
