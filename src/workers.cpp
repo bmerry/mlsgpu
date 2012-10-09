@@ -181,7 +181,12 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
     for (int i = 0; i < 3; i++)
         keyOffset.s[i] = work.grid.getExtent(i).first;
     // same thing, just as a different type for a different API
-    Grid::difference_type offset[3] = { keyOffset.s[0], keyOffset.s[1], keyOffset.s[2] };
+    Grid::difference_type offset[3] =
+    {
+        (Grid::difference_type) keyOffset.s[0],
+        (Grid::difference_type) keyOffset.s[1],
+        (Grid::difference_type) keyOffset.s[2]
+    };
 
     Grid::size_type size[3];
     for (int i = 0; i < 3; i++)
