@@ -293,9 +293,9 @@ private:
     typedef std::tr1::int32_t clump_id;
 
     /// Type for storing vertex data out-of-core
-    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3>, 4, 16, 8 * 1024 * 1024>::result vertices_type;
+    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3>, 2, 128, 2 * 1024 * 1024>::result vertices_type;
     /// Type for storing intermediate triangle data out-of-core
-    typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3>, 4, 16, 8 * 1024 * 1024>::result triangles_type;
+    typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3>, 2, 256, 2 * 1024 * 1024>::result triangles_type;
 
     /**
      * Strict weak ordering for sorting a list of vertex indices based on their
