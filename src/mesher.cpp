@@ -212,6 +212,8 @@ void StxxlMesher::flushBuffer()
             chunk.bufferedClumps.clear();
         }
     }
+    verticesBuffer.clear();
+    trianglesBuffer.clear();
 }
 
 void StxxlMesher::updateLocalClumps(
