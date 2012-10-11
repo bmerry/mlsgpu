@@ -187,6 +187,33 @@ void StxxlMesher::updateClumpKeyMap(
     }
 }
 
+void StxxlMesher::flushBuffer()
+{
+    BOOST_FOREACH(Chunk &chunk, chunks)
+    {
+        if (!chunk.bufferedClumps.empty())
+        {
+            BOOST_FOREACH(const Chunk::Clump &clump, chunk.bufferedClumps)
+            {
+                vertices_type::size_type firstVertex = vertices.size();
+                triangles_type::size_type firstTriangle = triangles.size();
+                for (std::size_t i = 0; i < clump.numInternalVertices + clump.numExternalVertices; i++)
+                    vertices.push_back(verticesBuffer[clump.firstVertex + i]);
+                for (std::size_t i = 0; i < clump.numTriangles; i++)
+                    triangles.push_back(trianglesBuffer[clump.firstTriangle + i]);
+                chunk.clumps.push_back(Chunk::Clump(
+                    firstVertex,
+                    clump.numInternalVertices,
+                    clump.numExternalVertices,
+                    firstTriangle,
+                    clump.numTriangles,
+                    clump.globalId));
+            }
+            chunk.bufferedClumps.clear();
+        }
+    }
+}
+
 void StxxlMesher::updateLocalClumps(
     Chunk &chunk,
     const Statistics::Container::vector<clump_id> &globalClumpId,
@@ -210,6 +237,11 @@ void StxxlMesher::updateLocalClumps(
 
     std::size_t nextVertex = 0;
     std::size_t nextTriangle = 0;
+    if ((numVertices + verticesBuffer.size()) * sizeof(vertices_type::value_type)
+        + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangles_type::value_type)
+        > reorderCapacity)
+        flushBuffer();
+
     while (nextVertex < numVertices)
     {
         // This loop is run once per clump
@@ -248,7 +280,7 @@ void StxxlMesher::updateLocalClumps(
             }
 
             if (!elide)
-                vertices.push_back(mesh.vertices[vid]);
+                verticesBuffer.push_back(mesh.vertices[vid]);
 
             nextVertex++;
         } while (nextVertex < numVertices && globalClumpId[tmpVertexOrder[nextVertex]] == cid);
@@ -262,16 +294,16 @@ void StxxlMesher::updateLocalClumps(
             boost::array<std::tr1::uint32_t, 3> out;
             for (int j = 0; j < 3; j++)
                 out[j] = tmpVertexLabel[mesh.triangles[nextTriangle][j]];
-            triangles.push_back(out);
+            trianglesBuffer.push_back(out);
             nextTriangle++;
         }
 
         std::size_t clumpTriangles = nextTriangle - lastTriangle;
-        chunk.clumps.push_back(Chunk::Clump(
-                vertices.size() - clumpInternalVertices - clumpExternalVertices,
+        chunk.bufferedClumps.push_back(Chunk::Clump(
+                verticesBuffer.size() - clumpInternalVertices - clumpExternalVertices,
                 clumpInternalVertices,
                 clumpExternalVertices,
-                triangles.size() - clumpTriangles,
+                trianglesBuffer.size() - clumpTriangles,
                 clumpTriangles,
                 cid));
     }
@@ -321,6 +353,8 @@ void StxxlMesher::write(std::ostream *progressStream)
     FastPly::WriterBase &writer = getWriter();
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
+
+    flushBuffer();
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
     std::tr1::uint64_t totalVertices = 0;

@@ -293,9 +293,9 @@ private:
     typedef std::tr1::int32_t clump_id;
 
     /// Type for storing vertex data out-of-core
-    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3>, 1, 64, 8 * 1024 * 1024>::result vertices_type;
+    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3>, 1, 16, 8 * 1024 * 1024>::result vertices_type;
     /// Type for storing intermediate triangle data out-of-core
-    typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3>, 1, 128, 8 * 1024 * 1024>::result triangles_type;
+    typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3>, 1, 32, 8 * 1024 * 1024>::result triangles_type;
 
     /**
      * Strict weak ordering for sorting a list of vertex indices based on their
@@ -350,7 +350,10 @@ private:
     class Chunk
     {
     public:
-        /// Chunk-local clump data
+        /**
+         * Chunk-local clump data. This is used for referencing either the STXXL
+         * vectors long-term, or the reorder buffers short-term.
+         */
         struct Clump
         {
             /// Index within @ref vertices of the first vertex
@@ -395,8 +398,10 @@ private:
 
         /// ID for this chunk, used to generate the filename
         ChunkId chunkId;
-        /// All clumps in this chunk, in the order they are recorded in the output vectors
+        /// All written clumps in this chunk, in the order they are recorded in the output vectors
         Statistics::Container::vector<Clump> clumps;
+        /// Clumps that are still in the reorder buffer
+        Statistics::Container::vector<Clump> bufferedClumps;
         /// Maps an external vertex key to the number of preceeding external vertices
         vertex_id_map_type vertexIdMap;
         /// Number of distinct external vertices in this chunk
@@ -404,7 +409,10 @@ private:
 
         /// Constructor
         explicit Chunk(const ChunkId chunkId = ChunkId())
-            : chunkId(chunkId), clumps("mem.mesher.chunk.clumps"), vertexIdMap("mem.mesher.vertexIdMap"),
+            : chunkId(chunkId),
+            clumps("mem.mesher.chunk.clumps"),
+            bufferedClumps("mem.mesher.chunk.bufferedClumps"),
+            vertexIdMap("mem.mesher.vertexIdMap"),
             numExternalVertices(0) {}
     };
 
@@ -453,6 +461,19 @@ private:
 
     vertices_type vertices;     ///< Buffer of all vertices seen so far
     triangles_type triangles;   ///< Buffer of all triangles seen so far
+
+    /**
+     * @name
+     * @{
+     * Reorder buffers.
+     * Triangles and vertices are initially stored in these vectors, and later
+     * copied to the STXXL vectors in a more coherent order.
+     */
+    std::vector<boost::array<float, 3> > verticesBuffer;
+    std::vector<boost::array<std::tr1::uint32_t, 3> > trianglesBuffer;
+    std::size_t reorderCapacity; ///< Maximum combined bytes in the buffers
+    /** @} */
+
     /**
      * All chunks seen so far. This is indexed by the generation number in the
      * chunk ID. If non-contiguous IDs are found, there will be default-constructed
@@ -519,6 +540,10 @@ private:
         const Statistics::Container::vector<clump_id> &globalClumpId,
         HostKeyMesh &mesh);
 
+    /**
+     * Transfer any data in the reordering buffer to the STXXL vector.
+     */
+    void flushBuffer();
 
     /// Implementation of the functor
     void add(MesherWork &work);
@@ -595,7 +620,15 @@ public:
         tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
         chunks("mem.StxxlMesher::chunks"),
         clumps("mem.StxxlMesher::clumps"),
-        clumpIdMap("mem.StxxlMesher::clumpIdMap") {}
+        clumpIdMap("mem.StxxlMesher::clumpIdMap")
+    {
+        setReorderCapacity(1024 * 1024 * 1024);
+    }
+
+    void setReorderCapacity(std::size_t bytes)
+    {
+        reorderCapacity = bytes;
+    }
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
