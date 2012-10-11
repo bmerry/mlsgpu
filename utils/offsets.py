@@ -2,7 +2,6 @@
 from __future__ import print_function, division
 import sys
 import random
-import heapq
 
 mib = 1024 * 1024
 gib = 1024 * 1024 * 1024
@@ -34,7 +33,7 @@ class PageTable(object):
             for p in self.pages:
                 if oldest is None or p.last_used < oldest.last_used:
                     oldest = p
-            # Enable for random allocation strategy:
+            # Enable for random paging strategy:
             # oldest = self.pages[random.randint(0, self.slots - 1)]
             self.pages.remove(oldest)
         start = addr // self.page_size * self.page_size
@@ -109,32 +108,76 @@ def load_accesses(f):
     flush(accesses, chunk, va, ta)
     return accesses
 
+class Emitter(object):
+    def __init__(self):
+        self.vpos = 0
+        self.tpos = 0
+        self.out = []
+        self.last_chunk = -1
+
+    def emit(self, a):
+        a.adjust(self.vpos, self.tpos)
+        self.out.append(a)
+        self.vpos += a.vertices()
+        self.tpos += a.triangles()
+        if self.last_chunk != a.chunk:
+            # print("Chunk:", a.chunk)
+            self.last_chunk = a.chunk
+
+class Chunk(object):
+    def __init__(self, chunk):
+        self.accesses = []
+        self.chunk = chunk
+        self.last_used = -1
+
+    def append(self, access, timestamp):
+        assert access.chunk == self.chunk
+        self.accesses.append(access)
+        self.last_used = timestamp
+
+    def __cmp__(self, other):
+        return self.chunk - other.chunk
+
+class ChunkCache(object):
+    def __init__(self):
+        self.time = 0
+        self.chunks = {}
+
+    def append(self, access):
+        self.time += 1
+        if access.chunk not in self.chunks:
+            self.chunks[access.chunk] = Chunk(access.chunk)
+        self.chunks[access.chunk].append(access, self.time)
+
+    def pop(self):
+        best = None
+        # for c in sorted(self.chunks.values()):
+        #     if best is None or c.last_used < best.last_used:
+        #         best = c
+        best = min(self.chunks.values())
+        del self.chunks[best.chunk]
+        return best
+
 def reorder_buffer(accesses, capacity):
     ordered = sorted(accesses, key = lambda x: x.first_vertex)
-    q = []
-    out = []
-    vpos = 0
-    tpos = 0
+    e = Emitter()
+    cache = ChunkCache()
     qsize = 0
     for a in ordered:
-        if qsize > 0 and a.size() + qsize > capacity:
+        while qsize > 0 and a.size() + qsize > capacity:
             while qsize > 0:
-                dump = heapq.heappop(q)
-                dump.adjust(vpos, tpos)
-                vpos += dump.vertices()
-                tpos += dump.triangles()
-                out.append(dump)
-                qsize -= dump.size()
-        heapq.heappush(q, a)
+                c = cache.pop()
+                for dump in c.accesses:
+                    e.emit(dump)
+                    qsize -= dump.size()
+        cache.append(a)
         qsize += a.size()
-    while q:
-        dump = heapq.heappop(q)
-        dump.adjust(vpos, tpos)
-        vpos += dump.vertices()
-        tpos += dump.triangles()
-        out.append(dump)
-        qsize -= dump.size()
-    return sorted(out)
+    while qsize > 0:
+        c = cache.pop()
+        for dump in c.accesses:
+            e.emit(dump)
+            qsize -= dump.size()
+    return sorted(e.out)
 
 def main():
     vertex_table = PageTable(1, 16, 8 * 1024 * 1024)
