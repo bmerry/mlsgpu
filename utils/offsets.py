@@ -4,6 +4,7 @@ import sys
 import random
 import heapq
 
+mib = 1024 * 1024
 gib = 1024 * 1024 * 1024
 
 class Page(object):
@@ -116,13 +117,14 @@ def reorder_buffer(accesses, capacity):
     tpos = 0
     qsize = 0
     for a in ordered:
-        while qsize > 0 and a.size() + qsize > capacity:
-            dump = heapq.heappop(q)
-            dump.adjust(vpos, tpos)
-            vpos += dump.vertices()
-            tpos += dump.triangles()
-            out.append(dump)
-            qsize -= dump.size()
+        if qsize > 0 and a.size() + qsize > capacity:
+            while qsize > 0:
+                dump = heapq.heappop(q)
+                dump.adjust(vpos, tpos)
+                vpos += dump.vertices()
+                tpos += dump.triangles()
+                out.append(dump)
+                qsize -= dump.size()
         heapq.heappush(q, a)
         qsize += a.size()
     while q:
@@ -140,7 +142,7 @@ def main():
     with open(sys.argv[1], 'r') as f:
         accesses = load_accesses(f)
 
-    accesses = reorder_buffer(accesses, 2 * gib)
+    accesses = reorder_buffer(accesses, 1024 * mib)
 
     for a in accesses:
         vertex_table.access_range(a.first_vertex * 12, a.last_vertex * 12)
