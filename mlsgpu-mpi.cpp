@@ -363,9 +363,10 @@ static void run(
             writer->addComment("mlsgpu options:" + makeOptions(vm));
             boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
             mesher->setPruneThreshold(pruneThreshold);
+            mesher->setReorderCapacity(1024 * 1024 * 1024); // TODO: make tunable
 
             Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup(numSlaves);
+            MesherGroup mesherGroup(numSlaves * 8);
             ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
             // TODO: tune number of scatter senders
             ScatterGroup scatterGroup(1, 1, numSlaves, scatterComm, maxHostSplats);

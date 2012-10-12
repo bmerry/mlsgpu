@@ -189,6 +189,7 @@ void StxxlMesher::updateClumpKeyMap(
 
 void StxxlMesher::flushBuffer()
 {
+    Statistics::Timer flushTimer("mesher.flush");
     BOOST_FOREACH(Chunk &chunk, chunks)
     {
         if (!chunk.bufferedClumps.empty())
@@ -241,7 +242,7 @@ void StxxlMesher::updateLocalClumps(
     std::size_t nextTriangle = 0;
     if ((numVertices + verticesBuffer.size()) * sizeof(vertices_type::value_type)
         + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangles_type::value_type)
-        > reorderCapacity)
+        > getReorderCapacity())
         flushBuffer();
 
     while (nextVertex < numVertices)

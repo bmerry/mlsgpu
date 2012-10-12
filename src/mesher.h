@@ -197,7 +197,7 @@ public:
      * @param namer          Callback function to assign names to output files.
      */
     MesherBase(FastPly::WriterBase &writer, const Namer &namer)
-        : pruneThreshold(0.0), writer(writer), namer(namer) {}
+        : pruneThreshold(0.0), reorderCapacity(64 * 1024 * 1024), writer(writer), namer(namer) {}
 
     /// Virtual destructor to allow destruction via base class pointer
     virtual ~MesherBase() {}
@@ -215,8 +215,16 @@ public:
      */
     void setPruneThreshold(double threshold) { pruneThreshold = threshold; }
 
+    /**
+     * Sets the capacity (in bytes) of the reorder buffer, if there is one.
+     */
+    void setReorderCapacity(std::size_t bytes) { reorderCapacity = bytes; }
+
     /// Retrieve the value set with @ref setPruneThreshold.
     double getPruneThreshold() const { return pruneThreshold; }
+
+    /// Retrieve the value set with @ref setReorderCapacity.
+    std::size_t getReorderCapacity() const { return reorderCapacity; }
 
     /**
      * Retrieves a functor that will accept data in a specific pass.
@@ -251,6 +259,8 @@ protected:
 private:
     /// Threshold set by @ref setPruneThreshold
     double pruneThreshold;
+    /// Capacity set by @ref setReorderCapacity
+    std::size_t reorderCapacity;
 
     FastPly::WriterBase &writer;   ///< Writer for output files
     const Namer namer;             ///< Output file namer
@@ -471,7 +481,6 @@ private:
      */
     std::vector<boost::array<float, 3> > verticesBuffer;
     std::vector<boost::array<std::tr1::uint32_t, 3> > trianglesBuffer;
-    std::size_t reorderCapacity; ///< Maximum combined bytes in the buffers
     /** @} */
 
     /**
@@ -623,11 +632,6 @@ public:
         clumpIdMap("mem.StxxlMesher::clumpIdMap")
     {
         setReorderCapacity(1024 * 1024 * 1024);
-    }
-
-    void setReorderCapacity(std::size_t bytes)
-    {
-        reorderCapacity = bytes;
     }
 
     virtual unsigned int numPasses() const { return 1; }
