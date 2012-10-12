@@ -631,7 +631,6 @@ public:
         clumps("mem.StxxlMesher::clumps"),
         clumpIdMap("mem.StxxlMesher::clumpIdMap")
     {
-        setReorderCapacity(1024 * 1024 * 1024);
     }
 
     virtual unsigned int numPasses() const { return 1; }
