@@ -391,6 +391,7 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
         throw std::runtime_error(msg.str());
     }
     std::tr1::uint64_t totalSplats = 0;
+    std::tr1::uint64_t totalBytes = 0;
     BOOST_FOREACH(const std::string &name, names)
     {
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
@@ -402,12 +403,14 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
             throw std::runtime_error(msg.str());
         }
         totalSplats += reader->size();
+        totalBytes += reader->size() * reader->getVertexSize();
         files.addFile(reader.get());
         reader.release();
     }
 
     Statistics::getStatistic<Statistics::Counter>("files.scans").add(names.size());
     Statistics::getStatistic<Statistics::Counter>("files.splats").add(totalSplats);
+    Statistics::getStatistic<Statistics::Counter>("files.bytes").add(totalBytes);
 }
 
 void reportException(std::exception &e)

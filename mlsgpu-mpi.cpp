@@ -391,6 +391,8 @@ static void run(
                     cerr << "The bounding box is too big (" << grid.numVertices(i) << " grid units).\n"
                         << "Perhaps you have used the wrong units for --fit-grid?\n";
                     MPI_Abort(comm, 1);
+                    double size = grid.numCells(i) * grid.getSpacing();
+                    Statistics::getStatistic<Statistics::Variable>(std::string("bbox") + "XYZ"[i]).add(size);
                 }
 
             unsigned int chunkCells = 0;

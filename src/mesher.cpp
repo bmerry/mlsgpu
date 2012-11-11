@@ -372,6 +372,7 @@ void StxxlMesher::write(std::ostream *progressStream)
 
     clump_id keptComponents = 0, totalComponents = 0;
     std::tr1::uint64_t keptTriangles = 0;
+    std::tr1::uint64_t keptVertices = 0;
     BOOST_FOREACH(const Clump &clump, clumps)
     {
         if (clump.isRoot())
@@ -380,6 +381,7 @@ void StxxlMesher::write(std::ostream *progressStream)
             if (clump.vertices >= thresholdVertices)
             {
                 keptComponents++;
+                keptVertices += clump.vertices;
                 keptTriangles += clump.triangles;
             }
         }
@@ -387,6 +389,8 @@ void StxxlMesher::write(std::ostream *progressStream)
 
     registry.getStatistic<Statistics::Variable>("components.vertices.total").add(vertices.size());
     registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
+    registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
+    registry.getStatistic<Statistics::Variable>("components.triangles.kept").add(keptTriangles);
     registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
     registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
     registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
