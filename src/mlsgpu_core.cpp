@@ -41,6 +41,7 @@
 #include "splat_tree_cl.h"
 #include "workers.h"
 #include "splat_set.h"
+#include "decache.h"
 
 namespace po = boost::program_options;
 
@@ -87,7 +88,8 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
-        (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)");
+        (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)")
+        (Option::decache,      "Try to evict input files from OS cache for benchmarking");
     opts.add(advanced);
 }
 
@@ -394,6 +396,8 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
     std::tr1::uint64_t totalBytes = 0;
     BOOST_FOREACH(const std::string &name, names)
     {
+        if (vm.count(Option::decache))
+            decache(name);
         std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
         if (reader->size() > SplatSet::FileSet::maxFileSplats)
         {
