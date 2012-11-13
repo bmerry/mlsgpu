@@ -291,11 +291,9 @@ private:
     cl::Buffer cells;
 
     /**
-     * Buffer of uint values, indexed by uncompacted cell ID. Initially it is a
-     * boolean array of cells that are non-empty, which is then scanned to
-     * produce the forward compaction mapping. Uncompacted cell IDs are y-major.
+     * Buffer containing 1 uint, the number of generated non-empty cells.
      */
-    cl::Buffer occupied;
+    cl::Buffer numOccupied;
 
     /**
      * Intermediate unwelded vertices. These are @c cl_float4 values, with the
@@ -361,8 +359,7 @@ private:
     cl::Buffer tmpVertexKeys, tmpVertices;
     /** @} */
 
-    cl::Kernel countOccupiedKernel;         ///< Kernel compiled from @ref countOccupied.
-    cl::Kernel compactKernel;               ///< Kernel compiled from @ref compact.
+    cl::Kernel genOccupiedKernel;           ///< Kernel compiled from @ref genOccupied.
     cl::Kernel countElementsKernel;         ///< Kernel compiled from @ref countElements.
     cl::Kernel generateElementsKernel;      ///< Kernel compiled from @ref generateElements.
     cl::Kernel countUniqueVerticesKernel;   ///< Kernel compiled from @ref countUniqueVertices.
@@ -374,8 +371,7 @@ private:
      * @{
      * Statistics measuring time spent in kernels with corresponding names.
      */
-    Statistics::Variable &countOccupiedKernelTime;
-    Statistics::Variable &compactKernelTime;
+    Statistics::Variable &genOccupiedKernelTime;
     Statistics::Variable &countElementsKernelTime;
     Statistics::Variable &generateElementsKernelTime;
     Statistics::Variable &countUniqueVerticesKernelTime;

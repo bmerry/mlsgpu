@@ -43,29 +43,30 @@ inline bool isValid(const float iso[8])
 }
 
 /**
- * Emits a boolean table indicating whether each cell may produce triangles.
- * It only needs to be conservative - nothing bad will happen if it emits
- * 1 for cells that end up producing nothing.
- *
- * Cell indices are linearized by treating them as y major.
+ * For each cell which might produce triangles, appends the coordinates of the
+ * cell to a buffer. It only needs to be conservative - nothing bad will happen
+ * if it emits cells that end up producing nothing.
  *
  * There is one work-item per cell in a slice, arranged in a 2D NDRange.
  *
- * @param[out] occupied      1 for occupied cells, 0 for unoccupied cells.
+ * @param[out] occupied      List of cell coordinates for occupied cells
+ * @param[in,out] N          Number of occupied cells, incremented atomically
  * @param      isoA          Slice of samples for lower z.
  * @param      yOffsetA      Initial Y offset in isoA for lower z.
  * @param      isoB          Slice of samples for higher z.
  * @param      yOffsetB      Initial Y offset in isoB for higher z.
+ *
+ * @todo Explore Morton order, which will have been texture cache hits.
  */
-__kernel void countOccupied(
-    __global uint *occupied,
+__kernel void genOccupied(
+    __global uint2 *occupied,
+    volatile __global uint *N,
     __read_only image2d_t isoA,
     uint yOffsetA,
     __read_only image2d_t isoB,
     uint yOffsetB)
 {
     uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
-    uint linearId = gid.y * get_global_size(0) + gid.x;
 
     float iso[8];
     iso[0] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (0, yOffsetA))).x;
@@ -79,28 +80,12 @@ __kernel void countOccupied(
 
     uint code = makeCode(iso);
     bool valid = isValid(iso);
-    occupied[linearId] = (valid && code != 0 && code != 255);
-}
 
-/**
- * Produce list of useful cells.
- *
- * There is one work-item per cell in a slice, arranged in a 2D NDRange.
- *
- * @param[out] cells         The coordinates of cells which may produce triangles.
- * @param      occupiedRemap Scan of output from @ref countOccupied.
- */
-__kernel void compact(
-    __global uint2 * restrict cells,
-    __global const uint * restrict occupiedRemap)
-{
-    uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
-    uint linearId = gid.y * get_global_size(0) + gid.x;
-
-    uint pos = occupiedRemap[linearId];
-    uint next = occupiedRemap[linearId + 1];
-    if (next != pos)
-        cells[pos] = gid;
+    if (valid && code != 0 && code != 255)
+    {
+        uint pos = atomic_inc(N);
+        occupied[pos] = gid;
+    }
 }
 
 /**

@@ -269,8 +269,8 @@ CLH::ResourceUsage Marching::resourceUsage(
     // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
     ans.addBuffer(sliceCells * sizeof(cl_uint2));
 
-    // occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
-    ans.addBuffer((sliceCells + 1) * sizeof(cl_uint));
+    // numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
+    ans.addBuffer(sizeof(cl_uint));
 
     // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
     ans.addBuffer((sliceCells + 1) * sizeof(cl_uint2));
@@ -318,8 +318,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 :
     maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
     context(context),
-    countOccupiedKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countOccupied.time")),
-    compactKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.compact.time")),
+    genOccupiedKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.genOccupied.time")),
     countElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countElements.time")),
     generateElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.generateElements.time")),
     countUniqueVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countUniqueVertices.time")),
@@ -354,7 +353,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     // If these are updated, also update deviceMemory
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
-    occupied = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint));
+    numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
     vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
@@ -369,8 +368,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     sortVertices.setTemporaryBuffers(tmpVertexKeys, tmpVertices);
 
     cl::Program program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
-    countOccupiedKernel = cl::Kernel(program, "countOccupied");
-    compactKernel = cl::Kernel(program, "compact");
+    genOccupiedKernel = cl::Kernel(program, "genOccupied");
     countElementsKernel = cl::Kernel(program, "countElements");
     generateElementsKernel = cl::Kernel(program, "generateElements");
     countUniqueVerticesKernel = cl::Kernel(program, "countUniqueVertices");
@@ -378,10 +376,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     reindexKernel = cl::Kernel(program, "reindex");
 
     // Set up kernel arguments that never change.
-    countOccupiedKernel.setArg(0, occupied);
-
-    compactKernel.setArg(0, cells);
-    compactKernel.setArg(1, occupied);
+    genOccupiedKernel.setArg(0, cells);
+    genOccupiedKernel.setArg(1, numOccupied);
 
     countElementsKernel.setArg(0, viCount);
     countElementsKernel.setArg(1, cells);
@@ -418,38 +414,33 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
                                     const std::vector<cl::Event> *events)
 {
     cl::Event last;
-    const std::size_t levelCells = (width - 1) * (height - 1);
 
-    countOccupiedKernel.setArg(1, sliceA.image);
-    countOccupiedKernel.setArg(2, sliceA.yOffset);
-    countOccupiedKernel.setArg(3, sliceB.image);
-    countOccupiedKernel.setArg(4, sliceB.yOffset);
-    CLH::enqueueNDRangeKernel(queue,
-                              countOccupiedKernel,
-                              cl::NullRange,
-                              cl::NDRange(width - 1, height - 1),
-                              cl::NullRange,
-                              events, &last, &countOccupiedKernelTime);
+    const cl_uint zero = 0;
+    queue.enqueueWriteBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
+                             &zero, events, &last);
+    // TODO: account for time
 
     std::vector<cl::Event> wait(1);
     wait[0] = last;
-    scanUint.enqueue(queue, occupied, levelCells + 1, NULL, &wait, &last);
-    wait[0] = last;
 
-    queue.enqueueReadBuffer(occupied, CL_FALSE, levelCells * sizeof(cl_uint), sizeof(cl_uint),
-                            &readback->compacted,
-                            &wait, NULL);
-
-    // In parallel to the readback, do compaction
+    genOccupiedKernel.setArg(2, sliceA.image);
+    genOccupiedKernel.setArg(3, sliceA.yOffset);
+    genOccupiedKernel.setArg(4, sliceB.image);
+    genOccupiedKernel.setArg(5, sliceB.yOffset);
     CLH::enqueueNDRangeKernel(queue,
-                              compactKernel,
+                              genOccupiedKernel,
                               cl::NullRange,
                               cl::NDRange(width - 1, height - 1),
                               cl::NullRange,
-                              &wait, NULL, &compactKernelTime);
+                              &wait, &last, &genOccupiedKernelTime);
 
-    // Now obtain the number of compacted cells for subsequent steps
-    queue.finish();
+    wait[0] = last;
+
+    queue.enqueueReadBuffer(numOccupied, CL_TRUE, 0, sizeof(cl_uint),
+                            &readback->compacted,
+                            &wait, NULL);
+    // TODO: account for time
+
     return readback->compacted;
 }
 
