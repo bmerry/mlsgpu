@@ -24,6 +24,7 @@
 #include "clh.h"
 #include "errors.h"
 #include "statistics.h"
+#include "statistics_cl.h"
 
 void SplatTreeCL::validateDevice(const cl::Device &device)
 {
@@ -87,6 +88,13 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
 {
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
+
+    sort.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.octree.sort.time"));
+    scan.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.octree.scan.time"));
 
     const std::tr1::uint64_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
     const std::size_t maxRanges = std::min(maxStart, std::tr1::uint64_t(8 * maxSplats));

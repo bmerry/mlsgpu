@@ -103,6 +103,27 @@ private:
     cl::Kernel classifyKernel;
     cl::Kernel triangleCompactKernel;
     cl::Kernel vertexCompactKernel;
+
+    /**
+     * @name
+     * @{
+     * Statistics measuring time spent in kernels with corresponding names.
+     */
+    Statistics::Variable &vertexInitKernelTime;
+    Statistics::Variable &classifyKernelTime;
+    Statistics::Variable &triangleCompactKernelTime;
+    Statistics::Variable &vertexCompactKernelTime;
+    /** @} */
+
+    /**
+     * @name
+     * @{
+     * Statistics measuring time spent reading from the device.
+     * @}
+     */
+    Statistics::Variable &internalVertexCountReadTime;
+    Statistics::Variable &vertexCountReadTime;
+    Statistics::Variable &triangleCountReadTime;
 };
 
 #endif /* !CLIP_H */

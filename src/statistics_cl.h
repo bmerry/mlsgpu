@@ -37,6 +37,13 @@ namespace Statistics
 void timeEvent(cl::Event event, Variable &stat);
 
 /**
+ * Wrapper around @ref timeEvent suitable for passing to @c clogs.
+ * @param event   An enqueued (but not necessarily complete) event
+ * @param stat    Pointer to a statistic to which the time will be added.
+ */
+void CL_CALLBACK timeEventCallback(const cl::Event &event, void *stat);
+
+/**
  * Similar to @ref timeEvent, but requests that the combined time from multiple
  * events is added to the statistic as a single data point.
  *

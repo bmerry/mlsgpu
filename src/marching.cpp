@@ -24,6 +24,7 @@
 #include "grid.h"
 #include "errors.h"
 #include "statistics.h"
+#include "statistics_cl.h"
 
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
 {
@@ -332,6 +333,16 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxDepth && maxDepth <= MAX_DIMENSION, std::invalid_argument);
+
+    scanUint.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.marching.scanUint.time"));
+    scanElements.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.marching.scanElements.time"));
+    sortVertices.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.marching.sortVertices.time"));
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)

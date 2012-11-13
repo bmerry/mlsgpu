@@ -111,6 +111,11 @@ void timeEvent(cl::Event event, Variable &stat)
     timeEvents(events, stat);
 }
 
+void CL_CALLBACK timeEventCallback(const cl::Event &event, void *stat)
+{
+    timeEvent(event, *static_cast<Variable *>(stat));
+}
+
 void finalizeEventTimes()
 {
     boost::lock_guard<boost::mutex> lock(savedEventsMutex);
