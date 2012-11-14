@@ -15,7 +15,7 @@
 #include <numeric>
 #include <algorithm>
 #include <boost/tr1/random.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/splat.h"
 #include "../src/grid.h"
 #include "../src/splat_tree.h"
@@ -89,23 +89,25 @@ void TestSplatTree::testBuild()
                     int ttl = 1000;
                     while (ttl > 0)  // prevents a loop from making the test run forever
                     {
-                        maxPos = max(maxPos, pos);
-                        ttl--;
                         CPPUNIT_ASSERT(pos >= 0 && pos < (command_type) commands.size());
-                        command_type cmd = commands[pos];
+                        command_type end = commands[pos++];
+                        CPPUNIT_ASSERT(end > pos && end < (command_type) commands.size());
+                        maxPos = max(maxPos, end);
+                        ttl--;
+
+                        for (command_type i = pos; i < end; i++)
+                        {
+                            command_type cmd = commands[i];
+                            CPPUNIT_ASSERT(cmd >= 0 && cmd < (command_type) splats.size());
+                            CPPUNIT_ASSERT(!foundSplats.count(cmd));
+                            foundSplats.insert(cmd);
+                        }
+                        command_type cmd = commands[end];
+                        CPPUNIT_ASSERT(cmd >= -1);
                         if (cmd == -1)
                             break;
-                        else if (cmd < 0)
-                        {
-                            pos = -2 - cmd;
-                            maxPos = max(maxPos, pos);
-                            CPPUNIT_ASSERT(pos >= 0 && pos < (command_type) commands.size());
-                            cmd = commands[pos];
-                        }
-                        CPPUNIT_ASSERT(cmd >= 0 && cmd < (command_type) splats.size());
-                        CPPUNIT_ASSERT(!foundSplats.count(cmd));
-                        foundSplats.insert(cmd);
-                        pos++;
+                        else
+                            pos = cmd;
                     }
                     CPPUNIT_ASSERT(ttl > 0);
                 }
@@ -113,9 +115,9 @@ void TestSplatTree::testBuild()
                 // Check against splats we must see
                 float corner[3] =
                 {
-                    x + offset[0],
-                    y + offset[1],
-                    z + offset[2]
+                    float(x + offset[0]),
+                    float(y + offset[1]),
+                    float(z + offset[2])
                 };
                 for (unsigned int i = 0; i < splats.size(); i++)
                 {
@@ -133,13 +135,14 @@ void TestSplatTree::testBuild()
                 }
             }
 
-    /* Check that no splat appears more than 8 times in the command list */
+    /* Check that no splat appears more than 8 times in the command list. */
     map<unsigned int, int> repeats;
     for (command_type i = 0; i <= maxPos; i++)
     {
-        command_type cmd = commands[i];
-        if (cmd >= 0)
+        command_type end = commands[i++];
+        while (i < end)
         {
+            command_type cmd = commands[i++];
             repeats[cmd]++;
             CPPUNIT_ASSERT(repeats[cmd] <= 8);
         }
@@ -196,18 +199,24 @@ void TestSplatTree::testRandom()
                     size_t steps = 0; // for detecting loops
                     while (size_t(steps) <= commands.size())
                     {
-                        command_type cmd = commands[pos];
+                        command_type end = commands[pos++];
+                        CPPUNIT_ASSERT(end > pos && size_t(end) < commands.size());
+
+                        for (command_type i = pos; i < end; i++)
+                        {
+                            command_type cmd = commands[i];
+                            CPPUNIT_ASSERT(cmd >= 0 && size_t(cmd) < splats.size());
+                            steps++;
+                        }
+                        command_type cmd = commands[end];
+                        CPPUNIT_ASSERT(cmd >= -1);
                         if (cmd == -1)
                             break;
-                        else if (cmd < 0)
+                        else
                         {
-                            pos = -2 - cmd;
+                            pos = cmd;
                             CPPUNIT_ASSERT(size_t(pos) < commands.size());
-                            cmd = commands[pos];
                         }
-                        CPPUNIT_ASSERT(cmd >= 0 && size_t(cmd) < splats.size());
-                        steps++;
-                        pos++;
                     }
                     CPPUNIT_ASSERT_MESSAGE("Infinite loop in command list", steps <= commands.size());
                 }

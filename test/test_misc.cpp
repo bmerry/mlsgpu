@@ -9,8 +9,8 @@
 #endif
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include <tr1/cstdint>
-#include "testmain.h"
+#include "../src/tr1_cstdint.h"
+#include "testutil.h"
 #include "../src/misc.h"
 
 using namespace std;

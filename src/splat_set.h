@@ -11,7 +11,7 @@
 # include <config.h>
 #endif
 
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <vector>
 #include <utility>
 #include <algorithm>
@@ -19,10 +19,15 @@
 #include <cassert>
 #include <cstddef>
 #include <iosfwd>
+#include <memory>
 #include <boost/array.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/type_traits/integral_constant.hpp>
+#include <boost/iterator/iterator_facade.hpp>
+#include <boost/thread/thread.hpp>
+#include <boost/thread/locks.hpp>
 #include "grid.h"
 #include "misc.h"
 #include "splat.h"
@@ -30,8 +35,15 @@
 #include "fast_ply.h"
 #include "statistics.h"
 #include "logging.h"
+#include "work_queue.h"
 #include "progress.h"
 #include "allocator.h"
+#include "circular_buffer.h"
+#include "timeplot.h"
+#include "tr1_cstdint.h"
+
+template<typename BaseType>
+class TestFastBlobSet;
 
 /**
  * Data structures for iteration over sets of splats.
@@ -43,7 +55,7 @@ typedef std::tr1::uint64_t splat_id;
 
 /**
  * Metadata about a sequence of splats. The range of splat IDs must all be
- * valid splat ID, and hence the number of splats in the blob is exactly
+ * valid splat IDs, and hence the number of splats in the blob is exactly
  * @a lastSplat - @a firstSplat.
  */
 struct BlobInfo
@@ -65,6 +77,14 @@ struct BlobInfo
      * @see @ref lower.
      */
     boost::array<Grid::difference_type, 3> upper;
+
+    bool operator==(const BlobInfo &b) const
+    {
+        return firstSplat == b.firstSplat
+            && lastSplat == b.lastSplat
+            && lower == b.lower
+            && upper == b.upper;
+    }
 };
 
 /**
@@ -101,7 +121,7 @@ public:
      * Return the currently pointed-to splat.
      * @pre <code>!empty()</code>
      */
-    virtual const Splat &operator*() const = 0;
+    virtual Splat operator*() const = 0;
 
     /**
      * Determines whether there are any more splats to advance over.
@@ -114,21 +134,6 @@ public:
      * @pre <code>!empty()</code>
      */
     virtual splat_id currentId() const = 0;
-};
-
-/**
- * A subclass of splat stream that is able to relatively efficiently do random
- * access. It is still likely to be most effective when @ref reset is used
- * sparingly due to overheads.
- */
-class SplatStreamReset : public SplatStream
-{
-public:
-    /**
-     * Restart iteration over a new range of IDs.
-     * @pre @a first &lt;= @a last.
-     */
-    virtual void reset(splat_id first, splat_id last) = 0;
 };
 
 /**
@@ -213,15 +218,19 @@ public:
  * A set that can be wrapped in @ref Subset. It contains extra methods for
  * random access that are used by @ref Subset to iterate over its subset.
  */
+template<typename RangeIterator>
 class SubsettableConcept : public SetConcept
 {
 public:
     /**
-     * Create a splat stream that can be used for random access to the splats.
-     * The returned stream is empty, and @ref SplatStreamReset::reset must be
-     * used to select ranges to iterate over.
+     * Create a splat stream that can be used to pull a collection of ranges.
+     *
+     * @param firstRange,lastRange   A sequence of instances of <code>std::pair<splat_id, splat_id></code>, each a range of splat IDs
+     *
+     * @warning The iterators are accessed while the stream is walked, so the backing storage
+     * for them must remain intact and unaltered until the stream is destroyed.
      */
-    SplatStreamReset *makeSplatStreamReset() const;
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const;
 };
 
 #endif // DOXYGEN_FAKE_CODE
@@ -232,212 +241,14 @@ public:
 namespace detail
 {
 
-/**
- * Computes the range of buckets that will be occupied by a splat's bounding
- * box. See @ref BlobInfo for the definition of buckets.
- *
- * The coordinates are given in units of buckets, with (0,0,0) being the bucket
- * overlapping cell (0,0,0).
- *
- * @param      splat         Input splat
- * @param      grid          Grid for spacing and alignment
- * @param      bucketSize    Size of buckets in cells
- * @param[out] lower         Lower bound coordinates (inclusive)
- * @param[out] upper         Upper bound coordinates (inclusive)
- *
- * @pre
- * - <code>splat.isFinite()</code>
- * - @a bucketSize &gt; 0
- */
-void splatToBuckets(const Splat &splat,
-                    const Grid &grid, Grid::size_type bucketSize,
-                    boost::array<Grid::difference_type, 3> &lower,
-                    boost::array<Grid::difference_type, 3> &upper);
+/// Range of [0, max splat id), so back a reader over the entire set
+extern const std::pair<splat_id, splat_id> rangeAll;
+
+} // namespace detail
 
 /**
- * Partial splat set interface for a simple vector of splats. This is turned
- * into a model of @ref SetConcept using @ref BlobbedSet. The splat IDs are
- * simply the positions in the vector. It is legal to store non-finite splats;
- * they will be skipped over by the stream.
- *
- * All the public methods of @ref Statistics::Container::vector&lt;Splat&gt;
- * are available, but modifying the data while a stream exists yields undefined
- * behavior.
- */
-class SimpleVectorSet : public Statistics::Container::vector<Splat>
-{
-public:
-    splat_id maxSplats() const { return size(); }
-
-    SplatStream *makeSplatStream() const
-    {
-        return new MySplatStream(*this, 0, size());
-    }
-
-    SplatStreamReset *makeSplatStreamReset() const
-    {
-        return new MySplatStream(*this, 0, 0);
-    }
-
-    SimpleVectorSet() : Statistics::Container::vector<Splat>("mem.SimpleVectorSet") {}
-
-private:
-    /// Splat stream implementation
-    class MySplatStream : public SplatStreamReset
-    {
-    public:
-        virtual const Splat &operator*() const
-        {
-            MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return owner.at(cur);
-        }
-
-        virtual SplatStream &operator++()
-        {
-            MLSGPU_ASSERT(!empty(), std::out_of_range);
-            cur++;
-            skipNonFinite();
-            return *this;
-        }
-
-        virtual bool empty() const
-        {
-            return cur == last;
-        }
-
-        virtual void reset(splat_id first, splat_id last)
-        {
-            MLSGPU_ASSERT(first <= last, std::invalid_argument);
-            if (owner.size() < last)
-                last = owner.size();
-            if (first > last)
-                first = last;
-            cur = first;
-            this->last = last;
-            skipNonFinite();
-        }
-
-        virtual splat_id currentId() const
-        {
-            return cur;
-        }
-
-        MySplatStream(const SimpleVectorSet &owner, splat_id first, splat_id last)
-            : owner(owner)
-        {
-            reset(first, last);
-        }
-
-    private:
-        const SimpleVectorSet &owner;
-        splat_id cur;
-        splat_id last;
-
-        ///< Advances until reading a finite splat or the end of the range
-        void skipNonFinite();
-    };
-};
-
-/**
- * Splat-set core interface for a collection of on-disk PLY files.
- *
- * The splat IDs use the upper bits to store the file ID and the remaining
- * bits to store the splat index within the file.
- */
-class SimpleFileSet
-{
-public:
-    /// Number of bits used to store the within-file splat ID
-    static const unsigned int scanIdShift = 40;
-    /// Mask of the bits used to store the within-file splat ID
-    static const splat_id splatIdMask = (splat_id(1) << scanIdShift) - 1;
-
-    /**
-     * Append a new file to the set. The set takes over ownership of the file.
-     * This must not be called while a stream is in progress.
-     */
-    void addFile(FastPly::Reader *file);
-
-    SplatStream *makeSplatStream() const
-    {
-        return new MySplatStream(*this, 0, splat_id(files.size()) << scanIdShift);
-    }
-
-    SplatStreamReset *makeSplatStreamReset() const
-    {
-        return new MySplatStream(*this, 0, 0);
-    }
-
-    splat_id maxSplats() const { return nSplats; }
-
-    SimpleFileSet() : nSplats(0) {}
-
-private:
-    /// Splat stream implementation
-    class MySplatStream : public SplatStreamReset
-    {
-    public:
-        virtual const Splat &operator*() const
-        {
-            MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return buffer[bufferCur];
-        }
-
-        virtual SplatStream &operator++();
-
-        virtual bool empty() const
-        {
-            return bufferCur == bufferEnd;
-        }
-
-        virtual splat_id currentId() const
-        {
-            return cur;
-        }
-
-        virtual void reset(splat_id first, splat_id last);
-
-        MySplatStream(const SimpleFileSet &owner, splat_id first, splat_id last)
-            : owner(owner)
-        {
-            reset(first, last);
-        }
-
-    private:
-        /// Size of internal buffer for holding splats
-        static const std::size_t bufferSize = 16384;
-
-        const SimpleFileSet &owner;     ///< Owning set
-        splat_id last;                  ///< End of range to iterate over
-        splat_id next;                  ///< Next ID to load into the buffer once exhausted
-        splat_id cur;                   ///< Splat ID at the front of the buffer
-        std::size_t bufferCur;          ///< First position in @ref buffer with data
-        std::size_t bufferEnd;          ///< Past-the-end position for @ref buffer
-        Splat buffer[bufferSize];       ///< Buffer for splats read from file
-
-        /**
-         * Advances over non-finite elements in the buffer. It stops when a
-         * finite splat is reached or the buffer is empty. This should only
-         * be called by @ref refill.
-         */
-        void skipNonFiniteInBuffer();
-
-        /**
-         * Advance the stream until empty or a finite splat is reached. This
-         * will refill the buffer if necessary.
-         */
-        void refill();
-    };
-
-    /// Backing store of files
-    boost::ptr_vector<FastPly::Reader> files;
-
-    /// Number of splats stored in the files (including non-finites)
-    splat_id nSplats;
-};
-
-/**
- * Implementation of @ref BlobStream that just has one blob for each splat.
+ * Implementation of @ref BlobStream that just has one blob for each splat. It
+ * is created by passing the underlying splat stream to the constructor.
  */
 class SimpleBlobStream : public BlobStream
 {
@@ -468,44 +279,382 @@ private:
 };
 
 /**
- * Adds the blob interface to a base class that does not have it, with blob
- * IDs simply equaling splat IDs.
+ * Splat set interface for a simple vector of splats. The splat IDs are
+ * simply the positions in the vector. It is legal to store non-finite splats;
+ * they will be skipped over by the stream. Blobs just contain one splat each.
  *
- * @param CoreSet A model of @ref SubsettableConcept that is missing the blob functions.
+ * All the public methods of @ref Statistics::Container::vector&lt;Splat&gt;
+ * are available, but modifying the data while a stream exists yields undefined
+ * behavior.
  */
-template<typename CoreSet>
-class BlobbedSet : public CoreSet
-#ifdef DOXYGEN_FAKE_CODE
-, public SubsettableConcept
-#endif
+class VectorSet : public Statistics::Container::vector<Splat>
 {
 public:
+    splat_id maxSplats() const { return size(); }
+
+    SplatStream *makeSplatStream() const
+    {
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+    }
+
+    template<typename RangeIterator>
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    {
+        return new MySplatStream<RangeIterator>(*this, firstRange, lastRange);
+    }
+
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
     {
-        return new detail::SimpleBlobStream(CoreSet::makeSplatStream(), grid, bucketSize);
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
     }
+
+    VectorSet() : Statistics::Container::vector<Splat>("mem.VectorSet") {}
+
+private:
+    /// Splat stream implementation
+    template<typename RangeIterator>
+    class MySplatStream : public SplatStream
+    {
+    public:
+        virtual Splat operator*() const
+        {
+            MLSGPU_ASSERT(!empty(), std::out_of_range);
+            return owner[cur];
+        }
+
+        virtual SplatStream &operator++()
+        {
+            MLSGPU_ASSERT(!empty(), std::out_of_range);
+            cur++;
+            refill();
+            return *this;
+        }
+
+        virtual bool empty() const
+        {
+            return curRange == lastRange;
+        }
+
+        virtual splat_id currentId() const
+        {
+            return cur;
+        }
+
+        MySplatStream(const VectorSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+            : owner(owner), curRange(firstRange), lastRange(lastRange)
+        {
+            if (curRange != lastRange)
+                cur = curRange->first;
+            refill();
+        }
+
+    private:
+        const VectorSet &owner;
+        RangeIterator curRange, lastRange;
+        splat_id cur; ///< Index of current splat in owner (undefined if stream is empty)
+
+        ///< Advances until reading a finite splat or the end of the stream
+        void refill();
+    };
 };
 
-} // namespace detail
-
 /**
- * An implementation of @ref SubsettableConcept with data stored in multiple
- * PLY files.
+ * Splat-set interface for a collection of on-disk PLY files.
+ *
+ * The splat IDs use the upper bits to store the file ID and the remaining
+ * bits to store the splat index within the file.
  */
-typedef detail::BlobbedSet<detail::SimpleFileSet> FileSet;
+class FileSet
+{
+private:
+    struct FileRange
+    {
+        std::size_t fileId;  ///< Index into list of files
+        FastPly::ReaderBase::size_type start, end;  ///< Indices within @ref fileId
+    };
 
-/**
- * An implementation of @ref SubsettableConcept with data stored in a single
- * vector.
- */
-typedef detail::BlobbedSet<detail::SimpleVectorSet> VectorSet;
+    /**
+     * Iterator class that is used to wrap an iterator over ranges and presents
+     * range that are always within a single file, clamped to the range of the
+     * file size, non-empty, and no bigger than a given size in bytes.
+     */
+    template<typename RangeIterator>
+    class FileRangeIterator : public boost::iterator_facade<
+        FileRangeIterator<RangeIterator>,
+        FileRange,
+        boost::forward_traversal_tag,
+        FileRange>
+    {
+    private:
+        /**
+         * Owner, used to obtain file sizes etc (NULL when default-constructed).
+         */
+        const FileSet *owner;
+        RangeIterator curRange;   ///< Currently being considered
+        RangeIterator lastRange;  ///< Past-the-end range
+        /**
+         * First to return from @c operator*. This is an absolute packed splat
+         * ID, not file- or range-relative.
+         */
+        splat_id first;
+        FastPly::ReaderBase::size_type maxSize;  ///< Maximum range size (bytes)
+
+        friend class boost::iterator_core_access;
+
+        /// Advance until a non-empty output range is found
+        void refill();
+
+        /// Move to the next sub-range
+        void increment();
+
+        /**
+         * Equality comparison. It is only meaningful for ranges with the same
+         * @ref owner and @ref lastRange.
+         */
+        bool equal(const FileRangeIterator &other) const;
+
+        /**
+         * Extract a range and return it.
+         */
+        FileRange dereference() const;
+
+    public:
+        FileRangeIterator() : owner(NULL), curRange(), lastRange(), first(0), maxSize(0) {}
+
+        /**
+         * Begin iterator.
+         * @pre @a maxSize is at least as big as any single vertex.
+         */
+        FileRangeIterator(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange, FastPly::ReaderBase::size_type maxSize);
+
+        /// End iterator
+        explicit FileRangeIterator(const FileSet &owner, RangeIterator lastRange);
+    };
+
+public:
+    enum
+    {
+        /**
+         * Default size of internal buffer for reading file data.
+         *
+         * This is the total buffer size, but only a fixed fraction of it
+         * is used in any one read, so that reads can be pipelined.
+         *
+         * @see @ref setBufferSize
+         */
+        DEFAULT_BUFFER_SIZE = 32 * 1024 * 1024 + 1
+    };
+
+    /// Number of bits used to store the within-file splat ID
+    static const unsigned int scanIdShift;
+    /// Mask of the bits used to store the within-file splat ID
+    static const splat_id splatIdMask;
+
+    /// Maximum number of files supported;
+    static const std::size_t maxFiles;
+
+    /// Maximum number of splats per file supported
+    static const std::size_t maxFileSplats;
+
+    /**
+     * Append a new file to the set. The set takes over ownership of the file.
+     * This must not be called while a stream is in progress.
+     */
+    void addFile(FastPly::ReaderBase *file);
+
+    SplatStream *makeSplatStream() const
+    {
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+    }
+
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    }
+
+    template<typename RangeIterator>
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    {
+        std::auto_ptr<ReaderThread<RangeIterator> > reader(
+            new ReaderThread<RangeIterator>(*this, firstRange, lastRange));
+        SplatStream *ans = new MySplatStream(*this, reader.get());
+        reader.release();
+        return ans;
+    }
+
+    splat_id maxSplats() const { return nSplats; }
+
+    /**
+     * Set the buffer size that is used by the reader thread. It is not safe
+     * to call this function at the same time as another thread creates a
+     * stream, but it can be called while streams exist and they will each
+     * have their own buffer size.
+     *
+     * @warning This must be at least twice as big as any of the splats in any
+     * of the files, and ideally a lot bigger or performance will suffer.
+     */
+    void setBufferSize(std::size_t bufferSize) { this->bufferSize = bufferSize; }
+
+    FileSet() : nSplats(0), bufferSize(DEFAULT_BUFFER_SIZE) {}
+
+private:
+    /**
+     * Base class for @ref ReaderThread that is agnostic to the range iterator
+     * type. It provides the management of the queues but not the actual thread
+     * function.
+     */
+    class ReaderThreadBase : public boost::noncopyable
+    {
+    public:
+        /**
+         * Describes a contiguous range of splats. It can also be a sentinel
+         * value (marked with @ref ptr of @c NULL), which marks the end of
+         * the splat stream.
+         */
+        struct Item
+        {
+            splat_id first;      ///< ID of first splat in the range
+            splat_id last;       ///< One more than the ID of the last splat in the range
+
+            /**
+             * A pointer to the raw splat data. This can be decoded with @ref decode,
+             * extracting the file ID from @ref first. It is guaranteed that all splats
+             * in the range have the same layout.
+             */
+            char *ptr;
+
+            /**
+             * Total bytes allocated in the buffer (including any padding). This is
+             * not intended to be used externally, just by @ref free.
+             */
+            std::size_t bytes;
+
+            Item() : first(0), last(0), ptr(NULL), bytes(0)
+            {
+            }
+
+            std::size_t numSplats() const { return last - first; }
+        };
+    protected:
+        const FileSet &owner;   ///< Owning splat stream
+        /**
+         * Queue of splat ranges as they're read. This will produce a stream of
+         * real ranges (non-NULL pointer), followed by exactly one default-constructed
+         * item.
+         */
+        WorkQueue<Item> outQueue;
+
+        CircularBuffer buffer;
+        Timeplot::Worker tworker;
+
+    public:
+        explicit ReaderThreadBase(const FileSet &owner);
+
+        /// Virtual destructor to allow dynamic storage management
+        virtual ~ReaderThreadBase() {}
+
+        /// Thread function
+        virtual void operator()() = 0;
+
+        /**
+         * Remove all remaining items from the out queue, immediately
+         * restoring them to the pool. This is called by the stream thread.
+         *
+         * @pre The end-of-stream marker has not yet been seen (otherwise this will deadlock)
+         */
+        void drain();
+
+        /**
+         * Retrieve the next range of splats from the reader.
+         * This is called by the stream thread, and is thread-safe.
+         */
+        Item pop() { return outQueue.pop(); }
+
+        /**
+         * Return memory retrieved by @ref pop. The stream thread must
+         * eventually call this for every non-sentinel value returned by
+         * @ref pop, and it must do so in the same order.
+         */
+        void free(const Item &item);
+    };
+
+    /**
+     * Thread class that does reads and provides the data for the stream.
+     *
+     * @todo Optimize so that multiple ranges can share a buffer slot.
+     * @todo Optimize to make fewer reads overall
+     */
+    template<typename RangeIterator>
+    class ReaderThread : public ReaderThreadBase
+    {
+    private:
+        RangeIterator firstRange, lastRange;
+
+    public:
+        ReaderThread(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange);
+
+        virtual void operator()();
+    };
+
+    /**
+     * Splat stream implementation.
+     */
+    class MySplatStream : public SplatStream
+    {
+    public:
+        virtual Splat operator*() const
+        {
+            MLSGPU_ASSERT(!empty(), std::out_of_range);
+            return buffer[bufferCur];
+        }
+
+        virtual SplatStream &operator++();
+
+        virtual bool empty() const
+        {
+            return isEmpty && bufferCur == buffer.size();
+        }
+
+        virtual splat_id currentId() const
+        {
+            return firstId + bufferCur;
+        }
+
+        MySplatStream(const FileSet &owner, ReaderThreadBase *reader);
+        virtual ~MySplatStream();
+
+    private:
+        const FileSet &owner;           ///< Owning set
+        std::size_t bufferCur;          ///< First position in @ref buffer with data
+        Statistics::Container::vector<Splat> buffer;  ///< Current buffer
+        splat_id firstId;               ///< Id of first splat in buffer
+        bool isEmpty;                   ///< Set to true once sentinel item is seen
+        boost::scoped_ptr<ReaderThreadBase> readerThread;
+        boost::thread thread;
+
+        /**
+         * Advance the stream until empty or a finite splat is reached. This
+         * will refill the buffer if necessary.
+         */
+        void refill();
+    };
+
+    /// Backing store of files
+    boost::ptr_vector<FastPly::ReaderBase> files;
+
+    /// Number of splats stored in the files (including non-finites)
+    splat_id nSplats;
+
+    /// Buffer sized used by streams
+    std::size_t bufferSize;
+};
 
 /**
  * Internal data stored in @ref FastBlobSet. This class is not accessed
  * directly by the user, but is in the namespace so that the user can generate
  * the type for the second template parameter to @ref FastBlobSet.
  */
-typedef BlobInfo BlobData;
+typedef std::tr1::uint32_t BlobData;
 
 /**
  * Subsettable splat set with accelerated blob interface. This class takes a
@@ -523,6 +672,47 @@ typedef BlobInfo BlobData;
  * single pass, this is usually more efficient than computing the bounding
  * grid separately.
  *
+ * The blobs are stored in a variable-length encoding, as either 1 or 10 32-bit
+ * words. The "full" encoding (10 words) is non-differential and as follows:
+ *  -# firstSplat (high)
+ *  -# firstSplat (low)
+ *  -# lastSplat (high)
+ *  -# lastSplat (low)
+ *  -# lower[0]
+ *  -# upper[0]
+ *  -# lower[1]
+ *  -# upper[1]
+ *  -# lower[2]
+ *  -# upper[2]
+ *
+ * The differential encoding is bit-packed into a 32-bit word as follows (from
+ * least to most significant bit):
+ *  - [0:3] a[0]
+ *  - [3:4] b[0]
+ *  - [4:7] a[1]
+ *  - [7:8] b[1]
+ *  - [8:11] a[2]
+ *  - [11:12] b[2]
+ *  - [12:31] c
+ *  - [31:32] 1
+ *
+ * The high bit being set is what marks it as differential - note that this means
+ * that only half the splat ID range can be used in a FastBlobSet. The @a a values
+ * are signed while the other values are unsigned.
+ *
+ * To complete the decoding, let @a p be the previous decoded blob. Then
+ *  - firstSplat = p.lastSplat
+ *  - lastSplat = firstSplat + c
+ *  - lower[i] = p.upper[i] + a[i]
+ *  - upper[i] = lower[i] + b[i]
+ *
+ * Thus, the differential encoding can only be used when the blob
+ *  - is not the first in the file;
+ *  - contains at most 2<sup>19</sup> splats;
+ *  - follows directly after the previous one in splat ID order;
+ *  - covers at most two buckets in each axis;
+ *  - is sufficiently close to the previous one.
+ *
  * @param Base A model of @ref SubsettableConcept.
  */
 template<typename Base, typename BlobVector>
@@ -531,6 +721,7 @@ class FastBlobSet : public Base
 , public SubsettableConcept
 #endif
 {
+    template<typename BaseType> friend class ::TestFastBlobSet;
 public:
     /**
      * Class returned by makeBlobStream only in the fast path.
@@ -540,16 +731,11 @@ public:
     public:
         virtual BlobInfo operator*() const;
 
-        virtual BlobStream &operator++()
-        {
-            MLSGPU_ASSERT(curBlob < lastBlob, std::length_error);
-            ++curBlob;
-            return *this;
-        }
+        virtual BlobStream &operator++();
 
         virtual bool empty() const
         {
-            return curBlob == lastBlob;
+            return curBlob.firstSplat > curBlob.lastSplat;
         }
 
         MyBlobStream(const FastBlobSet<Base, BlobVector> &owner, const Grid &grid,
@@ -564,8 +750,18 @@ public:
          * blob data, in units of @a owner.internalBucketSize.
          */
         Grid::difference_type offset[3];
-        typename BlobVector::size_type curBlob;     ///< Blob ID for the current blob
-        typename BlobVector::size_type lastBlob;    ///< Past-the-end ID
+        /// Index into owner's blobData for the blob after curInfo is extracted
+        typename BlobVector::size_type nextPtr;
+        /**
+         * A blob to return from operator*, but prior to adjustment for @ref
+         * offset and @ref bucketRatio. It is also the base for differential
+         * encoding of the next blob.
+         *
+         * In the special case firstSplat > lastSplat, the stream is empty.
+         */
+        BlobInfo curBlob;
+
+        void refill(); ///< Load curBlob from the stream
     };
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
@@ -621,7 +817,7 @@ private:
     /**
      * Blob metadata computed by @ref computeBlobs. It is initially empty.
      */
-    BlobVector blobs;
+    BlobVector blobData;
     std::size_t nSplats;  ///< Exact splat count computed during blob generation
 
     /**
@@ -629,6 +825,16 @@ private:
      * pre-generated blob data.
      */
     bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
+
+    /**
+     * Append a blob to @ref blobData.
+     * @param blobData The list of encoded blobs to append to.
+     * @param prevBlob The value @a curBlob had on previous call.
+     * @param curBlob  The blob to append.
+     * On the first call (i.e., when @a blobData is empty), the value of @a
+     * prevBlob is irrelevant.
+     */
+    static void addBlob(std::vector<BlobData> &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob);
 };
 
 /**
@@ -641,11 +847,58 @@ class SubsetBase
 {
 public:
     /**
+     * Forward iterator type that enumerates the splat ranges
+     * as pairs of [first, last) IDs.
+     */
+    class const_iterator : public boost::iterator_facade<
+        const_iterator,
+        std::pair<splat_id, splat_id>,
+        boost::forward_traversal_tag,
+        std::pair<splat_id, splat_id> >
+    {
+        friend class boost::iterator_core_access;
+        friend class SubsetBase;
+    private:
+
+        /**
+         * @name
+         * @{
+         * Iterator core functions.
+         * @see Boost iterator_facade documentation.
+         */
+        void increment();
+        bool equal(const const_iterator &other) const;
+        std::pair<splat_id, splat_id> dereference() const;
+        /**
+         * @}
+         */
+
+        /// Baseline for differential encoding
+        splat_id prev;
+
+        /// Position in the owner's encoded array
+        Statistics::Container::vector<std::tr1::uint32_t>::const_iterator pos;
+
+        const_iterator(splat_id prev,
+                       Statistics::Container::vector<std::tr1::uint32_t>::const_iterator pos)
+            : prev(prev), pos(pos) {}
+
+    public:
+        const_iterator() : prev(0) {}
+    };
+
+    /**
      * Add a blob to the subset.
      * @pre
      * - @a blob.firstSplat is greater than any previously added splat.
      */
     void addBlob(const BlobInfo &blob);
+
+    /**
+     * Call this after adding all blobs with @ref addBlob and before
+     * using the iterator functions to finalize the internal data structure.
+     */
+    void flush();
 
     /**
      * Swap blob IDs with another subset. Note that this does not check that
@@ -657,40 +910,75 @@ public:
     void swap(SubsetBase &other);
 
     /**
-     * The number of blob ID ranges.
+     * The number of contiguous splat ID ranges.
+     * @pre @ref flush has been called since the last @ref addBlob.
      */
-    std::size_t numRanges() const { return splatRanges.size(); }
+    std::size_t numRanges() const { return nRanges; }
 
     splat_id numSplats() const { return nSplats; }
     splat_id maxSplats() const { return nSplats; }
 
-    SubsetBase() : splatRanges("mem.SubsetBase::splatRange"), nSplats(0) {}
+    /**
+     * @name
+     * @{
+     * Iterator range that enumerates the ranges in order.
+     *
+     * @pre @ref flush() has been called.
+     */
+    const_iterator begin() const;
+    const_iterator end() const;
+    /** @} */
+
+    SubsetBase() :
+        splatRanges("mem.SubsetBase::splatRange"),
+        first(0), last(0), prev(0),
+        nSplats(0), nRanges(0) {}
 
 protected:
     /**
-     * Store of blob ID ranges. Each range is a half-open interval of valid
-     * IDs.
+     * Store of splat ID ranges. Each range is a half-open interval of valid
+     * IDs. They are encoded in one of two forms. The full encoding uses 4
+     * 32-bit words:
+     * -# First splat (high)
+     * -# First splat (low)
+     * -# Last splat (high)
+     * -# Last splat (low)
+     *
+     * The differential encoding packs fields into a single 32-bit word. From
+     * lowest to highest bit:
+     * - [0:16]  First splat minus last splat from previous range
+     * - [16:31] Length
+     * - [31:32] 1
      */
-    Statistics::Container::vector<std::pair<splat_id, splat_id> > splatRanges;
+    Statistics::Container::vector<std::tr1::uint32_t> splatRanges;
+
+    /**
+     * @name
+     * @{
+     * Range waiting to be added to @ref splatRanges when complete.
+     */
+    splat_id first, last;
+    /** @} */
+
+    /// End of the previous range, for differential encoding
+    splat_id prev;
 
     /// Number of splats in the supplied blobs.
     splat_id nSplats;
+
+    /// Number of ranges encoded
+    std::size_t nRanges;
 };
 
 /**
  * A subset of the splats from another set. Note that this class does not
  * implement the @ref SubsettableConcept, but since it matches its superset in
- * blob and splat IDs, it is possible to create a subset of a subset by
- * subsetting the superset. @ref Traits can be used to handle this distinction
+ * splat IDs, it is possible to create a subset of a subset by subsetting the
+ * superset. @ref Traits can be used to handle this distinction
  * transparently.
  *
- * The members of the subset are specified using blobs of the superset. Thus,
- * the subset is specialized with a specific grid and bucket size which give
- * the blob view on the superset. Blob iteration over the subset using the
- * same grid and bucket size will be efficient since it will just iterate over
- * blobs from the superset (which may be particularly efficient if the
- * superset is a @ref FastBlobSet). Blob iteration using a different grid or
- * bucket size will simply iterate over all the splats.
+ * Blob iteration is currently not very efficient: it iterates one splat at a time,
+ * even if the superset is a @ref FastBlobSet.
  *
  * @param Super a model of @ref SubsettableConcept
  */
@@ -703,7 +991,7 @@ class Subset : public SubsetBase
 public:
     SplatStream *makeSplatStream() const
     {
-        return new MySplatStream(*this);
+        return super.makeSplatStream(begin(), end());
     }
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
@@ -727,46 +1015,6 @@ public:
     }
 
 private:
-    /// Splat stream implementation
-    class MySplatStream : public SplatStream
-    {
-    public:
-        virtual const Splat &operator *() const
-        {
-            return **child;
-        }
-
-        virtual SplatStream &operator++()
-        {
-            ++*child;
-            refill();
-            return *this;
-        }
-
-        virtual bool empty() const
-        {
-            return child->empty();
-        }
-
-        virtual splat_id currentId() const
-        {
-            return child->currentId();
-        }
-
-        MySplatStream(const Subset<Super> &owner)
-            : owner(owner), splatRange(0), child(owner.super.makeSplatStreamReset())
-        {
-            refill();
-        }
-
-    private:
-        const Subset<Super> &owner;
-        std::size_t splatRange;        ///< Next blob range to load into @ref child
-        boost::scoped_ptr<SplatStreamReset> child; ///< Stream for iterating over ranges of superset splats
-
-        void refill();                ///< Advance to the next valid splat
-    };
-
     const Super &super;             ///< Containing superset.
 };
 

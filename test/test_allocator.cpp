@@ -10,7 +10,7 @@
 
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/statistics.h"
 #include "../src/allocator.h"
 
@@ -48,46 +48,45 @@ void TestAllocator::testAllocate()
 {
     typedef Statistics::Allocator<std::allocator<int> > A;
 
-    Statistics::Peak<A::size_type> peak("peak");
+    Statistics::Peak peak("peak");
     A a(&peak);
     int *p = a.allocate(3);
     a.deallocate(p, 3);
-    CPPUNIT_ASSERT(peak.getMax() == 3 * sizeof(int));
-    CPPUNIT_ASSERT(peak.get() == 0);
+    MLSGPU_ASSERT_EQUAL(3 * sizeof(int), peak.getMax());
+    MLSGPU_ASSERT_EQUAL(0, peak.get());
 }
 
 void TestAllocator::testAllocateHint()
 {
     typedef Statistics::Allocator<std::allocator<int> > A;
 
-    Statistics::Peak<A::size_type> peak("peak");
+    Statistics::Peak peak("peak");
     A a(&peak);
     int hint;
     int *p = a.allocate(5, &hint);
     a.deallocate(p, 5);
-    CPPUNIT_ASSERT(peak.getMax() == 5 * sizeof(int));
-    CPPUNIT_ASSERT(peak.get() == 0);
+    MLSGPU_ASSERT_EQUAL(5 * sizeof(int), peak.getMax());
+    MLSGPU_ASSERT_EQUAL(0, peak.get());
 }
 
 void TestAllocator::testCopyConstruct()
 {
-    typedef Statistics::Allocator<std::allocator<int> > A1;
-    typedef Statistics::Allocator<A1> A2;
+    typedef Statistics::Allocator<std::allocator<int> > A;
 
-    Statistics::Peak<A1::size_type> peak1("peak1");
-    Statistics::Peak<A2::size_type> peak2("peak2");
-    A2 alloc(&peak1, A1(&peak2));
-    A2 dup(alloc);
+    Statistics::Peak peak1("peak1");
+    Statistics::Peak peak2("peak2");
+    A alloc(&peak1, &peak2);
+    A dup(alloc);
 
     CPPUNIT_ASSERT_EQUAL(&peak1, dup.usage);
-    CPPUNIT_ASSERT_EQUAL(&peak2, static_cast<A1 &>(dup).usage);
+    CPPUNIT_ASSERT_EQUAL(&peak2, dup.allUsage);
 }
 
 void TestAllocator::testEqual()
 {
     typedef Statistics::Allocator<std::allocator<int> > A;
 
-    Statistics::Peak<A::size_type> peak1("peak1"), peak2("peak2");
+    Statistics::Peak peak1("peak1"), peak2("peak2");
     A a(&peak1);
     A b(&peak2);
     A c(&peak2);
@@ -99,12 +98,12 @@ void TestAllocator::testException()
 {
     typedef Statistics::Allocator<std::allocator<int> > A;
 
-    Statistics::Peak<A::size_type> peak("peak");
+    Statistics::Peak peak("peak");
     A a(&peak);
 
     CPPUNIT_ASSERT_THROW(a.allocate(a.max_size()), std::bad_alloc);
-    CPPUNIT_ASSERT_EQUAL(A::size_type(0), peak.get());
-    CPPUNIT_ASSERT_EQUAL(A::size_type(0), peak.getMax());
+    MLSGPU_ASSERT_EQUAL(0, peak.get());
+    MLSGPU_ASSERT_EQUAL(0, peak.getMax());
 }
 
 class TestContainers : public CppUnit::TestFixture
@@ -121,7 +120,7 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestContainers, TestSet::perBuild());
 void TestContainers::testAll()
 {
     typedef Statistics::Allocator<std::allocator<int> >::size_type size_type;
-    typedef Statistics::Peak<size_type> Peak;
+    typedef Statistics::Peak Peak;
     Peak &peakVector = Statistics::getStatistic<Peak>("mem.vector");
     Peak &peakSet = Statistics::getStatistic<Peak>("mem.set");
     Peak &peakMap = Statistics::getStatistic<Peak>("mem.map");

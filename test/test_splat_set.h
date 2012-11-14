@@ -18,13 +18,12 @@
 namespace SplatSet
 {
 
-namespace detail
-{
-
 /**
- * Splat-only part of @ref SplatSet::VectorsSet.
+ * Implementation of the @ref SplatSet::SubsettableConcept that uses a
+ * vector of vectors as the backing store, and assigns splat IDs in a similar
+ * way to @ref SplatSet::FileSet.
  */
-class SimpleVectorsSet : public std::vector<std::vector<Splat> >
+class VectorsSet : public std::vector<std::vector<Splat> >
 {
 public:
     static const unsigned int scanIdShift = 40;
@@ -42,92 +41,95 @@ public:
 
     SplatStream *makeSplatStream() const
     {
-        return new MySplatStream(*this, 0, splat_id(size()) << scanIdShift);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
     }
 
-    SplatStreamReset *makeSplatStreamReset() const
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
     {
-        return new MySplatStream(*this, 0, 0);
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    }
+
+    template<typename RangeIterator>
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    {
+        return new MySplatStream<RangeIterator>(*this, firstRange, lastRange);
     }
 
 private:
-    class MySplatStream : public SplatStreamReset
+    template<typename RangeIterator>
+    class MySplatStream : public SplatStream
     {
     public:
-        virtual const Splat &operator*() const
+        virtual Splat operator*() const
         {
-            return owner.at(scan).at(offset);
+            return owner.at(cur >> scanIdShift).at(cur & splatIdMask);
         }
 
         virtual SplatStream &operator++()
         {
             MLSGPU_ASSERT(!empty(), std::length_error);
-            offset++;
+            cur++;
             refill();
             return *this;
         }
 
         virtual bool empty() const
         {
-            return ((scan << scanIdShift) | offset) >= last;
-        }
-
-        virtual void reset(splat_id first, splat_id last)
-        {
-            MLSGPU_ASSERT(first <= last, std::invalid_argument);
-            last = std::min(last, splat_id(owner.size()) << scanIdShift);
-            first = std::min(first, last);
-            scan = first >> scanIdShift;
-            offset = first & splatIdMask;
-            this->last = last;
-            refill();
+            return curRange == lastRange;
         }
 
         virtual splat_id currentId() const
         {
-            return (scan << scanIdShift) | offset;
+            return cur;
         }
 
-        MySplatStream(const SimpleVectorsSet &owner, splat_id first, splat_id last)
-            : owner(owner)
+        MySplatStream(const VectorsSet &owner, RangeIterator firstRange, RangeIterator lastRange)
+            : owner(owner), curRange(firstRange), lastRange(lastRange)
         {
-            reset(first, last);
+            if (curRange != lastRange)
+                cur = curRange->first;
+            refill();
         }
 
     private:
-        const SimpleVectorsSet &owner;
-        splat_id scan, offset;
-        SplatSet::splat_id last;
+        const VectorsSet &owner;
+        splat_id cur;
+        RangeIterator curRange, lastRange;
 
-        void skipNonFiniteInScan()
+        /// Find the next usable element from the current range, if any
+        bool refillRange()
         {
-            while (scan < owner.size()
-                   && offset < owner.at(scan).size()
-                   && !owner.at(scan)[offset].isFinite())
-                offset++;
+            std::size_t scan = cur >> scanIdShift;
+            while (cur < curRange->second && scan < owner.size())
+            {
+                splat_id scanEnd = (scan << scanIdShift) + owner.at(scan).size();
+                if (curRange->second < scanEnd)
+                    scanEnd = curRange->second;
+                while (cur < scanEnd)
+                {
+                    if (owner.at(scan).at(cur & splatIdMask).isFinite())
+                        return true;
+                    cur++;
+                }
+                scan++;
+                cur = scan << scanIdShift;
+            }
+            return false;
         }
 
         void refill()
         {
-            skipNonFiniteInScan();
-            while (!MySplatStream::empty() && offset == owner.at(scan).size())
+            while (curRange != lastRange)
             {
-                scan++;
-                offset = 0;
-                skipNonFiniteInScan();
+                if (refillRange())
+                    return;
+                ++curRange;
+                if (curRange != lastRange)
+                    cur = curRange->first;
             }
         }
     };
 };
-
-} // namespace detail
-
-/**
- * Implementation of the @ref SplatSet::SubsettableConcept that uses a
- * vector of vectors as the backing store, and assigns splat IDs in a similar
- * way to @ref SplatSet::FileSet.
- */
-typedef detail::BlobbedSet<detail::SimpleVectorsSet> VectorsSet;
 
 } // namespace SplatSet
 

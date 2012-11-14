@@ -43,60 +43,49 @@ inline bool isValid(const float iso[8])
 }
 
 /**
- * Emits a boolean table indicating whether each cell may produce triangles.
- * It only needs to be conservative - nothing bad will happen if it emits
- * 1 for cells that end up producing nothing.
- *
- * Cell indices are linearized by treating them as y major.
+ * For each cell which might produce triangles, appends the coordinates of the
+ * cell to a buffer. It only needs to be conservative - nothing bad will happen
+ * if it emits cells that end up producing nothing.
  *
  * There is one work-item per cell in a slice, arranged in a 2D NDRange.
  *
- * @param[out] occupied      1 for occupied cells, 0 for unoccupied cells.
+ * @param[out] occupied      List of cell coordinates for occupied cells
+ * @param[in,out] N          Number of occupied cells, incremented atomically
  * @param      isoA          Slice of samples for lower z.
+ * @param      yOffsetA      Initial Y offset in isoA for lower z.
  * @param      isoB          Slice of samples for higher z.
+ * @param      yOffsetB      Initial Y offset in isoB for higher z.
+ *
+ * @todo Explore Morton order, which will have been texture cache hits.
  */
-__kernel void countOccupied(
-    __global uint *occupied,
+__kernel void genOccupied(
+    __global uint2 *occupied,
+    volatile __global uint *N,
     __read_only image2d_t isoA,
-    __read_only image2d_t isoB)
+    uint yOffsetA,
+    __read_only image2d_t isoB,
+    uint yOffsetB)
 {
     uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
-    uint linearId = gid.y * get_global_size(0) + gid.x;
 
     float iso[8];
-    iso[0] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (0, 0))).x;
-    iso[1] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (1, 0))).x;
-    iso[2] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (0, 1))).x;
-    iso[3] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (1, 1))).x;
-    iso[4] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (0, 0))).x;
-    iso[5] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (1, 0))).x;
-    iso[6] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (0, 1))).x;
-    iso[7] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (1, 1))).x;
+    iso[0] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (0, yOffsetA))).x;
+    iso[1] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (1, yOffsetA))).x;
+    iso[2] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (0, yOffsetA + 1))).x;
+    iso[3] = read_imagef(isoA, nearest, convert_int2(gid + (uint2) (1, yOffsetA + 1))).x;
+    iso[4] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (0, yOffsetB))).x;
+    iso[5] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (1, yOffsetB))).x;
+    iso[6] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (0, yOffsetB + 1))).x;
+    iso[7] = read_imagef(isoB, nearest, convert_int2(gid + (uint2) (1, yOffsetB + 1))).x;
 
     uint code = makeCode(iso);
     bool valid = isValid(iso);
-    occupied[linearId] = (valid && code != 0 && code != 255);
-}
 
-/**
- * Produce list of useful cells.
- *
- * There is one work-item per cell in a slice, arranged in a 2D NDRange.
- *
- * @param[out] cells         The coordinates of cells which may produce triangles.
- * @param      occupiedRemap Scan of output from @ref countOccupied.
- */
-__kernel void compact(
-    __global uint2 * restrict cells,
-    __global const uint * restrict occupiedRemap)
-{
-    uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
-    uint linearId = gid.y * get_global_size(0) + gid.x;
-
-    uint pos = occupiedRemap[linearId];
-    uint next = occupiedRemap[linearId + 1];
-    if (next != pos)
-        cells[pos] = gid;
+    if (valid && code != 0 && code != 255)
+    {
+        uint pos = atomic_inc(N);
+        occupied[pos] = gid;
+    }
 }
 
 /**
@@ -106,28 +95,32 @@ __kernel void compact(
  * @param[out] viCount         Number of triangles+indices per cells.
  * @param      cells           Cell list written by @ref compact.
  * @param      isoA            Slice of samples for lower z.
+ * @param      yOffsetA        Initial Y offset in isoA for lower z.
  * @param      isoB            Slice of samples for higher z.
+ * @param      yOffsetB        Initial Y offset in isoB for higher z.
  * @param      countTable      Lookup table of counts per cube code.
  */
 __kernel void countElements(
     __global uint2 * restrict viCount,
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
+    uint yOffsetA,
     __read_only image2d_t isoB,
+    uint yOffsetB,
     __global const uchar2 * restrict countTable)
 {
     uint gid = get_global_id(0);
     uint2 cell = cells[gid];
 
     float iso[8];
-    iso[0] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, 0))).x;
-    iso[1] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, 0))).x;
-    iso[2] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, 1))).x;
-    iso[3] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, 1))).x;
-    iso[4] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, 0))).x;
-    iso[5] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, 0))).x;
-    iso[6] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, 1))).x;
-    iso[7] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, 1))).x;
+    iso[0] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, yOffsetA))).x;
+    iso[1] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, yOffsetA))).x;
+    iso[2] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (0, yOffsetA + 1))).x;
+    iso[3] = read_imagef(isoA, nearest, convert_int2(cell + (uint2) (1, yOffsetA + 1))).x;
+    iso[4] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, yOffsetB))).x;
+    iso[5] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, yOffsetB))).x;
+    iso[6] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (0, yOffsetB + 1))).x;
+    iso[7] = read_imagef(isoB, nearest, convert_int2(cell + (uint2) (1, yOffsetB + 1))).x;
 
     uint code = makeCode(iso);
     viCount[gid] = convert_uint2(countTable[code]);
@@ -146,7 +139,6 @@ inline float3 interp(float iso0, float iso1, uint3 cell, uint3 offset0, uint3 of
     // This needs to operate in an invariant manner, so take manual control over FMAs
 #pragma OPENCL FP_CONTRACT OFF
     float inv = 1.0f / (iso0 - iso1);
-    uint3 base = cell + offset0;
     uint3 delta = offset1 - offset0;
     float3 lcoord = fma(iso0 * inv, convert_float3(delta), convert_float3(cell + offset0));
     return lcoord;
@@ -188,7 +180,9 @@ ulong computeKey(uint3 coords, uint3 top)
  * @param      viStart         Position to start writing vertices/indices for each cell.
  * @param      cells           List of compacted cells written by @ref compact.
  * @param      isoA            Slice of samples for lower z.
+ * @param      yOffsetA        Initial Y offset in isoA for lower z.
  * @param      isoB            Slice of samples for higher z.
+ * @param      yOffsetB        Initial Y offset in isoB for higher z.
  * @param      startTable      Lookup table indicating where to find vertices/indices in @a dataTable.
  * @param      dataTable       Lookup table of vertex and index indices.
  * @param      keyTable        Lookup table for cell-relative vertex keys.
@@ -205,7 +199,9 @@ __kernel void generateElements(
     __global const uint2 * restrict viStart,
     __global const uint2 * restrict cells,
     __read_only image2d_t isoA,
+    uint yOffsetA,
     __read_only image2d_t isoB,
+    uint yOffsetB,
     __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
     __global const uint3 * restrict keyTable,
@@ -224,14 +220,14 @@ __kernel void generateElements(
     __local float3 *lverts = lvertices + NUM_EDGES * lid;
 
     float iso[8];
-    iso[0] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, 0))).x;
-    iso[1] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, 0))).x;
-    iso[2] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, 1))).x;
-    iso[3] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, 1))).x;
-    iso[4] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, 0))).x;
-    iso[5] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, 0))).x;
-    iso[6] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, 1))).x;
-    iso[7] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, 1))).x;
+    iso[0] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetA))).x;
+    iso[1] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetA))).x;
+    iso[2] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetA + 1))).x;
+    iso[3] = read_imagef(isoA, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetA + 1))).x;
+    iso[4] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetB))).x;
+    iso[5] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetB))).x;
+    iso[6] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetB + 1))).x;
+    iso[7] = read_imagef(isoB, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetB + 1))).x;
 
     lverts[0] = INTERP(0, 1);
     lverts[1] = INTERP(0, 2);
@@ -260,8 +256,6 @@ __kernel void generateElements(
 
     ushort2 start = startTable[code];
     ushort2 end = startTable[code + 1];
-
-    ulong cellKey = ((ulong) cell.z << (2 * KEY_AXIS_BITS + 1)) | ((ulong) cell.y << (KEY_AXIS_BITS + 1)) | ((ulong) cell.x << 1);
 
     for (uint i = 0; i < end.x - start.x; i++)
     {

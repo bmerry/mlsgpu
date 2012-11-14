@@ -21,6 +21,7 @@
 #include "marching.h"
 #include "clip.h"
 #include "statistics.h"
+#include "statistics_cl.h"
 #include "clh.h"
 
 CLH::ResourceUsage Clip::resourceUsage(
@@ -51,7 +52,14 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
     vertexCompact(context, CL_MEM_READ_WRITE, (maxVertices + 1) * sizeof(cl_uint)),
     triangleCompact(context, CL_MEM_READ_WRITE, (maxTriangles + 1) * sizeof(cl_uint)),
     compactScan(context, device, clogs::TYPE_UINT),
-    outMesh(context, CL_MEM_READ_WRITE, maxVertices, 0, maxTriangles)
+    outMesh(context, CL_MEM_READ_WRITE, maxVertices, 0, maxTriangles),
+    vertexInitKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.vertexInit.time")),
+    classifyKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.classify.time")),
+    triangleCompactKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.triangleCompact.time")),
+    vertexCompactKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.vertexCompact.time")),
+    internalVertexCountReadTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.internalVertexCount.read.time")),
+    vertexCountReadTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.vertexCount.read.time")),
+    triangleCountReadTime(Statistics::getStatistic<Statistics::Variable>("kernel.clip.triangleCount.read.time"))
 {
     std::vector<cl::Device> devices(1, device);
     cl::Program program = CLH::build(context, devices, "kernels/clip.cl");
@@ -68,6 +76,10 @@ Clip::Clip(const cl::Context &context, const cl::Device &device,
 
     triangleCompactKernel.setArg(1, triangleCompact);
     triangleCompactKernel.setArg(3, vertexCompact);
+
+    compactScan.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.clip.compactScan.time"));
 }
 
 void Clip::setDistanceFunctor(const DistanceFunctor &distanceFunctor)
@@ -104,7 +116,7 @@ void Clip::operator()(
                                    cl::NullRange,
                                    cl::NDRange(mesh.numVertices),
                                    cl::NullRange,
-                                   NULL, &vertexInitEvent);
+                                   NULL, &vertexInitEvent, &vertexInitKernelTime);
 
     wait.resize(2);
     wait[0] = distanceEvent;
@@ -116,7 +128,7 @@ void Clip::operator()(
                                    cl::NullRange,
                                    cl::NDRange(mesh.numTriangles),
                                    cl::NullRange,
-                                   &wait, &classifyEvent);
+                                   &wait, &classifyEvent, &classifyKernelTime);
 
     /*** Compact vertices and their keys ***/
 
@@ -132,9 +144,11 @@ void Clip::operator()(
     queue.enqueueReadBuffer(vertexCompact, CL_FALSE,
                             mesh.numInternalVertices * sizeof(cl_uint), sizeof(cl_uint),
                             &internalVertexCount, &wait, &internalVertexCountEvent);
+    Statistics::timeEvent(internalVertexCountEvent, internalVertexCountReadTime);
     queue.enqueueReadBuffer(vertexCompact, CL_FALSE,
                             mesh.numVertices * sizeof(cl_uint), sizeof(cl_uint),
                             &vertexCount, &wait, &vertexCountEvent);
+    Statistics::timeEvent(vertexCountEvent, vertexCountReadTime);
 
     wait.resize(1);
     wait[0] = vertexScanEvent;
@@ -148,7 +162,8 @@ void Clip::operator()(
                                    cl::NullRange,
                                    cl::NDRange(mesh.numVertices),
                                    cl::NullRange,
-                                   &wait, &vertexCompactEvent);
+                                   &wait, &vertexCompactEvent,
+                                   &vertexCompactKernelTime);
 
     /*** Compact triangles, while also rewriting the indices ***/
 
@@ -164,6 +179,7 @@ void Clip::operator()(
     queue.enqueueReadBuffer(triangleCompact, CL_FALSE,
                             mesh.numTriangles * sizeof(cl_uint), sizeof(cl_uint),
                             &triangleCount, &wait, &triangleCountEvent);
+    Statistics::timeEvent(triangleCountEvent, triangleCountReadTime);
 
     wait.resize(2);
     wait[0] = triangleScanEvent;
@@ -176,7 +192,8 @@ void Clip::operator()(
                                    cl::NullRange,
                                    cl::NDRange(mesh.numTriangles),
                                    cl::NullRange,
-                                   &wait, &triangleCompactEvent);
+                                   &wait, &triangleCompactEvent,
+                                   &triangleCompactKernelTime);
 
     // Some of these happen-after others and so some steps are redundant, but
     // checking for all of them is safe.

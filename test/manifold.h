@@ -19,7 +19,7 @@
 #include <algorithm>
 #include <sstream>
 #include <cassert>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <boost/type_traits/make_signed.hpp>
 #include "../src/union_find.h"
 

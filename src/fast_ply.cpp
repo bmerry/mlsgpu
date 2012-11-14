@@ -7,6 +7,11 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#if HAVE_PREAD && !defined(_POSIX_C_SOURCE)
+# define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <string>
 #include <cstddef>
 #include <string>
@@ -14,18 +19,33 @@
 #include <sstream>
 #include <istream>
 #include <cstdlib>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <cstring>
 #include <algorithm>
 #include <limits>
+#include <cstring>
+#include <cerrno>
+#include <memory>
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/array.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/foreach.hpp>
+#include <boost/exception/all.hpp>
 #include "fast_ply.h"
 #include "splat.h"
 #include "errors.h"
+
+#if SYSCALL_READER_POSIX
+# include <fcntl.h>
+# include <sys/types.h>
+# include <sys/stat.h>
+# include <errno.h>
+#endif
+
+#if SYSCALL_READER_WIN32
+# include <windows.h>
+#endif
 
 namespace FastPly
 {
@@ -64,7 +84,7 @@ static std::vector<std::string> splitLine(const std::string &line)
  *
  * @param t The name of the type from the PLY header.
  * @return The #FieldType value corresponding to @a t.
- * @throw #FormatError if @a t is not recognized.
+ * @throw #FastPly::FormatError if @a t is not recognized.
  */
 static FieldType parseType(const std::string &t) throw(FormatError)
 {
@@ -76,10 +96,10 @@ static FieldType parseType(const std::string &t) throw(FormatError)
     else if (t == "uint32" || t == "uint") return UINT32;
     else if (t == "float32" || t == "float") return FLOAT32;
     else if (t == "float64") return FLOAT64;
-    else throw FormatError("Unknown type `" + t + "'");
+    else throw boost::enable_error_info(FormatError("Unknown type `" + t + "'"));
 }
 
-static Reader::size_type fieldSize(const FieldType f)
+static ReaderBase::size_type fieldSize(const FieldType f)
 {
     switch (f)
     {
@@ -96,7 +116,8 @@ static Reader::size_type fieldSize(const FieldType f)
     case FLOAT64:
         return 8;
     }
-    abort();
+    std::abort();
+    return 0;
 }
 
 /**
@@ -107,21 +128,24 @@ static Reader::size_type fieldSize(const FieldType f)
  * @throw FormatError on EOF
  * @throw std::ios::failure on other I/O error
  */
-static std::string getHeaderLine(std::istream &in) throw(FormatError)
+static std::string getHeaderLine(std::istream &in) throw(boost::exception)
 {
-    try
-    {
-        std::string line;
-        getline(in, line);
-        return line;
-    }
-    catch (std::ios::failure &e)
+    std::string line;
+    if (!getline(in, line))
     {
         if (in.eof())
-            throw FormatError("End of file in PLY header");
+            throw boost::enable_error_info(FormatError("End of file in PLY header"));
+        else if (in.bad())
+        {
+            throw boost::enable_error_info(std::ios::failure("Failed to read line from header"))
+                << boost::errinfo_errno(errno);
+        }
         else
-            throw;
+        {
+            throw boost::enable_error_info(std::ios::failure("Failed to read line from header"));
+        }
     }
+    return line;
 }
 
 static bool cpuLittleEndian()
@@ -142,7 +166,7 @@ static bool cpuBigEndian()
     return y[0] == 0x12 && y[1] == 0x34 && y[2] == 0x56 && y[3] == 0x78;
 }
 
-void Reader::readHeader(std::istream &in)
+void ReaderBase::readHeader(std::istream &in)
 {
     static const char * const propertyNames[numProperties] =
     {
@@ -153,10 +177,9 @@ void Reader::readHeader(std::istream &in)
     size_type elements = 0;
     bool haveProperty[numProperties] = {};
 
-    in.exceptions(std::ios::failbit);
     std::string line = getHeaderLine(in);
     if (line != "ply")
-        throw FormatError("PLY signature missing");
+        throw boost::enable_error_info(FormatError("PLY signature missing"));
 
     // read the header
     bool haveFormat = false;
@@ -173,34 +196,34 @@ void Reader::readHeader(std::istream &in)
         else if (tokens[0] == "format")
         {
             if (tokens.size() != 3)
-                throw FormatError("Malformed format line");
+                throw boost::enable_error_info(FormatError("Malformed format line"));
 
             if (tokens[1] == "ascii")
-                throw FormatError("PLY ASCII format not supported");
+                throw boost::enable_error_info(FormatError("PLY ASCII format not supported"));
             else if (tokens[1] == "binary_big_endian")
             {
                 if (!cpuBigEndian())
-                    throw FormatError("PLY big endian format not supported on this CPU");
+                    throw boost::enable_error_info(FormatError("PLY big endian format not supported on this CPU"));
             }
             else if (tokens[1] == "binary_little_endian")
             {
                 if (!cpuLittleEndian())
-                    throw FormatError("PLY little endian format not supported on this CPU");
+                    throw boost::enable_error_info(FormatError("PLY little endian format not supported on this CPU"));
             }
             else
             {
-                throw FormatError("Unknown PLY format " + tokens[1]);
+                throw boost::enable_error_info(FormatError("Unknown PLY format " + tokens[1]));
             }
 
             if (tokens[2] != "1.0")
-                throw FormatError("Unknown PLY version " + tokens[2]);
+                throw boost::enable_error_info(FormatError("Unknown PLY version " + tokens[2]));
 
             haveFormat = true;
         }
         else if (tokens[0] == "element")
         {
             if (tokens.size() != 3)
-                throw FormatError("Malformed element line");
+                throw boost::enable_error_info(FormatError("Malformed element line"));
             std::string elementName = tokens[1];
             size_type elementCount;
             try
@@ -209,14 +232,14 @@ void Reader::readHeader(std::istream &in)
             }
             catch (boost::bad_lexical_cast &e)
             {
-                throw FormatError("Malformed element line or too many elements");
+                throw boost::enable_error_info(FormatError("Malformed element line or too many elements"));
             }
 
             if (elements == 0)
             {
                 /* Expect the vertex element */
                 if (elementName != "vertex")
-                    throw FormatError("First element is not vertex");
+                    throw boost::enable_error_info(FormatError("First element is not vertex"));
                 vertexCount = elementCount;
             }
             elements++;
@@ -224,7 +247,7 @@ void Reader::readHeader(std::istream &in)
         else if (tokens[0] == "property")
         {
             if (tokens.size() < 3)
-                throw FormatError("Malformed property line");
+                throw boost::enable_error_info(FormatError("Malformed property line"));
             bool isList;
             FieldType lengthType, valueType;
             std::string name;
@@ -232,18 +255,18 @@ void Reader::readHeader(std::istream &in)
             if (tokens[1] == "list")
             {
                 if (tokens.size() != 5)
-                    throw FormatError("Malformed property line");
+                    throw boost::enable_error_info(FormatError("Malformed property line"));
                 isList = true;
                 lengthType = parseType(tokens[2]);
                 valueType = parseType(tokens[3]);
                 if (lengthType == FLOAT32 || lengthType == FLOAT64)
-                    throw FormatError("List cannot have floating-point count");
+                    throw boost::enable_error_info(FormatError("List cannot have floating-point count"));
                 name = tokens[4];
             }
             else
             {
                 if (tokens.size() != 3)
-                    throw FormatError("Malformed property line");
+                    throw boost::enable_error_info(FormatError("Malformed property line"));
                 isList = false;
                 lengthType = INT32; // unused, just to avoid undefined values
                 valueType = parseType(tokens[1]);
@@ -251,20 +274,20 @@ void Reader::readHeader(std::istream &in)
             }
 
             if (elements == 0)
-                throw FormatError("Property `" + name + "' appears before any element declaration");
+                throw boost::enable_error_info(FormatError("Property `" + name + "' appears before any element declaration"));
             if (elements == 1)
             {
                 /* Vertex element - match it up to the expected fields */
                 if (isList)
-                    throw FormatError("Lists in a vertex are not supported");
+                    throw boost::enable_error_info(FormatError("Lists in a vertex are not supported"));
                 for (unsigned int i = 0; i < numProperties; i++)
                 {
                     if (name == propertyNames[i])
                     {
                         if (haveProperty[i])
-                            throw FormatError("Duplicate property " + name);
+                            throw boost::enable_error_info(FormatError("Duplicate property " + name));
                         if (valueType != FLOAT32)
-                            throw FormatError("Property " + name + " must be FLOAT32");
+                            throw boost::enable_error_info(FormatError("Property " + name + " must be FLOAT32"));
                         haveProperty[i] = true;
                         offsets[i] = vertexSize;
                         break;
@@ -276,66 +299,282 @@ void Reader::readHeader(std::istream &in)
     }
 
     if (!haveFormat)
-        throw FormatError("No format line found");
+        throw boost::enable_error_info(FormatError("No format line found"));
 
     if (elements < 1)
-        throw FormatError("No elements found");
+        throw boost::enable_error_info(FormatError("No elements found"));
 
     for (unsigned int i = 0; i < numProperties; i++)
         if (!haveProperty[i])
-            throw FormatError(std::string("Property ") + propertyNames[i] + " not found");
+            throw boost::enable_error_info(FormatError(std::string("Property ") + propertyNames[i] + " not found"));
+
+    headerSize = in.tellg();
 }
 
-Reader::value_type * Reader::read(size_type first, size_type last, value_type *out, boost::true_type) const
+Splat ReaderBase::decode(const char *buffer, std::size_t offset) const
 {
-    MLSGPU_ASSERT(first <= last && last <= vertexCount, std::out_of_range);
+    buffer += offset * getVertexSize();
 
-    const char *base = vertexPtr + first * vertexSize;
-    for (size_type i = last - first; i > 0; i--, base += vertexSize, out++)
+    Splat ans;
+    std::memcpy(&ans.position[0], buffer + offsets[X], sizeof(float));
+    std::memcpy(&ans.position[1], buffer + offsets[Y], sizeof(float));
+    std::memcpy(&ans.position[2], buffer + offsets[Z], sizeof(float));
+    std::memcpy(&ans.radius,      buffer + offsets[RADIUS], sizeof(float));
+    std::memcpy(&ans.normal[0],   buffer + offsets[NX], sizeof(float));
+    std::memcpy(&ans.normal[1],   buffer + offsets[NY], sizeof(float));
+    std::memcpy(&ans.normal[2],   buffer + offsets[NZ], sizeof(float));
+    ans.radius = std::min(ans.radius, maxRadius);
+    ans.radius *= smooth;
+    ans.quality = 1.0 / (ans.radius * ans.radius);
+    return ans;
+}
+
+ReaderBase::ReaderBase(const std::string &filename, float smooth, float maxRadius)
+    : smooth(smooth), maxRadius(maxRadius)
+{
+    try
     {
-        float radius;
-        std::memcpy(&out->position[0], base + offsets[X], sizeof(float));
-        std::memcpy(&out->position[1], base + offsets[Y], sizeof(float));
-        std::memcpy(&out->position[2], base + offsets[Z], sizeof(float));
-        std::memcpy(&radius,           base + offsets[RADIUS], sizeof(float));
-        std::memcpy(&out->normal[0],   base + offsets[NX], sizeof(float));
-        std::memcpy(&out->normal[1],   base + offsets[NY], sizeof(float));
-        std::memcpy(&out->normal[2],   base + offsets[NZ], sizeof(float));
-        radius *= smooth;
-        out->radius = radius;
-        out->quality = 1.0 / (radius * radius);
+        std::ifstream in;
+        in.open(filename.c_str(), std::ios::in | std::ios::binary);
+        if (!in)
+            throw boost::enable_error_info(std::ios::failure("Could not open file"))
+                << boost::errinfo_errno(errno);
+        readHeader(in);
     }
-    return out;
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
-Reader::Reader(const std::string &filename, float smooth = 1.0f)
-    : mapping(new boost::iostreams::mapped_file_source(filename)), filePtr(mapping->data())
+ReaderBase::ReaderBase(float smooth, float maxRadius) : smooth(smooth), maxRadius(maxRadius)
 {
-    /* Note: we have to wrap the mapping in an array_source because otherwise
-     * the stream will close the mapping when it is destroyed.
-     */
-    boost::iostreams::array_source source(filePtr, mapping->size());
-    boost::iostreams::stream<boost::iostreams::array_source> in(source);
-    readHeader(in);
-    size_type offset = in.tellg();
-    vertexPtr = filePtr + offset;
-    if ((mapping->size() - offset) / vertexSize < vertexCount)
-        throw FormatError("File is too small to contain its vertices");
-    this->smooth = smooth;
 }
 
-Reader::Reader(const char *data, size_type size, float smooth)
-    : filePtr(data)
+ReaderBase::Handle::Handle(const ReaderBase &owner)
+    : owner(owner)
 {
-    boost::iostreams::array_source source(data, size);
-    boost::iostreams::stream<boost::iostreams::array_source> in(source);
-    readHeader(in);
-    size_type offset = in.tellg();
-    vertexPtr = filePtr + offset;
-    if ((size - offset) / vertexSize < vertexCount)
-        throw FormatError("Input source is too small to contain its vertices");
-    this->smooth = smooth;
 }
+
+MmapReader::MmapHandle::MmapHandle(const MmapReader &owner, const std::string &filename)
+    : ReaderBase::Handle(owner)
+{
+    mapping.open(filename);
+    if (!mapping.is_open())
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not create mapping"))
+            << boost::errinfo_errno(errno);
+    }
+    if ((mapping.size() - owner.getHeaderSize()) / owner.getVertexSize() < owner.size())
+        throw boost::enable_error_info(std::ios::failure("File is too small to contain all its vertices"));
+    vertexPtr = mapping.data() + owner.getHeaderSize();
+}
+
+void MmapReader::MmapHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
+    const std::size_t vertexSize = owner.getVertexSize();
+    std::memcpy(buffer, vertexPtr + first * vertexSize, (last - first) * vertexSize);
+}
+
+void MmapReader::MmapHandle::prefetch(size_type first, size_type last) const
+{
+    // TODO: use madvise under UNIX
+    (void) first;
+    (void) last;
+}
+
+MmapReader::MmapReader(const std::string &filename, float smooth, float maxRadius)
+    : ReaderBase(filename, smooth, maxRadius), filename(filename)
+{
+}
+
+ReaderBase::Handle *MmapReader::createHandle() const
+{
+    try
+    {
+        return new MmapHandle(*this, filename);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
+}
+
+#if SYSCALL_READER_POSIX
+
+SyscallReader::SyscallHandle::SyscallHandle(const SyscallReader &owner)
+: Handle(owner)
+{
+    fd = open(owner.filename.c_str(), O_RDONLY);
+    if (fd < 0)
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not open file"))
+            << boost::errinfo_errno(errno);
+    }
+}
+
+void SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
+    try
+    {
+        std::size_t vertexSize = owner.getVertexSize();
+
+        ssize_t remain = vertexSize * (last - first);
+        char *ptr = buffer;
+        off_t offset = static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize;
+
+        while (remain > 0)
+        {
+            ssize_t bytes = ::pread(fd, (void *) ptr, remain, offset);
+            if (bytes < 0)
+            {
+                if (errno == EAGAIN || errno == EINTR)
+                    continue;
+                throw boost::enable_error_info(std::ios::failure("read failed"))
+                    << boost::errinfo_errno(errno);
+            }
+            else if (bytes == 0)
+            {
+                throw boost::enable_error_info(std::ios::failure("unexpected end of file"));
+            }
+            else
+            {
+                ptr += bytes;
+                offset += bytes;
+                remain -= bytes;
+            }
+        }
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(static_cast<const SyscallReader &>(owner).filename);
+        throw;
+    }
+}
+
+void SyscallReader::SyscallHandle::prefetch(size_type first, size_type last) const
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+
+#if HAVE_POSIX_FADVISE
+    const std::size_t vertexSize = owner.getVertexSize();
+    const off_t offset = static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize;
+    const off_t len = (last - first) * vertexSize;
+    posix_fadvise(fd, offset, len, POSIX_FADV_WILLNEED);
+#else
+    (void) first;
+    (void) last;
+#endif
+}
+
+SyscallReader::SyscallHandle::~SyscallHandle()
+{
+    close(fd);
+}
+
+#endif // SYSCALL_READER_POSIX
+
+#if SYSCALL_READER_WIN32
+
+SyscallReader::SyscallHandle::SyscallHandle(const SyscallReader &owner)
+: Handle(owner)
+{
+    fd = CreateFile(owner.filename.c_str(),
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                    NULL,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    NULL);
+    if (fd == INVALID_HANDLE_VALUE)
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not open file"))
+            << boost::errinfo_errno(GetLastError());
+    }
+}
+
+void SyscallReader::SyscallHandle::readRaw(size_type first, size_type last, char *buffer) const
+{
+    MLSGPU_ASSERT(first <= last, std::invalid_argument);
+    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
+    try
+    {
+        std::size_t vertexSize = owner.getVertexSize();
+        std::size_t remain = vertexSize * (last - first);
+        char *ptr = buffer;
+        size_type offset = static_cast<const SyscallReader &>(owner).getHeaderSize() + first * vertexSize;
+
+        while (remain > 0)
+        {
+            OVERLAPPED req;
+            DWORD bytes;
+            std::size_t bytesToRead;
+
+            std::memset(&req, 0, sizeof(req));
+            req.Offset = offset & 0xFFFFFFFFu;
+            req.OffsetHigh = offset >> 32;
+
+            bytesToRead = std::min(remain, std::size_t(std::numeric_limits<DWORD>::max()));
+            if (!ReadFile(fd, (void *) ptr, bytesToRead, &bytes, &req))
+            {
+                throw boost::enable_error_info(std::ios::failure("read failed"))
+                    << boost::errinfo_errno(GetLastError());
+            }
+            else if (bytes == 0)
+            {
+                throw boost::enable_error_info(std::ios::failure("unexpected end of file"));
+            }
+            else
+            {
+                ptr += bytes;
+                offset += bytes;
+                remain -= bytes;
+            }
+        }
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(static_cast<const SyscallReader &>(owner).filename);
+        throw;
+    }
+}
+
+void SyscallReader::SyscallHandle::prefetch(size_type first, size_type last) const
+{
+    // TODO: implement for win32
+}
+
+SyscallReader::SyscallHandle::~SyscallHandle()
+{
+    CloseHandle(fd);
+}
+
+#endif // SYSCALL_READER_WIN32
+
+SyscallReader::SyscallReader(const std::string &filename, float smooth, float maxRadius)
+    : ReaderBase(filename, smooth, maxRadius), filename(filename)
+{
+}
+
+ReaderBase::Handle *SyscallReader::createHandle() const
+{
+    try
+    {
+        return new SyscallHandle(*this);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
+}
+
 
 bool WriterBase::isOpen() const
 {
@@ -431,6 +670,12 @@ void MmapWriter::open(const std::string &filename)
     // TODO: check for overflow here
     params.new_file_size = header.size() + getNumVertices() * vertexSize + getNumTriangles() * triangleSize;
     mapping.reset(new boost::iostreams::mapped_file_sink(params));
+    if (!mapping->is_open())
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not create mapping"))
+            << boost::errinfo_errno(errno)
+            << boost::errinfo_file_name(filename);
+    }
 
     std::memcpy(mapping->data(), header.data(), header.size());
     vertexPtr = mapping->data() + header.size();
@@ -490,6 +735,10 @@ bool MmapWriter::supportsOutOfOrder() const
 
 void StreamWriter::openCommon(const std::string &header)
 {
+    if (!*file)
+    {
+        throw boost::enable_error_info(std::ios::failure("Could not open file"));
+    }
     file->exceptions(std::ios::failbit | std::ios::badbit);
     *file << header;
 
@@ -502,9 +751,17 @@ void StreamWriter::open(const std::string &filename)
 {
     MLSGPU_ASSERT(!isOpen(), state_error);
 
-    std::string header = makeHeader();
-    file.reset(new std::ofstream(filename.c_str(), std::ios::out | std::ios::binary));
-    openCommon(header);
+    try
+    {
+        std::string header = makeHeader();
+        file.reset(new std::ofstream(filename.c_str(), std::ios::out | std::ios::binary));
+        openCommon(header);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename);
+        throw;
+    }
 }
 
 std::pair<char *, StreamWriter::size_type> StreamWriter::open()
@@ -572,12 +829,30 @@ bool StreamWriter::supportsOutOfOrder() const
 }
 
 
+std::map<std::string, ReaderType> ReaderTypeWrapper::getNameMap()
+{
+    std::map<std::string, ReaderType> ans;
+    ans["mmap"] = MMAP_READER;
+    ans["syscall"] = SYSCALL_READER;
+    return ans;
+}
+
 std::map<std::string, WriterType> WriterTypeWrapper::getNameMap()
 {
     std::map<std::string, WriterType> ans;
     ans["mmap"] = MMAP_WRITER;
     ans["stream"] = STREAM_WRITER;
     return ans;
+}
+
+ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth, float maxRadius)
+{
+    switch (type)
+    {
+    case MMAP_READER: return new MmapReader(filename, smooth, maxRadius);
+    case SYSCALL_READER: return new SyscallReader(filename, smooth, maxRadius);
+    }
+    return NULL; // should never be reached
 }
 
 WriterBase *createWriter(WriterType type)

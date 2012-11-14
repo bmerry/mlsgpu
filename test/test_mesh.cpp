@@ -17,7 +17,7 @@
 #include <vector>
 #include <boost/array.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "../src/mesh.h"
 
@@ -182,8 +182,6 @@ void TestEnqueueReadMesh::testZeroInternal()
     cl::Event verticesEvent, vertexKeysEvent, trianglesEvent;
     dMesh.numInternalVertices = 0;
     enqueueReadMesh(queue, dMesh, hMesh, NULL, &verticesEvent, &vertexKeysEvent, &trianglesEvent);
-
-    CPPUNIT_ASSERT_EQUAL(CL_COMPLETE, int(vertexKeysEvent.getInfo<CL_EVENT_COMMAND_EXECUTION_STATUS>()));
 
     verticesEvent.wait();
     validateVertices(hMesh);

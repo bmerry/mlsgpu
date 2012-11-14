@@ -2,14 +2,12 @@
  * @file
  *
  * Helper functions for reading and writing binary files to/from streams.
- *
- * @todo Move the PLY readField unit tests to this module.
  */
 
 #ifndef BINARY_IO_H
 #define BINARY_IO_H
 
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <istream>
 #include <ostream>
 #include <boost/type_traits/is_integral.hpp>
@@ -97,7 +95,7 @@ static void writeBinaryImpl(std::ostream &out, T in, const boost::false_type &, 
 /**
  * Reads a signed binary integer from a stream.
  *
- * @todo The implementation assumes two's complement.
+ * @note The implementation assumes two's complement.
  */
 template<typename T, bool b>
 static void readBinaryImpl(std::istream &in, T &out, const boost::integral_constant<bool, b> &endian, const boost::true_type &, const boost::true_type &)
@@ -111,7 +109,7 @@ static void readBinaryImpl(std::istream &in, T &out, const boost::integral_const
 /**
  * Writes a signed binary integer to a stream.
  *
- * @todo The implementation assumes two's complement.
+ * @note The implementation assumes two's complement.
  */
 template<typename T, bool b>
 static void writeBinaryImpl(std::ostream &out, T in, const boost::integral_constant<bool, b> &endian, const boost::true_type &, const boost::true_type &)

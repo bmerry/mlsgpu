@@ -191,7 +191,7 @@ __kernel void writeEntries(
 }
 
 /**
- * Generate an indicator function over the entries that is 2 for the last
+ * Generate an indicator function over the entries that is 3 for the last
  * entry of each key and 1 elsewhere. This is later scanned to determine the
  * mapping between entries and commands.
  *
@@ -212,7 +212,7 @@ __kernel void countCommands(
     uint curKey = keys[pos];
     uint nextKey = keys[pos + 1];
     bool end = curKey != nextKey;
-    indicator[pos] = end ? 2 : 1;
+    indicator[pos] = end ? 3 : 1;
 }
 
 /**
@@ -249,17 +249,17 @@ __kernel void writeSplatIds(
         uint prevKey = pos > 0 ? keys[pos - 1] : UINT_MAX;
         uint nextKey = (pos < get_global_size(0) - 1) ? keys[pos + 1] : UINT_MAX;
         if (prevKey != curKey)
-            start[curKey] = cpos;
+            start[curKey] = cpos - 1;
         if (curKey != nextKey)
             jumpPos[curKey] = cpos + 1;
     }
 }
 
 /**
- * Writes the start array and jump commands for one level.
+ * Writes the start array, endpoints and jump commands for one level.
  *
  * @param[in,out]  start           Start array for previous and current level.
- * @param[out]     commands        Command array in which to write jump commands.
+ * @param[out]     commands        Command array in which to write endpoints and jump commands.
  * @param          jumpPos         Jump positions in command array, as written by @ref writeSplatIds.
  * @param          curOffset       Offset added to code to get position in start array on current level.
  * @param          prevOffset      Offset added to parent code to get position in parent start array.
@@ -279,7 +279,8 @@ __kernel void writeStart(
     int prev = start[prevOffset + (code >> 3)];
     if (jp >= 0)
     {
-        commands[jp] = (prev == -1) ? -1 : -2 - prev;
+        commands[jp] = prev;
+        commands[start[pos]] = jp;
     }
     else
     {
@@ -291,7 +292,7 @@ __kernel void writeStart(
  * Variant of @ref writeStart for the coarsest level. In this level,
  * there is no previous level to chain to.
  *
- * @param[in,out]  start           Start array for previous and current level.
+ * @param[in,out]  start           Start array for current level.
  * @param[out]     commands        Command array in which to write jump commands.
  * @param          jumpPos         Jump positions in command array, as written by @ref writeSplatIds.
  * @param          curOffset       Offset added to code to get position in start array on current level.
@@ -308,6 +309,7 @@ __kernel void writeStartTop(
     if (jp >= 0)
     {
         commands[jp] = -1;
+        commands[start[pos]] = jp;
     }
     else
     {

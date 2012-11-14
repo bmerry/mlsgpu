@@ -11,7 +11,7 @@
 # include <config.h>
 #endif
 #include <vector>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <stdexcept>
 #include <boost/function.hpp>
 #include <boost/array.hpp>
@@ -175,7 +175,7 @@ void bucket(const Splats &splats,
             bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
-            ProgressDisplay *progress = NULL,
+            ProgressMeter *progress = NULL,
             const Recursion &recursionState = Recursion());
 
 } // namespace Bucket

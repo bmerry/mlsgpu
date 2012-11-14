@@ -6,6 +6,7 @@
 #endif
 #include <cstddef>
 #include <stdexcept>
+#include <cstdlib>
 #include <boost/type_traits/is_base_of.hpp>
 #include <boost/utility/enable_if.hpp>
 
@@ -25,7 +26,7 @@ static void mlsgpuThrow(const char *filename, int line, const char *msg,
     MLSGPU_UNUSED(dummy);
 #if MLSGPU_ASSERT_ABORT
     std::cerr << filename << ':' << line << ": " << msg << endl;
-    abort();
+    std::abort();
 #else
     MLSGPU_UNUSED(filename);
     MLSGPU_UNUSED(line);
@@ -39,7 +40,16 @@ static void mlsgpuThrow(const char *filename, int line, const char *msg,
 class state_error : public std::logic_error
 {
 public:
-    state_error(const std::string &msg) : std::logic_error(msg) {}
+    explicit state_error(const std::string &msg) : std::logic_error(msg) {}
+};
+
+/**
+ * A command-line option is semantically invalid.
+ */
+class invalid_option : public std::runtime_error
+{
+public:
+    explicit invalid_option(const std::string &msg) : std::runtime_error(msg) {}
 };
 
 #endif /* !MLSGPU_ERRORS_H */

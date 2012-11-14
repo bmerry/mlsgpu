@@ -20,12 +20,12 @@
 #include <boost/bind.hpp>
 #include <boost/ref.hpp>
 #include <boost/array.hpp>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include "../src/marching.h"
 #include "../src/clip.h"
 #include "../src/clh.h"
 #include "test_clh.h"
-#include "testmain.h"
+#include "testutil.h"
 
 /**
  * Tests @ref Clip.

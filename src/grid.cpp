@@ -9,7 +9,7 @@
 #endif
 #include <stdexcept>
 #include <algorithm>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <boost/tr1/cmath.hpp>
 #include "errors.h"
 #include "grid.h"

@@ -19,10 +19,10 @@
 #include <utility>
 #include <stdexcept>
 #include <cstring>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <boost/tr1/random.hpp>
-#include <tr1/unordered_map>
-#include <tr1/unordered_set>
+#include "../src/tr1_unordered_map.h"
+#include "../src/tr1_unordered_set.h"
 #include <map>
 #include <algorithm>
 #include <iterator>
@@ -32,7 +32,7 @@
 #include <boost/foreach.hpp>
 #include <boost/array.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/fast_ply.h"
 #include "../src/mesher.h"
 #include "test_clh.h"
@@ -365,9 +365,11 @@ void TestMesherBase::add(
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.verticesEvent);
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.vertexKeysEvent);
     CLH::enqueueMarkerWithWaitList(queue, NULL, &work.trianglesEvent);
+    work.hasEvents = true;
     queue.flush();
 
-    functor(chunkId, work);
+    work.chunkId = chunkId;
+    functor(work);
 }
 
 void TestMesherBase::checkIsomorphic(
@@ -947,8 +949,13 @@ static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)
     using std::tr1::uniform_int;
     using std::tr1::variate_generator;
 
-    variate_generator<mt19937 &, uniform_int<int> > gen(engine, uniform_int<int>(min, max));
-    return gen();
+    /* According to TR1, there has to be a conversion from the output type
+     * of the engine to the input type of the distribution, so we can't
+     * just use uniform_int<int> (and MSVC will do the wrong thing in this
+     * case). We thus also have to manually bias to avoid negative numbers.
+     */
+    variate_generator<mt19937 &, uniform_int<mt19937::result_type> > gen(engine, uniform_int<mt19937::result_type>(0, max - min));
+    return int(gen()) + min;
 }
 
 void TestMesherBase::testRandom()
@@ -1091,9 +1098,10 @@ void TestMesherBase::testRandom()
             std::reverse(block.work.mesh.vertexKeys.begin(), block.work.mesh.vertexKeys.end());
 
             block.work.mesh.triangles.resize(block.triangles.size());
-            for (std::size_t i = 0; i < block.triangles.size(); i++)
-                for (unsigned int j = 0; j < 3; j++)
-                    block.work.mesh.triangles[i][j] = indices[block.triangles[i][j]];
+            for (std::size_t k = 0; k < block.triangles.size(); k++)
+                for (unsigned int l = 0; l < 3; l++)
+                    block.work.mesh.triangles[k][l] = indices[block.triangles[k][l]];
+            block.work.chunkId = chunks[i].id;
         }
 
     /* Now the actual testing */
@@ -1113,8 +1121,9 @@ void TestMesherBase::testRandom()
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.verticesEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.vertexKeysEvent);
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.trianglesEvent);
+                block.work.hasEvents = true;
                 queue.flush();
-                functor(chunk.id, block.work);
+                functor(block.work);
             }
         }
     }
@@ -1145,27 +1154,6 @@ class TestMesherBaseSlow : public TestMesherBase
     CPPUNIT_TEST(testRandom);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
-
-class TestBigMesher : public TestMesherBase
-{
-    CPPUNIT_TEST_SUB_SUITE(TestBigMesher, TestMesherBase);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesher, TestSet::perBuild());
-
-class TestBigMesherSlow : public TestBigMesher
-{
-    CPPUNIT_TEST_SUB_SUITE(TestBigMesherSlow, TestMesherBaseSlow);
-    CPPUNIT_TEST_SUITE_END();
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBigMesherSlow, TestSet::perCommit());
-
-MesherBase *TestBigMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
-{
-    return new BigMesher(writer, namer);
-}
 
 class TestStxxlMesher : public TestMesherBase
 {

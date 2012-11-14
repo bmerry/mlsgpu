@@ -14,25 +14,22 @@
 #include <CL/cl.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <cstddef>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <limits>
 #include <vector>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include "splat_tree_cl.h"
 #include "splat.h"
 #include "grid.h"
 #include "clh.h"
 #include "errors.h"
+#include "statistics.h"
+#include "statistics_cl.h"
 
-/* Definitions of constants */
-const std::size_t SplatTreeCL::MAX_LEVELS;
-const std::size_t SplatTreeCL::MAX_SPLATS;
-
-bool SplatTreeCL::validateDevice(const cl::Device &device)
+void SplatTreeCL::validateDevice(const cl::Device &device)
 {
     if (!device.getInfo<CL_DEVICE_IMAGE_SUPPORT>())
-        return false;
-    return true;
+        throw CLH::invalid_device(device, "image support is required");
 }
 
 CLH::ResourceUsage SplatTreeCL::resourceUsage(
@@ -46,6 +43,7 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     const std::tr1::uint64_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+    const std::size_t maxRanges = std::min(maxStart, std::tr1::uint64_t(8 * maxSplats));
 
     CLH::ResourceUsage ans;
 
@@ -55,8 +53,8 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     ans.addBuffer(maxStart * sizeof(command_type));
     // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     ans.addBuffer(maxStart * sizeof(command_type));
-    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
-    ans.addBuffer(maxSplats * 16 * sizeof(command_type));
+    // commands = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
+    ans.addBuffer((maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
     // commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     ans.addBuffer(maxSplats * 8 * sizeof(command_type));
     // entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
@@ -75,19 +73,36 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     return ans;
 }
 
-SplatTreeCL::SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats)
-    : maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
-    sort(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clogs::TYPE_UINT, clogs::TYPE_INT),
-    scan(context, context.getInfo<CL_CONTEXT_DEVICES>()[0], clogs::TYPE_UINT)
+SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
+                         std::size_t maxLevels, std::size_t maxSplats)
+    :
+    writeEntriesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeEntries.time")),
+    countCommandsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.countCommands.time")),
+    writeSplatIdsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeSplatIds.time")),
+    writeStartKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeStart.time")),
+    writeStartTopKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.writeStartTop.time")),
+    fillKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.octree.fill.time")),
+    maxSplats(maxSplats), maxLevels(maxLevels), numSplats(0),
+    sort(context, device, clogs::TYPE_UINT, clogs::TYPE_INT),
+    scan(context, device, clogs::TYPE_UINT)
 {
     MLSGPU_ASSERT(1 <= maxSplats && maxSplats <= MAX_SPLATS, std::length_error);
     MLSGPU_ASSERT(1 <= maxLevels && maxLevels <= MAX_LEVELS, std::length_error);
 
-    std::size_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+    sort.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.octree.sort.time"));
+    scan.setEventCallback(
+        &Statistics::timeEventCallback,
+        &Statistics::getStatistic<Statistics::Variable>("kernel.octree.scan.time"));
+
+    const std::tr1::uint64_t maxStart = (std::tr1::uint64_t(1) << (3 * maxLevels)) / 7;
+    const std::size_t maxRanges = std::min(maxStart, std::tr1::uint64_t(8 * maxSplats));
+
     // If this section is modified, remember to update deviceMemory above
     start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
     jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    commands = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 16 * sizeof(command_type));
+    commands = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
     commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
@@ -134,7 +149,7 @@ void SplatTreeCL::enqueueWriteEntries(
                               cl::NullRange,
                               cl::NDRange(numSplats),
                               cl::NullRange,
-                              events, event);
+                              events, event, &writeEntriesKernelTime);
 }
 
 void SplatTreeCL::enqueueCountCommands(
@@ -147,12 +162,13 @@ void SplatTreeCL::enqueueCountCommands(
 {
     countCommandsKernel.setArg(0, indicator);
     countCommandsKernel.setArg(1, keys);
+
     CLH::enqueueNDRangeKernel(queue,
                               countCommandsKernel,
                               cl::NullRange,
                               cl::NDRange(numKeys - 1),
                               cl::NullRange,
-                              events, event);
+                              events, event, &countCommandsKernelTime);
 }
 
 void SplatTreeCL::enqueueWriteSplatIds(
@@ -173,10 +189,11 @@ void SplatTreeCL::enqueueWriteSplatIds(
     writeSplatIdsKernel.setArg(3, commandMap);
     writeSplatIdsKernel.setArg(4, keys);
     writeSplatIdsKernel.setArg(5, splatIds);
+
     CLH::enqueueNDRangeKernel(queue,
                               writeSplatIdsKernel,
                               cl::NullRange, cl::NDRange(numEntries), cl::NullRange,
-                              events, event);
+                              events, event, &writeSplatIdsKernelTime);
 }
 
 void SplatTreeCL::enqueueFill(
@@ -190,12 +207,13 @@ void SplatTreeCL::enqueueFill(
 {
     fillKernel.setArg(0, buffer);
     fillKernel.setArg(1, value);
+
     CLH::enqueueNDRangeKernel(queue,
                               fillKernel,
                               cl::NDRange(offset),
                               cl::NDRange(elements),
                               cl::NullRange,
-                              events, event);
+                              events, event, &fillKernelTime);
 }
 
 void SplatTreeCL::enqueueWriteStart(
@@ -211,6 +229,7 @@ void SplatTreeCL::enqueueWriteStart(
     cl::Event *event)
 {
     cl::Kernel &kernel = havePrev ? writeStartKernel : writeStartTopKernel;
+    Statistics::Variable &time = havePrev ? writeStartKernelTime : writeStartTopKernelTime;
     kernel.setArg(0, start);
     kernel.setArg(1, commands);
     kernel.setArg(2, jumpPos);
@@ -223,7 +242,7 @@ void SplatTreeCL::enqueueWriteStart(
                               cl::NullRange,
                               cl::NDRange(numCodes),
                               cl::NullRange,
-                              events, event);
+                              events, event, &time);
 }
 
 
@@ -269,7 +288,8 @@ void SplatTreeCL::enqueueBuild(
     wait[0] = sortEvent;
     enqueueCountCommands(queue, commandMap, entryKeys, numEntries, &wait, &countEvent);
     wait[0] = countEvent;
-    scan.enqueue(queue, commandMap, numEntries, NULL, &wait, &scanEvent);
+    const command_type scanOffset = 1; // make room for the first end pointer
+    scan.enqueue(queue, commandMap, numEntries, &scanOffset, &wait, &scanEvent);
     wait[0] = scanEvent;
     enqueueFill(queue, jumpPos, 0, numStart, (command_type) -1, &wait, &fillJumpPosEvent);
     wait[0] = fillJumpPosEvent;

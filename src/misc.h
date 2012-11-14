@@ -14,7 +14,7 @@
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/type_traits/is_unsigned.hpp>
 #include <limits>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <cstring>
 #include "errors.h"
 

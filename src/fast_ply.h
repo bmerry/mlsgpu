@@ -11,6 +11,16 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#if HAVE_OPEN && HAVE_CLOSE && HAVE_PREAD
+# define SYSCALL_READER_POSIX 1
+#elif HAVE_CREATEFILE && HAVE_CLOSEHANDLE && HAVE_READFILE
+# define SYSCALL_READER_WIN32 1
+# include <windows.h>
+#else
+# error "Insufficient support for SyscallReader"
+#endif
+
 #include <string>
 #include <cstddef>
 #include <stdexcept>
@@ -22,30 +32,50 @@
 #include <vector>
 #include <algorithm>
 #include <utility>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/type_traits/is_pointer.hpp>
 #include <boost/ref.hpp>
+#include <boost/noncopyable.hpp>
 #include "splat.h"
 #include "errors.h"
 
-class TestFastPlyReader;
+class TestFastPlyReaderBase;
 
+/**
+ * Classes and functions for efficient access to PLY files in a narrow
+ * range of possible formats.
+ */
 namespace FastPly
 {
 
+/// Enumeration of the subclasses of @ref FastPly::ReaderBase
+enum ReaderType
+{
+    MMAP_READER,
+    SYSCALL_READER
+};
+
+/// Enumeration of the subclasses of @ref FastPly::WriterBase
 enum WriterType
 {
     MMAP_WRITER,
     STREAM_WRITER
 };
 
-/**
- * Wrapper around WriterType for use with @ref Choice.
- */
+/// Wrapper around @ref ReaderType for use with @ref Choice.
+class ReaderTypeWrapper
+{
+public:
+    typedef ReaderType type;
+    static std::map<std::string, ReaderType> getNameMap();
+};
+
+/// Wrapper around @ref WriterType for use with @ref Choice.
 class WriterTypeWrapper
 {
 public:
@@ -65,71 +95,131 @@ public:
 };
 
 /**
- * Class for quickly reading a subset of PLY files.
+ * Base class for quickly reading a subset of PLY files.
  * It only supports the following:
  * - Binary files, endianness matching the host.
  * - Only the "vertex" element is loaded.
  * - The "vertex" element must be the first element in the file.
  * - The x, y, z, nx, ny, nz, radius elements must all be present and FLOAT32.
  * - The vertex element must not contain any lists.
- * - It must be possible to mmap the entire file (thus, a 64-bit
- *   address space is needed to handle very large files).
  *
- * In addition to memory-mapping a file, it can also accept an existing
- * memory range (this is mainly provided to simplify testing).
+ * This is a virtual base class that provides the interfaces and handles the
+ * header, but the actual movement of data is down to the subclasses.
+ *
+ * An instance of this class just holds the metadata, but no OS resources or
+ * buffers. To actually read the data, one calls @ref createHandle() to create
+ * a handle, at which point the file is opened.
  */
-class Reader
+class ReaderBase
 {
-    friend class ::TestFastPlyReader;
+    friend class ::TestFastPlyReaderBase;
 public:
     /// Size capable of holding maximum supported file size
-    typedef boost::iostreams::mapped_file_source::size_type size_type;
+    typedef std::tr1::uint64_t size_type;
     typedef Splat value_type;
 
     /**
-     * Construct from a file.
-     * @param filename         File to open.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @throw std::ios_base::failure if the file could not be opened
-     * @throw FormatError if the file was malformed
+     * A file handle to a PLY file, used for reading. This is a virtual base
+     * class which is overloaded by each type of reader to provide the mechanisms
+     * for accessing the file.
+     *
+     * A word about thread safety. Two threads must not simultaneously access the
+     * same handle, because it is possible that handles encode an OS-level file
+     * position. It is safe to simultaneously access two handles that reference
+     * the same underlying file.
      */
-    explicit Reader(const std::string &filename, float smooth);
+    class Handle : public boost::noncopyable
+    {
+    protected:
+        /// The reader whose file we're reading
+        const ReaderBase &owner;
+
+    protected:
+        /// Constructor
+        Handle(const ReaderBase &owner);
+
+    public:
+        /**
+         * Method implemented in subclasses to back the read. It must copy the specified
+         * vertices to @a buffer, in exactly the form they exist in the file i.e. just
+         * a byte-level copy of the relevant data, without selecting the required fields.
+         *
+         * @param first,last      %Range of vertices to read.
+         * @param buffer          Output buffer, or @c NULL if no buffer created.
+         * @return A pointer to the data.
+         *
+         * @pre @a first &lt;= @a last &lt;= @ref size().
+         * @pre @a buffer is not @c NULL and has at least <code>(last - first) * owner.getVertexSize() bytes</code>.
+         */
+        virtual void readRaw(size_type first, size_type last, char *buffer) const = 0;
+
+        /**
+         * A hint that a range will be read in the near future. The subclass
+         * may pass this hint to the OS, or it may ignore it.
+         */
+        virtual void prefetch(size_type first, size_type last) const
+        {
+            (void) first;
+            (void) last;
+        }
+
+        /**
+         * Convenience wrapper around @ref Reader::decode.
+         *
+         * @see @ref Reader::decode.
+         */
+        Splat decode(const char *buffer, std::size_t offset) const
+        {
+            return owner.decode(buffer, offset);
+        }
+
+        /**
+         * Copy out a contiguous selection of the vertices.
+         *
+         * @warning This is a low-performance function intended only for testing.
+         * High-performance code should directly use @ref readRaw and @ref decode
+         * in order to manage the buffer and be able to control overlap of
+         * I/O and decoding.
+         *
+         * @param first,last      %Range of vertices to copy.
+         * @param out             Target of copy.
+         * @return The output iterator after the copy.
+         * @pre @a first &lt;= @a last &lt;= @ref size().
+         */
+        template<typename OutputIterator>
+            OutputIterator read(size_type first, size_type last, OutputIterator out) const;
+
+        virtual ~Handle() {}
+    };
 
     /**
-     * Construct from an existing memory range.
-     * This is primarily intended for testing this class.
-     * @param data             Start of memory region.
-     * @param size             Bytes in memory region.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @throw FormatError if the file was malformed
-     * @note The memory range must not be deleted or modified until the object
-     * is destroyed.
+     * Extract a single splat from the raw buffer representation.
+     *
+     * @param buffer     A buffer returned by @ref Handle::readRaw
+     * @param offset     The number of the splat within the buffer
+     * @return The splat at the specified offset, with a computed quality
      */
-    Reader(const char *data, size_type size, float smooth);
+    Splat decode(const char *buffer, std::size_t offset) const;
 
     /// Number of vertices in the file
     size_type size() const { return vertexCount; }
 
-    /**
-     * Copy out a contiguous selection of the vertices.
-     * @param first,last      %Range of vertices to copy.
-     * @param out             Target of copy.
-     * @return The output iterator after the copy.
-     * @pre @a first &lt;= @a last &lt;= @ref size().
-     */
-    template<typename OutputIterator>
-    OutputIterator read(size_type first, size_type last, OutputIterator out) const;
-private:
-    /// The memory mapping, if constructed from a filename; otherwise @c NULL.
-    boost::scoped_ptr<boost::iostreams::mapped_file_source> mapping;
+    /// Number of bytes per vertex
+    size_type getVertexSize() const { return vertexSize; }
 
+    /**
+     * Open the file and return a @ref FastPly::ReaderBase::Handle for reading it.
+     */
+    virtual Handle *createHandle() const = 0;
+
+    virtual ~ReaderBase() {}
+
+private:
     /// Scale factor for radii
     float smooth;
 
-    /// Pointer to the start of the whole file.
-    const char *filePtr;
-    /// Pointer to the first vertex.
-    const char *vertexPtr;
+    /// Radius limit
+    float maxRadius;
 
     /// The properties found in the file.
     enum Property
@@ -139,18 +229,123 @@ private:
         RADIUS
     };
     static const unsigned int numProperties = 7;
+    size_type headerSize;              ///< Bytes before the first vertex
     size_type vertexSize;              ///< Bytes per vertex
     size_type vertexCount;             ///< Number of vertices
     size_type offsets[numProperties];  ///< Byte offsets of each property within a vertex
 
-    void readHeader(std::istream &in); ///< Does the heavy lifting of parsing the header
+protected:
+    /**
+     * Construct from a file.
+     *
+     * This will open the file to parse the header and then close it again.
+     * If an exception is thrown, it will have the filename stored in it
+     * using @c boost::errinfo_file_name.
+     *
+     * @param filename         File to open.
+     * @param smooth           Scale factor applied to radii as they're read.
+     * @param maxRadius        Cap for radius (prior to scaling by @a smooth).
+     * @throw FormatError if the header is malformed.
+     * @throw std::ios::failure if there was an I/O error.
+     */
+    ReaderBase(const std::string &filename, float smooth, float maxRadius);
 
-    /// Implementation of @ref read for the general case
-    template<typename OutputIterator>
-    OutputIterator read(size_type first, size_type last, OutputIterator out, boost::false_type) const;
+    /**
+     * Construct from an arbitrary stream.
+     *
+     * This is a more generic constructor that does not require the header
+     * to be stored in a file. The subclass @em must call @ref readHeader
+     * to load the header.
+     *
+     * @see @ref readHeader
+     */
+    ReaderBase(float smooth, float maxRadius);
 
-    /// Implementation of @ref read for the special case of reading into raw memory
-    value_type *read(size_type first, size_type last, value_type *out, boost::true_type) const;
+    /**
+     * Does the heavy lifting of parsing the header. This is called by
+     * the constructor if it takes a file, otherwise by the subclass
+     * constructor.
+     */
+    void readHeader(std::istream &in);
+
+    /// Return the number of bytes from the beginning of the file to the first vertex
+    size_type getHeaderSize() const { return headerSize; }
+};
+
+/**
+ * Reader that uses a memory mapping to access the file.
+ * It must be possible to mmap the entire file (thus, a 64-bit
+ * address space is needed to handle very large files).
+ */
+class MmapReader : public ReaderBase
+{
+private:
+    class MmapHandle : public ReaderBase::Handle
+    {
+    private:
+        /// The memory mapping
+        boost::iostreams::mapped_file_source mapping;
+
+        /// Pointer to the first vertex.
+        const char *vertexPtr;
+
+    public:
+        virtual void readRaw(size_type first, size_type last, char *buffer) const;
+        virtual void prefetch(size_type first, size_type last) const;
+
+        explicit MmapHandle(const MmapReader &owner, const std::string &filename);
+    };
+
+public:
+    /**
+     * @copydoc ReaderBase::ReaderBase(const std::string &, float, float)
+     */
+    explicit MmapReader(const std::string &filename, float smooth, float maxRadius);
+
+    virtual Handle *createHandle() const;
+
+private:
+    const std::string filename;
+};
+
+/**
+ * Reader that uses @c read or equivalent OS-level functionality.
+ *
+ * @todo Port to Windows
+ */
+class SyscallReader : public ReaderBase
+{
+private:
+    class SyscallHandle : public ReaderBase::Handle
+    {
+    private:
+#if SYSCALL_READER_POSIX
+        int fd;
+#elif SYSCALL_READER_WIN32
+        HANDLE fd;
+#endif
+
+    public:
+        /**
+         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &)
+         */
+        SyscallHandle(const SyscallReader &owner);
+
+        virtual void readRaw(size_type first, size_type last, char *buffer) const;
+        virtual void prefetch(size_type first, size_type last) const;
+
+        virtual ~SyscallHandle();
+    };
+
+    std::string filename;
+
+public:
+    /**
+     * @copydoc ReaderBase::ReaderBase(const std::string &, float, float)
+     */
+    SyscallReader(const std::string &filename, float smooth, float maxRadius);
+
+    virtual Handle *createHandle() const;
 };
 
 /// Common code shared by @ref MmapWriter and @ref StreamWriter
@@ -345,33 +540,37 @@ private:
     boost::iostreams::stream_offset triangleOffset;
 };
 
+
+/**
+ * Factory function to create a new reader of the specified type.
+ */
+ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth, float maxRadius);
+
 /**
  * Factory function to create a new writer of the specified type.
  */
 WriterBase *createWriter(WriterType type);
 
-
 template<typename OutputIterator>
-OutputIterator Reader::read(size_type first, size_type last, OutputIterator out, boost::false_type) const
+OutputIterator ReaderBase::Handle::read(size_type first, size_type last, OutputIterator out) const
 {
-    MLSGPU_ASSERT(first <= last && last <= size(), std::out_of_range);
+    MLSGPU_ASSERT(first <= last && last <= owner.size(), std::out_of_range);
 
-    const size_type bufferSize = 8192;
-    value_type buffer[bufferSize];
-    while (first < last)
+    const std::size_t vertexSize = owner.getVertexSize();
+    const std::size_t bufferSize = std::max(vertexSize, std::size_t(4096));
+    const std::size_t blockSize = bufferSize / vertexSize;
+    boost::scoped_array<char> buffer(new char[bufferSize]);
+
+    for (size_type i = first; i < last; i += blockSize)
     {
-        size_type size = std::min(bufferSize, last - first);
-        read(first, first + size, buffer);
-        out = std::copy(buffer, buffer + size, out);
-        first += size;
+        size_type blockEnd = std::min(last, i + blockSize);
+        readRaw(i, blockEnd, buffer.get());
+        for (size_type j = i; j < blockEnd; j++)
+        {
+            *out++ = decode(buffer.get(), j - i);
+        }
     }
     return out;
-}
-
-template<typename OutputIterator>
-OutputIterator Reader::read(size_type first, size_type last, OutputIterator out) const
-{
-    return read(first, last, out, boost::is_pointer<OutputIterator>());
 }
 
 } // namespace FastPly

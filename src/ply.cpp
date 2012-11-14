@@ -108,7 +108,7 @@ static string getHeaderLine(istream &in) throw(FormatError)
 
 } // namespace detail
 
-template<typename T> long ElementRangeReaderBase::PropertyAsLong::operator()()
+template<typename T> long ElementRangeReaderBase::PropertyAsLong::operator()(T)
 {
     return long(reader.readField<T>());
 }
@@ -117,7 +117,7 @@ void ElementRangeReaderBase::skip()
 {
     assert(getNumber() == 0 || &*reader.currentReader == this);
     PropertyAsLong convertHelper(reader);
-    FieldTypeFunction<PropertyAsLong> converter(convertHelper);
+    detail::FieldTypeFunction<PropertyAsLong> converter(convertHelper);
     while (&*reader.currentReader == this)
     {
         BOOST_FOREACH(const PropertyType &p, getProperties())

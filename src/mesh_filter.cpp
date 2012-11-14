@@ -54,17 +54,17 @@ ScaleBiasFilter::ScaleBiasFilter(const cl::Context &context)
 
 void ScaleBiasFilter::setScaleBias(float scale, float x, float y, float z)
 {
-    scaleBias.x = x;
-    scaleBias.y = y;
-    scaleBias.z = z;
-    scaleBias.w = scale;
+    scaleBias.s[0] = x;
+    scaleBias.s[1] = y;
+    scaleBias.s[2] = z;
+    scaleBias.s[3] = scale;
     kernel.setArg(1, scaleBias);
 }
 
 void ScaleBiasFilter::setScaleBias(const Grid &grid)
 {
     grid.getVertex(0, 0, 0, scaleBias.s);
-    scaleBias.w = grid.getSpacing();
+    scaleBias.s[3] = grid.getSpacing();
     kernel.setArg(1, scaleBias);
 }
 
@@ -75,7 +75,13 @@ void ScaleBiasFilter::operator()(
     cl::Event *event,
     DeviceKeyMesh &outMesh) const
 {
-    kernel.setArg(0, inMesh.vertices);
+    /* The "if" test is because AMD APP SDK 2.6 barfs if inMesh.vertices is
+     * NULL, even though this is legal according to the CL spec. Note: don't
+     * try to move the enqueue inside the if test. Even though no CL work will
+     * be generated, the enqueue will still populate the event.
+     */
+    if (inMesh.numVertices > 0)
+        kernel.setArg(0, inMesh.vertices);
     CLH::enqueueNDRangeKernelSplit(queue,
                                    kernel,
                                    cl::NullRange,

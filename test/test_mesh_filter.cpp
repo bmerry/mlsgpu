@@ -13,7 +13,7 @@
 #include <vector>
 #include <boost/ref.hpp>
 #include <CL/cl.hpp>
-#include "testmain.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "../src/mesh.h"
 #include "../src/mesh_filter.h"

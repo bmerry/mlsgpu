@@ -12,7 +12,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <vector>
 #include "../src/union_find.h"
-#include "testmain.h"
+#include "testutil.h"
 
 /// Tests for @ref UnionFind
 class TestUnionFind : public CppUnit::TestFixture

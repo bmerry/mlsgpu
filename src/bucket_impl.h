@@ -15,6 +15,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/mem_fn.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
 #include <ostream>
 #include <limits>
 #include "bucket.h"
@@ -82,12 +83,12 @@ struct BucketParameters
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
     bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
-    ProgressDisplay *progress;          ///< Progress display to update for empty cells
+    ProgressMeter *progress;            ///< Progress display to update for empty cells
 
     BucketParameters(std::tr1::uint64_t maxSplats,
                      Grid::size_type maxCells,
                      bool maxCellsHint, std::size_t maxSplit,
-                     ProgressDisplay *progress)
+                     ProgressMeter *progress)
         : maxSplats(maxSplats), maxCells(maxCells),
         maxCellsHint(maxCellsHint),
         maxSplit(maxSplit), progress(progress) {}
@@ -112,8 +113,12 @@ public:
     BucketState(const BucketParameters &params, const Grid &grid,
                 Grid::size_type microSize, int macroLevels);
 
-    /// Enters a blob into all corresponding counters in the tree.
-    void countSplats(const SplatSet::BlobInfo &blob);
+    /**
+     * Enters a blob into all corresponding counters in the tree.
+     * @param blob         The blob to use
+     * @param numUpdates   Will be incremented by the number of counters affected, per splat
+     */
+    void countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates);
 
     /**
      * Convert @ref nodeCounts from a delta encoding to plain counts.
@@ -139,12 +144,12 @@ public:
     std::tr1::int64_t getNodeCount(const Node &node) const;
 
     /// Size in microblocks of the region being processed.
-    const Grid::size_type *getDims() const { return dims; }
+    const Grid::size_type *getDims() const { return &dims[0]; }
 
 private:
     friend class PickNodes;
 
-    static const std::size_t BAD_REGION = std::size_t(-1);
+    static const std::size_t BAD_REGION;
 
     /**
      * A child region. It is stored in a vector, so needs a valid copy
@@ -163,7 +168,7 @@ private:
     };
 
     /// Size in microblocks of the region being processed.
-    Grid::size_type dims[3];
+    boost::array<Grid::size_type, 3> dims;
 
     /**
      * Octree of splat counts. Each element of the vector is one level of the
@@ -175,12 +180,12 @@ private:
      * will thus typically be negative. @ref upsweepCounts applies the
      * summation up the tree.
      */
-    Statistics::Container::vector<boost::multi_array<std::tr1::int64_t, 3> > nodeCounts;
+    boost::ptr_vector<Statistics::Container::multi_array<std::tr1::int64_t, 3> > nodeCounts;
 
     /**
      * Index of the chosen subregion for each leaf (BAD_REGION if empty).
      */
-    boost::multi_array<std::size_t, 3> microRegions;
+    Statistics::Container::multi_array<std::size_t, 3> microRegions;
 
     /**
      * The nodes and ranges for the next level of the hierarchy.
@@ -200,6 +205,12 @@ private:
                const boost::array<Grid::difference_type, 3> &upper,
                boost::array<Node::size_type, 3> &lo,
                boost::array<Node::size_type, 3> &hi);
+
+    /**
+     * Determine the number of microblocks in each dimension (used to
+     * initialize @ref dims).
+     */
+    boost::array<Grid::size_type, 3> computeDims(const Grid &grid, Grid::size_type microSize);
 };
 
 template<typename Splats>
@@ -209,6 +220,11 @@ void BucketState::doCallbacks(
     const Recursion &recursionState,
     const boost::array<Grid::difference_type, 3> &chunkOffset)
 {
+    std::size_t numRanges = 0;
+    BOOST_FOREACH(Subregion &region, subregions)
+    {
+        numRanges += region.subset.numRanges();
+    }
     BOOST_FOREACH(Subregion &region, subregions)
     {
         // Clip the region to the grid
@@ -219,10 +235,11 @@ void BucketState::doCallbacks(
 
         Recursion childRecursion = recursionState;
         childRecursion.depth++;
-        childRecursion.totalRanges += region.subset.numRanges();
+        childRecursion.totalRanges += numRanges;
         for (unsigned int i = 0; i < 3; i++)
             childRecursion.chunk[i] += chunkOffset[i];
 
+        region.subset.flush();
         typename SplatSet::Traits<Splats>::subset_type subset(splats);
         subset.swap(region.subset);
         bucketRecurse(subset,
@@ -234,7 +251,7 @@ void BucketState::doCallbacks(
     }
 }
 
-class BucketStateSet : public boost::multi_array<boost::shared_ptr<BucketState>, 3>
+class BucketStateSet : public Statistics::Container::multi_array<boost::shared_ptr<BucketState>, 3>
 {
 public:
     BucketStateSet(
@@ -300,9 +317,24 @@ public:
  * This ignores @a maxCells. Instead, @a dims could be in either units of cells or
  * in units of @a maxCells, in which case we are using how many @a maxCells sized
  * blocks form each microblock.
+ *
+ * The @a numSplats and @a maxSplats are purely for heuristics: the microblocks will
+ * be made larger than the minimum if it seems likely that each microblock will still
+ * contain fewer than @a maxSplats cells.
+ *
+ * @param dims      Number of unit-sized cells in each dimension
+ * @param maxSplit  Maximum number of microblocks
+ * @param numSplats Total number of splats in the region (upper bound is okay)
+ * @param maxSplats Maximum target number of splats per bin
+ * @param maxCells  Soft upper bound on return value. It can be exceeded to satisfy maxSplit,
+ *                  but will constrain the density heuristic.
  */
 Grid::size_type chooseMicroSize(
-    const Grid::size_type dims[3], std::size_t maxSplit);
+    const Grid::size_type dims[3],
+    std::size_t maxSplit,
+    std::tr1::uint64_t numSplats,
+    std::tr1::uint64_t maxSplats,
+    Grid::size_type maxCells);
 
 template<typename Splats>
 bool bucketCallback(const Splats &, const Grid &,
@@ -320,6 +352,7 @@ bool bucketCallback(const Splats &splats, const Grid &grid,
                     boost::true_type)
 {
     process(splats, grid, recursionState);
+    Statistics::getStatistic<Statistics::Counter>("bucket.bins").add(1);
     return true;
 }
 
@@ -344,8 +377,8 @@ void bucketRecurse(
     const typename ProcessorType<Splats>::type &process,
     const Recursion &recursionState)
 {
-    Statistics::getStatistic<Statistics::Peak<unsigned int> >("bucket.depth.peak") = recursionState.depth;
-    Statistics::getStatistic<Statistics::Peak<std::size_t> >("bucket.totalRanges.peak") = recursionState.totalRanges;
+    Statistics::getStatistic<Statistics::Peak>("bucket.depth.peak") = recursionState.depth;
+    Statistics::getStatistic<Statistics::Peak>("bucket.totalRanges.peak") = recursionState.totalRanges;
 
     Grid::size_type cellDims[3];
     for (int i = 0; i < 3; i++)
@@ -381,11 +414,11 @@ void bucketRecurse(
             Grid::size_type subDims[3];
             for (unsigned int i = 0; i < 3; i++)
                 subDims[i] = divUp(cellDims[i], params.maxCells);
-            microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit);
-            Statistics::getStatistic<Statistics::Peak<Grid::size_type> >("bucket.microsize.peak") = microSize;
+            microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit, splats.maxSplats(), params.maxSplats, 1);
         }
         else
-            microSize = chooseMicroSize(cellDims, params.maxSplit);
+            microSize = chooseMicroSize(cellDims, params.maxSplit, splats.maxSplats(), params.maxSplats, params.maxCells);
+        Statistics::getStatistic<Statistics::Peak>("bucket.microsize.peak") = microSize;
 
         if (chunkCells == 0)
             chunkCells = maxCellDim;
@@ -405,12 +438,16 @@ void bucketRecurse(
 
         /* Create histogram */
         boost::scoped_ptr<SplatSet::BlobStream> blobs(splats.makeBlobStream(grid, microSize));
+        std::tr1::uint64_t numUpdates = 0;
         while (!blobs->empty())
         {
-            states.processBlob(**blobs, boost::mem_fn(&BucketState::countSplats));
+            states.processBlob(**blobs,
+                               boost::bind(&BucketState::countSplats, _1, _2, boost::ref(numUpdates)));
             ++*blobs;
         }
         blobs.reset();
+        Statistics::getStatistic<Statistics::Counter>("bucket.countSplats.updates")
+            .add(numUpdates);
 
         boost::array<Grid::difference_type, 3> chunkCoord;
         for (chunkCoord[0] = 0; chunkCoord[0] < chunks[0]; chunkCoord[0]++)
@@ -452,7 +489,7 @@ void bucket(const Splats &splats,
             bool maxCellsHint,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
-            ProgressDisplay *progress,
+            ProgressMeter *progress,
             const Recursion &recursionState)
 {
     detail::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);

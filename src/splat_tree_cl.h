@@ -15,10 +15,11 @@
 #include <utility>
 #include <boost/noncopyable.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <clogs/clogs.h>
 #include "splat_tree.h"
 #include "clh.h"
 #include "grid.h"
-#include "clogs/clogs.h"
+#include "statistics.h"
 
 /**
  * Concrete implementation of @ref SplatTree that stores the data
@@ -43,23 +44,29 @@ public:
      */
     typedef std::tr1::uint32_t code_type;
 
-    /**
-     * The maximum legal value for @a maxLevels passed to the constructor. This
-     * value is the maximum that will allow the size of the start array to be
-     * represented in a 32-bit integer. On a 64-bit system it could probably be
-     * made larger, but only with significant changes to the kernel code to use
-     * 64-bit values for @ref code_type.
-     */
-    static const std::size_t MAX_LEVELS = 10;
+    enum
+    {
+        /**
+         * The maximum legal value for @a maxLevels passed to the constructor. This
+         * value is the maximum that will allow the size of the start array to be
+         * represented in a 32-bit integer. On a 64-bit system it could probably be
+         * made larger, but only with significant changes to the kernel code to use
+         * 64-bit values for @ref code_type.
+         */
+        MAX_LEVELS = 10
+    };
 
-    /**
-     * The maximum number of splats that can be specified as @a maxSplats.
-     * This number cannot necessarily be allocated, but it allows for
-     * each splat to generate 8 entries plus the same number of jumps in the
-     * command table, and still have jumps be encoded as negative values in @a
-     * command_type.
-     */
-    static const std::size_t MAX_SPLATS = 0x7FFFFFFF / 16;
+    enum
+    {
+        /**
+         * The maximum number of splats that can be specified as @a maxSplats.
+         * This number cannot necessarily be allocated, but it allows for
+         * each splat to generate 8 entries plus the same number of jumps in the
+         * command table, and still have jumps be encoded as negative values in @a
+         * command_type.
+         */
+        MAX_SPLATS = 0x7FFFFFFF / 16
+    };
 
 private:
     /**
@@ -71,6 +78,21 @@ private:
     cl::Kernel writeStartKernel, writeStartTopKernel;
     cl::Kernel fillKernel;
     /** @} */
+
+    /**
+     * @name
+     * @{
+     * Statistics measuring time spent in each kernel.
+     */
+    Statistics::Variable &writeEntriesKernelTime;
+    Statistics::Variable &countCommandsKernelTime;
+    Statistics::Variable &writeSplatIdsKernelTime;
+    Statistics::Variable &writeStartKernelTime;
+    Statistics::Variable &writeStartTopKernelTime;
+    Statistics::Variable &fillKernelTime;
+    /**
+     * @}
+     */
 
     /**
      * @name
@@ -169,8 +191,10 @@ public:
     /**
      * Checks whether the device can support this class at all. At the time of
      * writing, this just means that it needs image support.
+     *
+     * @throw CLH::invalid_device if the device cannot be used
      */
-    static bool validateDevice(const cl::Device &device);
+    static void validateDevice(const cl::Device &device);
 
     /**
      * Estimates the device resources needed, based on the constructor
@@ -188,6 +212,7 @@ public:
      * buffers necessary, but does not populate them.
      *
      * @param context   OpenCL context used to create buffers, images etc.
+     * @param device    OpenCL device used to specialise kernels.
      * @param maxLevels Maximum number of octree levels (maximum dimension is 2^<sup>@a maxLevels - 1</sup>).
      * @param maxSplats Maximum number of splats supported.
      *
@@ -195,7 +220,8 @@ public:
      * - 1 <= @a maxLevels <= @ref MAX_LEVELS
      * - 1 <= @a maxSplats <= @ref MAX_SPLATS.
      */
-    SplatTreeCL(const cl::Context &context, std::size_t maxLevels, std::size_t maxSplats);
+    SplatTreeCL(const cl::Context &context, const cl::Device &device,
+                std::size_t maxLevels, std::size_t maxSplats);
 
     /**
      * Asynchronously builds the octree, discarding any previous contents.

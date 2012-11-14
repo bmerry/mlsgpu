@@ -13,10 +13,14 @@
 #include <stdexcept>
 #include <sstream>
 #include <string>
+#include <typeinfo>
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/serialization/scoped_ptr.hpp>
 #include "../src/statistics.h"
-#include "testmain.h"
+#include "testutil.h"
 
 /**
  * Test for the @ref Statistics::Statistic base class.
@@ -51,6 +55,8 @@ class TestVariable : public TestStatistic
     CPPUNIT_TEST(testGetStddev);
     CPPUNIT_TEST(testGetVariance);
     CPPUNIT_TEST(testGetNumSamples);
+    CPPUNIT_TEST(testStream);
+    CPPUNIT_TEST(testSerialize);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -65,6 +71,7 @@ private:
     void testGetVariance();    ///< Test @ref Statistics::Variable::getVariance
     void testGetNumSamples();  ///< Test @ref Statistics::Variable::getNumSamples
     void testStream();         ///< Test stream output of @ref Statistics::Variable
+    void testSerialize();      ///< Test that serialization and deserialization works
 
 protected:
     virtual Statistics::Statistic *createStatistic(const std::string &name) const;
@@ -81,6 +88,7 @@ class TestCounter : public TestStatistic
     CPPUNIT_TEST(testAdd);
     CPPUNIT_TEST(testGetTotal);
     CPPUNIT_TEST(testStream);
+    CPPUNIT_TEST(testSerialize);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -89,6 +97,7 @@ private:
     void testAdd();            ///< Test @ref Statistics::Counter::add
     void testGetTotal();       ///< Test @ref Statistics::Counter::getTotal
     void testStream();         ///< Test stream output of @ref Statistics::Counter
+    void testSerialize();      ///< Test that serialization works
 
 protected:
     virtual Statistics::Statistic *createStatistic(const std::string &name) const;
@@ -109,6 +118,7 @@ class TestPeak : public TestStatistic
     CPPUNIT_TEST(testGetMax);
     CPPUNIT_TEST(testStream);
     CPPUNIT_TEST(testEmpty);
+    CPPUNIT_TEST(testSerialize);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -116,7 +126,7 @@ private:
      * Peak statistic fixture. It is initialized to the value -100, with the
      * maximum being left at 0.
      */
-    boost::scoped_ptr<Statistics::Peak<long long> > peak;
+    boost::scoped_ptr<Statistics::Peak> peak;
 
     void testAdd();      ///< Test Statistics::Peak::operator+=()
     void testSub();      ///< Test Statistics::Peak::operator-=()
@@ -125,6 +135,7 @@ private:
     void testGetMax();   ///< Test @ref Statistics::Peak::getMax
     void testStream();   ///< Test streaming a @ref Statistics::Peak to an @c ostream
     void testEmpty();    ///< Test initial state
+    void testSerialize(); ///< Test that serialization works
 
 protected:
     virtual Statistics::Statistic *createStatistic(const std::string &name) const;
@@ -206,20 +217,39 @@ void TestVariable::testStream()
     {
         std::ostringstream s;
         s << *stat1;
-        CPPUNIT_ASSERT_EQUAL(std::string("stat1: 1 [1]"), s.str());
+        CPPUNIT_ASSERT_EQUAL(std::string("stat1: 1 : 1 [1]"), s.str());
     }
     {
         std::ostringstream s;
         s.precision(6);
         s << *stat2;
-        CPPUNIT_ASSERT_EQUAL(std::string("stat2: 2.5 +/- 0.707107 [2]"), s.str());
+        CPPUNIT_ASSERT_EQUAL(std::string("stat2: 5 : 2.5 +/- 0.707107 [2]"), s.str());
     }
     {
         std::ostringstream s;
         s.precision(6);
         s << *stat2s;
-        CPPUNIT_ASSERT_EQUAL(std::string("stat2s: 4.5 +/- 0 [2]"), s.str());
+        CPPUNIT_ASSERT_EQUAL(std::string("stat2s: 9 : 4.5 +/- 0 [2]"), s.str());
     }
+}
+
+void TestVariable::testSerialize()
+{
+    std::stringstream s;
+    boost::archive::text_oarchive oa(s);
+    Statistics::Statistic *oldPtr = stat2.get();
+    oa << oldPtr;
+
+    boost::archive::text_iarchive ia(s);
+    Statistics::Statistic *newPtr;
+    ia >> newPtr;
+    boost::scoped_ptr<Statistics::Statistic> save(newPtr);
+
+    Statistics::Variable *newStat = dynamic_cast<Statistics::Variable *>(newPtr);
+    CPPUNIT_ASSERT(newPtr != NULL);
+    CPPUNIT_ASSERT_EQUAL(stat2->sum, newStat->sum);
+    CPPUNIT_ASSERT_EQUAL(stat2->sum2, newStat->sum2);
+    CPPUNIT_ASSERT_EQUAL(stat2->n, newStat->n);
 }
 
 Statistics::Statistic *TestVariable::createStatistic(const std::string &name) const
@@ -235,14 +265,14 @@ void TestCounter::setUp()
 
 void TestCounter::testAdd()
 {
-    CPPUNIT_ASSERT_EQUAL(100ULL, counter->total);
+    MLSGPU_ASSERT_EQUAL(100, counter->total);
     counter->add(50);
-    CPPUNIT_ASSERT_EQUAL(150ULL, counter->total);
+    MLSGPU_ASSERT_EQUAL(150, counter->total);
 }
 
 void TestCounter::testGetTotal()
 {
-    CPPUNIT_ASSERT_EQUAL(100ULL, counter->getTotal());
+    MLSGPU_ASSERT_EQUAL(100, counter->getTotal());
 }
 
 void TestCounter::testStream()
@@ -252,6 +282,23 @@ void TestCounter::testStream()
     CPPUNIT_ASSERT_EQUAL(std::string("counter: 100"), s.str());
 }
 
+void TestCounter::testSerialize()
+{
+    std::stringstream s;
+    boost::archive::text_oarchive oa(s);
+    Statistics::Statistic *oldPtr = counter.get();
+    oa << oldPtr;
+
+    boost::archive::text_iarchive ia(s);
+    Statistics::Statistic *newPtr;
+    ia >> newPtr;
+    boost::scoped_ptr<Statistics::Statistic> save(newPtr);
+
+    Statistics::Counter *newStat = dynamic_cast<Statistics::Counter *>(newPtr);
+    CPPUNIT_ASSERT(newStat != NULL);
+    CPPUNIT_ASSERT_EQUAL(counter->total, newStat->total);
+}
+
 Statistics::Statistic *TestCounter::createStatistic(const std::string &name) const
 {
     return new Statistics::Counter(name);
@@ -259,77 +306,77 @@ Statistics::Statistic *TestCounter::createStatistic(const std::string &name) con
 
 void TestPeak::setUp()
 {
-    peak.reset(new Statistics::Peak<long long>("peak"));
+    peak.reset(new Statistics::Peak("peak"));
     *peak = -100LL;
 }
 
 void TestPeak::testSet()
 {
     // Test initial state
-    CPPUNIT_ASSERT_EQUAL(-100LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(0LL, peak->max);
+    MLSGPU_ASSERT_EQUAL(-100, peak->current);
+    MLSGPU_ASSERT_EQUAL(0, peak->peak);
 
     // Test setting a maximal value
-    *peak = 1234567890LL;
-    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
+    *peak = 1234567890;
+    MLSGPU_ASSERT_EQUAL(1234567890, peak->current);
+    MLSGPU_ASSERT_EQUAL(1234567890, peak->peak);
 
     // Test setting a non-maximal value
-    *peak = 123456LL;
-    CPPUNIT_ASSERT_EQUAL(123456LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(1234567890LL, peak->max);
+    *peak = 123456;
+    MLSGPU_ASSERT_EQUAL(123456, peak->current);
+    MLSGPU_ASSERT_EQUAL(1234567890, peak->peak);
 }
 
 void TestPeak::testAdd()
 {
     // Go up
-    *peak += 250LL;
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    *peak += 250;
+    MLSGPU_ASSERT_EQUAL(150, peak->current);
+    MLSGPU_ASSERT_EQUAL(150, peak->peak);
 
     // Go down
-    *peak += -200LL;
-    CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    *peak += -200;
+    MLSGPU_ASSERT_EQUAL(-50, peak->current);
+    MLSGPU_ASSERT_EQUAL(150, peak->peak);
 }
 
 void TestPeak::testSub()
 {
     // Go up
-    *peak -= -250LL;
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    *peak -= -250;
+    MLSGPU_ASSERT_EQUAL(150, peak->current);
+    MLSGPU_ASSERT_EQUAL(150, peak->peak);
 
     // Go down
-    *peak -= 200LL;
-    CPPUNIT_ASSERT_EQUAL(-50LL, peak->current);
-    CPPUNIT_ASSERT_EQUAL(150LL, peak->max);
+    *peak -= 200;
+    MLSGPU_ASSERT_EQUAL(-50, peak->current);
+    MLSGPU_ASSERT_EQUAL(150, peak->peak);
 }
 
 void TestPeak::testGet()
 {
-    CPPUNIT_ASSERT_EQUAL(-100LL, peak->get());
-    peak->set(-200LL);
-    CPPUNIT_ASSERT_EQUAL(-200LL, peak->get());
+    MLSGPU_ASSERT_EQUAL(-100, peak->get());
+    peak->set(-200);
+    MLSGPU_ASSERT_EQUAL(-200, peak->get());
 }
 
 void TestPeak::testGetMax()
 {
-    CPPUNIT_ASSERT_EQUAL(0LL, peak->getMax());
-    peak->set(-200LL);
-    CPPUNIT_ASSERT_EQUAL(0LL, peak->getMax());
-    peak->set(200LL);
-    CPPUNIT_ASSERT_EQUAL(200LL, peak->getMax());
+    MLSGPU_ASSERT_EQUAL(0, peak->getMax());
+    peak->set(-200);
+    MLSGPU_ASSERT_EQUAL(0, peak->getMax());
+    peak->set(200);
+    MLSGPU_ASSERT_EQUAL(200, peak->getMax());
 }
 
 void TestPeak::testStream()
 {
     std::ostringstream o;
-    *peak = 123LL;
+    *peak = 123;
     o << *peak;
     CPPUNIT_ASSERT_EQUAL(std::string("peak: 123"), o.str());
 
-    Statistics::Peak<int> empty("empty");
+    Statistics::Peak empty("empty");
     o.str("");
     o << empty;
     CPPUNIT_ASSERT_EQUAL(std::string("empty: 0"), o.str());
@@ -337,24 +384,45 @@ void TestPeak::testStream()
 
 void TestPeak::testEmpty()
 {
-    Statistics::Peak<int> empty("empty");
-    CPPUNIT_ASSERT_EQUAL(0, empty.get());
-    CPPUNIT_ASSERT_EQUAL(0, empty.getMax());
+    Statistics::Peak empty("empty");
+    MLSGPU_ASSERT_EQUAL(0, empty.get());
+    MLSGPU_ASSERT_EQUAL(0, empty.getMax());
+}
+
+void TestPeak::testSerialize()
+{
+    *peak = 234;
+
+    std::stringstream s;
+    boost::archive::text_oarchive oa(s);
+    Statistics::Statistic *oldPtr = peak.get();
+    oa << oldPtr;
+
+    boost::archive::text_iarchive ia(s);
+    Statistics::Statistic *newPtr;
+    ia >> newPtr;
+    boost::scoped_ptr<Statistics::Statistic> save(newPtr);
+
+    Statistics::Peak *newStat = dynamic_cast<Statistics::Peak *>(newPtr);
+    CPPUNIT_ASSERT(newStat != NULL);
+    CPPUNIT_ASSERT_EQUAL(peak->peak, newStat->peak);
 }
 
 Statistics::Statistic *TestPeak::createStatistic(const std::string &name) const
 {
-    return new Statistics::Peak<int>(name);
+    return new Statistics::Peak(name);
 }
 
-class TestStatisticRegistry : public CppUnit::TestFixture
+class TestStatisticsRegistry : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestStatisticRegistry);
+    CPPUNIT_TEST_SUITE(TestStatisticsRegistry);
     CPPUNIT_TEST(testGetInstance);
     CPPUNIT_TEST(testGetStatistic);
     CPPUNIT_TEST(testStream);
     CPPUNIT_TEST(testIterate);
     CPPUNIT_TEST(testConstIterate);
+    CPPUNIT_TEST(testSerialize);
+    CPPUNIT_TEST(testMerge);
     CPPUNIT_TEST_SUITE_END();
 private:
     Statistics::Registry registry;
@@ -364,14 +432,16 @@ private:
     void testStream();            ///< Test ostream output
     void testIterate();           ///< Test iteration over a non-const registry
     void testConstIterate();      ///< Test iteration over a const registry
+    void testSerialize();         ///< Test serialization and deserialization
+    void testMerge();             ///< Test @ref Statistics::Registry::merge
 
 public:
     void setUp();
     void tearDown();
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStatisticRegistry, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStatisticsRegistry, TestSet::perBuild());
 
-void TestStatisticRegistry::setUp()
+void TestStatisticsRegistry::setUp()
 {
     registry.getStatistic<Statistics::Variable>("stat0");
 
@@ -387,11 +457,11 @@ void TestStatisticRegistry::setUp()
     counter.add(100);
 }
 
-void TestStatisticRegistry::tearDown()
+void TestStatisticsRegistry::tearDown()
 {
 }
 
-void TestStatisticRegistry::testGetInstance()
+void TestStatisticsRegistry::testGetInstance()
 {
     Statistics::Registry &reg = Statistics::Registry::getInstance();
     CPPUNIT_ASSERT(&reg != NULL);
@@ -400,7 +470,7 @@ void TestStatisticRegistry::testGetInstance()
     CPPUNIT_ASSERT_MESSAGE("Singleton reference should not move", &reg == &reg2);
 }
 
-void TestStatisticRegistry::testGetStatistic()
+void TestStatisticsRegistry::testGetStatistic()
 {
     // Get a known statistic
     Statistics::Variable &stat1 = registry.getStatistic<Statistics::Variable>("stat1");
@@ -414,18 +484,18 @@ void TestStatisticRegistry::testGetStatistic()
     CPPUNIT_ASSERT_THROW(registry.getStatistic<Statistics::Variable>("counter"), std::bad_cast);
 }
 
-void TestStatisticRegistry::testStream()
+void TestStatisticsRegistry::testStream()
 {
     std::ostringstream s;
     s << registry;
     CPPUNIT_ASSERT_EQUAL(std::string(
             "counter: 100\n"
             "stat0: [0]\n"
-            "stat1: 1 [1]\n"
-            "stat3: 4 +/- 2 [3]\n"), s.str());
+            "stat1: 1 : 1 [1]\n"
+            "stat3: 12 : 4 +/- 2 [3]\n"), s.str());
 }
 
-void TestStatisticRegistry::testIterate()
+void TestStatisticsRegistry::testIterate()
 {
     BOOST_FOREACH(Statistics::Statistic &s, registry)
     {
@@ -450,7 +520,7 @@ void TestStatisticRegistry::testIterate()
     CPPUNIT_ASSERT_EQUAL(101ULL, counter.getTotal());
 }
 
-void TestStatisticRegistry::testConstIterate()
+void TestStatisticsRegistry::testConstIterate()
 {
     const Statistics::Statistic &counter = registry.getStatistic<Statistics::Counter>("counter");
     const Statistics::Statistic &stat0 = registry.getStatistic<Statistics::Variable>("stat0");
@@ -467,4 +537,43 @@ void TestStatisticRegistry::testConstIterate()
     CPPUNIT_ASSERT_EQUAL(&*cur, &stat3);
     cur++;
     CPPUNIT_ASSERT(cur == registry.end());
+}
+
+void TestStatisticsRegistry::testSerialize()
+{
+    std::stringstream s;
+    boost::archive::text_oarchive oa(s);
+    oa << registry;
+
+    boost::archive::text_iarchive ia(s);
+    Statistics::Registry newRegistry;
+    ia >> newRegistry;
+
+    std::ostringstream oldStr, newStr;
+    oldStr << registry;
+    newStr << newRegistry;
+
+    CPPUNIT_ASSERT_EQUAL(oldStr.str(), newStr.str());
+}
+
+void TestStatisticsRegistry::testMerge()
+{
+    Statistics::Registry other;
+
+    Statistics::Variable &stat0 = registry.getStatistic<Statistics::Variable>("stat0");
+    stat0.add(12.0);
+    Statistics::Counter &counter = registry.getStatistic<Statistics::Counter>("counter");
+    counter.add(17);
+    Statistics::Variable &extra = registry.getStatistic<Statistics::Variable>("extra");
+    extra.add(3.0);
+
+    registry.merge(other);
+    std::ostringstream s;
+    s << registry;
+    CPPUNIT_ASSERT_EQUAL(std::string(
+            "counter: 117\n"
+            "extra: 3 : 3 [1]\n"
+            "stat0: 12 : 12 [1]\n"
+            "stat1: 1 : 1 [1]\n"
+            "stat3: 12 : 4 +/- 2 [3]\n"), s.str());
 }

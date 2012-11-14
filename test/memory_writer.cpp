@@ -10,7 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <boost/array.hpp>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <limits>
 #include <cstring>
 #include "../src/errors.h"

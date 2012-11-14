@@ -6,6 +6,9 @@
 # define __CL_ENABLE_EXCEPTIONS
 #endif
 
+#if HAVE_CONFIG_H
+# include <config.h>
+#endif
 #include <boost/program_options.hpp>
 #include <boost/foreach.hpp>
 #include <boost/lexical_cast.hpp>
@@ -22,6 +25,8 @@
 #include <cstdlib>
 #include "clh.h"
 #include "logging.h"
+#include "statistics.h"
+#include "statistics_cl.h"
 
 namespace po = boost::program_options;
 
@@ -257,7 +262,8 @@ cl::Context makeContext(const cl::Device &device)
 {
     const cl::Platform &platform = device.getInfo<CL_DEVICE_PLATFORM>();
     cl_context_properties props[3] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform(), 0};
-    return cl::Context(device.getInfo<CL_DEVICE_TYPE>(), props, contextCallback);
+    std::vector<cl::Device> devices(1, device);
+    return cl::Context(devices, props, contextCallback);
 }
 
 cl::Program build(const cl::Context &context, const std::vector<cl::Device> &devices,
@@ -417,14 +423,22 @@ cl_int enqueueNDRangeKernel(
     const cl::NDRange &global,
     const cl::NDRange &local,
     const std::vector<cl::Event> *events,
-    cl::Event *event)
+    cl::Event *event,
+    Statistics::Variable *stat)
 {
     for (std::size_t i = 0; i < global.dimensions(); i++)
         if (static_cast<const std::size_t *>(global)[i] == 0)
         {
             return enqueueMarkerWithWaitList(queue, events, event);
         }
-    return queue.enqueueNDRangeKernel(kernel, offset, global, local, events, event);
+
+    cl::Event myEvent;
+    if (stat != NULL && event == NULL)
+        event = &myEvent;
+    int ret = queue.enqueueNDRangeKernel(kernel, offset, global, local, events, event);
+    if (stat != NULL && ret == CL_SUCCESS)
+        Statistics::timeEvent(*event, *stat);
+    return ret;
 }
 
 static cl::NDRange makeNDRange(cl_uint dimensions, const std::size_t *sizes)
@@ -435,8 +449,9 @@ static cl::NDRange makeNDRange(cl_uint dimensions, const std::size_t *sizes)
     case 1: return cl::NDRange(sizes[0]);
     case 2: return cl::NDRange(sizes[0], sizes[1]);
     case 3: return cl::NDRange(sizes[0], sizes[1], sizes[2]);
-    default: abort(); // should never be reached
+    default: std::abort(); // should never be reached
     }
+    return cl::NDRange(); // should never be reached
 }
 
 cl_int enqueueNDRangeKernelSplit(
@@ -446,7 +461,8 @@ cl_int enqueueNDRangeKernelSplit(
     const cl::NDRange &global,
     const cl::NDRange &local,
     const std::vector<cl::Event> *events,
-    cl::Event *event)
+    cl::Event *event,
+    Statistics::Variable *stat)
 {
     /* If no size given, pick a default.
      * TODO: get performance hint from CL_KERNEL_PREFERRED_KERNEL_WORK_GROUP_SIZE_MULTIPLE?
@@ -457,15 +473,15 @@ cl_int enqueueNDRangeKernelSplit(
         {
         case 1:
             return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
-                                             cl::NDRange(256), events, event);
+                                             cl::NDRange(256), events, event, stat);
         case 2:
             return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
-                                             cl::NDRange(16, 16), events, event);
+                                             cl::NDRange(16, 16), events, event, stat);
         case 3:
             return enqueueNDRangeKernelSplit(queue, kernel, offset, global,
-                                             cl::NDRange(8, 8, 8), events, event);
+                                             cl::NDRange(8, 8, 8), events, event, stat);
         default:
-            return enqueueNDRangeKernel(queue, kernel, offset, global, local, events, event);
+            return enqueueNDRangeKernel(queue, kernel, offset, global, local, events, event, stat);
         }
     }
 
@@ -491,7 +507,7 @@ cl_int enqueueNDRangeKernelSplit(
         std::size_t curOffset[3];
         std::size_t curGlobal[3];
         std::size_t curLocal[3];
-        bool use = false;
+        bool use = true;
         for (std::size_t i = 0; i < dims; i++)
         {
             if (mask & (1U << i))
@@ -506,7 +522,7 @@ cl_int enqueueNDRangeKernelSplit(
                 curOffset[i] = offset[i];
                 curLocal[i] = origLocal[i];
             }
-            use |= curGlobal[i] > 0;
+            use &= curGlobal[i] > 0;
         }
         if (use)
         {
@@ -518,6 +534,9 @@ cl_int enqueueNDRangeKernelSplit(
                                        events, &wait.back());
         }
     }
+
+    if (stat != NULL)
+        Statistics::timeEvents(wait, *stat);
     return enqueueMarkerWithWaitList(queue, &wait, event);
 }
 

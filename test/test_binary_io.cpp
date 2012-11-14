@@ -10,12 +10,12 @@
 
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <string>
 #include <sstream>
 #include <algorithm>
 #include <limits>
-#include "testmain.h"
+#include "testutil.h"
 #include "../src/binary_io.h"
 
 /// Tests for @ref readBinary and @ref writeBinary

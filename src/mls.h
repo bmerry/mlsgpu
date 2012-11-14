@@ -17,7 +17,15 @@
 #include <string>
 #include "grid.h"
 #include "splat_tree_cl.h"
+#include "marching.h"
+#include "clh.h"
+#include "statistics.h"
 
+class TestMls;
+
+/**
+ * Shape to fit through a local set of splats.
+ */
 enum MlsShape
 {
     MLS_SHAPE_SPHERE,
@@ -36,7 +44,7 @@ public:
 
 /**
  * Generates the signed distance from an MLS surface for a single slice.
- * It is designed to be usable with @ref Marching::InputFunctor.
+ * It is designed to be usable with @ref Marching.
  *
  * After constructing the object, the user must call @ref set to specify
  * the parameters. The parameters can be changed again later, and doing so
@@ -48,29 +56,57 @@ public:
  * it is safe for back-to-back calls to the operator() without synchronization
  * i.e. there is no internal device state.
  */
-class MlsFunctor
+class MlsFunctor : public Marching::Generator
 {
 private:
+    friend class TestMls;
+
+    /**
+     * Context used by @ref allocateSlices.
+     */
+    cl::Context context;
+
     /**
      * Kernel generated from @ref processCorners.
-     * It has to be mutable to allow arguments to be set.
      */
-    mutable cl::Kernel kernel;
+    cl::Kernel kernel;
 
     /**
      * Kernel generated from @ref measureBoundaries.
-     * It has to be mutable to allow arguments to be set.
+     * @todo See if @c mutable can be removed in future.
      */
     mutable cl::Kernel boundaryKernel;
 
-    /// Horizontal and vertical vertex count of the grid passed to @ref set
-    std::size_t dims[2];
+    /**
+     * Measures device time spent in @ref kernel.
+     */
+    Statistics::Variable &kernelTime;
 
+    /**
+     * Measures device time spent in @ref boundaryKernel.
+     */
+    Statistics::Variable &boundaryKernelTime;
+
+    /**
+     * Specify the parameters. This is a private variant that
+     * does not require the buffers to be stored in a @ref SplatTreeCL, and
+     * is used for testing.
+     */
+    void set(const Grid::difference_type offset[3],
+             const cl::Buffer &splats,
+             const cl::Buffer &commands,
+             const cl::Buffer &start,
+             unsigned int subsamplingShift);
 public:
     /**
      * Work group size for @ref kernel.
      */
-    static const std::size_t wgs[2];
+    static const std::size_t wgs[3];
+
+    /**
+     * Minimum subsampling for corresponding octree.
+     */
+    static const int subsamplingMin;
 
     /**
      * Constructor. It compiles the kernel, so it can throw a compilation error.
@@ -80,21 +116,51 @@ public:
     MlsFunctor(const cl::Context &context, MlsShape shape);
 
     /**
+     * Determines the resource usage of calling @ref allocateSlices, assuming a
+     * depth of @ref maxSlices().
+     */
+    static CLH::ResourceUsage sliceResourceUsage(Grid::size_type width, Grid::size_type height);
+
+    /**
      * Specify the parameters. This must be called before using this object as a functor.
      * The vertices that will be sampled by the functor are from
      * offset (inclusive) to offset + size (exclusive). Note that this means that the
      * number of cells that will be processed by marching cubes will be one @em less
      * than @a size in each dimension.
      *
-     * @param size, offset     Region of interest used to construct @a tree.
+     * @param offset           Offset between world coordinates and region-relative coordinates.
      * @param tree             Octree containing input splats.
      * @param subsamplingShift Subsampling shift passed when building @a tree.
      *
      * @pre
-     * - @a tree was constructed with the same @a size, @a offset and @a subsamplingShift.
+     * - @a tree was constructed with the same @a offset and @a subsamplingShift.
      */
-    void set(const Grid::size_type size[3], const Grid::difference_type offset[3],
+    void set(const Grid::difference_type offset[3],
              const SplatTreeCL &tree, unsigned int subsamplingShift);
+
+    virtual Grid::size_type maxSlices() const { return wgs[2]; }
+
+    /**
+     * @copydoc Marching::Generator::allocateSlices
+     *
+     * @note This implementation will round the allocation up to multiples of
+     * @ref wgs.
+     */
+    virtual cl::Image2D allocateSlices(
+        Grid::size_type width, Grid::size_type height, Grid::size_type depth) const;
+
+    /**
+     * @pre The tree passed to @ref set was constructed with dimensions at least
+     * equal to @a size rounded up to multiples of @ref wgs.
+     */
+    virtual void enqueue(
+        const cl::CommandQueue &queue,
+        const cl::Image2D &distance,
+        const Grid::size_type size[3],
+        Grid::size_type zFirst, Grid::size_type zLast,
+        Grid::size_type &zStride,
+        const std::vector<cl::Event> *events,
+        cl::Event *event);
 
     /**
      * Function object callback for use with @ref Marching.

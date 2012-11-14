@@ -8,7 +8,7 @@
 # include <config.h>
 #endif
 #include <vector>
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
@@ -109,13 +109,22 @@ bool Node::operator==(const Node &b) const
     return coords == b.coords && level == b.level;
 }
 
-const std::size_t BucketState::BAD_REGION;
+const std::size_t BucketState::BAD_REGION = (std::size_t) -1;
+
+boost::array<Grid::size_type, 3> BucketState::computeDims(const Grid &grid, Grid::size_type microSize)
+{
+    boost::array<Grid::size_type, 3> dims;
+    for (int i = 0; i < 3; i++)
+        dims[i] = divUp(grid.numCells(i), microSize);
+    return dims;
+}
 
 BucketState::BucketState(
     const BucketParameters &params, const Grid &grid,
     Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
-    nodeCounts("mem.BucketState::nodeCounts", macroLevels),
+    dims(computeDims(grid, microSize)),
+    microRegions("mem.BucketState::microRegions", dims),
     subregions("mem.BucketState::subregions")
 {
     for (int i = 0; i < 3; i++)
@@ -132,10 +141,10 @@ BucketState::BucketState(
             s[i] = divUp(dims[i], Grid::size_type(1) << level);
             assert(level != macroLevels - 1 || s[i] == 1);
         }
-        nodeCounts[level].resize(s);
+        nodeCounts.push_back(new Statistics::Container::multi_array<std::tr1::int64_t, 3>(
+                "mem.BucketState::nodeCounts", s));
         if (level == 0)
         {
-            microRegions.resize(s);
             for (Node::size_type x = 0; x < s[0]; x++)
                 for (Node::size_type y = 0; y < s[1]; y++)
                     for (Node::size_type z = 0; z < s[2]; z++)
@@ -182,17 +191,19 @@ std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
     return nodeCounts[node.getLevel()](node.getCoords());
 }
 
-void BucketState::countSplats(const SplatSet::BlobInfo &blob)
+void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates)
 {
     int level = 0;
     boost::array<Node::size_type, 3> lo, hi;
     if (!clamp(blob.lower, blob.upper, lo, hi))
         return;
+    SplatSet::splat_id numSplats = blob.lastSplat - blob.firstSplat;
     for (Node::size_type x = lo[0]; x <= hi[0]; x++)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                nodeCounts[level][x][y][z] += blob.lastSplat - blob.firstSplat;
+                nodeCounts[level][x][y][z] += numSplats;
+                numUpdates += numSplats;
             }
     while (level < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
@@ -208,8 +219,8 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob)
                         hits *= 2;
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
-                    SplatSet::splat_id numSplats = blob.lastSplat - blob.firstSplat;
                     nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
+                    numUpdates += numSplats;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {
@@ -252,7 +263,7 @@ BucketStateSet::BucketStateSet(
     const Grid &grid,
     Grid::size_type microSize,
     int macroLevels)
-    : boost::multi_array<boost::shared_ptr<BucketState>, 3>(chunks),
+    : Statistics::Container::multi_array<boost::shared_ptr<BucketState>, 3>("mem.BucketStateSet", chunks),
     chunkRatio(chunkCells / microSize)
 {
     MLSGPU_ASSERT(chunkCells % microSize == 0, std::invalid_argument);
@@ -315,18 +326,22 @@ bool PickNodes::operator()(const Node &node) const
         return true;
 }
 
-/**
- * Pick the smallest possible power of 2 size for a microblock.
- * The limitation is thta there must be at most @a maxSplit microblocks.
- */
 Grid::size_type chooseMicroSize(
-    const Grid::size_type dims[3], std::size_t maxSplit)
+    const Grid::size_type dims[3],
+    std::size_t maxSplit,
+    std::tr1::uint64_t numSplats,
+    std::tr1::uint64_t maxSplats,
+    Grid::size_type maxCells)
 {
     Grid::size_type microSize = 1;
     std::size_t microBlocks = 1;
     for (int i = 0; i < 3; i++)
         microBlocks = mulSat(microBlocks, std::size_t(divUp(dims[i], microSize)));
-    while (microBlocks > maxSplit)
+
+    // Assume all the splats are in an axis-aligned plane
+    double target = 0.5 * *std::min_element(dims, dims + 3) * sqrt((double) maxSplats / numSplats);
+    while (microBlocks > maxSplit
+           || (microBlocks > 8 && microSize < target * 0.5 && microSize * 2 <= maxCells))
     {
         microSize *= 2;
         microBlocks = 1;

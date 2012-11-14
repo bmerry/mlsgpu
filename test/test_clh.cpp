@@ -19,8 +19,8 @@
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <cstdlib>
 #include <algorithm>
-#include <tr1/cstdint>
-#include "testmain.h"
+#include "../src/tr1_cstdint.h"
+#include "testutil.h"
 #include "test_clh.h"
 #include "../src/clh.h"
 #include "../src/misc.h"

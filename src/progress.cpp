@@ -14,7 +14,10 @@
 #include <boost/thread/locks.hpp>
 #include "progress.h"
 
-const unsigned int ProgressDisplay::totalTics;
+void ProgressMeter::operator++()
+{
+    *this += 1;
+}
 
 ProgressDisplay::ProgressDisplay(size_type total,
                                  std::ostream &os,
@@ -53,7 +56,7 @@ void ProgressDisplay::restart(size_type total)
     updateNextTic();
 }
 
-ProgressDisplay::size_type ProgressDisplay::operator+=(size_type increment)
+void ProgressDisplay::operator+=(size_type increment)
 {
     boost::lock_guard<boost::mutex> lock(mutex);
     this->current += increment;
@@ -66,12 +69,6 @@ ProgressDisplay::size_type ProgressDisplay::operator+=(size_type increment)
         if (ticsShown == totalTics)
             os << std::endl;
     }
-    return this->current;
-}
-
-ProgressDisplay::size_type ProgressDisplay::operator++()
-{
-    return operator+=(1);
 }
 
 ProgressDisplay::size_type ProgressDisplay::count() const

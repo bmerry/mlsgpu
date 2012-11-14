@@ -14,10 +14,13 @@
 
 #include <CL/cl.hpp>
 #include <stdexcept>
+#include <algorithm>
 #include <boost/math/constants/constants.hpp>
 #include "errors.h"
 #include "mls.h"
 #include "clh.h"
+#include "misc.h"
+#include "statistics.h"
 
 std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
 {
@@ -27,13 +30,21 @@ std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
     return ans;
 }
 
-const std::size_t MlsFunctor::wgs[2] = {16, 16};
+const std::size_t MlsFunctor::wgs[3] = {8, 8, 8};
+const int MlsFunctor::subsamplingMin = 3; // must be at least log2 of highest wgs
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
+    : context(context),
+    kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.processCorners.time")),
+    boundaryKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.measureBoundaries.time"))
 {
+    // These would ideally be static assertions, but C++ doesn't allow that
+    MLSGPU_ASSERT((1U << subsamplingMin) >= *std::max_element(wgs, wgs + 3), std::length_error);
+
     std::map<std::string, std::string> defines;
     defines["WGS_X"] = boost::lexical_cast<std::string>(wgs[0]);
     defines["WGS_Y"] = boost::lexical_cast<std::string>(wgs[1]);
+    defines["WGS_Z"] = boost::lexical_cast<std::string>(wgs[2]);
     defines["FIT_SPHERE"] = shape == MLS_SHAPE_SPHERE ? "1" : "0";
     defines["FIT_PLANE"] = shape == MLS_SHAPE_PLANE ? "1" : "0";
 
@@ -44,54 +55,97 @@ MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
     setBoundaryLimit(1.0f);
 }
 
-void MlsFunctor::set(const Grid::size_type size[3], const Grid::difference_type offset[3],
-                     const SplatTreeCL &tree, unsigned int subsamplingShift)
+void MlsFunctor::set(const Grid::difference_type offset[3],
+                     const cl::Buffer &splats,
+                     const cl::Buffer &commands,
+                     const cl::Buffer &start,
+                     unsigned int subsamplingShift)
 {
-    MLSGPU_ASSERT(size[0] % wgs[0] == 0, std::invalid_argument);
-    MLSGPU_ASSERT(size[1] % wgs[1] == 0, std::invalid_argument);
-
     cl_int3 offset3 = {{ offset[0], offset[1], offset[2] }};
 
-    kernel.setArg(1, tree.getSplats());
-    kernel.setArg(2, tree.getCommands());
-    kernel.setArg(3, tree.getStart());
+    kernel.setArg(1, splats);
+    kernel.setArg(2, commands);
+    kernel.setArg(3, start);
     kernel.setArg(4, 3 * subsamplingShift);
     kernel.setArg(5, offset3);
 
-    boundaryKernel.setArg(2, tree.getSplats());
-    boundaryKernel.setArg(3, tree.getCommands());
-    boundaryKernel.setArg(4, tree.getStart());
+    boundaryKernel.setArg(2, splats);
+    boundaryKernel.setArg(3, commands);
+    boundaryKernel.setArg(4, start);
     boundaryKernel.setArg(5, 3 * subsamplingShift);
     boundaryKernel.setArg(6, offset3);
-
-    dims[0] = size[0];
-    dims[1] = size[1];
 }
 
-void MlsFunctor::operator()(
-    const cl::CommandQueue &queue,
-    const cl::Image2D &slice,
-    cl_uint z,
-    const std::vector<cl::Event> *events,
-    cl::Event *event) const
+void MlsFunctor::set(const Grid::difference_type offset[3],
+                     const SplatTreeCL &tree, unsigned int subsamplingShift)
 {
-    MLSGPU_ASSERT(slice.getImageInfo<CL_IMAGE_WIDTH>() >= dims[0], std::length_error);
-    MLSGPU_ASSERT(slice.getImageInfo<CL_IMAGE_HEIGHT>() >= dims[1], std::length_error);
+    set(offset, tree.getSplats(), tree.getCommands(), tree.getStart(), subsamplingShift);
+}
 
-    kernel.setArg(0, slice);
-    kernel.setArg(6, cl_int(z));
-    queue.enqueueNDRangeKernel(kernel,
-                               cl::NullRange,
-                               cl::NDRange(dims[0], dims[1]),
-                               cl::NDRange(wgs[0], wgs[1]),
-                               events, event);
+CLH::ResourceUsage MlsFunctor::sliceResourceUsage(Grid::size_type width, Grid::size_type height)
+{
+    width = roundUp(width, wgs[0]);
+    height = roundUp(height, wgs[1]);
+
+    CLH::ResourceUsage ans;
+    ans.addImage(width, height * wgs[2], sizeof(cl_float));
+    return ans;
+}
+
+cl::Image2D MlsFunctor::allocateSlices(
+    Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
+{
+    width = roundUp(width, wgs[0]);
+    height = roundUp(height, wgs[1]);
+    depth = roundUp(depth, wgs[2]);
+
+    return cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
+                       width, height * depth);
+}
+
+void MlsFunctor::enqueue(
+    const cl::CommandQueue &queue,
+    const cl::Image2D &distance,
+    const Grid::size_type size[3],
+    Grid::size_type zFirst, Grid::size_type zLast,
+    Grid::size_type &zStride,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    Grid::size_type width = roundUp(size[0], wgs[0]);
+    Grid::size_type height = roundUp(size[1], wgs[1]);
+
+    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);
+    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= height * (zLast - zFirst), std::length_error);
+    MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
+    MLSGPU_ASSERT(zFirst % wgs[2] == 0, std::invalid_argument);
+
+    kernel.setArg(0, distance);
+    kernel.setArg(6, cl_int(zFirst));
+    kernel.setArg(7, cl_int(height));
+
+    const std::size_t wgs3 = wgs[0] * wgs[1] * wgs[2];
+    const std::size_t blocks[3] =
+    {
+        width / wgs[0],
+        height / wgs[1],
+        divUp(zLast - zFirst, wgs[2])
+    };
+
+    CLH::enqueueNDRangeKernel(queue,
+                              kernel,
+                              cl::NullRange,
+                              cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
+                              cl::NDRange(wgs3, 1, 1),
+                              events, event, &kernelTime);
+    zStride = height;
 }
 
 void MlsFunctor::setBoundaryLimit(float limit)
 {
     // This is computed theoretically based on the weight function, and assuming a
     // uniform distribution of samples and a straight boundary
-    const float boundaryScale = (sqrt(6) * 512) / (693 * boost::math::constants::pi<float>());
+    const float boundaryScale = (sqrt(6.0f) * 512) / (693 * boost::math::constants::pi<float>());
 
     boundaryKernel.setArg(7, 1.0f / (boundaryScale * limit));
 }
@@ -109,10 +163,11 @@ void MlsFunctor::operator()(
 
     boundaryKernel.setArg(0, distance);
     boundaryKernel.setArg(1, vertices);
+
     CLH::enqueueNDRangeKernelSplit(queue,
                                    boundaryKernel,
                                    cl::NullRange,
                                    cl::NDRange(numVertices),
                                    cl::NullRange,
-                                   events, event);
+                                   events, event, &boundaryKernelTime);
 }

@@ -24,7 +24,7 @@
 #include <sstream>
 #include <algorithm>
 #include <iterator>
-#include <tr1/cstdint>
+#include "../src/tr1_cstdint.h"
 #include <boost/tr1/random.hpp>
 #include "../src/splat.h"
 #include "../src/grid.h"
@@ -33,7 +33,8 @@
 #include "../src/statistics.h"
 #include "../src/fast_ply.h"
 #include "test_splat_set.h"
-#include "testmain.h"
+#include "memory_reader.h"
+#include "testutil.h"
 
 using namespace std;
 using namespace SplatSet;
@@ -284,21 +285,24 @@ template<typename SetType>
 class TestSplatSubsettable : public TestSplatSet<SetType>
 {
     CPPUNIT_TEST_SUB_SUITE(TestSplatSubsettable<SetType>, TestSplatSet<SetType>);
-    CPPUNIT_TEST(testSplatStreamReset);
-    CPPUNIT_TEST(testSplatStreamResetEmptyRange);
-    CPPUNIT_TEST(testSplatStreamResetNegativeRange);
+    CPPUNIT_TEST(testSplatStreamSeek);
+    CPPUNIT_TEST(testSplatStreamSeekZeroRanges);
+    CPPUNIT_TEST(testSplatStreamSeekEmptyRange);
+    CPPUNIT_TEST(testSplatStreamSeekNegativeRange);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 
 protected:
-    /// Resets a splat stream to a given range and tests iteration over it
-    void testSplatStreamResetHelper(splat_id first, splat_id last);
+    /// Tests that iteration over a list of ranges gives the expected results
+    template<typename RangeIterator>
+    void testSplatStreamSeekHelper(RangeIterator first, RangeIterator last);
 
 public:
     typedef SetType Set;
 
-    void testSplatStreamReset();               ///< Tests basic reset operation
-    void testSplatStreamResetEmptyRange();     ///< Tests iteration over an empty range
-    void testSplatStreamResetNegativeRange();  ///< Tests error check for a negative range
+    void testSplatStreamSeek();               ///< Tests basic operation
+    void testSplatStreamSeekZeroRanges();     ///< Tests an empty list of ranges
+    void testSplatStreamSeekEmptyRange();     ///< Tests iteration over an empty range
+    void testSplatStreamSeekNegativeRange();  ///< Tests handling of first > last
 };
 
 /// Tests for @ref SplatSet::FileSet
@@ -317,7 +321,7 @@ protected:
 public:
     /**
      * Adds all splats in @a splatData to the set. Each element of @a splatData is
-     * converted to PLY format and appended as a new @ref FastPly::Reader to @a set.
+     * converted to PLY format and appended as a new @ref FastPly::ReaderBase to @a set.
      * The converted data are stored in @a store, which must remain live and unmodified
      * for as long as @a set is live.
      */
@@ -347,11 +351,13 @@ class TestFastBlobSet : public TestSplatSubsettable<FastBlobSet<BaseType, std::v
     typedef TestSplatSubsettable<FastBlobSet<BaseType, std::vector<BlobData> > > BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestFastBlobSet<BaseType>, BaseFixture);
     CPPUNIT_TEST(testBoundingGrid);
+    CPPUNIT_TEST(testAddBlob);
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 public:
     typedef typename BaseFixture::Set Set;
 
     void testBoundingGrid();         ///< Tests that the extracted bounding box is correct
+    void testAddBlob();              ///< Tests the encoding of blobs
 };
 
 /// Tests for @ref SplatSet::FastBlobSet<SplatSet::FileSet>.
@@ -601,7 +607,8 @@ void TestSplatSet<SetType>::testMaxSplats()
 
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, splat_id last)
+template<typename RangeIterator>
+void TestSplatSubsettable<SetType>::testSplatStreamSeekHelper(RangeIterator firstRange, RangeIterator lastRange)
 {
     vector<Splat> expected, actual;
     vector<splat_id> expectedIds, actualIds;
@@ -609,12 +616,13 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
     const unsigned int bucketSize = 5;
     boost::scoped_ptr<Set> set(this->setFactory(this->splatData, this->grid.getSpacing(), bucketSize));
 
+    for (RangeIterator curRange = firstRange; curRange != lastRange; ++curRange)
     {
         boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream());
         while (!splatStream->empty())
         {
             splat_id id = splatStream->currentId();
-            if (id >= first && id < last)
+            if (id >= curRange->first && id < curRange->second)
             {
                 expected.push_back(**splatStream);
                 expectedIds.push_back(id);
@@ -624,16 +632,15 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
     }
 
     {
-        boost::scoped_ptr<SplatStreamReset> splatStreamReset(set->makeSplatStreamReset());
-        splatStreamReset->reset(first, last);
-        while (!splatStreamReset->empty())
+        boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream(firstRange, lastRange));
+        while (!splatStream->empty())
         {
-            actual.push_back(**splatStreamReset);
-            actualIds.push_back(splatStreamReset->currentId());
-            ++*splatStreamReset;
+            actual.push_back(**splatStream);
+            actualIds.push_back(splatStream->currentId());
+            ++*splatStream;
         }
-        CPPUNIT_ASSERT_THROW(**splatStreamReset, std::out_of_range);
-        CPPUNIT_ASSERT_THROW(++*splatStreamReset, std::out_of_range);
+        CPPUNIT_ASSERT_THROW(**splatStream, std::out_of_range);
+        CPPUNIT_ASSERT_THROW(++*splatStream, std::out_of_range);
     }
 
     CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());
@@ -648,32 +655,50 @@ void TestSplatSubsettable<SetType>::testSplatStreamResetHelper(splat_id first, s
 }
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamReset()
+void TestSplatSubsettable<SetType>::testSplatStreamSeek()
 {
-    testSplatStreamResetHelper(0, 1000000);
-    testSplatStreamResetHelper(3, splat_id(3) << 40);
-    testSplatStreamResetHelper(2, (splat_id(3) << 40) - 1);
-    testSplatStreamResetHelper((splat_id(1) << 40) + 100, (splat_id(6) << 40) - 1);
-    testSplatStreamResetHelper((splat_id(5) << 40), (splat_id(5) << 40) + 20000);
-    testSplatStreamResetHelper((splat_id(4) << 40), (splat_id(50) << 40) - 1);
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
+
+    ranges.push_back(Range(0, 1000000));
+    ranges.push_back(Range(3, splat_id(3) << 40));
+    ranges.push_back(Range(2, (splat_id(3) << 40) - 1));
+    ranges.push_back(Range((splat_id(1) << 40) + 100, (splat_id(6) << 40) - 1));
+    ranges.push_back(Range((splat_id(5) << 40), (splat_id(5) << 40) + 20000));
+    ranges.push_back(Range((splat_id(4) << 40), (splat_id(50) << 40) - 1));
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
 }
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamResetEmptyRange()
+void TestSplatSubsettable<SetType>::testSplatStreamSeekZeroRanges()
 {
-    testSplatStreamResetHelper(0, 0);
-    testSplatStreamResetHelper(3, 3);
-    testSplatStreamResetHelper(1000000000, 1000000000);
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
+
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
 }
 
 template<typename SetType>
-void TestSplatSubsettable<SetType>::testSplatStreamResetNegativeRange()
+void TestSplatSubsettable<SetType>::testSplatStreamSeekEmptyRange()
 {
-    boost::scoped_ptr<Set> set(this->setFactory(this->splatData, this->grid.getSpacing(), 5));
-    boost::scoped_ptr<SplatStreamReset> splatStream(set->makeSplatStreamReset());
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
 
-    CPPUNIT_ASSERT_THROW(splatStream->reset(1, 0), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(splatStream->reset(splat_id(1) << 33, 1), std::invalid_argument);
+    ranges.push_back(Range(0, 0));
+    ranges.push_back(Range(3, 3));
+    ranges.push_back(Range(1000000000, 1000000000));
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
+}
+
+template<typename SetType>
+void TestSplatSubsettable<SetType>::testSplatStreamSeekNegativeRange()
+{
+    typedef std::pair<splat_id, splat_id> Range;
+    std::vector<Range> ranges;
+
+    ranges.push_back(Range(1, 0));
+    ranges.push_back(Range(splat_id(1) << 33, 1));
+    testSplatStreamSeekHelper(ranges.begin(), ranges.end());
 }
 
 
@@ -703,7 +728,7 @@ void TestFileSet::populate(FileSet &set, const std::vector<std::vector<Splat> > 
             data.write((const char *) &splat.radius, sizeof(float));
         }
         store.push_back(data.str());
-        set.addFile(new FastPly::Reader(store.back().data(), store.back().size(), 1.0f));
+        set.addFile(new MemoryReader(store.back().data(), store.back().size(), 1.0f, std::numeric_limits<float>::infinity()));
     }
 }
 
@@ -715,6 +740,7 @@ FileSet *TestFileSet::setFactory(
     (void) bucketSize;
     std::auto_ptr<Set> set(new Set);
     populate(*set, splatData, store);
+    set->setBufferSize(16384);
     return set.release();
 }
 
@@ -759,6 +785,68 @@ void TestFastBlobSet<BaseType>::testBoundingGrid()
     CPPUNIT_ASSERT_EQUAL(43, bbox.getExtent(0).second);
     CPPUNIT_ASSERT_EQUAL(20000, bbox.getExtent(1).second);
     CPPUNIT_ASSERT_EQUAL(40, bbox.getExtent(2).second);
+}
+
+template<typename BaseType>
+void TestFastBlobSet<BaseType>::testAddBlob()
+{
+    std::vector<BlobData> blobData;
+    BlobInfo prevBlob, curBlob;
+
+    // Full encoding
+    curBlob.firstSplat = UINT64_C(0x123456781234);
+    curBlob.lastSplat = UINT64_C(0x234567801234);
+    curBlob.lower[0] = -128;
+    curBlob.lower[1] = -64;
+    curBlob.lower[2] = -32;
+    curBlob.upper[0] = -1;
+    curBlob.upper[1] = 0;
+    curBlob.upper[2] = 1023;
+
+    Set::addBlob(blobData, prevBlob, curBlob);
+    CPPUNIT_ASSERT_EQUAL(10, int(blobData.size()));
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x1234), blobData[0]);     // first hi
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x56781234), blobData[1]); // first lo
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x2345), blobData[2]);     // last hi
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0x67801234), blobData[3]); // last lo
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFF80), blobData[4]); // lower[0]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFFFF), blobData[5]); // upper[0]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFFC0), blobData[6]); // lower[1]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0),          blobData[7]); // upper[1]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFFE0), blobData[8]); // lower[2]
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(1023),       blobData[9]); // upper[2]
+
+    // Differential encoding
+    prevBlob = curBlob;
+    curBlob.firstSplat = UINT64_C(0x234567801234);
+    curBlob.lastSplat = curBlob.firstSplat + (1 << 19) - 1;
+    curBlob.lower[0] = -5;
+    curBlob.upper[0] = -4;
+    curBlob.lower[1] = 3;
+    curBlob.upper[1] = 3;
+    curBlob.lower[2] = 1022;
+    curBlob.upper[2] = 1023;
+    Set::addBlob(blobData, prevBlob, curBlob);
+    CPPUNIT_ASSERT_EQUAL(11, int(blobData.size()));
+    // 1 1111111111111111111 1 111 0 011 1 100
+    CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFF3C), blobData[10]);
+
+    // Make sure the decoding works
+    Set set;
+    set.blobData = blobData;
+    set.internalBucketSize = 1;
+
+    BlobInfo blob;
+    boost::scoped_ptr<BlobStream> stream(set.makeBlobStream(set.boundingGrid, set.internalBucketSize));
+    CPPUNIT_ASSERT(!stream->empty());
+    blob = **stream;
+    CPPUNIT_ASSERT(blob == prevBlob);
+    ++*stream;
+    CPPUNIT_ASSERT(!stream->empty());
+    blob = **stream;
+    CPPUNIT_ASSERT(blob == curBlob);
+    ++*stream;
+    CPPUNIT_ASSERT(stream->empty());
 }
 
 FastBlobSet<FileSet, std::vector<BlobData> > *TestFastFileSet::setFactory(
@@ -833,6 +921,7 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
         offset += numSplats;
         ++*superBlobs;
     }
+    set->flush();
     CPPUNIT_ASSERT_EQUAL((unsigned int) flatSplats.size(), offset);
     flatSplats.swap(flatSubset);
     return set.release();

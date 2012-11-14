@@ -1,0 +1,33 @@
+diff --git a/prototypes/mlsgpu/src/mesher.cpp b/prototypes/mlsgpu/src/mesher.cpp
+index d96b512..3c8e45e 100644
+--- a/prototypes/mlsgpu/src/mesher.cpp
++++ b/prototypes/mlsgpu/src/mesher.cpp
+@@ -372,8 +372,10 @@ void StxxlMesher::write(std::ostream *progressStream)
+     // Offset to first vertex of each clump in output file
+     Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.StxxlMesher::startVertex");
+ 
++    std::ofstream offsetLog("offsets.txt");
+     for (std::size_t i = 0; i < chunks.size(); i++)
+     {
++        offsetLog << "CHUNK " << i << '\n';
+         startVertex.clear();
+         externalRemap.clear();
+ 
+@@ -419,6 +421,8 @@ void StxxlMesher::write(std::ostream *progressStream)
+                     startVertex.push_back(writtenVertices);
+                     if (clumps[cid].vertices >= thresholdVertices)
+                     {
++                        offsetLog << "VERTICES " << cc.firstVertex << ' '
++                            << cc.firstVertex + cc.numInternalVertices + cc.numExternalVertices << '\n';
+                         vertices_type::const_iterator v = vertices.cbegin() + cc.firstVertex;
+                         for (std::size_t i = 0; i < cc.numInternalVertices; i++, ++v)
+                         {
+@@ -455,6 +459,8 @@ void StxxlMesher::write(std::ostream *progressStream)
+                     clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+                     if (clumps[cid].vertices >= thresholdVertices)
+                     {
++                        offsetLog << "TRIANGLES " << cc.firstTriangle << ' '
++                            << cc.firstTriangle + cc.numTriangles << '\n';
+                         triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
+                         for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
+                         {

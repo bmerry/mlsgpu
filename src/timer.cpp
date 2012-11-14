@@ -1,19 +1,53 @@
+#include <stdexcept>
 #include "timer.h"
-#include <string>
-#include <cstdio>
-#include <time.h>
 
-using namespace std;
+#if TIMER_TYPE_POSIX
+
+Timer::timestamp Timer::currentTime()
+{
+    Timer::timestamp now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now;
+}
+
+double Timer::getElapsed(const timestamp &start, const timestamp &end)
+{
+    double elapsed = end.tv_sec - start.tv_sec + 1e-9 * (end.tv_nsec - start.tv_nsec);
+    return elapsed;
+}
+
+#endif // TIMER_TYPE_POSIX
+
+#if TIMER_TYPE_WINDOWS
+
+Timer::timestamp Timer::currentTime() const
+{
+    timestamp start;
+    BOOL ret = QueryPerformanceCounter(&start);
+    if (!ret)
+        throw std::runtime_error("QueryPerformanceCounter failed");
+    return start;
+}
+
+double Timer::getElapsed(const timestamp &start, timestamp &end) const
+{
+    LARGE_INTEGER freq;
+    BOOL ret;
+    ret = QueryPerformanceFrequency(&freq);
+    if (!ret)
+        throw std::runtime_error("QueryPerformanceFrequency failed");
+    return (double) (end.QuadPart - start.QuadPart) / freq.QuadPart;
+}
+
+#endif // TIMER_TYPE_WINDOWS
 
 Timer::Timer()
 {
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    start = currentTime();
 }
 
 double Timer::getElapsed() const
 {
-    struct timespec end;
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    double elapsed = end.tv_sec - start.tv_sec + 1e-9 * (end.tv_nsec - start.tv_nsec);
-    return elapsed;
+    timestamp end = currentTime();
+    return getElapsed(start, end);
 }

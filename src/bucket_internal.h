@@ -12,7 +12,7 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
-#include <tr1/cstdint>
+#include "tr1_cstdint.h"
 #include <iosfwd>
 #include <cstddef>
 #include <cstring>
