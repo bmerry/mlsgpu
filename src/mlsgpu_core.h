@@ -29,6 +29,7 @@ namespace Option
     const char * const responseFile = "response-file";
 
     const char * const fitSmooth = "fit-smooth";
+    const char * const maxRadius = "max-radius";
     const char * const fitGrid = "fit-grid";
     const char * const fitPrune = "fit-prune";
     const char * const fitKeepBoundary = "fit-keep-boundary";
@@ -113,7 +114,7 @@ void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsa
  * @throw boost::exception   if there was a problem reading the files.
  * @throw std::runtime_error if there are too many files or splats.
  */
-void prepareInputs(SplatSet::FileSet &files, const boost::program_options::variables_map &vm, float smooth);
+void prepareInputs(SplatSet::FileSet &files, const boost::program_options::variables_map &vm, float smooth, float maxRadius);
 
 /**
  * Dump an error to stderr.

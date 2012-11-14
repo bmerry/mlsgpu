@@ -23,6 +23,7 @@
 #include <utility>
 #include <fstream>
 #include <sstream>
+#include <limits>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/bind.hpp>
@@ -129,13 +130,15 @@ protected:
      * @param fileContent     Data to place in the file
      * @param filename        Filename to be used for the file, if a file is written
      * @param smooth          Smoothing factor to pass to the constructor
+     * @param maxRadius       Max radius to pass to the constructor
      *
      * @return A reader that will read @a fileContent.
      * @throw boost::exception if the header is invalid.
      */
     ReaderBase *factory(const string &fileContent,
                         const string &filename = testFilename,
-                        float smooth = 1.0f) const;
+                        float smooth = 1.0f,
+                        float maxRadius = std::numeric_limits<float>::infinity()) const;
 
     /**
      * Create an instance of a reader for the appropriate subclass. If an
@@ -145,12 +148,13 @@ protected:
      *
      * @param filename        Filename to be used for the file, if a file is written
      * @param smooth          Smoothing factor to pass to the constructor
+     * @param maxRadius       Max radius to pass to the constructor
      *
      * @return A reader that will read fileContext.
      * @throw boost::exception if the header is invalid.
      */
     virtual ReaderBase *factory(const string &filename,
-                                float smooth) const = 0;
+                                float smooth, float maxRadius) const = 0;
 
 public:
     /**
@@ -212,14 +216,16 @@ void TestFastPlyReaderBase::setContent(const string &header, size_t payloadBytes
     content = header + string(payloadBytes, '\0');
 }
 
-ReaderBase *TestFastPlyReaderBase::factory(const string &content, const string &filename, float smooth) const
+ReaderBase *TestFastPlyReaderBase::factory(
+    const string &content, const string &filename,
+    float smooth, float maxRadius) const
 {
     ofstream out(filename.c_str(), ios::out | ios::binary);
     out.write(content.data(), content.size());
     out.close();
     CPPUNIT_ASSERT(out);
 
-    return factory(filename, smooth);
+    return factory(filename, smooth, maxRadius);
 }
 
 void TestFastPlyReaderBase::testEmpty()
@@ -493,7 +499,7 @@ void TestFastPlyReaderBase::verify(int offset, ForwardIterator first, ForwardIte
         CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 3.0f, i->normal[0]);
         CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 4.0f, i->normal[1]);
         CPPUNIT_ASSERT_EQUAL(pos * 100.0f + 5.0f, i->normal[2]);
-        CPPUNIT_ASSERT_EQUAL(2.0f * (pos * 100.0f + 6.0f), i->radius);
+        CPPUNIT_ASSERT_EQUAL(2.0f * std::min(250.0f, pos * 100.0f + 6.0f), i->radius);
     }
 }
 
@@ -501,7 +507,7 @@ void TestFastPlyReaderBase::testRead()
 {
     setupRead(5);
 
-    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
+    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f, 250.0f));
     boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 
     Splat out[4] = {};
@@ -528,7 +534,7 @@ void TestFastPlyReaderBase::testReadIterator()
 {
     setupRead(10000);
 
-    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
+    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f, 250.0f));
     boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 
     vector<Splat> out;
@@ -558,14 +564,14 @@ void TestFastPlyReaderBaseFile::testFileNotFound()
 {
     // Make sure it didn't get created by accident
     boost::filesystem::remove("not_a_real_file.ply");
-    boost::scoped_ptr<ReaderBase> r(factory("not_a_real_file.ply", 1.0f));
+    boost::scoped_ptr<ReaderBase> r(factory("not_a_real_file.ply", 1.0f, 1000.0f));
 }
 
 void TestFastPlyReaderBaseFile::testFileRemoved()
 {
     setupRead(5);
 
-    boost::scoped_ptr<ReaderBase> r(factory(getContent(), testFilename, 2.0f));
+    boost::scoped_ptr<ReaderBase> r(factory(getContent(), testFilename, 2.0f, 1000.0f));
     boost::filesystem::remove(testFilename);
     boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
 }
@@ -578,14 +584,14 @@ class TestFastPlyMmapReader : public TestFastPlyReaderBaseFile
     CPPUNIT_TEST_SUB_SUITE(TestFastPlyMmapReader, TestFastPlyReaderBaseFile);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual ReaderBase *factory(const string &filename, float smooth) const;
+    virtual ReaderBase *factory(const string &filename, float smooth, float maxRadius) const;
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyMmapReader, TestSet::perBuild());
 
 ReaderBase *TestFastPlyMmapReader::factory(const string &filename,
-                                           float smooth) const
+                                           float smooth, float maxRadius) const
 {
-    return new MmapReader(filename, smooth);
+    return new MmapReader(filename, smooth, maxRadius);
 }
 
 /**
@@ -598,16 +604,17 @@ class TestFastPlySyscallReader : public TestFastPlyReaderBaseFile
 protected:
     using TestFastPlyReaderBase::factory;
 
-    virtual ReaderBase *factory(const string &filename, float smooth) const;
+    virtual ReaderBase *factory(const string &filename, float smooth, float maxRadius) const;
 
 public:
     void testBufferTooSmall();         ///< Handle created with too small a buffer for one splat
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlySyscallReader, TestSet::perBuild());
 
-ReaderBase *TestFastPlySyscallReader::factory(const string &filename, float smooth) const
+ReaderBase *TestFastPlySyscallReader::factory(
+    const string &filename, float smooth, float maxRadius) const
 {
-    return new SyscallReader(filename, smooth);
+    return new SyscallReader(filename, smooth, maxRadius);
 }
 
 
@@ -619,14 +626,15 @@ class TestFastPlyMemoryReader : public TestFastPlyReaderBase
     CPPUNIT_TEST_SUB_SUITE(TestFastPlyMemoryReader, TestFastPlyReaderBase);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual ReaderBase *factory(const string &filename, float smooth) const;
+    virtual ReaderBase *factory(const string &filename, float smooth, float maxRadius) const;
 
 private:
     mutable string fileData; ///< Backing store for the data read from @ref factory.
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyMemoryReader, TestSet::perBuild());
 
-ReaderBase *TestFastPlyMemoryReader::factory(const string &filename, float smooth) const
+ReaderBase *TestFastPlyMemoryReader::factory(
+    const string &filename, float smooth, float maxRadius) const
 {
     // Suck the data back into memory
     ifstream in(filename.c_str(), ios::in | ios::binary);
@@ -637,7 +645,7 @@ ReaderBase *TestFastPlyMemoryReader::factory(const string &filename, float smoot
 
     try
     {
-        return new MemoryReader(fileData.data(), fileData.size(), smooth);
+        return new MemoryReader(fileData.data(), fileData.size(), smooth, maxRadius);
     }
     catch (boost::exception &e)
     {

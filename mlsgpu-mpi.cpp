@@ -333,6 +333,8 @@ static void run(
         const int numSlaves = accumulate(slaveMask.begin(), slaveMask.end(), 0);
         const float spacing = vm[Option::fitGrid].as<double>();
         const float smooth = vm[Option::fitSmooth].as<double>();
+        const float maxRadius = vm.count(Option::maxRadius)
+            ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
         const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
         const MesherType mesherType = STXXL_MESHER;
         const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
@@ -373,7 +375,7 @@ static void run(
             CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroup, mainWorker);
 
             Splats splats;
-            prepareInputs(splats, vm, smooth);
+            prepareInputs(splats, vm, smooth, maxRadius);
             try
             {
                 Timeplot::Action timer("bbox", mainWorker, "bbox.time");

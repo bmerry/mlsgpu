@@ -728,7 +728,7 @@ void TestFileSet::populate(FileSet &set, const std::vector<std::vector<Splat> > 
             data.write((const char *) &splat.radius, sizeof(float));
         }
         store.push_back(data.str());
-        set.addFile(new MemoryReader(store.back().data(), store.back().size(), 1.0f));
+        set.addFile(new MemoryReader(store.back().data(), store.back().size(), 1.0f, std::numeric_limits<float>::infinity()));
     }
 }
 

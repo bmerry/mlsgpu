@@ -58,6 +58,7 @@ static void addFitOptions(po::options_description &opts)
 {
     opts.add_options()
         (Option::fitSmooth,       po::value<double>()->default_value(4.0),  "Smoothing factor")
+        (Option::maxRadius,       po::value<double>(),                      "Limit influence radii")
         (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
         (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component")
         (Option::fitKeepBoundary,                                           "Do not remove boundaries")
@@ -382,7 +383,7 @@ void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsa
     }
 }
 
-void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float smooth)
+void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float smooth, float maxRadius)
 {
     const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
@@ -398,7 +399,7 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
     {
         if (vm.count(Option::decache))
             decache(name);
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth));
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth, maxRadius));
         if (reader->size() > SplatSet::FileSet::maxFileSplats)
         {
             std::ostringstream msg;

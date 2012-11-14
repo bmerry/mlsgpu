@@ -218,6 +218,9 @@ private:
     /// Scale factor for radii
     float smooth;
 
+    /// Radius limit
+    float maxRadius;
+
     /// The properties found in the file.
     enum Property
     {
@@ -241,10 +244,11 @@ protected:
      *
      * @param filename         File to open.
      * @param smooth           Scale factor applied to radii as they're read.
+     * @param maxRadius        Cap for radius (prior to scaling by @a smooth).
      * @throw FormatError if the header is malformed.
      * @throw std::ios::failure if there was an I/O error.
      */
-    ReaderBase(const std::string &filename, float smooth);
+    ReaderBase(const std::string &filename, float smooth, float maxRadius);
 
     /**
      * Construct from an arbitrary stream.
@@ -255,7 +259,7 @@ protected:
      *
      * @see @ref readHeader
      */
-    ReaderBase(float smooth);
+    ReaderBase(float smooth, float maxRadius);
 
     /**
      * Does the heavy lifting of parsing the header. This is called by
@@ -294,9 +298,9 @@ private:
 
 public:
     /**
-     * @copydoc ReaderBase::ReaderBase(const std::string &, float)
+     * @copydoc ReaderBase::ReaderBase(const std::string &, float, float)
      */
-    explicit MmapReader(const std::string &filename, float smooth);
+    explicit MmapReader(const std::string &filename, float smooth, float maxRadius);
 
     virtual Handle *createHandle() const;
 
@@ -337,9 +341,9 @@ private:
 
 public:
     /**
-     * @copydoc ReaderBase::ReaderBase(const std::string &, float)
+     * @copydoc ReaderBase::ReaderBase(const std::string &, float, float)
      */
-    SyscallReader(const std::string &filename, float smooth);
+    SyscallReader(const std::string &filename, float smooth, float maxRadius);
 
     virtual Handle *createHandle() const;
 };
@@ -540,7 +544,7 @@ private:
 /**
  * Factory function to create a new reader of the specified type.
  */
-ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth);
+ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth, float maxRadius);
 
 /**
  * Factory function to create a new writer of the specified type.

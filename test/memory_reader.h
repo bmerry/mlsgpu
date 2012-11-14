@@ -45,11 +45,12 @@ public:
      * @param data             Start of memory region.
      * @param size             Bytes in memory region.
      * @param smooth           Scale factor applied to radii as they're read.
+     * @param maxRadius        Cap for radius (prior to scaling by @a smooth).
      * @throw FormatError if the file was malformed
      * @note The memory range must not be deleted or modified until the object
      * is destroyed.
      */
-    MemoryReader(const char *data, std::size_t size, float smooth);
+    MemoryReader(const char *data, std::size_t size, float smooth, float maxRadius);
 
     virtual Handle *createHandle() const;
 

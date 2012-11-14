@@ -323,13 +323,14 @@ Splat ReaderBase::decode(const char *buffer, std::size_t offset) const
     std::memcpy(&ans.normal[0],   buffer + offsets[NX], sizeof(float));
     std::memcpy(&ans.normal[1],   buffer + offsets[NY], sizeof(float));
     std::memcpy(&ans.normal[2],   buffer + offsets[NZ], sizeof(float));
+    ans.radius = std::min(ans.radius, maxRadius);
     ans.radius *= smooth;
     ans.quality = 1.0 / (ans.radius * ans.radius);
     return ans;
 }
 
-ReaderBase::ReaderBase(const std::string &filename, float smooth)
-    : smooth(smooth)
+ReaderBase::ReaderBase(const std::string &filename, float smooth, float maxRadius)
+    : smooth(smooth), maxRadius(maxRadius)
 {
     try
     {
@@ -347,7 +348,7 @@ ReaderBase::ReaderBase(const std::string &filename, float smooth)
     }
 }
 
-ReaderBase::ReaderBase(float smooth) : smooth(smooth)
+ReaderBase::ReaderBase(float smooth, float maxRadius) : smooth(smooth), maxRadius(maxRadius)
 {
 }
 
@@ -385,8 +386,8 @@ void MmapReader::MmapHandle::prefetch(size_type first, size_type last) const
     (void) last;
 }
 
-MmapReader::MmapReader(const std::string &filename, float smooth = 1.0f)
-    : ReaderBase(filename, smooth), filename(filename)
+MmapReader::MmapReader(const std::string &filename, float smooth, float maxRadius)
+    : ReaderBase(filename, smooth, maxRadius), filename(filename)
 {
 }
 
@@ -556,8 +557,8 @@ SyscallReader::SyscallHandle::~SyscallHandle()
 
 #endif // SYSCALL_READER_WIN32
 
-SyscallReader::SyscallReader(const std::string &filename, float smooth)
-    : ReaderBase(filename, smooth), filename(filename)
+SyscallReader::SyscallReader(const std::string &filename, float smooth, float maxRadius)
+    : ReaderBase(filename, smooth, maxRadius), filename(filename)
 {
 }
 
@@ -844,12 +845,12 @@ std::map<std::string, WriterType> WriterTypeWrapper::getNameMap()
     return ans;
 }
 
-ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth)
+ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth, float maxRadius)
 {
     switch (type)
     {
-    case MMAP_READER: return new MmapReader(filename, smooth);
-    case SYSCALL_READER: return new SyscallReader(filename, smooth);
+    case MMAP_READER: return new MmapReader(filename, smooth, maxRadius);
+    case SYSCALL_READER: return new SyscallReader(filename, smooth, maxRadius);
     }
     return NULL; // should never be reached
 }

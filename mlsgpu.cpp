@@ -21,6 +21,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <limits>
 #include <stxxl.h>
 #include "src/misc.h"
 #include "src/clh.h"
@@ -66,6 +67,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
     const float spacing = vm[Option::fitGrid].as<double>();
     const float smooth = vm[Option::fitSmooth].as<double>();
+    const float maxRadius = vm.count(Option::maxRadius)
+        ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
@@ -118,7 +121,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
             Splats splats;
-            prepareInputs(splats, vm, smooth);
+            prepareInputs(splats, vm, smooth, maxRadius);
             try
             {
                 Timeplot::Action timer("bbox", mainWorker, "bbox.time");

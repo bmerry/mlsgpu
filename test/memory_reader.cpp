@@ -31,8 +31,8 @@ void MemoryReader::MemoryHandle::readRaw(size_type first, size_type last, char *
     std::memcpy(buffer, vertexPtr + first * vertexSize, (last - first) * vertexSize);
 }
 
-MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth)
-    : ReaderBase(smooth), data(data)
+MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth, float maxRadius)
+    : ReaderBase(smooth, maxRadius), data(data)
 {
     boost::iostreams::array_source source(data, size);
     boost::iostreams::stream<boost::iostreams::array_source> in(source);
