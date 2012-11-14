@@ -18,6 +18,7 @@
 #include <memory>
 #include <cmath>
 #include <stdexcept>
+#include <limits>
 #include <boost/program_options.hpp>
 #include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
@@ -400,7 +401,7 @@ void runBucket(const po::variables_map &vm)
     Statistics::Counter &numBytes = Statistics::getStatistic<Statistics::Counter>("files.bytes");
     BOOST_FOREACH(const std::string &name, names)
     {
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f, std::numeric_limits<float>::infinity()));
         splats.addFile(reader.get());
         numScans.add(1);
         numBytes.add(reader->size() * reader->getVertexSize());
@@ -570,7 +571,7 @@ void makeColor(const po::variables_map &vm)
     std::tr1::uint64_t nInput = 0, nTarget = 20000000;
     BOOST_FOREACH(const std::string &name, names)
     {
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f, std::numeric_limits<float>::infinity()));
         splats.addFile(reader.get());
         nInput += reader->size();
         reader.release();

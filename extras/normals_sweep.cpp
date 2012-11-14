@@ -529,7 +529,7 @@ void runSweep(const po::variables_map &vm, bool continuous)
 
     BOOST_FOREACH(const std::string &name, names)
     {
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f));
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, 1.0f, std::numeric_limits<float>::infinity()));
         splats.addFile(reader.get());
         reader.release();
     }
