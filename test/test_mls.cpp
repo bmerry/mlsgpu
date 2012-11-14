@@ -474,6 +474,8 @@ void TestMls::testProcessCorners()
                     - radius;
                 if ((z >> subsampling) == 1 && (y >> subsampling) == 1)
                     expected = std::numeric_limits<float>::quiet_NaN(); // the special cases in hStart
+                if (fabs(expected) > std::sqrt(3.0f))
+                    expected = std::numeric_limits<float>::quiet_NaN(); // divergence test
                 float actual = hCorners[y][x];
                 MLSGPU_ASSERT_DOUBLES_EQUAL(expected, actual, 1e-5);
             }
