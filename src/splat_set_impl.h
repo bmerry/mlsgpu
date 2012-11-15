@@ -365,6 +365,19 @@ FastBlobSet<Base, BlobVector>::MyBlobStream::MyBlobStream(
 }
 
 template<typename Base, typename BlobVector>
+FastBlobSet<Base, BlobVector>::FastBlobSet()
+: Base(), internalBucketSize(0), nSplats(0)
+{
+}
+
+template<typename Base, typename BlobVector>
+template<typename T>
+FastBlobSet<Base, BlobVector>::FastBlobSet(const T &blobVectorArg)
+: Base(), internalBucketSize(0), blobData(blobVectorArg), nSplats(0)
+{
+}
+
+template<typename Base, typename BlobVector>
 BlobStream *FastBlobSet<Base, BlobVector>::makeBlobStream(
     const Grid &grid, Grid::size_type bucketSize) const
 {

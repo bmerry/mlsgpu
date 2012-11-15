@@ -328,7 +328,7 @@ static void run(
 
     if (rank == root)
     {
-        typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+        typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
 
         const int numSlaves = accumulate(slaveMask.begin(), slaveMask.end(), 0);
         const float spacing = vm[Option::fitGrid].as<double>();
@@ -374,7 +374,7 @@ static void run(
             ScatterGroup scatterGroup(1, 1, numSlaves, scatterComm, maxHostSplats);
             CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroup, mainWorker);
 
-            Splats splats;
+            Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
             try
             {

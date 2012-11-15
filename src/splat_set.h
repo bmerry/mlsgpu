@@ -766,7 +766,10 @@ public:
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
-    FastBlobSet() : Base(), internalBucketSize(0), nSplats(0) {}
+    FastBlobSet();
+
+    template<typename T>
+    explicit FastBlobSet(const T &blobVectorArg);
 
     /**
      * Generate the internal acceleration structures and compute bounding box.

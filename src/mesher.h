@@ -303,9 +303,9 @@ private:
     typedef std::tr1::int32_t clump_id;
 
     /// Type for storing vertex data out-of-core
-    typedef stxxl::VECTOR_GENERATOR<boost::array<float, 3>, 1, 16, 8 * 1024 * 1024>::result vertices_type;
+    typedef Statistics::Container::stxxl_vector<boost::array<float, 3>, 1, stxxl::lru_pager<16>, 8 * 1024 * 1024> vertices_type;
     /// Type for storing intermediate triangle data out-of-core
-    typedef stxxl::VECTOR_GENERATOR<boost::array<std::tr1::uint32_t, 3>, 1, 32, 8 * 1024 * 1024>::result triangles_type;
+    typedef Statistics::Container::stxxl_vector<boost::array<std::tr1::uint32_t, 3>, 1, stxxl::lru_pager<32>, 8 * 1024 * 1024> triangles_type;
 
     /**
      * Strict weak ordering for sorting a list of vertex indices based on their
@@ -627,6 +627,8 @@ public:
         tmpClumpId("mem.StxxlMesher::tmpClumpId"),
         tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
         tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
+        vertices("mem.StxxlMesher::vertices"),
+        triangles("mem.StxxlMesher::triangles"),
         verticesBuffer("mem.StxxlMesher::verticesBuffer"),
         trianglesBuffer("mem.StxxlMesher::trianglesBuffer"),
         chunks("mem.StxxlMesher::chunks"),

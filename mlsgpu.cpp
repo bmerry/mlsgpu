@@ -63,7 +63,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  const string &out,
                  const po::variables_map &vm)
 {
-    typedef SplatSet::FastBlobSet<SplatSet::FileSet, stxxl::VECTOR_GENERATOR<SplatSet::BlobData>::result > Splats;
+    typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
 
     const float spacing = vm[Option::fitGrid].as<double>();
     const float smooth = vm[Option::fitSmooth].as<double>();
@@ -120,7 +120,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
-            Splats splats;
+            Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
             try
             {
