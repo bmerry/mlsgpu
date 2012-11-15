@@ -67,7 +67,7 @@ std::string ChunkNamer::operator()(const ChunkId &chunkId) const
 
 
 StxxlMesher::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type capacity)
-    : writer(writer), nextVertex(0)
+    : writer(writer), nextVertex(0), buffer("mem.StxxlMesher::VertexBuffer::buffer")
 {
     buffer.reserve(capacity);
 }
@@ -87,7 +87,7 @@ void StxxlMesher::VertexBuffer::flush()
 }
 
 StxxlMesher::TriangleBuffer::TriangleBuffer(FastPly::WriterBase &writer, size_type capacity)
-    : writer(writer), nextTriangle(0)
+    : writer(writer), nextTriangle(0), buffer("mem.StxxlMesher::TriangleBuffer::buffer")
 {
     nextTriangle = 0;
     buffer.reserve(capacity);

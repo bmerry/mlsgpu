@@ -479,8 +479,8 @@ private:
      * Triangles and vertices are initially stored in these vectors, and later
      * copied to the STXXL vectors in a more coherent order.
      */
-    std::vector<boost::array<float, 3> > verticesBuffer;
-    std::vector<boost::array<std::tr1::uint32_t, 3> > trianglesBuffer;
+    Statistics::Container::vector<boost::array<float, 3> > verticesBuffer;
+    Statistics::Container::vector<boost::array<std::tr1::uint32_t, 3> > trianglesBuffer;
     /** @} */
 
     /**
@@ -568,7 +568,7 @@ private:
     private:
         FastPly::WriterBase &writer;
         size_type nextVertex;         ///< File index of first vertex in the buffer
-        std::vector<boost::array<float, 3> > buffer;
+        Statistics::Container::vector<boost::array<float, 3> > buffer;
     public:
         typedef void result_type;
 
@@ -598,7 +598,7 @@ private:
     private:
         FastPly::WriterBase &writer;
         size_type nextTriangle;       ///< File index of the first triangle in the buffer
-        std::vector<boost::array<std::tr1::uint32_t, 3> > buffer;
+        Statistics::Container::vector<boost::array<std::tr1::uint32_t, 3> > buffer;
     public:
         typedef void result_type;
 
@@ -627,6 +627,8 @@ public:
         tmpClumpId("mem.StxxlMesher::tmpClumpId"),
         tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
         tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
+        verticesBuffer("mem.StxxlMesher::verticesBuffer"),
+        trianglesBuffer("mem.StxxlMesher::trianglesBuffer"),
         chunks("mem.StxxlMesher::chunks"),
         clumps("mem.StxxlMesher::clumps"),
         clumpIdMap("mem.StxxlMesher::clumpIdMap")
