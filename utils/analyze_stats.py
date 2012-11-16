@@ -18,7 +18,7 @@ def parse_stats(f):
                         v = m[1]
                 values[m[0]] = v
         else:
-            m = re.match(r'\s*([a-zA-Z0-9.() /]+?)\s*: (\S+)', line)
+            m = re.match(r'\s*([a-zA-Z0-9.() /:]+?)\s*: (\S+)', line)
             if m:
                 try:
                     v = int(m.group(2))
