@@ -572,8 +572,6 @@ private:
      * @param events          Events to wait for before starting (may be @c NULL).
      *
      * @return The number of cells that need further processing.
-     *
-     * @todo It need not be totally synchronous (compaction is independent).
      */
     std::size_t generateCells(const cl::CommandQueue &queue,
                               const Slice &sliceA,
