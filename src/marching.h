@@ -564,7 +564,7 @@ private:
      * synchronously. On input, two images contain adjacent slices of
      * samples of the function. On output, @ref cells contains a list
      * of x,y pairs giving the coordinates of the cells that will generate
-     * geometry, and @ref occupied has been clobbered.
+     * geometry, and @ref numOccupied contains the number of cells.
      *
      * @param queue           Command queue to use for enqueuing work.
      * @param sliceA,sliceB   Images containing isofunction values.

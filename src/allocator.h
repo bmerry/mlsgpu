@@ -129,7 +129,7 @@ public:
             *allUsage += bytes;
     }
 
-    /// Manually record a deallocation that matches @ref add
+    /// Manually record a deallocation that matches @ref recordAllocate
     void recordDeallocate(typename BaseAllocator::size_type bytes)
     {
         if (usage != NULL)

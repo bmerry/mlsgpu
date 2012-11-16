@@ -93,7 +93,7 @@ __kernel void genOccupied(
  * There is one work-item per compacted cell.
  *
  * @param[out] viCount         Number of triangles+indices per cells.
- * @param      cells           Cell list written by @ref compact.
+ * @param      cells           Cell list written by @ref genOccupied.
  * @param      isoA            Slice of samples for lower z.
  * @param      yOffsetA        Initial Y offset in isoA for lower z.
  * @param      isoB            Slice of samples for higher z.
@@ -178,7 +178,7 @@ ulong computeKey(uint3 coords, uint3 top)
  * @param[out] vertexKeys      Vertex keys corresponding to @a vertices.
  * @param[out] indices         Indices into @a vertices.
  * @param      viStart         Position to start writing vertices/indices for each cell.
- * @param      cells           List of compacted cells written by @ref compact.
+ * @param      cells           List of compacted cells written by @ref genOccupied.
  * @param      isoA            Slice of samples for lower z.
  * @param      yOffsetA        Initial Y offset in isoA for lower z.
  * @param      isoB            Slice of samples for higher z.
