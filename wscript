@@ -192,9 +192,10 @@ def configure(conf):
         'boost_iostreams-mt',
         'boost_thread-mt',
         'boost_system-mt',
-        'boost_serialization-mt'
+        'boost_serialization-mt',
+        'boost_filesystem-mt'
     ]
-    conf.env['LIB_BOOST_TEST'] = ['boost_filesystem-mt']
+    conf.env['LIB_BOOST_TEST'] = []
 
     if conf.env['CXX_NAME'] == 'gcc':
         configure_variant_gcc(conf)

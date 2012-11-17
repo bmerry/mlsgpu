@@ -17,6 +17,7 @@
 #include <boost/io/ios_state.hpp>
 #include <boost/exception/all.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/filesystem.hpp>
 #include <memory>
 #include <string>
 #include <iterator>
@@ -386,24 +387,42 @@ void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsa
 void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float smooth, float maxRadius)
 {
     const std::vector<std::string> &names = vm[Option::inputFile].as<std::vector<std::string> >();
+    std::vector<boost::filesystem::path> paths;
+    BOOST_FOREACH(const std::string &name, names)
+    {
+        boost::filesystem::path base(name);
+        if (is_directory(base))
+        {
+            boost::filesystem::directory_iterator it(base);
+            while (it != boost::filesystem::directory_iterator())
+            {
+                if (it->path().extension() == ".ply" && !is_directory(it->status()))
+                    paths.push_back(it->path());
+                ++it;
+            }
+        }
+        else
+            paths.push_back(name);
+    }
+
     const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
-    if (names.size() > SplatSet::FileSet::maxFiles)
+    if (paths.size() > SplatSet::FileSet::maxFiles)
     {
         std::ostringstream msg;
-        msg << "Too many input files (" << names.size() << " > " << SplatSet::FileSet::maxFiles << ")";
+        msg << "Too many input files (" << paths.size() << " > " << SplatSet::FileSet::maxFiles << ")";
         throw std::runtime_error(msg.str());
     }
     std::tr1::uint64_t totalSplats = 0;
     std::tr1::uint64_t totalBytes = 0;
-    BOOST_FOREACH(const std::string &name, names)
+    BOOST_FOREACH(const boost::filesystem::path &path, paths)
     {
         if (vm.count(Option::decache))
-            decache(name);
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, name, smooth, maxRadius));
+            decache(path.string());
+        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, path.string(), smooth, maxRadius));
         if (reader->size() > SplatSet::FileSet::maxFileSplats)
         {
             std::ostringstream msg;
-            msg << "Too many samples in " << name << " ("
+            msg << "Too many samples in " << path << " ("
                 << reader->size() << " > " << SplatSet::FileSet::maxFileSplats << ")";
             throw std::runtime_error(msg.str());
         }
@@ -413,7 +432,7 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
         reader.release();
     }
 
-    Statistics::getStatistic<Statistics::Counter>("files.scans").add(names.size());
+    Statistics::getStatistic<Statistics::Counter>("files.scans").add(paths.size());
     Statistics::getStatistic<Statistics::Counter>("files.splats").add(totalSplats);
     Statistics::getStatistic<Statistics::Counter>("files.bytes").add(totalBytes);
 }

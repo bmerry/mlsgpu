@@ -276,6 +276,13 @@ libgl1-mesa-dev</screen>
                 file, and will also significantly increase the running time.
             </para>
             <para>
+                Multiple input files may be listed on the command line. You
+                may also list a directory on the command line, in which case
+                all <filename class="extension">.ply</filename> files in that
+                directory will be loaded (but without recursing into
+                subdirectories).
+            </para>
+            <para>
                 The following subsections document the options that are
                 intended for general use. There are additional options that
                 are only intended for use by the developers of MLSGPU, and
@@ -462,8 +469,9 @@ libgl1-mesa-dev</screen>
                         details.</para></listitem>
                 <listitem><para>Up to 2<superscript>23</superscript> (about 8 million)
                         input files. Note that when using large numbers of
-                        input files, you will probably need to use
-                        <ulink href="running.commandline.response">response files</ulink> to work
+                        input files, you will probably need to either pass a
+                        directory on the command line, or use
+                        <link linkend="running.commandline.response">response files</link> to work
                         around limits on the length of the command
                         line.</para></listitem>
                 <listitem><para>Up to 2<superscript>40</superscript> (about
