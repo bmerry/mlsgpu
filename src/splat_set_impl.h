@@ -481,7 +481,7 @@ std::size_t loadBuffer(SplatStream *splats, Statistics::Container::vector<std::p
 }
 
 template<typename Base, typename BlobVector>
-void FastBlobSet<Base, BlobVector>::addBlob(std::vector<BlobData> &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob)
+void FastBlobSet<Base, BlobVector>::addBlob(Statistics::Container::vector<BlobData> &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob)
 {
     bool differential;
 
@@ -583,7 +583,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 std::size_t first = tid * nBuffer / nThreads;
                 std::size_t last = (tid + 1) * nBuffer / nThreads;
                 detail::Bbox threadBbox;
-                std::vector<BlobData> threadBlobData;
+                Statistics::Container::vector<BlobData> threadBlobData("mem.computeBlobs.threadBlobData");
                 BlobInfo curBlob, prevBlob;
                 bool haveCurBlob = false;
                 std::tr1::uint64_t threadBlobs = 0;
