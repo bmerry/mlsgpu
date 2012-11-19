@@ -58,6 +58,7 @@ typedef struct
 
 typedef struct
 {
+    float sumWpp;  // needed for boundary testing
     float sumW;
     float3 sumWn;
     float3 sumWp;
@@ -75,7 +76,9 @@ typedef struct
 
 typedef struct
 {
-    float4 normDist;
+    float3 mean;
+    float3 normal;
+    float dist;
 } Plane;
 
 // This seems to generate fewer instructions than NVIDIA's implementation
@@ -96,6 +99,7 @@ inline void sphereFitInit(SphereFit *sf)
 
 inline void planeFitInit(PlaneFit *pf)
 {
+    pf->sumWpp = 0.0f;
     pf->sumW = 0.0f;
     pf->sumWp = (float3) (0.0f, 0.0f, 0.0f);
     pf->sumWn = (float3) (0.0f, 0.0f, 0.0f);
@@ -114,8 +118,9 @@ inline void sphereFitAdd(SphereFit *sf, float w, float3 p, float pp, float3 n)
     sf->hits++;
 }
 
-inline void planeFitAdd(PlaneFit *pf, float w, float3 p, float3 n)
+inline void planeFitAdd(PlaneFit *pf, float w, float3 p, float pp, float3 n)
 {
+    pf->sumWpp += w * pp;
     pf->sumW += w;
     pf->sumWp += w * p;
     pf->sumWn += w * n;
@@ -172,10 +177,9 @@ inline int3 decode(uint code)
 
 inline void fitPlane(const PlaneFit * restrict pf, Plane * restrict out)
 {
-    float4 ans;
-    ans.xyz = normalize(pf->sumWn);
-    ans.w = -dot3(ans.xyz, pf->sumWp / pf->sumW);
-    out->normDist = ans;
+    out->mean = pf->sumWp / pf->sumW;
+    out->normal = normalize(pf->sumWn);
+    out->dist = -dot3(out->normal, out->mean);
 }
 
 /**
@@ -242,9 +246,17 @@ inline float3 projectOriginSphere(const Sphere * restrict sphere)
     return l * sphere->b;
 }
 
-inline float projectDistOriginPlane(const Plane *restrict plane)
+inline float projectDistOriginPlane(const Plane * restrict plane)
 {
-    return plane->normDist.w;
+    return plane->dist;
+}
+
+/**
+ * Projects the local origin onto the plane.
+ */
+inline float3 projectOriginPlane(const Plane * restrict plane)
+{
+    return plane->normal * -plane->dist;
 }
 
 /**
@@ -351,7 +363,7 @@ void processCorners(
 #if FIT_SPHERE
                     sphereFitAdd(&fit, w, p, pp, splat->normalQuality.xyz);
 #elif FIT_PLANE
-                    planeFitAdd(&fit, w, p, splat->normalQuality.xyz);
+                    planeFitAdd(&fit, w, p, pp, splat->normalQuality.xyz);
 #else
 #error "Expected FIT_SPHERE or FIT_PLANE"
 #endif
@@ -370,7 +382,6 @@ void processCorners(
             if (aa < 3.0f)
             {
                 float rhs = (fit.sumWpp - 2 * dot3(fit.sumWp, a) + fit.sumW * aa);
-                // TODO: make tunable
                 if (sphere.qDen > boundaryFactor * rhs)
                 {
                     f = -dot3(sphere.b, a) * half_rsqrt(sphere.b2);
@@ -379,10 +390,16 @@ void processCorners(
 #elif FIT_PLANE
             Plane plane;
             fitPlane(&fit, &plane);
-            float d = projectDistOriginPlane(&plane);
-            if (fabs(d) < sqrt(3.0f))
+            float3 a = projectOriginPlane(&plane);
+            float aa = dot3(a, a);
+            if (aa < 3.0f)
             {
-                f = d;
+                float qDen = fit.sumWpp - dot3(plane.mean, fit.sumWp);
+                float rhs = (fit.sumWpp - 2 * dot3(fit.sumWp, a) + fit.sumW * aa);
+                if (qDen > boundaryFactor * rhs)
+                {
+                    f = projectDistOriginPlane(&plane);
+                }
             }
 #else
 #error "Expected FIT_SPHERE or FIT_PLANE"
