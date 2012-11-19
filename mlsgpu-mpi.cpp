@@ -49,7 +49,6 @@
 #include "src/workers.h"
 #include "src/progress.h"
 #include "src/progress_mpi.h"
-#include "src/clip.h"
 #include "src/mesh_filter.h"
 #include "src/timeplot.h"
 #include "src/coarse_bucket.h"
@@ -225,7 +224,6 @@ void Slave::operator()() const
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
-    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
 
@@ -236,7 +234,7 @@ void Slave::operator()() const
     DeviceWorkerGroup deviceWorkerGroup(
         numDeviceThreads, numBucketThreads, GetOutputFunctor(gatherGroup),
         devices, maxDeviceSplats, blockCells, levels, subsampling,
-        keepBoundary, boundaryLimit, shape);
+        boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, 1, deviceWorkerGroup,
         maxHostSplats, maxDeviceSplats, blockCells, maxSplit);

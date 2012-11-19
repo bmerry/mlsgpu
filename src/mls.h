@@ -72,20 +72,9 @@ private:
     cl::Kernel kernel;
 
     /**
-     * Kernel generated from @ref measureBoundaries.
-     * @todo See if @c mutable can be removed in future.
-     */
-    mutable cl::Kernel boundaryKernel;
-
-    /**
      * Measures device time spent in @ref kernel.
      */
     Statistics::Variable &kernelTime;
-
-    /**
-     * Measures device time spent in @ref boundaryKernel.
-     */
-    Statistics::Variable &boundaryKernelTime;
 
     /**
      * Specify the parameters. This is a private variant that
@@ -180,16 +169,6 @@ public:
      * reality tends to cause holes to open.
      */
     void setBoundaryLimit(float limit);
-
-    /**
-     * Function object for use with @ref Clip.
-     */
-    void operator()(const cl::CommandQueue &queue,
-                    const cl::Buffer &distance,
-                    const cl::Buffer &vertices,
-                    std::size_t numVertices,
-                    const std::vector<cl::Event> *events,
-                    cl::Event *event) const;
 };
 
 #endif /* !MLS_H */

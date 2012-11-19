@@ -30,7 +30,6 @@
 #include <cstdlib>
 #include <CL/cl.hpp>
 #include "splat_tree_cl.h"
-#include "clip.h"
 #include "marching.h"
 #include "mls.h"
 #include "mesh.h"
@@ -138,7 +137,6 @@ public:
         SplatTreeCL tree;
         MlsFunctor input;
         Marching marching;
-        boost::scoped_ptr<Clip> clip;
         ScaleBiasFilter scaleBias;
         MeshFilterChain filterChain;
 
@@ -150,7 +148,7 @@ public:
         Worker(
             DeviceWorkerGroup &owner,
             const cl::Context &context, const cl::Device &device,
-            int levels, bool keepBoundary, float boundaryLimit,
+            int levels, float boundaryLimit,
             MlsShape shape, int idx);
 
         void start();
@@ -204,8 +202,7 @@ public:
      * @param maxCells           Space to allocate for the octree.
      * @param levels             Space to allocate for the octree.
      * @param subsampling        Octree subsampling level.
-     * @param keepBoundary       If true, skips boundary clipping.
-     * @param boundaryLimit      Tuning factor for boundary clipping.
+     * @param boundaryLimit      Tuning factor for boundary pruning.
      * @param shape              The shape to fit to the data
      */
     DeviceWorkerGroup(
@@ -213,7 +210,7 @@ public:
         OutputGenerator outputGenerator,
         const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, int subsampling, bool keepBoundary, float boundaryLimit,
+        int levels, int subsampling, float boundaryLimit,
         MlsShape shape);
 
     /// Returns total resources that would be used by all workers and workitems
@@ -221,7 +218,7 @@ public:
         std::size_t numWorkers, std::size_t spare,
         const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,
-        int levels, bool keepBoundary);
+        int levels);
 
     /**
      * @copydoc WorkerGroupMulti::start

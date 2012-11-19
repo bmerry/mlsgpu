@@ -86,7 +86,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     OutputGenerator outputGenerator,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, int subsampling, bool keepBoundary, float boundaryLimit,
+    int levels, int subsampling, float boundaryLimit,
     MlsShape shape)
 :
     Base(
@@ -110,7 +110,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     for (std::size_t i = 0; i < numWorkers * devices.size(); i++)
     {
         const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
-        addWorker(new Worker(*this, cd.first, cd.second, levels, keepBoundary, boundaryLimit, shape, i));
+        addWorker(new Worker(*this, cd.first, cd.second, levels, boundaryLimit, shape, i));
     }
 }
 
@@ -124,18 +124,14 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     std::size_t numWorkers, std::size_t spare,
     const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
-    int levels, bool keepBoundary)
+    int levels)
 {
     Grid::size_type block = maxCells + 1;
-    std::size_t maxVertices = Marching::getMaxVertices(block, block);
-    std::size_t maxTriangles = Marching::getMaxTriangles(block, block);
     CLH::ResourceUsage sliceUsage =
         MlsFunctor::sliceResourceUsage(block, block);
     CLH::ResourceUsage workerUsage;
     workerUsage += Marching::resourceUsage(device, block, block, block, sliceUsage);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
-    if (!keepBoundary)
-        workerUsage += Clip::resourceUsage(device, maxVertices, maxTriangles);
 
     CLH::ResourceUsage itemUsage;
     itemUsage.addBuffer(maxSplats * sizeof(Splat));
@@ -145,7 +141,7 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
 DeviceWorkerGroupBase::Worker::Worker(
     DeviceWorkerGroup &owner,
     const cl::Context &context, const cl::Device &device,
-    int levels, bool keepBoundary, float boundaryLimit,
+    int levels, float boundaryLimit,
     MlsShape shape, int idx)
 :
     WorkerBase("device", idx),
@@ -157,16 +153,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     marching(context, device, input, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1),
     scaleBias(context)
 {
-    if (!keepBoundary)
-    {
-        input.setBoundaryLimit(boundaryLimit);
-        clip.reset(new Clip(context, device,
-                            marching.getMaxVertices(owner.maxCells + 1, owner.maxCells + 1),
-                            marching.getMaxTriangles(owner.maxCells + 1, owner.maxCells + 1)));
-        clip->setDistanceFunctor(input);
-        filterChain.addFilter(boost::ref(*clip));
-    }
-
+    input.setBoundaryLimit(boundaryLimit);
     filterChain.addFilter(boost::ref(scaleBias));
 }
 

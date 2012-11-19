@@ -43,7 +43,6 @@
 #include "src/work_queue.h"
 #include "src/workers.h"
 #include "src/progress.h"
-#include "src/clip.h"
 #include "src/mesh_filter.h"
 #include "src/timeplot.h"
 #include "src/coarse_bucket.h"
@@ -77,7 +76,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
-    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const bool split = vm.count(Option::split);
@@ -114,7 +112,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 numDeviceThreads, numBucketThreads,
                 boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
                 devices, maxDeviceSplats, blockCells, levels, subsampling,
-                keepBoundary, boundaryLimit, shape);
+                boundaryLimit, shape);
             FineBucketGroup fineBucketGroup(
                 numBucketThreads, 1, deviceWorkerGroup,
                 maxHostSplats, maxDeviceSplats, blockCells, maxSplit);

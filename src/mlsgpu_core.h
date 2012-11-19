@@ -32,7 +32,6 @@ namespace Option
     const char * const maxRadius = "max-radius";
     const char * const fitGrid = "fit-grid";
     const char * const fitPrune = "fit-prune";
-    const char * const fitKeepBoundary = "fit-keep-boundary";
     const char * const fitBoundaryLimit = "fit-boundary-limit";
     const char * const fitShape = "fit-shape";
 

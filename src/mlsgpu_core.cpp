@@ -62,7 +62,6 @@ static void addFitOptions(po::options_description &opts)
         (Option::maxRadius,       po::value<double>(),                      "Limit influence radii")
         (Option::fitGrid,         po::value<double>()->default_value(0.01), "Spacing of grid cells")
         (Option::fitPrune,        po::value<double>()->default_value(0.02), "Minimum fraction of vertices per component")
-        (Option::fitKeepBoundary,                                           "Do not remove boundaries")
         (Option::fitBoundaryLimit, po::value<double>()->default_value(1.0), "Tuning factor for boundary detection")
         (Option::fitShape,        po::value<Choice<MlsShapeWrapper> >()->default_value(MLS_SHAPE_SPHERE),
                                                                             "Model shape (sphere | plane)");
@@ -341,12 +340,11 @@ CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
-    const bool keepBoundary = vm.count(Option::fitKeepBoundary);
 
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
     // TODO: get rid of device parameter
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
-        deviceThreads, bucketThreads, cl::Device(), maxDeviceSplats, maxCells, levels, keepBoundary);
+        deviceThreads, bucketThreads, cl::Device(), maxDeviceSplats, maxCells, levels);
     return totalUsage;
 }
 

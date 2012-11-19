@@ -385,7 +385,6 @@ def build(bld):
             'src/timer.cpp']
     cl_sources = [
             'src/clh.cpp',
-            'src/clip.cpp',
             'src/kernels.cpp',
             'src/marching.cpp',
             'src/mesh.cpp',

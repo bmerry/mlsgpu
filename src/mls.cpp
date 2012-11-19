@@ -35,8 +35,7 @@ const int MlsFunctor::subsamplingMin = 3; // must be at least log2 of highest wg
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
     : context(context),
-    kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.processCorners.time")),
-    boundaryKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.measureBoundaries.time"))
+    kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.processCorners.time"))
 {
     // These would ideally be static assertions, but C++ doesn't allow that
     MLSGPU_ASSERT((1U << subsamplingMin) >= *std::max_element(wgs, wgs + 3), std::length_error);
@@ -50,7 +49,6 @@ MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
 
     cl::Program program = CLH::build(context, "kernels/mls.cl", defines);
     kernel = cl::Kernel(program, "processCorners");
-    boundaryKernel = cl::Kernel(program, "measureBoundaries");
 
     setBoundaryLimit(1.0f);
 }
@@ -68,12 +66,6 @@ void MlsFunctor::set(const Grid::difference_type offset[3],
     kernel.setArg(3, start);
     kernel.setArg(4, 3 * subsamplingShift);
     kernel.setArg(5, offset3);
-
-    boundaryKernel.setArg(2, splats);
-    boundaryKernel.setArg(3, commands);
-    boundaryKernel.setArg(4, start);
-    boundaryKernel.setArg(5, 3 * subsamplingShift);
-    boundaryKernel.setArg(6, offset3);
 }
 
 void MlsFunctor::set(const Grid::difference_type offset[3],
@@ -148,26 +140,4 @@ void MlsFunctor::setBoundaryLimit(float limit)
     const float boundaryScale = (sqrt(6.0f) * 512) / (693 * boost::math::constants::pi<float>());
     const float gamma = boundaryScale * limit;
     kernel.setArg(8, 1.0f - gamma * gamma);
-}
-
-void MlsFunctor::operator()(
-    const cl::CommandQueue &queue,
-    const cl::Buffer &distance,
-    const cl::Buffer &vertices,
-    std::size_t numVertices,
-    const std::vector<cl::Event> *events,
-    cl::Event *event) const
-{
-    MLSGPU_ASSERT(distance.getInfo<CL_MEM_SIZE>() >= numVertices * sizeof(cl_float), std::length_error);
-    MLSGPU_ASSERT(vertices.getInfo<CL_MEM_SIZE>() >= numVertices * (3 * sizeof(cl_float)), std::length_error);
-
-    boundaryKernel.setArg(0, distance);
-    boundaryKernel.setArg(1, vertices);
-
-    CLH::enqueueNDRangeKernelSplit(queue,
-                                   boundaryKernel,
-                                   cl::NullRange,
-                                   cl::NDRange(numVertices),
-                                   cl::NullRange,
-                                   events, event, &boundaryKernelTime);
 }
