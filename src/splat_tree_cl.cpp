@@ -13,6 +13,7 @@
 #endif
 #include <CL/cl.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/static_assert.hpp>
 #include <cstddef>
 #include "tr1_cstdint.h"
 #include <limits>
@@ -62,12 +63,6 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     // entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
     ans.addBuffer((maxSplats * 8) * sizeof(command_type));
 
-    // Temporary storage for the sort
-    // tmpKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
-    // tmpValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
-    ans.addBuffer((maxSplats * 8) * sizeof(code_type));
-    ans.addBuffer((maxSplats * 8) * sizeof(command_type));
-
     // TODO: add in constant overheads for the scan and sort primitives
 
     return ans;
@@ -106,9 +101,12 @@ SplatTreeCL::SplatTreeCL(const cl::Context &context, const cl::Device &device,
     commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
     entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
     entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
-    tmpKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
-    tmpValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
-    sort.setTemporaryBuffers(tmpKeys, tmpValues);
+
+    // Ensure that commands will be big enough to act as a temporary buffer
+    BOOST_STATIC_ASSERT(sizeof(command_type) >= sizeof(code_type));
+    // These buffers are not live during the sort, so we save memory by using them as
+    // temporary buffers for the sort.
+    sort.setTemporaryBuffers(commands, commandMap);
 
     std::map<std::string, std::string> defines;
     defines["MAX_LEVELS"] = boost::lexical_cast<std::string>(maxLevels);

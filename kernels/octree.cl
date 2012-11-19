@@ -127,8 +127,8 @@ inline uint makeCode(int3 xyz)
  *
  * Each workitem corresponds to a single splat.
  *
- * @param keys             The cell codes for the entries.
- * @param values           The splat IDs for the entries.
+ * @param[out] keys        The cell codes for the entries.
+ * @param[out] values      The splat IDs for the entries.
  * @param[in,out] splats   The original splats. On output, radius replaced by 1/radius^2.
  * @param bias             Amount to subtract from global coordinates to get local ones.
  * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @a maxShift + 1 values).
