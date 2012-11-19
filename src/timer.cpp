@@ -20,7 +20,7 @@ double Timer::getElapsed(const timestamp &start, const timestamp &end)
 
 #if TIMER_TYPE_WINDOWS
 
-Timer::timestamp Timer::currentTime() const
+Timer::timestamp Timer::currentTime()
 {
     timestamp start;
     BOOL ret = QueryPerformanceCounter(&start);
@@ -29,7 +29,7 @@ Timer::timestamp Timer::currentTime() const
     return start;
 }
 
-double Timer::getElapsed(const timestamp &start, timestamp &end) const
+double Timer::getElapsed(const timestamp &start, const timestamp &end)
 {
     LARGE_INTEGER freq;
     BOOL ret;
