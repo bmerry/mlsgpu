@@ -125,7 +125,7 @@ protected:
     /**
      * Create an instance of a reader for the appropriate subclass. This
      * simply creates the file and then calls
-     * #factory(const string &, float) const.
+     * #factory(const string &, float, float) const.
      *
      * @param fileContent     Data to place in the file
      * @param filename        Filename to be used for the file, if a file is written
