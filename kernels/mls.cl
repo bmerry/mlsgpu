@@ -64,6 +64,20 @@ typedef struct
     uint hits;
 } PlaneFit;
 
+typedef struct
+{
+    float a;   // quadratic term
+    float3 b;  // linear term
+    float c;   // constant term
+    float qDen;
+    float b2;  // squared length of b
+} Sphere;
+
+typedef struct
+{
+    float4 normDist;
+} Plane;
+
 // This seems to generate fewer instructions than NVIDIA's implementation
 inline float dot3(float3 a, float3 b)
 {
@@ -156,12 +170,12 @@ inline int3 decode(uint code)
     return ans;
 }
 
-inline float4 fitPlane(const PlaneFit * restrict pf)
+inline void fitPlane(const PlaneFit * restrict pf, Plane * restrict out)
 {
     float4 ans;
     ans.xyz = normalize(pf->sumWn);
     ans.w = -dot3(ans.xyz, pf->sumWp / pf->sumW);
-    return ans;
+    out->normDist = ans;
 }
 
 /**
@@ -169,7 +183,7 @@ inline float4 fitPlane(const PlaneFit * restrict pf)
  * @param      sf      The accumulated sums.
  * @param[out] params  Output parameters for the sphere.
  */
-inline void fitSphere(const SphereFit * restrict sf, float params[restrict 5])
+inline void fitSphere(const SphereFit * restrict sf, Sphere * restrict out)
 {
     float invSumW = 1.0f / sf->sumW;
     float3 m = sf->sumWp * invSumW;
@@ -181,12 +195,13 @@ inline void fitSphere(const SphereFit * restrict sf, float params[restrict 5])
         q = 0.0f; // numeric instability
     }
 
-    params[3] = 0.5f * q;
-    float3 u = (sf->sumWn - q * sf->sumWp) * invSumW;
-    params[4] = (-params[3] * sf->sumWpp - dot3(u, sf->sumWp)) * invSumW;
-    params[0] = u.s0;
-    params[1] = u.s1;
-    params[2] = u.s2;
+    float a = 0.5f * q;
+    float3 b = (sf->sumWn - q * sf->sumWp) * invSumW;
+    out->a = a;
+    out->b = b;
+    out->c = (-a * sf->sumWpp - dot3(b, sf->sumWp)) * invSumW;
+    out->qDen = qDen;
+    out->b2 = dot3(b, b);
 }
 
 /**
@@ -212,17 +227,24 @@ inline float solveQuadratic(float a, float b, float c)
  * Computes the signed distance of the (local) origin to the sphere.
  * It is positive outside and negative inside, or vice versa for an inside-out sphere.
  */
-inline float projectDistOriginSphere(const float params[5])
+inline float projectDistOriginSphere(const Sphere * restrict sphere)
 {
-    const float3 g = (float3) (params[0], params[1], params[2]);
-
     // b will always be positive
-    return -solveQuadratic(params[3], length(g), params[4]);
+    return -solveQuadratic(sphere->a, length(sphere->b), sphere->c);
 }
 
-inline float projectDistOriginPlane(const float4 params)
+/**
+ * Projects the local origin onto the sphere.
+ */
+inline float3 projectOriginSphere(const Sphere * restrict sphere)
 {
-    return params.w;
+    float l = solveQuadratic(sphere->a * sphere->b2, sphere->b2, sphere->c);
+    return l * sphere->b;
+}
+
+inline float projectDistOriginPlane(const Plane *restrict plane)
+{
+    return plane->normDist.w;
 }
 
 /**
@@ -337,16 +359,30 @@ void processCorners(
         if (fit.hits >= HITS_CUTOFF)
         {
 #if FIT_SPHERE
-            float params[5];
-            fitSphere(&fit, params);
-            float d = projectDistOriginSphere(params);
+            Sphere sphere;
+            fitSphere(&fit, &sphere);
+            float3 a = projectOriginSphere(&sphere);
+            float aa = dot3(a, a);
+            if (aa < 3.0f)
+            {
+                float rhs = (fit.sumWpp - 2 * dot3(fit.sumWp, a) + fit.sumW * aa);
+                // TODO: make tunable
+                if (sphere.qDen > 0.66816289f * rhs)
+                {
+                    f = -dot3(sphere.b, a) * half_rsqrt(sphere.b2);
+                }
+            }
 #elif FIT_PLANE
-            float d = projectDistOriginPlane(fitPlane(&fit));
+            Plane plane;
+            fitPlane(&fit, &plane);
+            float d = projectDistOriginPlane(&plane);
+            if (fabs(d) < sqrt(3.0f))
+            {
+                f = d;
+            }
 #else
 #error "Expected FIT_SPHERE or FIT_PLANE"
 #endif
-            if (fabs(d) < sqrt(3.0f))
-                f = d;
         }
     }
 
@@ -423,10 +459,6 @@ void measureBoundaries(
         }
         if (hits >= HITS_CUTOFF)
         {
-            // (sqrt(6) * 512) / (693 * pi) (based on weight function)
-            const float factor = 0.5760530f;
-            const float factor2 = factor * factor;
-
             float3 meanPos = sumWp;       // mean position scaled by W
             float scale2 = sumWpp * sumW; // mean squared (distance * W)
             f = fma(sqrt(dot3(meanPos, meanPos) / scale2), boundaryFactor, - 1.0f);
@@ -448,8 +480,8 @@ __kernel void testSolveQuadratic(__global float *out, float a, float b, float c)
 
 __kernel void testProjectDistOriginSphere(__global float *out, float p0, float p1, float p2, float p3, float p4)
 {
-    float params[5] = {p0, p1, p2, p3, p4};
-    *out = projectDistOriginSphere(params);
+    Sphere sphere = {p3, (float3) (p0, p1, p2), p4};
+    *out = projectDistOriginSphere(&sphere);
 }
 
 __kernel void testFitSphere(__global float *out, __global const Splat *in, uint nsplats)
@@ -462,10 +494,13 @@ __kernel void testFitSphere(__global float *out, __global const Splat *in, uint 
         const float3 n = in[i].normalQuality.xyz;
         sphereFitAdd(&sf, in[i].normalQuality.w, p, dot3(p, p), n);
     }
-    float params[5];
-    fitSphere(&sf, params);
-    for (uint i = 0; i < 5; i++)
-        out[i] = params[i];
+    Sphere sphere;
+    fitSphere(&sf, &sphere);
+    out[0] = sphere.b.s0;
+    out[1] = sphere.b.s1;
+    out[2] = sphere.b.s2;
+    out[3] = sphere.a;
+    out[4] = sphere.c;
 }
 
 __kernel void testMakeCode(__global uint *out, int3 xyz)
