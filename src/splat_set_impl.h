@@ -371,6 +371,14 @@ FastBlobSet<Base, BlobVector>::FastBlobSet()
 }
 
 template<typename Base, typename BlobVector>
+FastBlobSet<Base, BlobVector>::~FastBlobSet()
+{
+    // STXXL 1.3.1 will write the vector cache back to disk unless this is
+    // added.
+    blobData.clear();
+}
+
+template<typename Base, typename BlobVector>
 template<typename T>
 FastBlobSet<Base, BlobVector>::FastBlobSet(const T &blobVectorArg)
 : Base(), internalBucketSize(0), blobData(blobVectorArg), nSplats(0)

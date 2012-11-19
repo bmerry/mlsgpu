@@ -637,6 +637,13 @@ public:
     {
     }
 
+    ~StxxlMesher()
+    {
+        // This prevents STXXL 1.3.1 from flushing the cache back to disk
+        vertices.clear();
+        triangles.clear();
+    }
+
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
     virtual void write(std::ostream *progressStream = NULL);

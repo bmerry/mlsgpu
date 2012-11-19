@@ -767,6 +767,7 @@ public:
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
     FastBlobSet();
+    ~FastBlobSet();
 
     template<typename T>
     explicit FastBlobSet(const T &blobVectorArg);
