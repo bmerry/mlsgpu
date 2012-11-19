@@ -181,7 +181,7 @@ inline void fitPlane(const PlaneFit * restrict pf, Plane * restrict out)
 /**
  * Fit an algebraic sphere given cumulated sums.
  * @param      sf      The accumulated sums.
- * @param[out] params  Output parameters for the sphere.
+ * @param[out] out     Output parameters for the sphere.
  */
 inline void fitSphere(const SphereFit * restrict sf, Sphere * restrict out)
 {
@@ -257,7 +257,10 @@ inline float projectDistOriginPlane(const Plane *restrict plane)
  * @param      startShift  Subsampling shift for octree, times 3.
  * @param      offset      Difference between global grid coordinates and the local region of interest.
  * @param      zFirst      Z value of the first slice, in local region coordinates.
- * @param      zStride     Y pixels between stacked Z slices
+ * @param      zStride     Y pixels between stacked Z slices.
+ * @param      boundaryFactor Value of \f$1 - \gamma^2\f$ where \f$\gamma\f$ is the maximum
+ *                         normalised distance between the projection point and the weighted
+ *                         center of the region.
  *
  * The local ID is a one-dimension encoding of a 3D local ID (see @ref decode).
  * The group ID specifies which of these 3D blocks we are processing.
@@ -271,7 +274,8 @@ void processCorners(
     uint startShift,
     int3 offset,
     int zFirst,
-    uint zStride)
+    uint zStride,
+    float boundaryFactor)
 {
     __local command_type lSplatIds[MAX_BUCKET];
     __local float4 lPositionRadius[MAX_BUCKET];
@@ -367,7 +371,7 @@ void processCorners(
             {
                 float rhs = (fit.sumWpp - 2 * dot3(fit.sumWp, a) + fit.sumW * aa);
                 // TODO: make tunable
-                if (sphere.qDen > 0.66816289f * rhs)
+                if (sphere.qDen > boundaryFactor * rhs)
                 {
                     f = -dot3(sphere.b, a) * half_rsqrt(sphere.b2);
                 }
