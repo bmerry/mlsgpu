@@ -30,10 +30,13 @@ def parse_stats(f):
                 if v is not None:
                     values[m.group(1)] = v
 
-            # No explicit counter for number of device threads, so tease it out
+            # No explicit counters for these, so extract from elsewhere
             m = re.match(r'device\.pop\.first: .* : .* \[(\d+)\]', line)
             if m:
-                values['device-threads'] = int(m.group(1))
+                values['total-device-threads'] = int(m.group(1))
+            m = re.match(r'bucket.fine.pop.first: .* : .* \[(\d+)\]', line)
+            if m:
+                values['total-bucket-threads'] = int(m.group(1))
     return values
 
 def print_breakdown(name, times, total = None):
@@ -60,7 +63,7 @@ def analyze_bucket_coarse(values):
 
 def analyze_bucket_fine(values):
     times = OrderedDict()
-    threads = values['bucket-threads']
+    threads = values['total-bucket-threads']
     times['startup'] = values['bucket.fine.pop.first']
     times['compute'] = values['bucket.fine.compute']
     times['wait-in'] = values['bucket.fine.pop']
@@ -69,7 +72,7 @@ def analyze_bucket_fine(values):
 
 def analyze_device(values):
     times = OrderedDict()
-    threads = values['device-threads']
+    threads = values['total-device-threads']
     times['startup'] = values['device.pop.first']
     times['compute'] = values['device.compute']
     times['wait-in'] = values['device.pop']
