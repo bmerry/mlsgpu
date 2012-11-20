@@ -356,7 +356,7 @@ void TestPeak::testSub()
 void TestPeak::testGet()
 {
     MLSGPU_ASSERT_EQUAL(-100, peak->get());
-    *peak = 200;
+    *peak = -200;
     MLSGPU_ASSERT_EQUAL(-200, peak->get());
 }
 
