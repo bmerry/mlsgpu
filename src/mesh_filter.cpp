@@ -46,6 +46,7 @@ void MeshFilterChain::operator()(
 }
 
 ScaleBiasFilter::ScaleBiasFilter(const cl::Context &context)
+    : kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.scaleBias.time"))
 {
     cl::Program program = CLH::build(context, "kernels/scale_bias.cl");
     kernel = cl::Kernel(program, "scaleBiasVertices");
@@ -87,6 +88,6 @@ void ScaleBiasFilter::operator()(
                                    cl::NullRange,
                                    cl::NDRange(inMesh.numVertices),
                                    cl::NullRange,
-                                   events, event);
+                                   events, event, &kernelTime);
     outMesh = inMesh;
 }

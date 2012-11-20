@@ -197,7 +197,7 @@ public:
      * @param namer          Callback function to assign names to output files.
      */
     MesherBase(FastPly::WriterBase &writer, const Namer &namer)
-        : pruneThreshold(0.0), reorderCapacity(64 * 1024 * 1024), writer(writer), namer(namer) {}
+        : pruneThreshold(0.0), reorderCapacity(4 * 1024 * 1024), writer(writer), namer(namer) {}
 
     /// Virtual destructor to allow destruction via base class pointer
     virtual ~MesherBase() {}

@@ -17,6 +17,7 @@
 #include <vector>
 #include "mesh.h"
 #include "marching.h"
+#include "statistics.h"
 
 class Grid;
 
@@ -114,6 +115,12 @@ private:
      * the arguments can be set.
      */
     mutable cl::Kernel kernel;
+
+    /**
+     * Statistic for time spent in the kernel
+     */
+    Statistics::Variable &kernelTime;
+
     cl_float4 scaleBias;          ///< Scale in w, bias in xyz
 
 public:
