@@ -451,9 +451,8 @@ libgl1-mesa-dev</screen>
                     <option>--fit-boundary-limit</option>. Increasing the
                     value will cause more extrapolation, while decreasing it
                     will reduce extrapolation but potentially open more holes.
-                    It is also possible to completely disable the boundary
-                    detection, and gain a little performance, by passing
-                    <option>--fit-keep-boundary</option>.
+                    However, increasing the value beyond about 1.7 will have no
+                    further effect.
                 </para>
             </section>
         </section>
