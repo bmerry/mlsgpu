@@ -36,6 +36,7 @@
 #include "fast_ply.h"
 #include "clh.h"
 #include "statistics.h"
+#include "statistics_cl.h"
 #include "logging.h"
 #include "provenance.h"
 #include "marching.h"
@@ -73,6 +74,7 @@ static void addStatisticsOptions(po::options_description &opts)
     statistics.add_options()
         (Option::statistics,                          "Print information about internal statistics")
         (Option::statisticsFile, po::value<std::string>(), "Direct statistics to file instead of stdout (implies --statistics)")
+        (Option::statisticsCL,                             "Collect timings for OpenCL commands")
         (Option::timeplot, po::value<std::string>(),       "Write timing data to file");
     opts.add(statistics);
 }
@@ -175,6 +177,11 @@ po::variables_map processOptions(int argc, char **argv)
             std::cerr << "At least one input file must be specified.\n\n";
             usage(std::cerr, desc);
             std::exit(1);
+        }
+
+        if (vm.count(Option::statisticsCL))
+        {
+            Statistics::enableEventTiming();
         }
 
         return vm;

@@ -25,8 +25,19 @@
 namespace Statistics
 {
 
+static bool eventsEnabled = false;
 static std::queue<std::pair<std::vector<cl::Event>, boost::reference_wrapper<Variable> > > savedEvents;
 static boost::mutex savedEventsMutex;
+
+void enableEventTiming(bool enable)
+{
+    eventsEnabled = enable;
+}
+
+bool isEventTimingEnabled()
+{
+    return eventsEnabled;
+}
 
 static void flushEventTimes(bool finalize)
 {
@@ -96,7 +107,7 @@ static void flushEventTimes(bool finalize)
 
 void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
 {
-    if (!events.empty())
+    if (eventsEnabled && !events.empty())
     {
         boost::lock_guard<boost::mutex> lock(savedEventsMutex);
         savedEvents.push(std::make_pair(events, boost::ref(stat)));
@@ -105,10 +116,13 @@ void timeEvents(const std::vector<cl::Event> &events, Variable &stat)
     }
 }
 
-void timeEvent(cl::Event event, Variable &stat)
+void timeEvent(const cl::Event &event, Variable &stat)
 {
-    std::vector<cl::Event> events(1, event);
-    timeEvents(events, stat);
+    if (eventsEnabled)
+    {
+        std::vector<cl::Event> events(1, event);
+        timeEvents(events, stat);
+    }
 }
 
 void CL_CALLBACK timeEventCallback(const cl::Event &event, void *stat)

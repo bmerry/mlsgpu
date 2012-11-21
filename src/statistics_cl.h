@@ -19,6 +19,16 @@ namespace Statistics
 {
 
 /**
+ * Enables capture of event times
+ */
+void enableEventTiming(bool enable = true);
+
+/**
+ * Queries whether event timing has been enabled.
+ */
+bool isEventTimingEnabled();
+
+/**
  * Requests that the timing statistics for an event be added to a timer statistic.
  * This function operates asynchronously, so the statistic must not be deleted
  * until after @ref finalizeEventTimes has been called. However, the event does
@@ -34,7 +44,7 @@ namespace Statistics
  * @param event   An enqueued (but not necessarily complete) event
  * @param stat    Statistic to which the time will be added.
  */
-void timeEvent(cl::Event event, Variable &stat);
+void timeEvent(const cl::Event &event, Variable &stat);
 
 /**
  * Wrapper around @ref timeEvent suitable for passing to @c clogs.

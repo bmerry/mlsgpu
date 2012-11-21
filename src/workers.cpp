@@ -30,6 +30,7 @@
 #include "mesh.h"
 #include "mesh_filter.h"
 #include "statistics.h"
+#include "statistics_cl.h"
 #include "errors.h"
 #include "thread_name.h"
 
@@ -147,7 +148,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     WorkerBase("device", idx),
     owner(owner),
     key(device()),
-    queue(context, device, CL_QUEUE_PROFILING_ENABLE),
+    queue(context, device, Statistics::isEventTimingEnabled() ? CL_QUEUE_PROFILING_ENABLE : 0),
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
     marching(context, device, input, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1),

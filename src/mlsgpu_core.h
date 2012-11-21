@@ -42,6 +42,7 @@ namespace Option
 
     const char * const statistics = "statistics";
     const char * const statisticsFile = "statistics-file";
+    const char * const statisticsCL = "statistics-cl";
     const char * const timeplot = "timeplot";
 
     const char * const maxHostSplats = "max-host-splats";
