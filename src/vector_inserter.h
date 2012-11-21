@@ -29,6 +29,11 @@ public:
     typedef const T &const_reference;
 
     /**
+     * Return the current number of elements.
+     */
+    std::size_t size() const { return nElements; }
+
+    /**
      * Append a single item to the stream.
      */
     void push_back(const T &value);
@@ -86,7 +91,7 @@ VectorInserter<T, blockSize>::VectorInserter(std::size_t bufferSize, std::size_t
 template<typename T, unsigned blockSize>
 VectorInserter<T, blockSize>::~VectorInserter()
 {
-    writer.flush(); // ensures 
+    writer.flush(); // ensures the blocks aren't freed while being written
     blockManager->delete_blocks(blocks.begin(), blocks.end());
 }
 
@@ -128,4 +133,5 @@ void VectorInserter<T, blockSize>::move(V &v)
     writer.flush();
     v.set_content(blocks.begin(), blocks.end(), nElements);
     blocks.clear();
+    nElements = 0;
 }

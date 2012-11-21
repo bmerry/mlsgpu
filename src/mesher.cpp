@@ -197,16 +197,14 @@ void StxxlMesher::flushBuffer()
             BOOST_FOREACH(const Chunk::Clump &clump, chunk.bufferedClumps)
             {
                 const std::size_t numVertices = clump.numInternalVertices + clump.numExternalVertices;
-                const vertices_type::size_type firstVertex = vertices.size();
-                const triangles_type::size_type firstTriangle = triangles.size();
-                vertices.resize(firstVertex + numVertices);
+                const vertices_type::size_type firstVertex = verticesInserter.size();
+                const triangles_type::size_type firstTriangle = trianglesInserter.size();
                 std::copy(verticesBuffer.begin() + clump.firstVertex,
                           verticesBuffer.begin() + (clump.firstVertex + numVertices),
-                          vertices.begin() + firstVertex);
-                triangles.resize(firstTriangle + clump.numTriangles);
+                          std::back_inserter(verticesInserter));
                 std::copy(trianglesBuffer.begin() + clump.firstTriangle,
                           trianglesBuffer.begin() + (clump.firstTriangle + clump.numTriangles),
-                          triangles.begin() + firstTriangle);
+                          std::back_inserter(trianglesInserter));
                 chunk.clumps.push_back(Chunk::Clump(
                     firstVertex,
                     clump.numInternalVertices,
@@ -367,6 +365,10 @@ void StxxlMesher::write(std::ostream *progressStream)
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     flushBuffer();
+    vertices_type vertices("mem.StxxlMesher.vertices");
+    triangles_type triangles("mem.StxxlMesher.triangles");
+    verticesInserter.move(vertices);
+    trianglesInserter.move(triangles);
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
     std::tr1::uint64_t totalVertices = 0;

@@ -40,6 +40,7 @@
 #include "work_queue.h"
 #include "statistics.h"
 #include "allocator.h"
+#include "vector_inserter.h"
 
 /**
  * Enumeration of the supported mesher types
@@ -422,8 +423,8 @@ private:
     Statistics::Container::vector<std::tr1::uint32_t> tmpVertexOrder;
     /** @} */
 
-    vertices_type vertices;     ///< Buffer of all vertices seen so far
-    triangles_type triangles;   ///< Buffer of all triangles seen so far
+    VectorInserter<vertices_type::value_type, vertices_type::block_size> verticesInserter;
+    VectorInserter<triangles_type::value_type, triangles_type::block_size> trianglesInserter;
 
     /**
      * @name
@@ -584,21 +585,12 @@ public:
         tmpClumpId("mem.StxxlMesher::tmpClumpId"),
         tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
         tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
-        vertices("mem.StxxlMesher::vertices"),
-        triangles("mem.StxxlMesher::triangles"),
         verticesBuffer("mem.StxxlMesher::verticesBuffer"),
         trianglesBuffer("mem.StxxlMesher::trianglesBuffer"),
         chunks("mem.StxxlMesher::chunks"),
         clumps("mem.StxxlMesher::clumps"),
         clumpIdMap("mem.StxxlMesher::clumpIdMap")
     {
-    }
-
-    ~StxxlMesher()
-    {
-        // This prevents STXXL 1.3.1 from flushing the cache back to disk
-        vertices.clear();
-        triangles.clear();
     }
 
     virtual unsigned int numPasses() const { return 1; }
