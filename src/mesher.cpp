@@ -196,12 +196,17 @@ void StxxlMesher::flushBuffer()
         {
             BOOST_FOREACH(const Chunk::Clump &clump, chunk.bufferedClumps)
             {
-                vertices_type::size_type firstVertex = vertices.size();
-                triangles_type::size_type firstTriangle = triangles.size();
-                for (std::size_t i = 0; i < clump.numInternalVertices + clump.numExternalVertices; i++)
-                    vertices.push_back(verticesBuffer[clump.firstVertex + i]);
-                for (std::size_t i = 0; i < clump.numTriangles; i++)
-                    triangles.push_back(trianglesBuffer[clump.firstTriangle + i]);
+                const std::size_t numVertices = clump.numInternalVertices + clump.numExternalVertices;
+                const vertices_type::size_type firstVertex = vertices.size();
+                const triangles_type::size_type firstTriangle = triangles.size();
+                vertices.resize(firstVertex + numVertices);
+                std::copy(verticesBuffer.begin() + clump.firstVertex,
+                          verticesBuffer.begin() + (clump.firstVertex + numVertices),
+                          vertices.begin() + firstVertex);
+                triangles.resize(firstTriangle + clump.numTriangles);
+                std::copy(trianglesBuffer.begin() + clump.firstTriangle,
+                          trianglesBuffer.begin() + (clump.firstTriangle + clump.numTriangles),
+                          triangles.begin() + firstTriangle);
                 chunk.clumps.push_back(Chunk::Clump(
                     firstVertex,
                     clump.numInternalVertices,
