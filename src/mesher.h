@@ -320,7 +320,7 @@ private:
          */
         struct Clump
         {
-            /// Index within @ref vertices of the first vertex
+            /// Index within intermediate vertices of the first vertex
             vertices_type::size_type firstVertex;
             /// Number of internal vertices, starting from @ref firstVertex
             std::tr1::uint32_t numInternalVertices;
@@ -331,7 +331,7 @@ private:
              * not included in this count.
              */
             std::tr1::uint32_t numExternalVertices;
-            /// Index within @ref triangles of the first triangle
+            /// Index within intermediate triangles of the first triangle
             triangles_type::size_type firstTriangle;
             /// Number of triangles, starting from @ref firstTriangle
             std::tr1::uint32_t numTriangles;
@@ -420,7 +420,10 @@ private:
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
     Statistics::Container::vector<clump_id> tmpClumpId;
     Statistics::Container::vector<std::tr1::uint32_t> tmpVertexLabel;
-    Statistics::Container::vector<std::tr1::uint32_t> tmpVertexOrder;
+    Statistics::Container::vector<std::tr1::int32_t> tmpFirstVertex;
+    Statistics::Container::vector<std::tr1::int32_t> tmpNextVertex;
+    Statistics::Container::vector<std::tr1::int32_t> tmpFirstTriangle;
+    Statistics::Container::vector<std::tr1::int32_t> tmpNextTriangle;
     /** @} */
 
     VectorInserter<vertices_type::value_type, vertices_type::block_size> verticesInserter;
@@ -504,7 +507,7 @@ private:
         Chunk &chunk,
         const Statistics::Container::vector<clump_id> &globalClumpId,
         clump_id clumpIdFirst,
-        clump_id ClumpIdLast,
+        clump_id clumpIdLast,
         HostKeyMesh &mesh);
 
     /**
@@ -584,7 +587,10 @@ public:
         tmpNodes("mem.StxxlMesher::tmpNodes"),
         tmpClumpId("mem.StxxlMesher::tmpClumpId"),
         tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
-        tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
+        tmpFirstVertex("mem.StxxlMesher::tmpFirstVertex"),
+        tmpNextVertex("mem.StxxlMesher::tmpNextVertex"),
+        tmpFirstTriangle("mem.StxxlMesher::tmpFirstTriangle"),
+        tmpNextTriangle("mem.StxxlMesher::tmpNextTriangle"),
         verticesInserter("mem.StxxlMesher::verticesInserter"),
         trianglesInserter("mem.StxxlMesher::trianglesInserter"),
         verticesBuffer("mem.StxxlMesher::verticesBuffer"),

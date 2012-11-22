@@ -231,24 +231,25 @@ void StxxlMesher::updateLocalClumps(
     const std::size_t numInternalVertices = numVertices - mesh.vertexKeys.size();
     const clump_id numClumps = clumpIdLast - clumpIdFirst;
 
-    // TODO: make permanent and use Allocator
-    std::vector<std::tr1::int32_t> firstVertex(numClumps, -1);
-    std::vector<std::tr1::int32_t> nextVertex(numVertices);
-    std::vector<std::tr1::int32_t> firstTriangle(numClumps, -1);
-    std::vector<std::tr1::int32_t> nextTriangle(mesh.triangles.size());
+    tmpFirstVertex.clear();
+    tmpFirstVertex.resize(numClumps, -1);
+    tmpFirstTriangle.clear();
+    tmpFirstTriangle.resize(mesh.triangles.size(), -1);
+    tmpNextVertex.resize(numVertices);
+    tmpNextTriangle.resize(mesh.triangles.size());
 
     for (std::tr1::int32_t i = (std::tr1::int32_t) numVertices - 1; i >= 0; i--)
     {
         clump_id cid = globalClumpId[i] - clumpIdFirst;
-        nextVertex[i] = firstVertex[cid];
-        firstVertex[cid] = i;
+        tmpNextVertex[i] = tmpFirstVertex[cid];
+        tmpFirstVertex[cid] = i;
     }
 
     for (std::tr1::int32_t i = (std::tr1::int32_t) mesh.triangles.size() - 1; i >= 0; i--)
     {
         clump_id cid = globalClumpId[mesh.triangles[i][0]] - clumpIdFirst;
-        nextTriangle[i] = firstTriangle[cid];
-        firstTriangle[cid] = i;
+        tmpNextTriangle[i] = tmpFirstTriangle[cid];
+        tmpFirstTriangle[cid] = i;
     }
 
     tmpVertexLabel.clear();
@@ -268,7 +269,7 @@ void StxxlMesher::updateLocalClumps(
         std::size_t clumpInternalVertices = 0;
         std::size_t clumpExternalVertices = 0;
         std::size_t clumpTriangles = 0;
-        for (std::tr1::int32_t vid = firstVertex[cid]; vid != -1; vid = nextVertex[vid])
+        for (std::tr1::int32_t vid = tmpFirstVertex[cid]; vid != -1; vid = tmpNextVertex[vid])
         {
             bool elide = false; // true if the vertex is elided due to sharing
             if (std::size_t(vid) >= numInternalVertices)
@@ -299,7 +300,7 @@ void StxxlMesher::updateLocalClumps(
 
         // tmpVertexLabel now contains the intermediate encoded ID for each vertex.
         // Transform and emit the triangles using this mapping.
-        for (std::tr1::int32_t tid = firstTriangle[cid]; tid != -1; tid = nextTriangle[tid])
+        for (std::tr1::int32_t tid = tmpFirstTriangle[cid]; tid != -1; tid = tmpNextTriangle[tid])
         {
             boost::array<std::tr1::uint32_t, 3> out;
             for (int j = 0; j < 3; j++)
