@@ -585,6 +585,8 @@ public:
         tmpClumpId("mem.StxxlMesher::tmpClumpId"),
         tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
         tmpVertexOrder("mem.StxxlMesher::tmpVertexOrder"),
+        verticesInserter("mem.StxxlMesher::verticesInserter"),
+        trianglesInserter("mem.StxxlMesher::trianglesInserter"),
         verticesBuffer("mem.StxxlMesher::verticesBuffer"),
         trianglesBuffer("mem.StxxlMesher::trianglesBuffer"),
         chunks("mem.StxxlMesher::chunks"),

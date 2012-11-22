@@ -199,12 +199,12 @@ void StxxlMesher::flushBuffer()
                 const std::size_t numVertices = clump.numInternalVertices + clump.numExternalVertices;
                 const vertices_type::size_type firstVertex = verticesInserter.size();
                 const triangles_type::size_type firstTriangle = trianglesInserter.size();
-                std::copy(verticesBuffer.begin() + clump.firstVertex,
-                          verticesBuffer.begin() + (clump.firstVertex + numVertices),
-                          std::back_inserter(verticesInserter));
-                std::copy(trianglesBuffer.begin() + clump.firstTriangle,
-                          trianglesBuffer.begin() + (clump.firstTriangle + clump.numTriangles),
-                          std::back_inserter(trianglesInserter));
+                verticesInserter.append(
+                    verticesBuffer.begin() + clump.firstVertex,
+                    verticesBuffer.begin() + (clump.firstVertex + numVertices));
+                trianglesInserter.append(
+                    trianglesBuffer.begin() + clump.firstTriangle,
+                    trianglesBuffer.begin() + (clump.firstTriangle + clump.numTriangles));
                 chunk.clumps.push_back(Chunk::Clump(
                     firstVertex,
                     clump.numInternalVertices,
