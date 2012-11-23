@@ -196,12 +196,15 @@ void StxxlMesher::flushBuffer()
         {
             BOOST_FOREACH(const Chunk::Clump &clump, chunk.bufferedClumps)
             {
-                vertices_type::size_type firstVertex = vertices.size();
-                triangles_type::size_type firstTriangle = triangles.size();
-                for (std::size_t i = 0; i < clump.numInternalVertices + clump.numExternalVertices; i++)
-                    vertices.push_back(verticesBuffer[clump.firstVertex + i]);
-                for (std::size_t i = 0; i < clump.numTriangles; i++)
-                    triangles.push_back(trianglesBuffer[clump.firstTriangle + i]);
+                const std::size_t numVertices = clump.numInternalVertices + clump.numExternalVertices;
+                const vertices_type::size_type firstVertex = verticesInserter.size();
+                const triangles_type::size_type firstTriangle = trianglesInserter.size();
+                verticesInserter.append(
+                    verticesBuffer.begin() + clump.firstVertex,
+                    verticesBuffer.begin() + (clump.firstVertex + numVertices));
+                trianglesInserter.append(
+                    trianglesBuffer.begin() + clump.firstTriangle,
+                    trianglesBuffer.begin() + (clump.firstTriangle + clump.numTriangles));
                 chunk.clumps.push_back(Chunk::Clump(
                     firstVertex,
                     clump.numInternalVertices,
@@ -220,46 +223,56 @@ void StxxlMesher::flushBuffer()
 void StxxlMesher::updateLocalClumps(
     Chunk &chunk,
     const Statistics::Container::vector<clump_id> &globalClumpId,
+    clump_id clumpIdFirst,
+    clump_id clumpIdLast,
     HostKeyMesh &mesh)
 {
     const std::size_t numVertices = mesh.vertices.size();
     const std::size_t numInternalVertices = numVertices - mesh.vertexKeys.size();
+    const clump_id numClumps = clumpIdLast - clumpIdFirst;
+
+    tmpFirstVertex.clear();
+    tmpFirstVertex.resize(numClumps, -1);
+    tmpFirstTriangle.clear();
+    tmpFirstTriangle.resize(mesh.triangles.size(), -1);
+    tmpNextVertex.resize(numVertices);
+    tmpNextTriangle.resize(mesh.triangles.size());
+
+    for (std::tr1::int32_t i = (std::tr1::int32_t) numVertices - 1; i >= 0; i--)
+    {
+        clump_id cid = globalClumpId[i] - clumpIdFirst;
+        tmpNextVertex[i] = tmpFirstVertex[cid];
+        tmpFirstVertex[cid] = i;
+    }
+
+    for (std::tr1::int32_t i = (std::tr1::int32_t) mesh.triangles.size() - 1; i >= 0; i--)
+    {
+        clump_id cid = globalClumpId[mesh.triangles[i][0]] - clumpIdFirst;
+        tmpNextTriangle[i] = tmpFirstTriangle[cid];
+        tmpFirstTriangle[cid] = i;
+    }
 
     tmpVertexLabel.clear();
     tmpVertexLabel.resize(numVertices);
-    tmpVertexOrder.clear();
 
-    // Vertices are not sorted in-place, but rather we sort vertex indices. This avoids
-    // the need to either bundle vertex data together with original indices or to use
-    // a custom sort for extracting the permutation.
-    tmpVertexOrder.reserve(numVertices);
-    for (std::size_t i = 0; i < numVertices; i++)
-        tmpVertexOrder.push_back(i);
-    std::sort(tmpVertexOrder.begin(), tmpVertexOrder.end(), VertexCompare(globalClumpId));
-    std::sort(mesh.triangles.begin(), mesh.triangles.end(), TriangleCompare(globalClumpId));
-
-    std::size_t nextVertex = 0;
-    std::size_t nextTriangle = 0;
     if ((numVertices + verticesBuffer.size()) * sizeof(vertices_type::value_type)
         + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangles_type::value_type)
         > getReorderCapacity())
         flushBuffer();
 
-    while (nextVertex < numVertices)
+    for (clump_id gid = clumpIdFirst; gid < clumpIdLast; gid++)
     {
-        // This loop is run once per clump
-        clump_id cid = globalClumpId[tmpVertexOrder[nextVertex]];
-        std::size_t lastVertex = nextVertex;
-        std::size_t lastTriangle = nextTriangle;
+        clump_id cid = gid - clumpIdFirst;
+
         // These count *emitted* vertices - which for external vertices can be less than
         // incoming ones due to sharing within the chunk.
         std::size_t clumpInternalVertices = 0;
         std::size_t clumpExternalVertices = 0;
-        do
+        std::size_t clumpTriangles = 0;
+        for (std::tr1::int32_t vid = tmpFirstVertex[cid]; vid != -1; vid = tmpNextVertex[vid])
         {
-            std::tr1::uint32_t vid = tmpVertexOrder[nextVertex];
             bool elide = false; // true if the vertex is elided due to sharing
-            if (vid >= numInternalVertices)
+            if (std::size_t(vid) >= numInternalVertices)
             {
                 // external vertex
                 std::pair<Chunk::vertex_id_map_type::iterator, bool> added;
@@ -278,37 +291,31 @@ void StxxlMesher::updateLocalClumps(
             else
             {
                 // internal vertex
-                tmpVertexLabel[vid] = nextVertex - lastVertex;
-                clumpInternalVertices++;
+                tmpVertexLabel[vid] = clumpInternalVertices++;
             }
 
             if (!elide)
                 verticesBuffer.push_back(mesh.vertices[vid]);
+        }
 
-            nextVertex++;
-        } while (nextVertex < numVertices && globalClumpId[tmpVertexOrder[nextVertex]] == cid);
-
-        // tmpVertexLabel now contains the intermediate encoded ID for each vertex,
-        // indexed by the original (rather than permuted) ID. Transform and emit
-        // the triangles using this mapping.
-        while (nextTriangle < mesh.triangles.size()
-               && globalClumpId[mesh.triangles[nextTriangle][0]] == cid)
+        // tmpVertexLabel now contains the intermediate encoded ID for each vertex.
+        // Transform and emit the triangles using this mapping.
+        for (std::tr1::int32_t tid = tmpFirstTriangle[cid]; tid != -1; tid = tmpNextTriangle[tid])
         {
             boost::array<std::tr1::uint32_t, 3> out;
             for (int j = 0; j < 3; j++)
-                out[j] = tmpVertexLabel[mesh.triangles[nextTriangle][j]];
+                out[j] = tmpVertexLabel[mesh.triangles[tid][j]];
             trianglesBuffer.push_back(out);
-            nextTriangle++;
+            clumpTriangles++;
         }
 
-        std::size_t clumpTriangles = nextTriangle - lastTriangle;
         chunk.bufferedClumps.push_back(Chunk::Clump(
                 verticesBuffer.size() - clumpInternalVertices - clumpExternalVertices,
                 clumpInternalVertices,
                 clumpExternalVertices,
                 trianglesBuffer.size() - clumpTriangles,
                 clumpTriangles,
-                cid));
+                gid));
     }
 }
 
@@ -323,6 +330,7 @@ void StxxlMesher::add(MesherWork &work)
 
     if (work.hasEvents)
         work.trianglesEvent.wait();
+    clump_id oldClumps = clumps.size();
     computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpNodes);
     updateGlobalClumps(tmpNodes, mesh.triangles, tmpClumpId);
 
@@ -332,7 +340,7 @@ void StxxlMesher::add(MesherWork &work)
 
     if (work.hasEvents)
         work.verticesEvent.wait();
-    updateLocalClumps(chunk, tmpClumpId, mesh);
+    updateLocalClumps(chunk, tmpClumpId, oldClumps, clumps.size(), mesh);
 }
 
 MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
@@ -358,6 +366,10 @@ void StxxlMesher::write(std::ostream *progressStream)
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     flushBuffer();
+    vertices_type vertices("mem.StxxlMesher.vertices");
+    triangles_type triangles("mem.StxxlMesher.triangles");
+    verticesInserter.move(vertices);
+    trianglesInserter.move(triangles);
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
     std::tr1::uint64_t totalVertices = 0;
