@@ -58,7 +58,10 @@ def analyze_bucket_coarse(values):
     times = OrderedDict()
     times['compute'] = values['bucket.coarse.compute']
     times['load'] = values['bucket.coarse.load']
-    times['wait-out'] = values['bucket.fine.get'] + values['bucket.fine.push']
+    if 'scatter.get' in values:
+        times['wait-out'] = values['scatter.get'] + values['scatter.push']
+    else:
+        times['wait-out'] = values['bucket.fine.get'] + values['bucket.fine.push']
     print_breakdown('CoarseBucket', times, values['pass1.time'])
 
 def analyze_bucket_fine(values):
@@ -76,7 +79,10 @@ def analyze_device(values):
     times['startup'] = values['device.pop.first']
     times['compute'] = values['device.compute']
     times['wait-in'] = values['device.pop']
-    times['wait-out'] = values['mesher.get'] + values['mesher.push']
+    if 'gather.get' in values:
+        times['wait-out'] = values['gather.get'] + values['gather.push']
+    else:
+        times['wait-out'] = values['mesher.get'] + values['mesher.push']
     print_breakdown('Device', times, values['pass1.time'] * threads)
 
 def analyze_mesher(values):
