@@ -95,6 +95,11 @@ void validateOptions(const boost::program_options::variables_map &vm);
 void setLogLevel(const boost::program_options::variables_map &vm);
 
 /**
+ * Number of spare slots to use when creating a device worker.
+ */
+int deviceWorkerSpare(const boost::program_options::variables_map &vm);
+
+/**
  * Estimate the per-device resource usage based on command-line options.
  */
 CLH::ResourceUsage resourceUsage(const boost::program_options::variables_map &vm);

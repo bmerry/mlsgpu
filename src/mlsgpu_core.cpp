@@ -88,7 +88,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(10000000), "Maximum splats per block on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
-        (Option::bucketThreads, po::value<int>()->default_value(4), "Number of threads for bucketing splats")
+        (Option::bucketThreads, po::value<int>()->default_value(1), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)")
@@ -340,18 +340,24 @@ void setLogLevel(const po::variables_map &vm)
         Log::log.setLevel(Log::info);
 }
 
+int deviceWorkerSpare(const po::variables_map &vm)
+{
+    const int bucketThreads = vm[Option::bucketThreads].as<int>();
+    return std::max(bucketThreads, 6);
+}
+
 CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
 {
     const int levels = vm[Option::levels].as<int>();
     const int subsampling = vm[Option::subsampling].as<int>();
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
-    const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
+    const int deviceSpare = deviceWorkerSpare(vm);
 
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
     // TODO: get rid of device parameter
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
-        deviceThreads, bucketThreads, cl::Device(), maxDeviceSplats, maxCells, levels);
+        deviceThreads, deviceSpare, cl::Device(), maxDeviceSplats, maxCells, levels);
     return totalUsage;
 }
 

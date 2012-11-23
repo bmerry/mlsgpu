@@ -230,9 +230,9 @@ void Slave::operator()() const
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    GatherGroup gatherGroup(devices.size() * numDeviceThreads, gatherComm, gatherRoot);
+    GatherGroup gatherGroup(devices.size() * numDeviceThreads * 8, gatherComm, gatherRoot);
     DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, numBucketThreads, GetOutputFunctor(gatherGroup),
+        numDeviceThreads, deviceWorkerSpare(vm), GetOutputFunctor(gatherGroup),
         devices, maxDeviceSplats, blockCells, levels, subsampling,
         boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(

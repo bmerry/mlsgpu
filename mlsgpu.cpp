@@ -107,9 +107,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         {
             // Open a scope so that objects will be released before finalization
             Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup(devices.size() * numDeviceThreads * 4);
+            MesherGroup mesherGroup(devices.size() * numDeviceThreads * 8);
             DeviceWorkerGroup deviceWorkerGroup(
-                numDeviceThreads, numBucketThreads,
+                numDeviceThreads, deviceWorkerSpare(vm),
                 boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
                 devices, maxDeviceSplats, blockCells, levels, subsampling,
                 boundaryLimit, shape);
