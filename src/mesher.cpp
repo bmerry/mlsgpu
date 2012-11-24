@@ -366,8 +366,8 @@ void StxxlMesher::write(std::ostream *progressStream)
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     flushBuffer();
-    vertices_type vertices("mem.StxxlMesher.vertices");
-    triangles_type triangles("mem.StxxlMesher.triangles");
+    vertices_type vertices("mem.StxxlMesher::vertices");
+    triangles_type triangles("mem.StxxlMesher::triangles");
     verticesInserter.move(vertices);
     trianglesInserter.move(triangles);
 
