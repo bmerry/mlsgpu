@@ -47,7 +47,7 @@ void ProgressMPI::sync()
 void ProgressMPI::operator()() const
 {
     size_type current = 0;
-    const boost::posix_time::time_duration sleepTime = boost::posix_time::milliseconds(100);
+    const boost::posix_time::time_duration sleepTime = boost::posix_time::milliseconds(500);
     while (current < total)
     {
         long long update;

@@ -251,7 +251,7 @@ void Slave::operator()() const
         do
         {
             MPI_Iprobe(controlRoot, MPI_ANY_TAG, controlComm, &flag, MPI_STATUS_IGNORE);
-            boost::this_thread::sleep(boost::posix_time::seconds(1));
+            boost::this_thread::sleep(boost::posix_time::milliseconds(200));
         } while (!flag);
     }
     Serialize::recv(grid, controlComm, controlRoot);
