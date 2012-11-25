@@ -264,7 +264,6 @@ private:
 
                     worker(*item);
 
-                    Timeplot::Action timer("push", tworker, owner.pushStat);
                     owner.itemPool.push(item);
                 }
                 worker.stop();
