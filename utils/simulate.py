@@ -172,8 +172,8 @@ def simulate(root):
 
     all_queue = SimQueue(simulator, 1)
     coarse_queue = SimQueue(simulator, 2)
-    fine_queue = SimQueue(simulator, 4)
-    mesh_queue = SimQueue(simulator, 8)
+    fine_queue = SimQueue(simulator, 7)
+    mesh_queue = SimQueue(simulator, 9)
 
     simulator.add_worker(SimWorker('coarse', all_queue, coarse_queue))
     simulator.add_worker(SimWorker('fine', coarse_queue, fine_queue))
