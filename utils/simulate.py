@@ -3,6 +3,7 @@ from __future__ import division, print_function
 import sys
 import heapq
 import timeplot
+from optparse import OptionParser
 
 class QItem(object):
     def __init__(self, parent, parent_get, parent_push):
@@ -73,16 +74,19 @@ class SimSem(object):
             return False
 
 class SimQueue(object):
-    def __init__(self, simulator, pool_size):
+    def __init__(self, simulator, pool_size, sets = 1):
         self.pool_size = pool_size
-        self.queue_sem = SimSem(simulator, 0)
+        self.sets = sets
+        self.queue_sem = []
+        self.queue = [[] for i in range(sets)]
         self.pool_sem = SimSem(simulator, pool_size)
-        self.queue = []
-        self.pool = [0] * pool_size
+        for i in range(sets):
+            self.queue_sem.append(SimSem(simulator, 0))
+        self.pool = [(0, i % sets) for i in range(pool_size)]
 
-    def pop(self, worker):
-        if self.queue_sem.get(worker):
-            return self.queue.pop(0)
+    def pop(self, worker, qid):
+        if self.queue_sem[qid].get(worker):
+            return self.queue[qid].pop(0)
         else:
             return None
 
@@ -90,45 +94,46 @@ class SimQueue(object):
         if self.pool_sem.get(worker):
             return self.pool.pop(0)
         else:
-            return None
+            return (None, None)
 
-    def push(self, item):
-        self.queue.append(item)
-        self.queue_sem.post()
+    def push(self, item, qid):
+        self.queue[qid].append(item)
+        self.queue_sem[qid].post()
 
-    def done(self, item):
-        self.pool.append(item)
+    def done(self, item, qid):
+        self.pool.append((item, qid))
         self.pool_sem.post()
 
 class SimWorker(object):
-    def __init__(self, name, inq, outq):
+    def __init__(self, name, inq, outq, qid = 0):
         self.name = name
         self.inq = inq
         self.outq = outq
+        self.qid = qid
         self.generator = self.run()
 
     def run(self):
         time = 0.0
         yield
         while True:
-            item = self.inq.pop(self)
+            item = self.inq.pop(self, self.qid)
             while item is None:
                 time = yield None
-                item = self.inq.pop(self)
+                item = self.inq.pop(self, self.qid)
             for child in item.children:
                 time += child.parent_get
                 time = yield time
-                out = self.outq.get(self)
+                (out, cqid) = self.outq.get(self)
                 while out is None:
                     time = yield None
-                    out = self.outq.get(self)
+                    (out, cqid) = self.outq.get(self)
                 time += child.parent_push
                 time = yield time
-                self.outq.push(child)
+                self.outq.push(child, cqid)
             if item.finish > 0:
                 time += item.finish
                 time = yield time
-            self.inq.done(item)
+            self.inq.done(item, self.qid)
 
 class Simulator(object):
     def __init__(self):
@@ -167,28 +172,45 @@ def load_items(group):
     process_worker(get_worker(group, 'mesher.0'), mesh_queue)
     return all_queue[0]
 
-def simulate(root):
+def simulate(root, options):
     simulator = Simulator()
 
+    fine_threads = options.bucket_threads
+    gpus = options.gpus
+
+    coarse_spare = 1
+    fine_spare = max(options.bucket_spare, fine_threads)
+    mesher_spare = gpus * options.mesher_spare
+
     all_queue = SimQueue(simulator, 1)
-    coarse_queue = SimQueue(simulator, 2)
-    fine_queue = SimQueue(simulator, 7)
-    mesh_queue = SimQueue(simulator, 9)
+    coarse_queue = SimQueue(simulator, fine_threads + options.coarse_spare)
+    fine_queue = SimQueue(simulator, gpus * (1 + fine_spare), gpus)
+    mesh_queue = SimQueue(simulator, 1 + mesher_spare)
 
     simulator.add_worker(SimWorker('coarse', all_queue, coarse_queue))
-    simulator.add_worker(SimWorker('fine', coarse_queue, fine_queue))
-    simulator.add_worker(SimWorker('device', fine_queue, mesh_queue))
+    for i in range(fine_threads):
+        simulator.add_worker(SimWorker('fine', coarse_queue, fine_queue))
+    for i in range(gpus):
+        simulator.add_worker(SimWorker('device', fine_queue, mesh_queue, i))
     simulator.add_worker(SimWorker('mesher', mesh_queue, None))
 
     all_queue.get(None)
-    all_queue.push(root)
+    all_queue.push(root, 0)
     simulator.run()
     print(simulator.time)
 
 def main():
+    parser = OptionParser()
+    parser.add_option('--bucket-threads', type = 'int', default = 2)
+    parser.add_option('--gpus', type = 'int', default = 1)
+    parser.add_option('--bucket-spare', type = 'int', default = 6)
+    parser.add_option('--mesher-spare', type = 'int', default = 8)
+    parser.add_option('--coarse-spare', type = 'int', default = 1)
+    (options, args) = parser.parse_args()
+
     groups = []
-    if len(sys.argv) > 1:
-        for fname in sys.argv[1:]:
+    if args:
+        for fname in args:
             with open(fname, 'r') as f:
                 groups.append(timeplot.load_data(f))
     else:
@@ -203,7 +225,7 @@ def main():
             sys.exit(1)
 
     root = load_items(group)
-    simulate(root)
+    simulate(root, options)
 
 if __name__ == '__main__':
     main()
