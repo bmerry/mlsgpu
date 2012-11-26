@@ -14,6 +14,13 @@ class QItem(object):
         self.parent_push = parent_push
         self.children = []
 
+    def total_time(self):
+        ans = self.finish
+        for x in self.children:
+            ans += x.parent_get
+            ans += x.parent_push
+        return ans
+
 def process_worker(worker, pq):
     pqid = 0
     item = None
@@ -34,6 +41,8 @@ def process_worker(worker, pq):
             child = QItem(item, parent_get, parent_push)
             item.children.append(child)
             cq.append(child)
+            if action.value is not None:
+                item.size = action.value
             item.finish = 0.0
         elif action.name in ['compute', 'load']:
             item.finish += action.stop - action.start
@@ -57,83 +66,96 @@ class SimSem(object):
         self.value = value
         self.waiters = []
 
-    def post(self):
-        self.value += 1
-        if self.waiters:
-            self.simulator.wakeup(self.waiters[0])
+    def find_waiter(self, waiter):
+        for (i, w) in enumerate(self.waiters):
+            if w[0] == waiter:
+                return i
+        return None
 
-    def get(self, worker):
-        if self.value > 0:
-            self.value -= 1
-            if worker in self.waiters:
-                self.waiters.remove(worker)
+    def post(self, size):
+        self.value += size
+        if self.waiters and self.waiters[0][1] <= self.value:
+            self.simulator.wakeup(self.waiters[0][0])
+
+    def get(self, worker, size):
+        if self.value >= size:
+            self.value -= size
+            idx = self.find_waiter(worker)
+            if idx is not None:
+                del self.waiters[idx]
             return True
         else:
-            if worker not in self.waiters:
-                self.waiters.append(worker)
+            idx = self.find_waiter(worker)
+            if idx is None:
+                self.waiters.append((worker, size))
+            else:
+                self.waiters[idx] = (worker, size)
             return False
 
 class SimQueue(object):
-    def __init__(self, simulator, pool_size, sets = 1):
+    def __init__(self, simulator, pool_size):
         self.pool_size = pool_size
-        self.sets = sets
-        self.queue_sem = []
-        self.queue = [[] for i in range(sets)]
+        self.queue_sem = SimSem(simulator, 0)
+        self.queue = []
         self.pool_sem = SimSem(simulator, pool_size)
-        for i in range(sets):
-            self.queue_sem.append(SimSem(simulator, 0))
-        self.pool = [(0, i % sets) for i in range(pool_size)]
 
-    def pop(self, worker, qid):
-        if self.queue_sem[qid].get(worker):
-            return self.queue[qid].pop(0)
+    def spare(self):
+        return self.pool_sem.value
+
+    def pop(self, worker):
+        if self.queue_sem.get(worker, 1):
+            return self.queue.pop(0)
         else:
             return None
 
-    def get(self, worker):
-        if self.pool_sem.get(worker):
-            return self.pool.pop(0)
+    def get(self, worker, size):
+        if self.pool_sem.get(worker, size):
+            return True
         else:
-            return (None, None)
+            return False
 
-    def push(self, item, qid):
-        self.queue[qid].append(item)
-        self.queue_sem[qid].post()
+    def push(self, item):
+        self.queue.append(item)
+        self.queue_sem.post(1)
 
-    def done(self, item, qid):
-        self.pool.append((item, qid))
-        self.pool_sem.post()
+    def done(self, size):
+        self.pool_sem.post(size)
 
 class SimWorker(object):
-    def __init__(self, name, inq, outq, qid = 0):
+    def __init__(self, name, inq, outqs):
         self.name = name
         self.inq = inq
-        self.outq = outq
-        self.qid = qid
+        self.outqs = outqs
         self.generator = self.run()
+
+    def best_queue(self):
+        return max(self.outqs, key = lambda x: x.spare())
 
     def run(self):
         time = 0.0
         yield
         while True:
-            item = self.inq.pop(self, self.qid)
+            item = self.inq.pop(self)
             while item is None:
                 time = yield None
-                item = self.inq.pop(self, self.qid)
+                item = self.inq.pop(self)
             for child in item.children:
                 time += child.parent_get
                 time = yield time
-                (out, cqid) = self.outq.get(self)
-                while out is None:
+                outq = self.best_queue()
+                success = outq.get(self, child.size)
+                while not success:
                     time = yield None
-                    (out, cqid) = self.outq.get(self)
+                    success = outq.get(self, child.size)
                 time += child.parent_push
-                time = yield time
-                self.outq.push(child, cqid)
+                time2 = yield time
+                assert time2 == time
+                outq.push(child)
             if item.finish > 0:
                 time += item.finish
-                time = yield time
-            self.inq.done(item, self.qid)
+                time2 = yield time
+                assert time2 == time
+            self.inq.done(item.size)
 
 class Simulator(object):
     def __init__(self):
@@ -147,7 +169,6 @@ class Simulator(object):
         self.wakeup(worker)
 
     def wakeup(self, worker, time = None):
-        assert worker not in self.wakeup_queue
         if time is None:
             time = self.time
         assert time >= self.time
@@ -160,6 +181,7 @@ class Simulator(object):
             try:
                 restart_time = worker.generator.send(self.time)
                 if restart_time is not None:
+                    assert restart_time >= self.time
                     self.wakeup(worker, restart_time)
             except StopIteration:
                 pass
@@ -184,18 +206,18 @@ def simulate(root, options):
 
     all_queue = SimQueue(simulator, 1)
     coarse_queue = SimQueue(simulator, fine_threads + options.coarse_spare)
-    fine_queue = SimQueue(simulator, gpus * (1 + fine_spare), gpus)
+    fine_queues = [SimQueue(simulator, 1 + fine_spare) for i in range(gpus)]
     mesh_queue = SimQueue(simulator, 1 + mesher_spare)
 
-    simulator.add_worker(SimWorker('coarse', all_queue, coarse_queue))
+    simulator.add_worker(SimWorker('coarse', all_queue, [coarse_queue]))
     for i in range(fine_threads):
-        simulator.add_worker(SimWorker('fine', coarse_queue, fine_queue))
+        simulator.add_worker(SimWorker('fine', coarse_queue, fine_queues))
     for i in range(gpus):
-        simulator.add_worker(SimWorker('device', fine_queue, mesh_queue, i))
+        simulator.add_worker(SimWorker('device', fine_queues[i], [mesh_queue]))
     simulator.add_worker(SimWorker('mesher', mesh_queue, None))
 
-    all_queue.get(None)
-    all_queue.push(root, 0)
+    all_queue.get(None, 1)
+    all_queue.push(root)
     simulator.run()
     print(simulator.time)
 

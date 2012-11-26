@@ -7,6 +7,7 @@ class Action(object):
         self.name = name
         self.start = start
         self.stop = stop
+        self.value = None
 
 class Worker(object):
     def __init__(self, name):
@@ -33,5 +34,8 @@ def load_data(f):
                 workers[worker_name] = Worker(worker_name)
             worker = workers[worker_name]
             worker.actions.append(Action(action_name, start_time, stop_time))
+        m = re.match(r'^VALUE ([0-9]+)$', line)
+        if m:
+            worker.actions[-1].value = int(m.group(1))
     workers = sorted(list(workers.values()), key = lambda x: x.sort_key())
     return workers
