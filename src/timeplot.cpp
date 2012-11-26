@@ -117,12 +117,14 @@ void Action::pause(Timer::timestamp time)
     running = false;
     elapsed += Timer::getElapsed(start, time);
 
-    boost::lock_guard<boost::mutex> lock(outputMutex);
     if (hasFile)
     {
+        boost::lock_guard<boost::mutex> lock(outputMutex);
         log << "EVENT " << worker.getName() << ' ' << name << ' '
             << Timer::getElapsed(startTime, start) << ' '
             << Timer::getElapsed(startTime, time) << '\n';
+        if (value)
+            log << "VALUE " << *value << '\n';
     }
 }
 
@@ -131,6 +133,11 @@ void Action::resume(Timer::timestamp time)
     MLSGPU_ASSERT(!running, state_error);
     running = true;
     start = time;
+}
+
+void Action::setValue(std::size_t value)
+{
+    this->value = value;
 }
 
 Action::~Action()

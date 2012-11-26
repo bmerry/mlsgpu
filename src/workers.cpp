@@ -68,7 +68,11 @@ void MesherGroup::outputFunc(
 {
     MLSGPU_ASSERT(input, std::logic_error);
 
-    boost::shared_ptr<MesherWork> work = get(tworker);
+    std::size_t bytes = mesh.numVertices * 3 * sizeof(cl_float)
+        + mesh.numTriangles * 3 * sizeof(cl_uint)
+        + (mesh.numVertices - mesh.numInternalVertices) * sizeof(cl_ulong);
+
+    boost::shared_ptr<MesherWork> work = get(tworker, bytes);
     std::vector<cl::Event> wait(3);
     enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
@@ -78,7 +82,7 @@ void MesherGroup::outputFunc(
     work->verticesEvent = wait[0];
     work->vertexKeysEvent = wait[1];
     work->trianglesEvent = wait[2];
-    push(work, tworker);
+    push(work, tworker, bytes);
 }
 
 
@@ -260,7 +264,9 @@ void FineBucketGroupBase::Worker::operator()(
 {
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = owner.outGroup.get(getTimeplotWorker());
+    const std::size_t bytes = splatSet.numSplats() * sizeof(Splat);
+
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = owner.outGroup.get(getTimeplotWorker(), bytes);
     outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
@@ -269,7 +275,7 @@ void FineBucketGroupBase::Worker::operator()(
     {
         Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
         CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
-                                         0, splatSet.numSplats() * sizeof(Splat));
+                                         0, bytes);
 
         std::size_t pos = 0;
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
@@ -289,7 +295,7 @@ void FineBucketGroupBase::Worker::operator()(
         outItem->mapQueue.flush();
     }
 
-    owner.outGroup.push(outItem, getTimeplotWorker());
+    owner.outGroup.push(outItem, getTimeplotWorker(), bytes);
 }
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)

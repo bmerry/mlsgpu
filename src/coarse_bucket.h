@@ -69,8 +69,9 @@ void CoarseBucket<Splats, OutGroup>::operator()(
     }
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
+    const std::size_t bytes = splats.numSplats() * sizeof(Splat);
 
-    boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker);
+    boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker, bytes);
     item->chunkId = curChunkId;
     item->grid = grid;
     item->recursionState = recursionState;
@@ -98,7 +99,7 @@ void CoarseBucket<Splats, OutGroup>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item, tworker);
+    outGroup.push(item, tworker, bytes);
 }
 
 template<typename Splats, typename OutGroup>

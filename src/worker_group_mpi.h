@@ -107,7 +107,7 @@ public:
              * Don't try to receive work until we have a slot in the queue, as otherwise
              * we may starve some other process or hold up the scatter worker on the master.
              */
-            boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
+            boost::shared_ptr<WorkItem> item = outGroup.get(tworker, 1);
 
             int hasWork;
             MPI_Status status;
@@ -131,7 +131,7 @@ public:
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
                 }
-                outGroup.push(item, tworker);
+                outGroup.push(item, tworker, 1);
             }
         }
     }
@@ -272,12 +272,12 @@ public:
                 rem--;
             else
             {
-                boost::shared_ptr<WorkItem> item = outGroup.get(tworker);
+                boost::shared_ptr<WorkItem> item = outGroup.get(tworker, 1);
                 {
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
                 }
-                outGroup.push(item, tworker);
+                outGroup.push(item, tworker, 1);
             }
         }
     }

@@ -11,6 +11,7 @@
 # include <config.h>
 #endif
 #include <boost/noncopyable.hpp>
+#include <boost/optional.hpp>
 #include <string>
 #include "timer.h"
 #include "statistics.h"
@@ -128,6 +129,8 @@ private:
     double elapsed;          ///< Time taken up to the last time it was paused
     Timer::timestamp start;  ///< Time of the last resume, or of construction
 
+    boost::optional<std::size_t> value;  ///< User-supplied value
+
     /// Second-phase initialization, shared by several constructors
     void init();
 
@@ -171,6 +174,11 @@ public:
      * @param statName  Name of statistic to be found in the default registry.
      */
     Action(const std::string &name, Worker &worker, const std::string &statName);
+
+    /**
+     * Set a custom value e.g. the number of bytes consumed on a queue.
+     */
+    void setValue(std::size_t value);
 
     /**
      * Destructor. This causes a final @c EVENT record to be emitted.

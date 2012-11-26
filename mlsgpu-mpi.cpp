@@ -183,7 +183,11 @@ public:
         const std::vector<cl::Event> *events,
         cl::Event *event)
     {
-        boost::shared_ptr<MesherWork> work = outGroup.get(tworker);
+        std::size_t bytes = mesh.numVertices * 3 * sizeof(cl_float)
+            + mesh.numTriangles * 3 * sizeof(cl_uint)
+            + (mesh.numVertices - mesh.numInternalVertices) * sizeof(cl_ulong);
+
+        boost::shared_ptr<MesherWork> work = outGroup.get(tworker, bytes);
         std::vector<cl::Event> wait(3);
         enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
         CLH::enqueueMarkerWithWaitList(queue, &wait, event);
@@ -193,7 +197,7 @@ public:
         work->verticesEvent = wait[0];
         work->vertexKeysEvent = wait[1];
         work->trianglesEvent = wait[2];
-        outGroup.push(work, tworker);
+        outGroup.push(work, tworker, bytes);
     }
 };
 

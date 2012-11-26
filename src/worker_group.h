@@ -89,9 +89,10 @@ public:
      * returned to the pool with @ref unget. Failure to do so will lead to the
      * item being lost to the pool, and possibly deadlock.
      */
-    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker)
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
         Timeplot::Action timer("get", tworker, getStat);
+        timer.setValue(size);
         return itemPool.pop();
     }
 
@@ -111,9 +112,10 @@ public:
      *
      * @pre @a item was obtained by @ref get.
      */
-    void push(boost::shared_ptr<WorkItem> item, Timeplot::Worker &tworker)
+    void push(boost::shared_ptr<WorkItem> item, Timeplot::Worker &tworker, std::size_t size)
     {
         Timeplot::Action timer("push", tworker, pushStat);
+        timer.setValue(size);
         static_cast<Derived *>(this)->pushImpl(item);
     }
 
