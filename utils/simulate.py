@@ -123,11 +123,12 @@ class SimQueue(object):
         self.pool_sem.post(size)
 
 class SimWorker(object):
-    def __init__(self, name, inq, outqs):
+    def __init__(self, name, inq, outqs, options):
         self.name = name
         self.inq = inq
         self.outqs = outqs
         self.generator = self.run()
+        self.by_size = options.by_size
 
     def best_queue(self):
         return max(self.outqs, key = lambda x: x.spare())
@@ -141,13 +142,17 @@ class SimWorker(object):
                 time = yield None
                 item = self.inq.pop(self)
             for child in item.children:
+                if self.by_size:
+                    size = child.size
+                else:
+                    size = 1
                 time += child.parent_get
                 time = yield time
                 outq = self.best_queue()
-                success = outq.get(self, child.size)
+                success = outq.get(self, size)
                 while not success:
                     time = yield None
-                    success = outq.get(self, child.size)
+                    success = outq.get(self, size)
                 time += child.parent_push
                 time2 = yield time
                 assert time2 == time
@@ -205,17 +210,31 @@ def simulate(root, options):
     fine_spare = max(options.bucket_spare, fine_threads)
     mesher_spare = gpus * options.mesher_spare
 
-    all_queue = SimQueue(simulator, 1)
-    coarse_queue = SimQueue(simulator, fine_threads + options.coarse_spare)
-    fine_queues = [SimQueue(simulator, 1 + fine_spare) for i in range(gpus)]
-    mesh_queue = SimQueue(simulator, 1 + mesher_spare)
+    if options.infinite:
+        big = 10**30
+        coarse_cap = big
+        fine_cap = big
+        mesher_cap = big
+    elif options.by_size:
+        coarse_cap = options.coarse_cap * 1024 * 1024
+        fine_cap = options.bucket_cap * 1024 * 1024
+        mesher_cap = options.mesher_cap * 1024 * 1024
+    else:
+        coarse_cap = fine_threads + options.coarse_spare
+        fine_cap = 1 + fine_spare
+        mesher_cap = gpus * (1 + fine_spare)
 
-    simulator.add_worker(SimWorker('coarse', all_queue, [coarse_queue]))
+    all_queue = SimQueue(simulator, 1)
+    coarse_queue = SimQueue(simulator, coarse_cap)
+    fine_queues = [SimQueue(simulator, fine_cap) for i in range(gpus)]
+    mesh_queue = SimQueue(simulator, mesher_cap)
+
+    simulator.add_worker(SimWorker('coarse', all_queue, [coarse_queue], options))
     for i in range(fine_threads):
-        simulator.add_worker(SimWorker('fine', coarse_queue, fine_queues))
+        simulator.add_worker(SimWorker('fine', coarse_queue, fine_queues, options))
     for i in range(gpus):
-        simulator.add_worker(SimWorker('device', fine_queues[i], [mesh_queue]))
-    simulator.add_worker(SimWorker('mesher', mesh_queue, None))
+        simulator.add_worker(SimWorker('device', fine_queues[i], [mesh_queue], options))
+    simulator.add_worker(SimWorker('mesher', mesh_queue, None, options))
 
     all_queue.get(None, 1)
     all_queue.push(root)
@@ -224,11 +243,16 @@ def simulate(root, options):
 
 def main():
     parser = OptionParser()
+    parser.add_option('--by-size', action = 'store_true')
+    parser.add_option('--infinite', action = 'store_true')
     parser.add_option('--bucket-threads', type = 'int', default = 2)
     parser.add_option('--gpus', type = 'int', default = 1)
+    parser.add_option('--coarse-spare', type = 'int', default = 1)
     parser.add_option('--bucket-spare', type = 'int', default = 6)
     parser.add_option('--mesher-spare', type = 'int', default = 8)
-    parser.add_option('--coarse-spare', type = 'int', default = 1)
+    parser.add_option('--coarse-cap', type = 'int', default = 2 * 1024)
+    parser.add_option('--bucket-cap', type = 'int', default = 512)
+    parser.add_option('--mesher-cap', type = 'int', default = 256)
     (options, args) = parser.parse_args()
 
     groups = []
