@@ -109,6 +109,7 @@ class SimQueue(object):
             return None
 
     def get(self, worker, size):
+        assert size <= self.pool_size
         if self.pool_sem.get(worker, size):
             return True
         else:
