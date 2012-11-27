@@ -43,10 +43,10 @@ def process_worker(worker, pq):
             parent_push = action.start - base
             base = action.stop
             child = QItem(item, parent_get, parent_push)
+            if action.value is not None:
+                child.size = action.value
             item.children.append(child)
             cq.append(child)
-            if action.value is not None:
-                item.size = action.value
             item.finish = 0.0
         elif action.name in ['compute', 'load']:
             item.finish += action.stop - action.start
