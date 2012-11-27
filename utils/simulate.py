@@ -172,7 +172,11 @@ class SimWorker(object):
                 time += item.finish
                 time2 = yield time
                 assert time2 == time
-            self.inq.done(item.size)
+            if self.by_size:
+                size = item.size
+            else:
+                size = 1
+            self.inq.done(size)
         running = False
 
 class Simulator(object):
