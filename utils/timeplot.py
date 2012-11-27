@@ -23,8 +23,10 @@ class Worker(object):
 
 def load_data(f):
     workers = {}
+    event_re = re.compile(r'^EVENT (\S+) (\S+) ([0-9.]+) ([0-9.]+)$')
+    value_re = re.compile(r'^VALUE ([0-9]+)$')
     for line in f:
-        m = re.match(r'^EVENT (\S+) (\S+) ([0-9.]+) ([0-9.]+)$', line)
+        m = event_re.match(line)
         if m:
             worker_name = m.group(1)
             action_name = m.group(2)
@@ -34,7 +36,7 @@ def load_data(f):
                 workers[worker_name] = Worker(worker_name)
             worker = workers[worker_name]
             worker.actions.append(Action(action_name, start_time, stop_time))
-        m = re.match(r'^VALUE ([0-9]+)$', line)
+        m = value_re.match(line)
         if m:
             worker.actions[-1].value = int(m.group(1))
     workers = sorted(list(workers.values()), key = lambda x: x.sort_key())
