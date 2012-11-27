@@ -139,9 +139,9 @@ void Producer<T>::operator()()
 {
     for (int i = first; i < last; i += step)
     {
-        boost::shared_ptr<Item> item = outGroup.get(*tworker);
+        boost::shared_ptr<Item> item = outGroup.get(*tworker, 1);
         item->value = i;
-        outGroup.push(item, *tworker);
+        outGroup.push(item, *tworker, 1);
     }
 }
 

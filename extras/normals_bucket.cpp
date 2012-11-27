@@ -350,7 +350,7 @@ public:
         if (recursionState.depth > 1)
             recursedStat.add(1);
 
-        boost::shared_ptr<NormalItem> item = outGroup.get(tworker);
+        boost::shared_ptr<NormalItem> item = outGroup.get(tworker, 1);
         activeStat += subset.numSplats();
 
         {
@@ -370,7 +370,7 @@ public:
             item->progress = progress;
         }
         binStat.add(item->splats.size());
-        outGroup.push(item, tworker);
+        outGroup.push(item, tworker, 1);
     }
 };
 

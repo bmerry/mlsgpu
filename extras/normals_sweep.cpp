@@ -319,7 +319,7 @@ void processSlice(
     ProgressDisplay *progress)
 {
     Timeplot::Worker dummy("dummy", 0);
-    boost::shared_ptr<NormalItem> item = outGroup.get(dummy);
+    boost::shared_ptr<NormalItem> item = outGroup.get(dummy, 1);
     item->axis = axis;
     item->K = K;
     item->maxRadius = maxRadius;
@@ -329,7 +329,7 @@ void processSlice(
         item->active[i] = active[i];
     item->needsTree = needsTree;
     item->progress = progress;
-    outGroup.push(item, dummy);
+    outGroup.push(item, dummy, 1);
 }
 
 typedef stxxl::stream::sort<SplatSet::SplatStream, CompareSplats, 2 * 1024 * 1024> SortStream;

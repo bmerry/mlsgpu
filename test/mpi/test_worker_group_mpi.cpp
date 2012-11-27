@@ -88,9 +88,9 @@ public:
 
     void operator()(Item &item)
     {
-        boost::shared_ptr<Item> outItem = outGroup.get(getTimeplotWorker());
+        boost::shared_ptr<Item> outItem = outGroup.get(getTimeplotWorker(), 1);
         outItem->set(2 * item.get());
-        outGroup.push(outItem, getTimeplotWorker());
+        outGroup.push(outItem, getTimeplotWorker(), 1);
     }
 };
 
@@ -228,9 +228,9 @@ void TestWorkerGroupScatter::testIntracomm()
         for (std::size_t i = 0; i < items; i++)
         {
             boost::shared_ptr<Item> item;
-            item = sendGroup.get(tworker);
+            item = sendGroup.get(tworker, 1);
             item->set(i);
-            sendGroup.push(item, tworker);
+            sendGroup.push(item, tworker, 1);
         }
 
         sendGroup.stop();
