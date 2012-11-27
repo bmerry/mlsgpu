@@ -21,6 +21,10 @@ class QItem(object):
             ans += x.parent_push
         return ans
 
+class EndQItem(object):
+    def __init__(self):
+        pass
+
 def process_worker(worker, pq):
     pqid = 0
     item = None
@@ -129,11 +133,13 @@ class SimWorker(object):
         self.outqs = outqs
         self.generator = self.run()
         self.by_size = options.by_size
+        self.running = False
 
     def best_queue(self):
         return max(self.outqs, key = lambda x: x.spare())
 
     def run(self):
+        running = True
         time = 0.0
         yield
         while True:
@@ -141,6 +147,11 @@ class SimWorker(object):
             while item is None:
                 time = yield None
                 item = self.inq.pop(self)
+            if isinstance(item, EndQItem):
+                for q in self.outqs:
+                    q.push(item)
+                self.inq.push(item) # Make sure it kills off all workers
+                break
             for child in item.children:
                 if self.by_size:
                     size = child.size
@@ -162,6 +173,7 @@ class SimWorker(object):
                 time2 = yield time
                 assert time2 == time
             self.inq.done(item.size)
+        running = False
 
 class Simulator(object):
     def __init__(self):
@@ -182,6 +194,7 @@ class Simulator(object):
 
     def run(self):
         self.time = 0.0
+        running = len(self.workers)
         while self.wakeup_queue:
             (self.time, worker) = heapq.heappop(self.wakeup_queue)
             try:
@@ -190,7 +203,13 @@ class Simulator(object):
                     assert restart_time >= self.time
                     self.wakeup(worker, restart_time)
             except StopIteration:
-                pass
+                running -= 1
+        if running != 0:
+            print("Workers still running: possible deadlock", file = sys.stderr)
+            for w in self.workers:
+                if w.running:
+                    print("  " + w.name, file = sys.stderr)
+            sys.exit(1)
 
 def load_items(group):
     all_queue = [QItem(None, 0.0, 0.0)]
@@ -234,10 +253,10 @@ def simulate(root, options):
         simulator.add_worker(SimWorker('fine', coarse_queue, fine_queues, options))
     for i in range(gpus):
         simulator.add_worker(SimWorker('device', fine_queues[i], [mesh_queue], options))
-    simulator.add_worker(SimWorker('mesher', mesh_queue, None, options))
+    simulator.add_worker(SimWorker('mesher', mesh_queue, [], options))
 
-    all_queue.get(None, 1)
     all_queue.push(root)
+    all_queue.push(EndQItem())
     simulator.run()
     print(simulator.time)
 
