@@ -89,14 +89,31 @@ class SimSem(object):
         self.post(0)
 
 class SimQueue(object):
-    def __init__(self, simulator, pool_size):
+    def __init__(self, simulator, pool_size, inorder = True):
         self.pool_size = pool_size
+        self.pool_waiters = []
+        self.allocs = []
+        self.pool_spare = pool_size
+        self.inorder = inorder
+        self.simulator = simulator
         self.queue_sem = SimSem(simulator, 0)
         self.queue = []
-        self.pool_sem = SimSem(simulator, pool_size)
 
     def spare(self):
-        return self.pool_sem.value
+        return self.pool_spare
+
+    def _biggest(self):
+        if not self.inorder:
+            return self.pool_spare
+        elif not self.allocs:
+            return self.pool_size
+        else:
+            start = self.allocs[0][0]
+            end = self.allocs[-1][1]
+            if end > start:
+                return max(self.pool_size - end, start)
+            else:
+                return start - end
 
     def wait(self, worker):
         self.queue_sem.get(worker, 1)
@@ -105,15 +122,46 @@ class SimQueue(object):
         return self.queue.pop(0)
 
     def get(self, worker, size):
+        assert size > 0
         assert size <= self.pool_size
-        self.pool_sem.get(worker, size)
+        self.pool_waiters.append((worker, size))
+        self._do_wakeups()
 
     def push(self, item):
         self.queue.append(item)
         self.queue_sem.post(1)
 
-    def done(self, size):
-        self.pool_sem.post(size)
+    def _do_wakeups(self):
+        while self.pool_waiters:
+            w = self.pool_waiters[0][0]
+            size = self.pool_waiters[0][1]
+            if size > self._biggest():
+                break
+            if not self.allocs:
+                start = 0
+            elif not self.inorder:
+                start = self.allocs[-1][1]
+            else:
+                cur_start = self.allocs[0][0]
+                cur_end = self.allocs[-1][1]
+                cur_limit = self.pool_size
+                if cur_end <= cur_start:
+                    limit = cur_start
+                if cur_limit - cur_end >= size:
+                    start = cur_end
+                else:
+                    start = 0
+            a = (start, start + size)
+            self.allocs.append(a)
+            self.pool_spare -= size
+            del self.pool_waiters[0]
+            self.simulator.wakeup(w, value = a)
+
+    def done(self, alloc):
+        assert(alloc in self.allocs)
+        self.allocs.remove(alloc)
+        self.pool_spare += alloc[1] - alloc[0]
+        self._do_wakeups()
 
 class SimWorker(object):
     def __init__(self, name, inq, outqs, options):
@@ -127,11 +175,10 @@ class SimWorker(object):
         return max(self.outqs, key = lambda x: x.spare())
 
     def run(self):
-        time = 0.0
         yield
         while True:
             self.inq.wait(self)
-            time = yield None
+            yield
             item = self.inq.pop()
             if isinstance(item, EndQItem):
                 for q in self.outqs:
@@ -144,27 +191,22 @@ class SimWorker(object):
                 else:
                     size = 1
 
-                time += child.parent_get
-                time2 = yield time
-                assert time2 == time
+                yield child.parent_get
 
                 outq = self.best_queue()
                 outq.get(self, size)
-                time = yield None
+                child.alloc = yield
 
-                time += child.parent_push
-                time2 = yield time
-                assert time2 == time
+                yield child.parent_push
                 outq.push(child)
             if item.finish > 0:
-                time += item.finish
-                time2 = yield time
-                assert time2 == time
+                yield item.finish
             if self.by_size:
                 size = item.size
             else:
                 size = 1
-            self.inq.done(size)
+            if hasattr(item, 'alloc'):
+                self.inq.done(item.alloc)
 
 class Simulator(object):
     def __init__(self):
@@ -177,25 +219,25 @@ class Simulator(object):
         worker.generator.send(None)
         self.wakeup(worker)
 
-    def wakeup(self, worker, time = None):
+    def wakeup(self, worker, time = None, value = None):
         if time is None:
             time = self.time
         assert time >= self.time
-        for (t, w) in self.wakeup_queue:
+        for (t, w, v) in self.wakeup_queue:
             assert w != worker
-        heapq.heappush(self.wakeup_queue, (time, worker))
+        heapq.heappush(self.wakeup_queue, (time, worker, value))
 
     def run(self):
         self.time = 0.0
         running = set(self.workers)
         while self.wakeup_queue:
-            (self.time, worker) = heapq.heappop(self.wakeup_queue)
+            (self.time, worker, value) = heapq.heappop(self.wakeup_queue)
             assert worker in running
             try:
-                restart_time = worker.generator.send(self.time)
-                if restart_time is not None:
-                    assert restart_time >= self.time
-                    self.wakeup(worker, restart_time)
+                compute_time = worker.generator.send(value)
+                if compute_time is not None:
+                    assert compute_time >= 0
+                    self.wakeup(worker, self.time + compute_time)
             except StopIteration:
                 running.remove(worker)
         if running:
@@ -236,10 +278,10 @@ def simulate(root, options):
         fine_cap = 1 + fine_spare
         mesher_cap = gpus * (1 + fine_spare)
 
-    all_queue = SimQueue(simulator, 1)
-    coarse_queue = SimQueue(simulator, coarse_cap)
-    fine_queues = [SimQueue(simulator, fine_cap) for i in range(gpus)]
-    mesh_queue = SimQueue(simulator, mesher_cap)
+    all_queue = SimQueue(simulator, 1, inorder = options.by_size)
+    coarse_queue = SimQueue(simulator, coarse_cap, inorder = options.by_size)
+    fine_queues = [SimQueue(simulator, fine_cap, inorder = options.by_size) for i in range(gpus)]
+    mesh_queue = SimQueue(simulator, mesher_cap, inorder = options.by_size)
 
     simulator.add_worker(SimWorker('coarse', all_queue, [coarse_queue], options))
     for i in range(fine_threads):
