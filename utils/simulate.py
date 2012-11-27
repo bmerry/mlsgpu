@@ -78,23 +78,15 @@ class SimSem(object):
 
     def post(self, size):
         self.value += size
-        if self.waiters and self.waiters[0][1] <= self.value:
-            self.simulator.wakeup(self.waiters[0][0])
+        while self.waiters and self.waiters[0][1] <= self.value:
+            (w, v) = self.waiters.pop(0)
+            self.value -= v
+            self.simulator.wakeup(w)
 
     def get(self, worker, size):
-        if self.value >= size:
-            self.value -= size
-            idx = self.find_waiter(worker)
-            if idx is not None:
-                del self.waiters[idx]
-            return True
-        else:
-            idx = self.find_waiter(worker)
-            if idx is None:
-                self.waiters.append((worker, size))
-            else:
-                self.waiters[idx] = (worker, size)
-            return False
+        assert self.find_waiter(worker) is None
+        self.waiters.append((worker, size))
+        self.post(0)
 
 class SimQueue(object):
     def __init__(self, simulator, pool_size):
@@ -106,18 +98,15 @@ class SimQueue(object):
     def spare(self):
         return self.pool_sem.value
 
-    def pop(self, worker):
-        if self.queue_sem.get(worker, 1):
-            return self.queue.pop(0)
-        else:
-            return None
+    def wait(self, worker):
+        self.queue_sem.get(worker, 1)
+
+    def pop(self):
+        return self.queue.pop(0)
 
     def get(self, worker, size):
         assert size <= self.pool_size
-        if self.pool_sem.get(worker, size):
-            return True
-        else:
-            return False
+        self.pool_sem.get(worker, size)
 
     def push(self, item):
         self.queue.append(item)
@@ -133,37 +122,36 @@ class SimWorker(object):
         self.outqs = outqs
         self.generator = self.run()
         self.by_size = options.by_size
-        self.running = False
 
     def best_queue(self):
         return max(self.outqs, key = lambda x: x.spare())
 
     def run(self):
-        running = True
         time = 0.0
         yield
         while True:
-            item = self.inq.pop(self)
-            while item is None:
-                time = yield None
-                item = self.inq.pop(self)
+            self.inq.wait(self)
+            time = yield None
+            item = self.inq.pop()
             if isinstance(item, EndQItem):
                 for q in self.outqs:
                     q.push(item)
-                self.inq.push(item) # Make sure it kills off all workers
+                self.inq.push(item) # Make sure it kills off all sibling workers
                 break
             for child in item.children:
                 if self.by_size:
                     size = child.size
                 else:
                     size = 1
+
                 time += child.parent_get
-                time = yield time
+                time2 = yield time
+                assert time2 == time
+
                 outq = self.best_queue()
-                success = outq.get(self, size)
-                while not success:
-                    time = yield None
-                    success = outq.get(self, size)
+                outq.get(self, size)
+                time = yield None
+
                 time += child.parent_push
                 time2 = yield time
                 assert time2 == time
@@ -177,7 +165,6 @@ class SimWorker(object):
             else:
                 size = 1
             self.inq.done(size)
-        running = False
 
 class Simulator(object):
     def __init__(self):
@@ -194,25 +181,27 @@ class Simulator(object):
         if time is None:
             time = self.time
         assert time >= self.time
+        for (t, w) in self.wakeup_queue:
+            assert w != worker
         heapq.heappush(self.wakeup_queue, (time, worker))
 
     def run(self):
         self.time = 0.0
-        running = len(self.workers)
+        running = set(self.workers)
         while self.wakeup_queue:
             (self.time, worker) = heapq.heappop(self.wakeup_queue)
+            assert worker in running
             try:
                 restart_time = worker.generator.send(self.time)
                 if restart_time is not None:
                     assert restart_time >= self.time
                     self.wakeup(worker, restart_time)
             except StopIteration:
-                running -= 1
-        if running != 0:
+                running.remove(worker)
+        if running:
             print("Workers still running: possible deadlock", file = sys.stderr)
-            for w in self.workers:
-                if w.running:
-                    print("  " + w.name, file = sys.stderr)
+            for w in running:
+                print("  " + w.name, file = sys.stderr)
             sys.exit(1)
 
 def load_items(group):
