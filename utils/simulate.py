@@ -164,7 +164,8 @@ class SimQueue(object):
         self._do_wakeups()
 
 class SimWorker(object):
-    def __init__(self, name, inq, outqs, options):
+    def __init__(self, simulator, name, inq, outqs, options):
+        self.simulator = simulator
         self.name = name
         self.inq = inq
         self.outqs = outqs
@@ -181,9 +182,12 @@ class SimWorker(object):
             yield
             item = self.inq.pop()
             if isinstance(item, EndQItem):
-                for q in self.outqs:
-                    q.push(item)
-                self.inq.push(item) # Make sure it kills off all sibling workers
+                if self.simulator.count_running_workers(self.name) == 1:
+                    # We are the last worker from the set
+                    for q in self.outqs:
+                        q.push(item)
+                else:
+                    self.inq.push(item) # Pass the baton to siblings
                 break
             for child in item.children:
                 if self.by_size:
@@ -213,6 +217,7 @@ class Simulator(object):
         self.workers = []
         self.wakeup_queue = []
         self.time = 0.0
+        self.running = set()
 
     def add_worker(self, worker):
         self.workers.append(worker)
@@ -227,22 +232,29 @@ class Simulator(object):
             assert w != worker
         heapq.heappush(self.wakeup_queue, (time, worker, value))
 
+    def count_running_workers(self, name):
+        ans = 0
+        for w in self.running:
+            if w.name == name:
+                ans += 1
+        return ans
+
     def run(self):
         self.time = 0.0
-        running = set(self.workers)
+        self.running = set(self.workers)
         while self.wakeup_queue:
             (self.time, worker, value) = heapq.heappop(self.wakeup_queue)
-            assert worker in running
+            assert worker in self.running
             try:
                 compute_time = worker.generator.send(value)
                 if compute_time is not None:
                     assert compute_time >= 0
                     self.wakeup(worker, self.time + compute_time)
             except StopIteration:
-                running.remove(worker)
-        if running:
+                self.running.remove(worker)
+        if self.running:
             print("Workers still running: possible deadlock", file = sys.stderr)
-            for w in running:
+            for w in self.running:
                 print("  " + w.name, file = sys.stderr)
             sys.exit(1)
 
@@ -283,12 +295,12 @@ def simulate(root, options):
     fine_queues = [SimQueue(simulator, fine_cap, inorder = options.by_size) for i in range(gpus)]
     mesh_queue = SimQueue(simulator, mesher_cap, inorder = options.by_size)
 
-    simulator.add_worker(SimWorker('coarse', all_queue, [coarse_queue], options))
+    simulator.add_worker(SimWorker(simulator, 'coarse', all_queue, [coarse_queue], options))
     for i in range(fine_threads):
-        simulator.add_worker(SimWorker('fine', coarse_queue, fine_queues, options))
+        simulator.add_worker(SimWorker(simulator, 'fine', coarse_queue, fine_queues, options))
     for i in range(gpus):
-        simulator.add_worker(SimWorker('device', fine_queues[i], [mesh_queue], options))
-    simulator.add_worker(SimWorker('mesher', mesh_queue, [], options))
+        simulator.add_worker(SimWorker(simulator, 'device', fine_queues[i], [mesh_queue], options))
+    simulator.add_worker(SimWorker(simulator, 'mesher', mesh_queue, [], options))
 
     all_queue.push(root)
     all_queue.push(EndQItem())
