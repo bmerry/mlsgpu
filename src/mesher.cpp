@@ -485,7 +485,7 @@ void StxxlMesher::write(std::ostream *progressStream)
 
                 {
                     Statistics::Timer trianglesTimer("finalize.triangles.time");
-                    std::tr1::uint32_t externalBoundary = ~externalRemap.size() + 1;
+                    std::tr1::uint32_t externalBoundary = ~externalRemap.size();
 
                     // Now write out the triangles
                     FastPly::WriterBase::TriangleBuffer tb(writer, 0, triangles_type::block_size);
@@ -503,7 +503,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                                 // Convert indices to account for compaction
                                 for (int k = 0; k < 3; k++)
                                 {
-                                    if (t[k] >= externalBoundary)
+                                    if (t[k] > externalBoundary)
                                     {
                                         t[k] = externalRemap[~t[k]];
                                         assert(t[k] != badIndex);
