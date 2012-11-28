@@ -88,32 +88,76 @@ class SimSem(object):
         self.waiters.append((worker, size))
         self.post(0)
 
+class SimPool(object):
+    def __init__(self, simulator, size, inorder = True):
+        self._size = size
+        self._waiters = []
+        self._allocs = []
+        self._spare = size
+        self._inorder = inorder
+        self._simulator = simulator
+
+    def spare(self):
+        return self._spare
+
+    def _biggest(self):
+        """Maximum possible allocation without blocking"""
+        if not self._inorder:
+            return self._spare
+        elif not self._allocs:
+            return self._size
+        else:
+            start = self._allocs[0][0]
+            end = self._allocs[-1][1]
+            if end > start:
+                return max(self._size - end, start)
+            else:
+                return start - end
+
+    def get(self, worker, size):
+        assert size > 0
+        assert size <= self._size
+        self._waiters.append((worker, size))
+        self._do_wakeups()
+
+    def _do_wakeups(self):
+        while self._waiters:
+            (w, size) = self._waiters[0]
+            if size > self._biggest():
+                break
+            elif not self._allocs:
+                start = 0
+            elif not self._inorder:
+                start = self._allocs[-1][1]
+            else:
+                cur_start = self._allocs[0][0]
+                cur_end = self._allocs[-1][1]
+                cur_limit = self._size
+                if cur_end <= cur_start:
+                    limit = cur_start
+                if cur_limit - cur_end >= size:
+                    start = cur_end
+                else:
+                    start = 0
+            a = (start, start + size)
+            self._allocs.append(a)
+            self._spare -= size
+            del self._waiters[0]
+            self._simulator.wakeup(w, value = a)
+
+    def done(self, alloc):
+        self._allocs.remove(alloc)
+        self._spare += alloc[1] - alloc[0]
+        self._do_wakeups()
+
 class SimQueue(object):
     def __init__(self, simulator, pool_size, inorder = True):
-        self.pool_size = pool_size
-        self.pool_waiters = []
-        self.allocs = []
-        self.pool_spare = pool_size
-        self.inorder = inorder
-        self.simulator = simulator
+        self.pool = SimPool(simulator, pool_size, inorder)
         self.queue_sem = SimSem(simulator, 0)
         self.queue = []
 
     def spare(self):
-        return self.pool_spare
-
-    def _biggest(self):
-        if not self.inorder:
-            return self.pool_spare
-        elif not self.allocs:
-            return self.pool_size
-        else:
-            start = self.allocs[0][0]
-            end = self.allocs[-1][1]
-            if end > start:
-                return max(self.pool_size - end, start)
-            else:
-                return start - end
+        return self.pool.spare()
 
     def wait(self, worker):
         self.queue_sem.get(worker, 1)
@@ -122,46 +166,14 @@ class SimQueue(object):
         return self.queue.pop(0)
 
     def get(self, worker, size):
-        assert size > 0
-        assert size <= self.pool_size
-        self.pool_waiters.append((worker, size))
-        self._do_wakeups()
+        self.pool.get(worker, size)
 
     def push(self, item):
         self.queue.append(item)
         self.queue_sem.post(1)
 
-    def _do_wakeups(self):
-        while self.pool_waiters:
-            w = self.pool_waiters[0][0]
-            size = self.pool_waiters[0][1]
-            if size > self._biggest():
-                break
-            if not self.allocs:
-                start = 0
-            elif not self.inorder:
-                start = self.allocs[-1][1]
-            else:
-                cur_start = self.allocs[0][0]
-                cur_end = self.allocs[-1][1]
-                cur_limit = self.pool_size
-                if cur_end <= cur_start:
-                    limit = cur_start
-                if cur_limit - cur_end >= size:
-                    start = cur_end
-                else:
-                    start = 0
-            a = (start, start + size)
-            self.allocs.append(a)
-            self.pool_spare -= size
-            del self.pool_waiters[0]
-            self.simulator.wakeup(w, value = a)
-
     def done(self, alloc):
-        assert(alloc in self.allocs)
-        self.allocs.remove(alloc)
-        self.pool_spare += alloc[1] - alloc[0]
-        self._do_wakeups()
+        self.pool.done(alloc)
 
 class SimWorker(object):
     def __init__(self, simulator, name, inq, outqs, options):
