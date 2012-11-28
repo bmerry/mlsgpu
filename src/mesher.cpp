@@ -234,7 +234,7 @@ void StxxlMesher::updateLocalClumps(
     tmpFirstVertex.clear();
     tmpFirstVertex.resize(numClumps, -1);
     tmpFirstTriangle.clear();
-    tmpFirstTriangle.resize(mesh.triangles.size(), -1);
+    tmpFirstTriangle.resize(numClumps, -1);
     tmpNextVertex.resize(numVertices);
     tmpNextTriangle.resize(mesh.triangles.size());
 
