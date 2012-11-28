@@ -43,6 +43,7 @@
 #include <boost/noncopyable.hpp>
 #include "splat.h"
 #include "errors.h"
+#include "allocator.h"
 
 class TestFastPlyReaderBase;
 
@@ -427,6 +428,53 @@ public:
      */
     virtual bool supportsOutOfOrder() const = 0;
 
+    /**
+     * Class that allows triangles to be submitted one at a time, and which writes the
+     * data in chunks to the output.
+     */
+    class TriangleBuffer : public boost::noncopyable
+    {
+    public:
+        /**
+         * Constructor.
+         *
+         * @param writer      The writer to which the data will be written
+         * @param offset      The triangle index at which to start appending
+         * @param capacity    Bytes to allocate for the buffer. The number of triangles supported
+         *                    will be 1/13th of this.
+         */
+        explicit TriangleBuffer(WriterBase &writer, size_type offset, std::size_t capacity);
+
+        /**
+         * Flush the buffer.
+         */
+        ~TriangleBuffer();
+
+        /**
+         * Add a triangle to the buffer, automatically flushing it if full.
+         */
+        void add(const std::tr1::uint32_t *triangle);
+
+    private:
+        /**
+         * The buffer. To avoid growth checks, the size is fixed at the buffer capacity,
+         * and @ref bufferPtr is used to specify the end.
+         */
+        Statistics::Container::vector<std::tr1::uint8_t> buffer;
+
+        /// The end of data in the buffer
+        std::tr1::uint8_t *bufferPtr;
+        /// The end of the buffer itself
+        std::tr1::uint8_t *bufferEnd;
+
+        /// Writer to write to.
+        WriterBase &writer;
+        /// Index of first triangle in the buffer
+        size_type nextTriangle;
+
+        void flush(); ///< Flush buffer to the writer.
+    };
+
 protected:
     /// Bytes per vertex
     static const size_type vertexSize = 3 * sizeof(float);
@@ -443,6 +491,16 @@ protected:
 
     /// Sets the flag indicating whether the file is open
     void setOpen(bool open);
+
+    /**
+     * Write a range of triangles which have been pre-encoded. Each triangle must contain
+     * 13 bytes, the first of which is 3, followed by the 3 32-bit indices. If this class
+     * ever supports endian conversion, they must be in the file endianness. In other words,
+     * the data must be ready to be written to the file with no further conversions.
+     *
+     * @see TriangleBuffer
+     */
+    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data) = 0;
 
 private:
     /// Storage for comments until they can be written by @ref open.
@@ -491,6 +549,7 @@ public:
     virtual void close();
     virtual void writeVertices(size_type first, size_type count, const float *data);
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
     virtual bool supportsOutOfOrder() const;
 
 private:
@@ -522,6 +581,7 @@ public:
     virtual void close();
     virtual void writeVertices(size_type first, size_type count, const float *data);
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
     virtual bool supportsOutOfOrder() const;
 
 private:

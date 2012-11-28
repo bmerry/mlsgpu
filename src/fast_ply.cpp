@@ -657,6 +657,42 @@ std::string WriterBase::makeHeader()
 }
 
 
+WriterBase::TriangleBuffer::TriangleBuffer(WriterBase &writer, size_type offset, std::size_t capacity)
+    : buffer("mem.WriterBase::TriangleBuffer"), writer(writer), nextTriangle(offset)
+{
+    // Round down to whole triangles
+    capacity = capacity / triangleSize * triangleSize;
+    MLSGPU_ASSERT(capacity > 0, std::invalid_argument);
+    buffer.resize(capacity);
+    bufferPtr = &buffer[0];
+    bufferEnd = bufferPtr + capacity;
+    // Fill in the polygon lengths
+    for (std::tr1::uint8_t *p = 0; p < bufferEnd; p += triangleSize)
+        *p = 3;
+}
+
+WriterBase::TriangleBuffer::~TriangleBuffer()
+{
+    flush();
+}
+
+void WriterBase::TriangleBuffer::flush()
+{
+    std::size_t numTriangles = (bufferPtr - &buffer[0]) / triangleSize;
+    writer.writeTrianglesRaw(nextTriangle, numTriangles, &buffer[0]);
+    nextTriangle += numTriangles;
+    bufferPtr = &buffer[0];
+}
+
+void WriterBase::TriangleBuffer::add(const std::tr1::uint32_t *data)
+{
+    if (bufferPtr == bufferEnd)
+        flush();
+    std::memcpy(bufferPtr + 1, data, triangleSize);
+    bufferPtr += triangleSize;
+}
+
+
 MmapWriter::MmapWriter() : vertexPtr(NULL), trianglePtr(NULL) {}
 
 void MmapWriter::open(const std::string &filename)
@@ -712,7 +748,14 @@ void MmapWriter::writeVertices(size_type first, size_type count, const float *da
 {
     MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-    memcpy(vertexPtr + first * vertexSize, data, count * vertexSize);
+    std::memcpy(vertexPtr + first * vertexSize, data, count * vertexSize);
+}
+
+void MmapWriter::writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data)
+{
+    MLSGPU_ASSERT(isOpen(), state_error);
+    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
+    std::memcpy(trianglePtr + first * triangleSize, data, count * triangleSize);
 }
 
 void MmapWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
@@ -801,6 +844,15 @@ void StreamWriter::writeVertices(size_type first, size_type count, const float *
     file->write(reinterpret_cast<const char *>(data), count * vertexSize);
 }
 
+void StreamWriter::writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data)
+{
+    MLSGPU_ASSERT(isOpen(), state_error);
+    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
+
+    file->seekp(boost::iostreams::offset_to_position(triangleOffset + first * triangleSize));
+    file->write(reinterpret_cast<const char *>(data), count * triangleSize);
+}
+
 void StreamWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
 {
     MLSGPU_ASSERT(isOpen(), state_error);
@@ -809,7 +861,7 @@ void StreamWriter::writeTriangles(size_type first, size_type count, const std::t
     file->seekp(boost::iostreams::offset_to_position(triangleOffset + first * triangleSize));
     while (count > 0)
     {
-        const unsigned int bufferTriangles = 256;
+        const unsigned int bufferTriangles = 8192;
         char buffer[bufferTriangles * triangleSize];
         char *ptr = buffer;
         unsigned int triangles = std::min(size_type(bufferTriangles), count);

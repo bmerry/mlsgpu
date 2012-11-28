@@ -44,6 +44,7 @@ public:
     virtual void close();
     virtual void writeVertices(size_type first, size_type count, const float *data);
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
+    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
     virtual bool supportsOutOfOrder() const;
 
     /**

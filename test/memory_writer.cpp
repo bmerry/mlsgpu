@@ -59,6 +59,21 @@ void MemoryWriter::writeVertices(size_type first, size_type count, const float *
     std::memcpy(&curOutput->vertices[first][0], data, count * 3 * sizeof(float));
 }
 
+void MemoryWriter::writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data)
+{
+    MLSGPU_ASSERT(isOpen(), state_error);
+    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
+
+    /* MemoryWriter does not use a PLY format, so we have to strip out the
+     * polygon length part again.
+     */
+    const std::tr1::uint8_t *ptr = data + 1;
+    for (size_type i = first; i < first + count; i++, ptr += triangleSize)
+    {
+        std::memcpy(&curOutput->triangles[i][0], ptr, 3 * sizeof(std::tr1::uint32_t));
+    }
+}
+
 void MemoryWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
 {
     MLSGPU_ASSERT(isOpen(), state_error);

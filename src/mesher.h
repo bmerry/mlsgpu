@@ -548,36 +548,6 @@ private:
         void flush();
     };
 
-    /**
-     * Function object that accepts incoming triangles and writes them to a writer.
-     * The triangles are buffered internally to avoid small writes.
-     */
-    class TriangleBuffer : public boost::noncopyable
-    {
-    public:
-        typedef FastPly::WriterBase::size_type size_type;
-    private:
-        FastPly::WriterBase &writer;
-        size_type nextTriangle;       ///< File index of the first triangle in the buffer
-        Statistics::Container::vector<boost::array<std::tr1::uint32_t, 3> > buffer;
-    public:
-        typedef void result_type;
-
-        /**
-         * Constructor.
-         *
-         * @param writer       Output stream
-         * @param capacity     Number of triangles to hold in buffer.
-         */
-        TriangleBuffer(FastPly::WriterBase &writer, size_type capacity);
-
-        /// Append a triangle
-        void operator()(const boost::array<std::tr1::uint32_t, 3> &triangle);
-
-        /// Write any buffered data to the writer
-        void flush();
-    };
-
 public:
     /**
      * @copydoc MesherBase::MesherBase
