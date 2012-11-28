@@ -64,30 +64,6 @@ def get_worker(group, name):
             return worker
     return None
 
-class SimSem(object):
-    def __init__(self, simulator, value = 0):
-        self.simulator = simulator
-        self.value = value
-        self.waiters = []
-
-    def find_waiter(self, waiter):
-        for (i, w) in enumerate(self.waiters):
-            if w[0] == waiter:
-                return i
-        return None
-
-    def post(self, size):
-        self.value += size
-        while self.waiters and self.waiters[0][1] <= self.value:
-            (w, v) = self.waiters.pop(0)
-            self.value -= v
-            self.simulator.wakeup(w)
-
-    def get(self, worker, size):
-        assert self.find_waiter(worker) is None
-        self.waiters.append((worker, size))
-        self.post(0)
-
 class SimPool(object):
     def __init__(self, simulator, size, inorder = True):
         self._size = size
@@ -150,30 +126,64 @@ class SimPool(object):
         self._spare += alloc[1] - alloc[0]
         self._do_wakeups()
 
-class SimQueue(object):
-    def __init__(self, simulator, pool_size, inorder = True):
-        self.pool = SimPool(simulator, pool_size, inorder)
-        self.queue_sem = SimSem(simulator, 0)
-        self.queue = []
+class SimSimpleQueue(object):
+    """
+    Queue without associated pool. Just accepts objects and provides
+    a blocking pop.
+    """
+    def __init__(self, simulator):
+        self._queue = []
+        self._waiters = []
+        self._simulator = simulator
 
-    def spare(self):
-        return self.pool.spare()
+    def _do_wakeups(self):
+        while self._waiters and self._queue:
+            item = self._queue.pop(0)
+            worker = self._waiters.pop(0)
+            self._simulator.wakeup(worker, value = item)
 
-    def wait(self, worker):
-        self.queue_sem.get(worker, 1)
-
-    def pop(self):
-        return self.queue.pop(0)
-
-    def get(self, worker, size):
-        self.pool.get(worker, size)
+    def pop(self, worker):
+        self._waiters.append(worker)
+        self._do_wakeups()
 
     def push(self, item):
-        self.queue.append(item)
-        self.queue_sem.post(1)
+        self._queue.append(item)
+        self._do_wakeups()
+
+class SimQueue(object):
+    def __init__(self, simulator, pool_size, inorder = True):
+        self._pool = SimPool(simulator, pool_size, inorder)
+        self._queue = SimSimpleQueue(simulator)
+
+    def spare(self):
+        return self._pool.spare()
+
+    def pop(self, worker):
+        self._queue.pop(worker)
+
+    def get(self, worker, size):
+        self._pool.get(worker, size)
+
+    def push(self, item):
+        self._queue.push(item)
 
     def done(self, alloc):
-        self.pool.done(alloc)
+        self._pool.done(alloc)
+
+"""
+class SimMultiQueue(object):
+    def __init__(self, simulator, pool_sizes, sets):
+        self._pool = SimSimpleQueue(pool_sizes * sets)
+        for i in range(pool_sizes):
+            for j in range(sets):
+                self._pool.push(j)
+        self._queues = [SimSimpleQueue(simulator) for i in range(sets)]
+
+    def get_queue(self, idx):
+        return self._queues[idx]
+
+    def get(self, worker, size):
+"""
 
 class SimWorker(object):
     def __init__(self, simulator, name, inq, outqs, options):
@@ -190,9 +200,8 @@ class SimWorker(object):
     def run(self):
         yield
         while True:
-            self.inq.wait(self)
-            yield
-            item = self.inq.pop()
+            self.inq.pop(self)
+            item = yield
             if isinstance(item, EndQItem):
                 if self.simulator.count_running_workers(self.name) == 1:
                     # We are the last worker from the set
