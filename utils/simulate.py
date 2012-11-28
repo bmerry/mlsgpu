@@ -164,26 +164,48 @@ class SimQueue(object):
     def get(self, worker, size):
         self._pool.get(worker, size)
 
-    def push(self, item):
+    def push(self, item, alloc):
         self._queue.push(item)
 
     def done(self, alloc):
         self._pool.done(alloc)
 
-"""
+class SimSubqueue(object):
+    def __init__(self, simulator, parent, idx):
+        self._parent = parent
+        self._idx = idx
+        self._queue = SimSimpleQueue(simulator)
+
+    def pop(self, worker):
+        self._queue.pop(worker)
+
+    def push(self, item, alloc):
+        self._queue.push(item)
+
+    def done(self, alloc):
+        self._parent._pool.push(self._idx)
+
 class SimMultiQueue(object):
     def __init__(self, simulator, pool_sizes, sets):
-        self._pool = SimSimpleQueue(pool_sizes * sets)
+        self._pool = SimSimpleQueue(simulator)
         for i in range(pool_sizes):
             for j in range(sets):
                 self._pool.push(j)
-        self._queues = [SimSimpleQueue(simulator) for i in range(sets)]
+        self._queues = [SimSubqueue(simulator, self, i) for i in range(sets)]
 
-    def get_queue(self, idx):
+    def get_subqueue(self, idx):
         return self._queues[idx]
 
     def get(self, worker, size):
-"""
+        self._pool.pop(worker)
+
+    def push(self, item, alloc):
+        if alloc is None:
+            # Used for enqueuing a shutdown
+            for q in self._queues:
+                q.push(item, None)
+        else:
+            self._queues[alloc].push(item, alloc)
 
 class SimWorker(object):
     def __init__(self, simulator, name, inq, outqs, options):
@@ -195,7 +217,10 @@ class SimWorker(object):
         self.by_size = options.by_size
 
     def best_queue(self):
-        return max(self.outqs, key = lambda x: x.spare())
+        if len(self.outqs) > 1:
+            return max(self.outqs, key = lambda x: x.spare())
+        else:
+            return self.outqs[0]
 
     def run(self):
         yield
@@ -206,9 +231,9 @@ class SimWorker(object):
                 if self.simulator.count_running_workers(self.name) == 1:
                     # We are the last worker from the set
                     for q in self.outqs:
-                        q.push(item)
+                        q.push(item, None)
                 else:
-                    self.inq.push(item) # Pass the baton to siblings
+                    self.inq.push(item, None) # Pass the baton to siblings
                 break
             for child in item.children:
                 if self.by_size:
@@ -223,7 +248,7 @@ class SimWorker(object):
                 child.alloc = yield
 
                 yield child.parent_push
-                outq.push(child)
+                outq.push(child, child.alloc)
             if item.finish > 0:
                 yield item.finish
             if self.by_size:
@@ -323,8 +348,8 @@ def simulate(root, options):
         simulator.add_worker(SimWorker(simulator, 'device', fine_queues[i], [mesh_queue], options))
     simulator.add_worker(SimWorker(simulator, 'mesher', mesh_queue, [], options))
 
-    all_queue.push(root)
-    all_queue.push(EndQItem())
+    all_queue.push(root, None)
+    all_queue.push(EndQItem(), None)
     simulator.run()
     print(simulator.time)
 
