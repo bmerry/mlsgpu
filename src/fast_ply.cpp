@@ -688,7 +688,7 @@ void WriterBase::TriangleBuffer::add(const std::tr1::uint32_t *data)
 {
     if (bufferPtr == bufferEnd)
         flush();
-    std::memcpy(bufferPtr + 1, data, triangleSize);
+    std::memcpy(bufferPtr + 1, data, triangleSize - 1);
     bufferPtr += triangleSize;
 }
 
