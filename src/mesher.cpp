@@ -487,7 +487,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                     Statistics::Timer trianglesTimer("finalize.triangles.time");
 
                     // Now write out the triangles
-                    FastPly::WriterBase::TriangleBuffer tb(writer, 0, triangles_type::block_size / sizeof(triangles_type::value_type));
+                    FastPly::WriterBase::TriangleBuffer tb(writer, 0, triangles_type::block_size);
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
