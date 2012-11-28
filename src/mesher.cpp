@@ -493,6 +493,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
                         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+                        std::tr1::uint32_t offset = startVertex[j];
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
@@ -508,7 +509,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                                         assert(t[k] != badIndex);
                                     }
                                     else
-                                        t[k] += startVertex[j];
+                                        t[k] += offset;
                                 }
                                 tb.add(&t[0]);
                             }
