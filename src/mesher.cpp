@@ -554,12 +554,9 @@ void StxxlMesher::write(std::ostream *progressStream)
                             triangles.reserve(cc.numTriangles, false);
                             trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
                             trianglesTmpRead.read(reinterpret_cast<char *>(triangles.data()), cc.numTriangles * sizeof(triangle_type));
-#ifdef _OMP
-#pragma omp parallel for schedule(static) if (cc.numTriangles >= 1024)
-#endif
                             for (std::size_t i = 0; i < cc.numTriangles; i++)
                             {
-                                triangle_type &t = triangles[i];
+                                triangle_type t = triangles[i];
                                 // Convert indices to account for compaction
                                 for (int k = 0; k < 3; k++)
                                 {
@@ -571,12 +568,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                                     else
                                         t[k] += offset;
                                 }
-                            }
-                            // TODO: this could also be done in parallel, with some suitable modification
-                            // to the buffering
-                            for (std::size_t i = 0; i < cc.numTriangles; i++)
-                            {
-                                tb.add(&triangles[i][0]);
+                                tb.add(&t[0]);
                             }
                             if (progress != NULL)
                                 *progress += cc.numTriangles;
