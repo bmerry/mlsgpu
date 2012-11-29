@@ -106,6 +106,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
         {
             // Open a scope so that objects will be released before finalization
+
+            boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
+
             Log::log[Log::info] << "Initializing...\n";
             MesherGroup mesherGroup(devices.size() * numDeviceThreads * 8);
             DeviceWorkerGroup deviceWorkerGroup(
@@ -120,6 +123,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
+            initTimer.reset();
+
             try
             {
                 Timeplot::Action timer("bbox", mainWorker, "bbox.time");
