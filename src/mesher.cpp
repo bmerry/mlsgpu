@@ -31,6 +31,7 @@
 #include <boost/exception/all.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/iostreams/positioning.hpp>
 #include "tr1_unordered_map.h"
 #include <cassert>
 #include <cstdlib>
@@ -386,35 +387,22 @@ void StxxlMesher::write(std::ostream *progressStream)
     flushBuffer();
     verticesTmpFile.close();
     trianglesTmpFile.close();
-    boost::iostreams::mapped_file_source verticesMap, trianglesMap;
-    const vertex_type *verticesTmpPtr = NULL;
-    const triangle_type *trianglesTmpPtr = NULL;
 
-    // Some issues with trying to mmap an empty file
-    if (writtenTrianglesTmp > 0)
+    boost::filesystem::ifstream verticesTmpRead(verticesTmpPath, std::ios::in | std::ios::binary);
+    if (!verticesTmpRead)
     {
-        try
-        {
-            verticesMap.open(verticesTmpPath.string(), writtenVerticesTmp * sizeof(vertex_type));
-        }
-        catch (boost::exception &e)
-        {
-            e << boost::errinfo_file_name(verticesTmpPath.string());
-            throw;
-        }
-
-        try
-        {
-            trianglesMap.open(trianglesTmpPath.string(), writtenTrianglesTmp * sizeof(triangle_type));
-        }
-        catch (boost::exception &e)
-        {
-            e << boost::errinfo_file_name(trianglesTmpPath.string());
-            throw;
-        }
-
-        verticesTmpPtr = reinterpret_cast<const vertex_type *>(verticesMap.data());
-        trianglesTmpPtr = reinterpret_cast<const triangle_type *>(trianglesMap.data());
+        int e = errno;
+        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
+            << boost::errinfo_file_name(verticesTmpPath.string())
+            << boost::errinfo_errno(e);
+    }
+    boost::filesystem::ifstream trianglesTmpRead(trianglesTmpPath, std::ios::in | std::ios::binary);
+    if (!trianglesTmpRead)
+    {
+        int e = errno;
+        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
+            << boost::errinfo_file_name(trianglesTmpPath.string())
+            << boost::errinfo_errno(e);
     }
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
@@ -471,6 +459,9 @@ void StxxlMesher::write(std::ostream *progressStream)
     // Offset to first vertex of each clump in output file
     Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.StxxlMesher::startVertex");
 
+    Statistics::Container::PODBuffer<vertex_type> vertices("mem.StxxlMesher::vertices");
+    Statistics::Container::PODBuffer<triangle_type> triangles("mem.StxxlMesher::triangles");
+
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
         startVertex.clear();
@@ -520,11 +511,14 @@ void StxxlMesher::write(std::ostream *progressStream)
                         startVertex.push_back(writtenVertices);
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
-                            const vertex_type *v = verticesTmpPtr + cc.firstVertex;
-                            writer.writeVertices(writtenVertices, cc.numInternalVertices + cc.numExternalVertices, &v[0][0]);
+                            std::size_t numVertices = cc.numInternalVertices + cc.numExternalVertices;
+                            vertices.reserve(numVertices, false);
+                            verticesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstVertex * sizeof(vertex_type)));
+                            verticesTmpRead.read(reinterpret_cast<char *>(vertices.data()), numVertices * sizeof(vertex_type));
+                            writer.writeVertices(writtenVertices, numVertices, &vertices[0][0]);
 
                             writtenVertices += cc.numInternalVertices;
-                            for (std::size_t i = 0; i < cc.numExternalVertices; i++, ++v)
+                            for (std::size_t i = 0; i < cc.numExternalVertices; i++)
                             {
                                 externalRemap.push_back(writtenVertices);
                                 ++writtenVertices;
@@ -557,10 +551,12 @@ void StxxlMesher::write(std::ostream *progressStream)
                         std::tr1::uint32_t offset = startVertex[j];
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
-                            const triangle_type *tp = trianglesTmpPtr + cc.firstTriangle;
-                            for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
+                            triangles.reserve(cc.numTriangles, false);
+                            trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
+                            trianglesTmpRead.read(reinterpret_cast<char *>(triangles.data()), cc.numTriangles * sizeof(triangle_type));
+                            for (std::size_t i = 0; i < cc.numTriangles; i++)
                             {
-                                triangle_type t = *tp;
+                                triangle_type t = triangles[i];
                                 // Convert indices to account for compaction
                                 for (int k = 0; k < 3; k++)
                                 {
