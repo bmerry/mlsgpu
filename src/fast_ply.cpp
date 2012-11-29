@@ -667,7 +667,7 @@ WriterBase::TriangleBuffer::TriangleBuffer(WriterBase &writer, size_type offset,
     bufferPtr = &buffer[0];
     bufferEnd = bufferPtr + capacity;
     // Fill in the polygon lengths
-    for (std::tr1::uint8_t *p = 0; p < bufferEnd; p += triangleSize)
+    for (std::tr1::uint8_t *p = bufferPtr; p < bufferEnd; p += triangleSize)
         *p = 3;
 }
 
