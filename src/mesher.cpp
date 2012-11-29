@@ -461,6 +461,7 @@ void StxxlMesher::write(std::ostream *progressStream)
 
     Statistics::Container::PODBuffer<vertex_type> vertices("mem.StxxlMesher::vertices");
     Statistics::Container::PODBuffer<triangle_type> triangles("mem.StxxlMesher::triangles");
+    Statistics::Container::PODBuffer<std::tr1::uint8_t> trianglesRaw("mem.StxxlMesher::trianglesRaw");
 
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
@@ -543,7 +544,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                     std::tr1::uint32_t externalBoundary = ~externalRemap.size();
 
                     // Now write out the triangles
-                    FastPly::WriterBase::TriangleBuffer tb(writer, 0, 8 * 1024 * 1024);
+                    FastPly::WriterBase::size_type writtenTriangles = 0;
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
@@ -552,8 +553,12 @@ void StxxlMesher::write(std::ostream *progressStream)
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             triangles.reserve(cc.numTriangles, false);
+                            trianglesRaw.reserve(cc.numTriangles * FastPly::WriterBase::triangleSize, false);
                             trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
                             trianglesTmpRead.read(reinterpret_cast<char *>(triangles.data()), cc.numTriangles * sizeof(triangle_type));
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
                             for (std::size_t i = 0; i < cc.numTriangles; i++)
                             {
                                 triangle_type t = triangles[i];
@@ -568,8 +573,11 @@ void StxxlMesher::write(std::ostream *progressStream)
                                     else
                                         t[k] += offset;
                                 }
-                                tb.add(&t[0]);
+                                trianglesRaw[i * FastPly::WriterBase::triangleSize] = 3;
+                                std::memcpy(trianglesRaw.data() + i * FastPly::WriterBase::triangleSize + 1, &t, sizeof(t));
                             }
+                            writer.writeTrianglesRaw(writtenTriangles, cc.numTriangles, trianglesRaw.data());
+                            writtenTriangles += cc.numTriangles;
                             if (progress != NULL)
                                 *progress += cc.numTriangles;
                         }

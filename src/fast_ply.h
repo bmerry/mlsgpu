@@ -424,6 +424,16 @@ public:
     virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data) = 0;
 
     /**
+     * Write a range of triangles which have been pre-encoded. Each triangle must contain
+     * 13 bytes, the first of which is 3, followed by the 3 32-bit indices. If this class
+     * ever supports endian conversion, they must be in the file endianness. In other words,
+     * the data must be ready to be written to the file with no further conversions.
+     *
+     * @see TriangleBuffer
+     */
+    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data) = 0;
+
+    /**
      * Whether the class supports writing the data out-of-order.
      */
     virtual bool supportsOutOfOrder() const = 0;
@@ -475,11 +485,14 @@ public:
         void flush(); ///< Flush buffer to the writer.
     };
 
-protected:
     /// Bytes per vertex
     static const size_type vertexSize = 3 * sizeof(float);
     /// Bytes per triangle
     static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
+
+protected:
+    Statistics::Variable &writeVerticesTime;
+    Statistics::Variable &writeTrianglesTime;
 
     WriterBase();
 
@@ -491,16 +504,6 @@ protected:
 
     /// Sets the flag indicating whether the file is open
     void setOpen(bool open);
-
-    /**
-     * Write a range of triangles which have been pre-encoded. Each triangle must contain
-     * 13 bytes, the first of which is 3, followed by the 3 32-bit indices. If this class
-     * ever supports endian conversion, they must be in the file endianness. In other words,
-     * the data must be ready to be written to the file with no further conversions.
-     *
-     * @see TriangleBuffer
-     */
-    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data) = 0;
 
 private:
     /// Storage for comments until they can be written by @ref open.

@@ -599,7 +599,10 @@ void WriterBase::setNumTriangles(size_type numTriangles)
     this->numTriangles = numTriangles;
 }
 
-WriterBase::WriterBase() : comments(), numVertices(0), numTriangles(0), isOpen_(false) {}
+WriterBase::WriterBase() : 
+    writeVerticesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeVertices.time")),
+    writeTrianglesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeTriangles.time")),
+    comments(), numVertices(0), numTriangles(0), isOpen_(false) {}
 WriterBase::~WriterBase() {}
 
 WriterBase::size_type WriterBase::getNumVertices() const
@@ -839,6 +842,7 @@ void StreamWriter::writeVertices(size_type first, size_type count, const float *
     MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
 
+    Statistics::Timer timer(writeVerticesTime);
     file->seekp(boost::iostreams::offset_to_position(vertexOffset + first * vertexSize));
     /* Note: we're assuming that streamsize is big enough to hold anything we can hold in RAM */
     file->write(reinterpret_cast<const char *>(data), count * vertexSize);
@@ -849,6 +853,7 @@ void StreamWriter::writeTrianglesRaw(size_type first, size_type count, const std
     MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
 
+    Statistics::Timer timer(writeTrianglesTime);
     file->seekp(boost::iostreams::offset_to_position(triangleOffset + first * triangleSize));
     file->write(reinterpret_cast<const char *>(data), count * triangleSize);
 }
