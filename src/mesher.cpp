@@ -29,6 +29,8 @@
 #include <boost/foreach.hpp>
 #include <boost/type_traits/make_unsigned.hpp>
 #include <boost/exception/all.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/system/error_code.hpp>
 #include "tr1_unordered_map.h"
 #include <cassert>
 #include <cstdlib>
@@ -72,7 +74,7 @@ StxxlMesher::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type c
     buffer.reserve(capacity);
 }
 
-void StxxlMesher::VertexBuffer::operator()(const boost::array<float, 3> &vertex)
+void StxxlMesher::VertexBuffer::operator()(const vertex_type &vertex)
 {
     buffer.push_back(vertex);
     if (buffer.size() == buffer.capacity())
@@ -86,14 +88,32 @@ void StxxlMesher::VertexBuffer::flush()
     buffer.clear();
 }
 
+
+StxxlMesher::~StxxlMesher()
+{
+    if (!verticesTmpPath.empty())
+    {
+        boost::system::error_code ec;
+        remove(verticesTmpPath, ec);
+        if (ec)
+            Log::log[Log::warn] << "Could not delete " << verticesTmpPath.string() << ": " << ec.message() << std::endl;
+    }
+    if (!trianglesTmpPath.empty())
+    {
+        boost::system::error_code ec;
+        remove(trianglesTmpPath, ec);
+        if (ec)
+            Log::log[Log::warn] << "Could not delete " << trianglesTmpPath.string() << ": " << ec.message() << std::endl;
+    }
+}
+
 void StxxlMesher::computeLocalComponents(
     std::size_t numVertices,
-    const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
+    const Statistics::Container::vector<triangle_type> &triangles,
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
 {
     nodes.clear();
     nodes.resize(numVertices);
-    typedef boost::array<cl_uint, 3> triangle_type;
     BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         // Only need to use two edges in the union-find tree, since the
@@ -105,7 +125,7 @@ void StxxlMesher::computeLocalComponents(
 
 void StxxlMesher::updateGlobalClumps(
     const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
-    const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
+    const Statistics::Container::vector<triangle_type> &triangles,
     Statistics::Container::vector<clump_id> &clumpId)
 {
     std::size_t numVertices = nodes.size();
@@ -138,7 +158,6 @@ void StxxlMesher::updateGlobalClumps(
     }
 
     // Compute triangle counts for the clumps
-    typedef boost::array<cl_uint, 3> triangle_type;
     BOOST_FOREACH(const triangle_type &triangle, triangles)
     {
         Clump &clump = clumps[clumpId[triangle[0]]];
@@ -183,14 +202,14 @@ void StxxlMesher::flushBuffer()
             BOOST_FOREACH(const Chunk::Clump &clump, chunk.bufferedClumps)
             {
                 const std::size_t numVertices = clump.numInternalVertices + clump.numExternalVertices;
-                const vertices_type::size_type firstVertex = verticesInserter.size();
-                const triangles_type::size_type firstTriangle = trianglesInserter.size();
-                verticesInserter.append(
-                    verticesBuffer.begin() + clump.firstVertex,
-                    verticesBuffer.begin() + (clump.firstVertex + numVertices));
-                trianglesInserter.append(
-                    trianglesBuffer.begin() + clump.firstTriangle,
-                    trianglesBuffer.begin() + (clump.firstTriangle + clump.numTriangles));
+                const std::tr1::uint64_t firstVertex = writtenVerticesTmp;
+                const std::tr1::uint64_t firstTriangle = writtenTrianglesTmp;
+                verticesTmpFile.write(reinterpret_cast<const char *>(&verticesBuffer[clump.firstVertex]),
+                                      numVertices * sizeof(vertex_type));
+                trianglesTmpFile.write(reinterpret_cast<const char *>(&trianglesBuffer[clump.firstTriangle]),
+                                       clump.numTriangles * sizeof(triangle_type));
+                writtenVerticesTmp += numVertices;
+                writtenTrianglesTmp += clump.numTriangles;
                 chunk.clumps.push_back(Chunk::Clump(
                     firstVertex,
                     clump.numInternalVertices,
@@ -241,8 +260,8 @@ void StxxlMesher::updateLocalClumps(
     tmpVertexLabel.clear();
     tmpVertexLabel.resize(numVertices);
 
-    if ((numVertices + verticesBuffer.size()) * sizeof(vertices_type::value_type)
-        + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangles_type::value_type)
+    if ((numVertices + verticesBuffer.size()) * sizeof(vertex_type)
+        + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangle_type)
         > getReorderCapacity())
         flushBuffer();
 
@@ -288,7 +307,7 @@ void StxxlMesher::updateLocalClumps(
         // Transform and emit the triangles using this mapping.
         for (std::tr1::int32_t tid = tmpFirstTriangle[cid]; tid != -1; tid = tmpNextTriangle[tid])
         {
-            boost::array<std::tr1::uint32_t, 3> out;
+            triangle_type out;
             for (int j = 0; j < 3; j++)
                 out[j] = tmpVertexLabel[mesh.triangles[tid][j]];
             trianglesBuffer.push_back(out);
@@ -329,11 +348,31 @@ void StxxlMesher::add(MesherWork &work)
     updateLocalClumps(chunk, tmpClumpId, oldClumps, clumps.size(), mesh);
 }
 
+static void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &out)
+{
+    path = boost::filesystem::temp_directory_path();
+    boost::filesystem::path name = boost::filesystem::unique_path("mlsgpu-tmp-%%%%-%%%%-%%%%-%%%%");
+    path /= name; // appends
+    out.open(path);
+    if (!out)
+    {
+        int e = errno;
+        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
+            << boost::errinfo_file_name(path.string())
+            << boost::errinfo_errno(e);
+    }
+}
+
 MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
 {
     /* only one pass, so ignore it */
     (void) pass;
     assert(pass == 0);
+
+    createTmpFile(verticesTmpPath, verticesTmpFile);
+    createTmpFile(trianglesTmpPath, trianglesTmpFile);
+    writtenVerticesTmp = 0;
+    writtenTrianglesTmp = 0;
 
     return boost::bind(&StxxlMesher::add, this, _1);
 }
@@ -345,10 +384,38 @@ void StxxlMesher::write(std::ostream *progressStream)
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     flushBuffer();
-    vertices_type vertices("mem.StxxlMesher::vertices");
-    triangles_type triangles("mem.StxxlMesher::triangles");
-    verticesInserter.move(vertices);
-    trianglesInserter.move(triangles);
+    verticesTmpFile.close();
+    trianglesTmpFile.close();
+    boost::iostreams::mapped_file_source verticesMap, trianglesMap;
+    const vertex_type *verticesTmpPtr = NULL;
+    const triangle_type *trianglesTmpPtr = NULL;
+
+    // Some issues with trying to mmap an empty file
+    if (writtenTrianglesTmp > 0)
+    {
+        try
+        {
+            verticesMap.open(verticesTmpPath.string(), writtenVerticesTmp * sizeof(vertex_type));
+        }
+        catch (boost::exception &e)
+        {
+            e << boost::errinfo_file_name(verticesTmpPath.string());
+            throw;
+        }
+
+        try
+        {
+            trianglesMap.open(trianglesTmpPath.string(), writtenTrianglesTmp * sizeof(triangle_type));
+        }
+        catch (boost::exception &e)
+        {
+            e << boost::errinfo_file_name(trianglesTmpPath.string());
+            throw;
+        }
+
+        verticesTmpPtr = reinterpret_cast<const vertex_type *>(verticesMap.data());
+        trianglesTmpPtr = reinterpret_cast<const triangle_type *>(trianglesMap.data());
+    }
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
     std::tr1::uint64_t totalVertices = 0;
@@ -378,7 +445,7 @@ void StxxlMesher::write(std::ostream *progressStream)
         }
     }
 
-    registry.getStatistic<Statistics::Variable>("components.vertices.total").add(vertices.size());
+    registry.getStatistic<Statistics::Variable>("components.vertices.total").add(writtenVerticesTmp);
     registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
     registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
     registry.getStatistic<Statistics::Variable>("components.triangles.kept").add(keptTriangles);
@@ -446,7 +513,6 @@ void StxxlMesher::write(std::ostream *progressStream)
 
                     std::tr1::uint32_t writtenVertices = 0;
                     // Write out the valid vertices, simultaneously building externalRemap
-                    VertexBuffer vb(writer, vertices_type::block_size / sizeof(vertices_type::value_type));
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
@@ -454,17 +520,13 @@ void StxxlMesher::write(std::ostream *progressStream)
                         startVertex.push_back(writtenVertices);
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
-                            vertices_type::const_iterator v = vertices.cbegin() + cc.firstVertex;
-                            for (std::size_t i = 0; i < cc.numInternalVertices; i++, ++v)
-                            {
-                                vb(*v);
-                            }
-                            writtenVertices += cc.numInternalVertices;
+                            const vertex_type *v = verticesTmpPtr + cc.firstVertex;
+                            writer.writeVertices(writtenVertices, cc.numInternalVertices + cc.numExternalVertices, &v[0][0]);
 
+                            writtenVertices += cc.numInternalVertices;
                             for (std::size_t i = 0; i < cc.numExternalVertices; i++, ++v)
                             {
                                 externalRemap.push_back(writtenVertices);
-                                vb(*v);
                                 ++writtenVertices;
                             }
 
@@ -480,7 +542,6 @@ void StxxlMesher::write(std::ostream *progressStream)
                             externalRemap.resize(externalRemap.size() + cc.numExternalVertices, badIndex);
                         }
                     }
-                    vb.flush();
                 }
 
                 {
@@ -488,7 +549,7 @@ void StxxlMesher::write(std::ostream *progressStream)
                     std::tr1::uint32_t externalBoundary = ~externalRemap.size();
 
                     // Now write out the triangles
-                    FastPly::WriterBase::TriangleBuffer tb(writer, 0, triangles_type::block_size);
+                    FastPly::WriterBase::TriangleBuffer tb(writer, 0, 8 * 1024 * 1024);
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
@@ -496,10 +557,10 @@ void StxxlMesher::write(std::ostream *progressStream)
                         std::tr1::uint32_t offset = startVertex[j];
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
-                            triangles_type::const_iterator tp = triangles.cbegin() + cc.firstTriangle;
+                            const triangle_type *tp = trianglesTmpPtr + cc.firstTriangle;
                             for (std::size_t i = 0; i < cc.numTriangles; i++, ++tp)
                             {
-                                boost::array<std::tr1::uint32_t, 3> t = *tp;
+                                triangle_type t = *tp;
                                 // Convert indices to account for compaction
                                 for (int k = 0; k < 3; k++)
                                 {

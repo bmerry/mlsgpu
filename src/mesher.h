@@ -31,9 +31,9 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
+#include <boost/filesystem/fstream.hpp>
 #include "tr1_unordered_map.h"
 #include "tr1_unordered_set.h"
-#include <stxxl.h>
 #include "marching.h"
 #include "fast_ply.h"
 #include "union_find.h"
@@ -303,11 +303,6 @@ class StxxlMesher : public MesherBase
 private:
     typedef std::tr1::int32_t clump_id;
 
-    /// Type for storing vertex data out-of-core
-    typedef Statistics::Container::stxxl_vector<boost::array<float, 3>, 1, stxxl::lru_pager<16>, 8 * 1024 * 1024> vertices_type;
-    /// Type for storing intermediate triangle data out-of-core
-    typedef Statistics::Container::stxxl_vector<boost::array<std::tr1::uint32_t, 3>, 1, stxxl::lru_pager<32>, 8 * 1024 * 1024> triangles_type;
-
     /**
      * Data for a single chunk.
      */
@@ -321,7 +316,7 @@ private:
         struct Clump
         {
             /// Index within intermediate vertices of the first vertex
-            vertices_type::size_type firstVertex;
+            std::tr1::uint64_t firstVertex;
             /// Number of internal vertices, starting from @ref firstVertex
             std::tr1::uint32_t numInternalVertices;
             /**
@@ -332,7 +327,7 @@ private:
              */
             std::tr1::uint32_t numExternalVertices;
             /// Index within intermediate triangles of the first triangle
-            triangles_type::size_type firstTriangle;
+            std::tr1::uint64_t firstTriangle;
             /// Number of triangles, starting from @ref firstTriangle
             std::tr1::uint32_t numTriangles;
             /// Index within @ref StxxlMesher::clumps of this clump
@@ -342,10 +337,10 @@ private:
              * Constructor. Parameters correspond to data members of the same name.
              */
             Clump(
-                vertices_type::size_type firstVertex,
+                std::tr1::uint64_t firstVertex,
                 std::tr1::uint32_t numInternalVertices,
                 std::tr1::uint32_t numExternalVertices,
-                triangles_type::size_type firstTriangle,
+                std::tr1::uint64_t firstTriangle,
                 std::tr1::uint32_t numTriangles,
                 clump_id globalId)
                 : firstVertex(firstVertex),
@@ -426,8 +421,23 @@ private:
     Statistics::Container::vector<std::tr1::int32_t> tmpNextTriangle;
     /** @} */
 
-    VectorInserter<vertices_type::value_type, vertices_type::block_size> verticesInserter;
-    VectorInserter<triangles_type::value_type, triangles_type::block_size> trianglesInserter;
+    /// Path to file holding temporary vertex data
+    boost::filesystem::path verticesTmpPath;
+    /// Path to file holding temporary triangle data
+    boost::filesystem::path trianglesTmpPath;
+
+    /// Temporary file holding vertex data
+    boost::filesystem::ofstream verticesTmpFile;
+    /// Temporary file holding triangle data
+    boost::filesystem::ofstream trianglesTmpFile;
+
+    /// Total number of vertices written to temporary file
+    std::tr1::uint64_t writtenVerticesTmp;
+    /// Total number of triangles written to temporary file
+    std::tr1::uint64_t writtenTrianglesTmp;
+
+    typedef boost::array<float, 3> vertex_type;
+    typedef boost::array<cl_uint, 3> triangle_type;
 
     /**
      * @name
@@ -436,8 +446,8 @@ private:
      * Triangles and vertices are initially stored in these vectors, and later
      * copied to the STXXL vectors in a more coherent order.
      */
-    Statistics::Container::vector<boost::array<float, 3> > verticesBuffer;
-    Statistics::Container::vector<boost::array<std::tr1::uint32_t, 3> > trianglesBuffer;
+    Statistics::Container::vector<vertex_type> verticesBuffer;
+    Statistics::Container::vector<triangle_type> trianglesBuffer;
     /** @} */
 
     /**
@@ -463,7 +473,7 @@ private:
      */
     static void computeLocalComponents(
         std::size_t numVertices,
-        const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
+        const Statistics::Container::vector<triangle_type> &triangles,
         Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
 
     /**
@@ -477,7 +487,7 @@ private:
      */
     void updateGlobalClumps(
         const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
-        const Statistics::Container::vector<boost::array<cl_uint, 3> > &triangles,
+        const Statistics::Container::vector<triangle_type> &triangles,
         Statistics::Container::vector<clump_id> &clumpId);
 
     /**
@@ -529,7 +539,7 @@ private:
     private:
         FastPly::WriterBase &writer;
         size_type nextVertex;         ///< File index of first vertex in the buffer
-        Statistics::Container::vector<boost::array<float, 3> > buffer;
+        Statistics::Container::vector<vertex_type> buffer;
     public:
         typedef void result_type;
 
@@ -542,7 +552,7 @@ private:
         VertexBuffer(FastPly::WriterBase &writer, size_type capacity);
 
         /// Append a vertex
-        void operator()(const boost::array<float, 3> &vertex);
+        void operator()(const vertex_type &vertex);
 
         /// Write any buffered data to the writer
         void flush();
@@ -561,8 +571,6 @@ public:
         tmpNextVertex("mem.StxxlMesher::tmpNextVertex"),
         tmpFirstTriangle("mem.StxxlMesher::tmpFirstTriangle"),
         tmpNextTriangle("mem.StxxlMesher::tmpNextTriangle"),
-        verticesInserter("mem.StxxlMesher::verticesInserter"),
-        trianglesInserter("mem.StxxlMesher::trianglesInserter"),
         verticesBuffer("mem.StxxlMesher::verticesBuffer"),
         trianglesBuffer("mem.StxxlMesher::trianglesBuffer"),
         chunks("mem.StxxlMesher::chunks"),
@@ -570,6 +578,8 @@ public:
         clumpIdMap("mem.StxxlMesher::clumpIdMap")
     {
     }
+
+    ~StxxlMesher();
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
