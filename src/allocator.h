@@ -18,6 +18,7 @@
 #include <boost/multi_array.hpp>
 #include "tr1_unordered_map.h"
 #include "tr1_unordered_set.h"
+#include "pod_buffer.h"
 #include "statistics.h"
 
 class TestAllocator;
@@ -203,6 +204,19 @@ public:
     template<typename InputIterator>
     vector(const std::string &allocName, InputIterator first, InputIterator last)
         : BaseType(first, last, makeAllocator<Alloc>(allocName)) {}
+};
+
+template<typename T, typename Alloc = Allocator<std::allocator<T> > >
+class PODBuffer : public ::PODBuffer<T, Alloc>
+{
+private:
+    typedef ::PODBuffer<T, Alloc> BaseType;
+public:
+    explicit PODBuffer(const std::string &allocName)
+        : BaseType(makeAllocator<Alloc>(allocName)) {}
+
+    explicit PODBuffer(const std::string &allocName, typename BaseType::size_type capacity)
+        : BaseType(capacity, makeAllocator<Alloc>(allocName)) {}
 };
 
 /**

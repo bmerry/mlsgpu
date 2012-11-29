@@ -126,12 +126,12 @@ void StxxlMesher::computeLocalComponents(
 void StxxlMesher::updateGlobalClumps(
     const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
     const Statistics::Container::vector<triangle_type> &triangles,
-    Statistics::Container::vector<clump_id> &clumpId)
+    Statistics::Container::PODBuffer<clump_id> &clumpId)
 {
     std::size_t numVertices = nodes.size();
 
     // Allocate clumps for the local components
-    clumpId.resize(numVertices);
+    clumpId.reserve(numVertices, false);
     for (std::size_t i = 0; i < numVertices; i++)
     {
         if (nodes[i].isRoot())
@@ -166,11 +166,12 @@ void StxxlMesher::updateGlobalClumps(
 }
 
 void StxxlMesher::updateClumpKeyMap(
+    std::size_t numVertices,
     const Statistics::Container::vector<cl_ulong> &keys,
-    const Statistics::Container::vector<clump_id> &clumpId)
+    const Statistics::Container::PODBuffer<clump_id> &clumpId)
 {
     const std::size_t numExternalVertices = keys.size();
-    const std::size_t numInternalVertices = clumpId.size() - numExternalVertices;
+    const std::size_t numInternalVertices = numVertices - numExternalVertices;
 
     for (std::size_t i = 0; i < numExternalVertices; i++)
     {
@@ -227,7 +228,7 @@ void StxxlMesher::flushBuffer()
 
 void StxxlMesher::updateLocalClumps(
     Chunk &chunk,
-    const Statistics::Container::vector<clump_id> &globalClumpId,
+    const Statistics::Container::PODBuffer<clump_id> &globalClumpId,
     clump_id clumpIdFirst,
     clump_id clumpIdLast,
     HostKeyMesh &mesh)
@@ -236,12 +237,12 @@ void StxxlMesher::updateLocalClumps(
     const std::size_t numInternalVertices = numVertices - mesh.vertexKeys.size();
     const clump_id numClumps = clumpIdLast - clumpIdFirst;
 
-    tmpFirstVertex.clear();
-    tmpFirstVertex.resize(numClumps, -1);
-    tmpFirstTriangle.clear();
-    tmpFirstTriangle.resize(numClumps, -1);
-    tmpNextVertex.resize(numVertices);
-    tmpNextTriangle.resize(mesh.triangles.size());
+    tmpFirstVertex.reserve(numClumps, false);
+    std::fill(tmpFirstVertex.data(), tmpFirstVertex.data() + numClumps, -1);
+    tmpFirstTriangle.reserve(numClumps, false);
+    std::fill(tmpFirstTriangle.data(), tmpFirstTriangle.data() + numClumps, -1);
+    tmpNextVertex.reserve(numVertices, false);
+    tmpNextTriangle.reserve(mesh.triangles.size(), false);
 
     for (std::tr1::int32_t i = (std::tr1::int32_t) numVertices - 1; i >= 0; i--)
     {
@@ -257,8 +258,7 @@ void StxxlMesher::updateLocalClumps(
         tmpFirstTriangle[cid] = i;
     }
 
-    tmpVertexLabel.clear();
-    tmpVertexLabel.resize(numVertices);
+    tmpVertexLabel.reserve(numVertices, false);
 
     if ((numVertices + verticesBuffer.size()) * sizeof(vertex_type)
         + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangle_type)
@@ -341,7 +341,7 @@ void StxxlMesher::add(MesherWork &work)
 
     if (work.hasEvents)
         work.vertexKeysEvent.wait();
-    updateClumpKeyMap(mesh.vertexKeys, tmpClumpId);
+    updateClumpKeyMap(mesh.vertices.size(), mesh.vertexKeys, tmpClumpId);
 
     if (work.hasEvents)
         work.verticesEvent.wait();

@@ -413,12 +413,12 @@ private:
      * possible, rather than thrashing the allocator.
      */
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > tmpNodes;
-    Statistics::Container::vector<clump_id> tmpClumpId;
-    Statistics::Container::vector<std::tr1::uint32_t> tmpVertexLabel;
-    Statistics::Container::vector<std::tr1::int32_t> tmpFirstVertex;
-    Statistics::Container::vector<std::tr1::int32_t> tmpNextVertex;
-    Statistics::Container::vector<std::tr1::int32_t> tmpFirstTriangle;
-    Statistics::Container::vector<std::tr1::int32_t> tmpNextTriangle;
+    Statistics::Container::PODBuffer<clump_id> tmpClumpId;
+    Statistics::Container::PODBuffer<std::tr1::uint32_t> tmpVertexLabel;
+    Statistics::Container::PODBuffer<std::tr1::int32_t> tmpFirstVertex;
+    Statistics::Container::PODBuffer<std::tr1::int32_t> tmpNextVertex;
+    Statistics::Container::PODBuffer<std::tr1::int32_t> tmpFirstTriangle;
+    Statistics::Container::PODBuffer<std::tr1::int32_t> tmpNextTriangle;
     /** @} */
 
     /// Path to file holding temporary vertex data
@@ -488,19 +488,21 @@ private:
     void updateGlobalClumps(
         const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
         const Statistics::Container::vector<triangle_type> &triangles,
-        Statistics::Container::vector<clump_id> &clumpId);
+        Statistics::Container::PODBuffer<clump_id> &clumpId);
 
     /**
      * Update @ref clumpIdMap and merge global clumps that share external vertices.
      *
+     * @param numVertices    Total number of vertices in @a clumpId
      * @param keys           Vertex keys in the mesh.
      * @param clumpId        Vertex clump IDs computed by @ref updateGlobalClumps.
      *
      * Note that the internal vertices in @a clumpId are ignored, but must still be present.
      */
     void updateClumpKeyMap(
+        std::size_t numVertices,
         const Statistics::Container::vector<cl_ulong> &keys,
-        const Statistics::Container::vector<clump_id> &clumpId);
+        const Statistics::Container::PODBuffer<clump_id> &clumpId);
 
     /**
      * Populate the per-chunk clump data and write the geometry to external
@@ -515,7 +517,7 @@ private:
      */
     void updateLocalClumps(
         Chunk &chunk,
-        const Statistics::Container::vector<clump_id> &globalClumpId,
+        const Statistics::Container::PODBuffer<clump_id> &globalClumpId,
         clump_id clumpIdFirst,
         clump_id clumpIdLast,
         HostKeyMesh &mesh);
