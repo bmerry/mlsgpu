@@ -339,6 +339,8 @@ void TestMesherBase::add(
     const cl_ulong *externalKeys,
     const cl_uint *indices)
 {
+    Timeplot::Worker tworker("test");
+
     const size_t numTriangles = numIndices / 3;
     const size_t numVertices = numInternalVertices + numExternalVertices;
     assert(numIndices % 3 == 0);
@@ -369,7 +371,7 @@ void TestMesherBase::add(
     queue.flush();
 
     work.chunkId = chunkId;
-    functor(work);
+    functor(work, tworker);
 }
 
 void TestMesherBase::checkIsomorphic(
@@ -432,6 +434,8 @@ void TestMesherBase::checkIsomorphic(
 
 void TestMesherBase::testSimple()
 {
+    Timeplot::Worker tworker("test");
+
     const boost::array<cl_float, 3> expectedVertices[] =
     {
         {{ 0.0f, 0.0f, 1.0f }},
@@ -502,7 +506,7 @@ void TestMesherBase::testSimple()
                 internalVertices0, NULL, NULL, indices0);
         }
     }
-    mesher->write();
+    mesher->write(tworker);
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(5, int(boost::size(internalVertices0)));
@@ -513,6 +517,8 @@ void TestMesherBase::testSimple()
 
 void TestMesherBase::testNoInternal()
 {
+    Timeplot::Worker tworker("test");
+
     // Shadows the class version, which is for internal+external.
     const cl_uint indices2[] =
     {
@@ -554,7 +560,7 @@ void TestMesherBase::testNoInternal()
             boost::size(indices2),
             NULL, externalVertices2, externalKeys2, indices2);
     }
-    mesher->write();
+    mesher->write(tworker);
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -562,6 +568,8 @@ void TestMesherBase::testNoInternal()
 
 void TestMesherBase::testNoExternal()
 {
+    Timeplot::Worker tworker("test");
+
     // Shadows the class version, which is for internal+external.
     const cl_uint indices2[] =
     {
@@ -605,7 +613,7 @@ void TestMesherBase::testNoExternal()
             boost::size(indices2),
             internalVertices2, NULL, NULL, indices2);
     }
-    mesher->write();
+    mesher->write(tworker);
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -613,6 +621,8 @@ void TestMesherBase::testNoExternal()
 
 void TestMesherBase::testEmpty()
 {
+    Timeplot::Worker tworker("test");
+
     MemoryWriter writer;
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     unsigned int passes = mesher->numPasses();
@@ -621,7 +631,7 @@ void TestMesherBase::testEmpty()
         const MesherBase::InputFunctor functor = mesher->functor(i);
         add(ChunkId(), functor, 0, 0, 0, NULL, NULL, NULL, NULL);
     }
-    mesher->write();
+    mesher->write(tworker);
 
     // Output should not be produced for empty chunks
     CPPUNIT_ASSERT_THROW(writer.getOutput(""), std::invalid_argument);
@@ -629,6 +639,8 @@ void TestMesherBase::testEmpty()
 
 void TestMesherBase::testWeld()
 {
+    Timeplot::Worker tworker("test");
+
     const boost::array<cl_float, 3> expectedVertices[] =
     {
         {{ 0.0f, 0.0f, 1.0f }},
@@ -689,7 +701,7 @@ void TestMesherBase::testWeld()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesher->write();
+    mesher->write(tworker);
 
     // Check that boost::size really works on these arrays
     CPPUNIT_ASSERT_EQUAL(9, int(boost::size(indices3)));
@@ -700,6 +712,8 @@ void TestMesherBase::testWeld()
 
 void TestMesherBase::testPrune()
 {
+    Timeplot::Worker tworker("test");
+
     /* There are several cases to test:
      * - A: Component entirely contained in one block, undersized: 5 vertices in block 0.
      * - B: Component entirely contained in one block, large enough: 6 vertices in block 1.
@@ -868,7 +882,7 @@ void TestMesherBase::testPrune()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesher->write();
+    mesher->write(tworker);
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -876,6 +890,8 @@ void TestMesherBase::testPrune()
 
 void TestMesherBase::testChunk()
 {
+    Timeplot::Worker tworker("test");
+
     const boost::array<cl_float, 3> expectedVertices2[] =
     {
         {{ 0.0f, 1.0f, 0.0f }},
@@ -927,7 +943,7 @@ void TestMesherBase::testChunk()
             boost::size(indices3),
             internalVertices3, externalVertices3, externalKeys3, indices3);
     }
-    mesher->write();
+    mesher->write(tworker);
 
     checkIsomorphic(boost::size(internalVertices0),
                     boost::size(indices0),
@@ -960,6 +976,8 @@ static int simpleRandomInt(std::tr1::mt19937 &engine, int min, int max)
 
 void TestMesherBase::testRandom()
 {
+    Timeplot::Worker tworker("test");
+
     /* For this random test we wish to test pruning, chunking, and welding. We
      * start with a number of components, each of which is a rectangular grid
      * subdivided into triangles. The triangles are then randomly assigned to
@@ -1123,11 +1141,11 @@ void TestMesherBase::testRandom()
                 CLH::enqueueMarkerWithWaitList(queue, NULL, &block.work.trianglesEvent);
                 block.work.hasEvents = true;
                 queue.flush();
-                functor(block.work);
+                functor(block.work, tworker);
             }
         }
     }
-    mesher->write();
+    mesher->write(tworker);
 
     BOOST_FOREACH(Chunk &chunk, chunks)
     {

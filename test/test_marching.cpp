@@ -474,6 +474,8 @@ void TestMarching::testGenerate(
     Marching::Generator &generator,
     const std::string &filename)
 {
+    Timeplot::Worker tworker("test");
+
     Grid::size_type size[3] = { width, height, depth };
 
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
@@ -484,8 +486,8 @@ void TestMarching::testGenerate(
     {
         FastPly::StreamWriter writer;
         StxxlMesher mesher(writer, TrivialNamer(filename));
-        marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
-        mesher.write();
+        marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId(), tworker), size, keyOffset, NULL);
+        mesher.write(tworker);
     }
 
     /*** Pass 2: write to memory and validate ***/
@@ -493,8 +495,8 @@ void TestMarching::testGenerate(
     {
         MemoryWriter writer;
         StxxlMesher mesher(writer, TrivialNamer(filename));
-        marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId()), size, keyOffset, NULL);
-        mesher.write();
+        marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId(), tworker), size, keyOffset, NULL);
+        mesher.write(tworker);
 
         const MemoryWriter::Output output = writer.getOutput(filename);
         const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = output.triangles;

@@ -40,7 +40,7 @@ MesherGroupBase::Worker::Worker(MesherGroup &owner)
 void MesherGroupBase::Worker::operator()(WorkItem &work)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
-    owner.input(work);
+    owner.input(work, getTimeplotWorker());
 }
 
 MesherGroup::MesherGroup(std::size_t spare)

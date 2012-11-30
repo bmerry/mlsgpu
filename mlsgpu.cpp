@@ -213,10 +213,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             }
         }
 
-        {
-            Timeplot::Action timer("write", mainWorker, "finalize.time");
-            mesher->write(&Log::log[Log::info]);
-        }
+        mesher->write(mainWorker, &Log::log[Log::info]);
     } // ends scope for grandTotalTimer
 
     Statistics::finalizeEventTimes();

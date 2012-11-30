@@ -474,10 +474,7 @@ static void run(
                 progressThread.join();
             }
 
-            {
-                Timeplot::Action timer("write", mainWorker, "finalize.time");
-                mesher->write(&Log::log[Log::info]);
-            }
+            mesher->write(mainWorker, &Log::log[Log::info]);
         } // ends scope for grandTotalTimer
 
         for (int slave = 0; slave < size; slave++)

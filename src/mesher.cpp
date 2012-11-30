@@ -51,6 +51,21 @@
 #include "statistics.h"
 #include "clh.h"
 
+static void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &out)
+{
+    path = boost::filesystem::temp_directory_path();
+    boost::filesystem::path name = boost::filesystem::unique_path("mlsgpu-tmp-%%%%-%%%%-%%%%-%%%%");
+    path /= name; // appends
+    out.open(path);
+    if (!out)
+    {
+        int e = errno;
+        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
+            << boost::errinfo_file_name(path.string())
+            << boost::errinfo_errno(e);
+    }
+}
+
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
     std::map<std::string, MesherType> ans;
@@ -69,29 +84,62 @@ std::string ChunkNamer::operator()(const ChunkId &chunkId) const
 }
 
 
-StxxlMesher::VertexBuffer::VertexBuffer(FastPly::WriterBase &writer, size_type capacity)
-    : writer(writer), nextVertex(0), buffer("mem.StxxlMesher::VertexBuffer::buffer")
+StxxlMesher::TmpWriterItem::TmpWriterItem()
+    : vertices("mem.StxxlMesher::TmpWriterItem::vertices"),
+    triangles("mem.StxxlMesher::TmpWriterItem::triangles"),
+    vertexRanges("mem.StxxlMesher::TmpWriterItem::vertexRanges"),
+    triangleRanges("mem.StxxlMesher::TmpWriterItem::triangleRanges")
 {
-    buffer.reserve(capacity);
 }
 
-void StxxlMesher::VertexBuffer::operator()(const vertex_type &vertex)
+void StxxlMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
 {
-    buffer.push_back(vertex);
-    if (buffer.size() == buffer.capacity())
-        flush();
+    Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
+    typedef std::pair<std::size_t, std::size_t> range;
+    BOOST_FOREACH(const range &r, item.vertexRanges)
+    {
+        verticesFile.write(reinterpret_cast<char *>(&item.vertices[r.first]),
+                           (r.second - r.first) * sizeof(vertex_type));
+    }
+    BOOST_FOREACH(const range &r, item.triangleRanges)
+    {
+        trianglesFile.write(reinterpret_cast<char *>(&item.triangles[r.first]),
+                            (r.second - r.first) * sizeof(triangle_type));
+    }
+    item.vertices.clear();
+    item.triangles.clear();
+    item.vertexRanges.clear();
+    item.triangleRanges.clear();
 }
 
-void StxxlMesher::VertexBuffer::flush()
+StxxlMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
+    : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1, spare)
 {
-    writer.writeVertices(nextVertex, buffer.size(), &buffer[0][0]);
-    nextVertex += buffer.size();
-    buffer.clear();
+    for (std::size_t i = 0; i < 1 + spare; i++)
+        addPoolItem(boost::make_shared<TmpWriterItem>());
+    addWorker(new TmpWriterWorker(*this, verticesFile, trianglesFile));
 }
 
+void StxxlMesher::TmpWriterWorkerGroup::start()
+{
+    createTmpFile(verticesPath, verticesFile);
+    createTmpFile(trianglesPath, trianglesFile);
+    WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>::start();
+}
+
+void StxxlMesher::TmpWriterWorkerGroup::stopPostJoin()
+{
+    verticesFile.close();
+    trianglesFile.close();
+}
 
 StxxlMesher::~StxxlMesher()
 {
+    if (tmpWriter.running())
+        tmpWriter.stop();
+
+    boost::filesystem::path verticesTmpPath = tmpWriter.getVerticesPath();
+    boost::filesystem::path trianglesTmpPath = tmpWriter.getTrianglesPath();
     if (!verticesTmpPath.empty())
     {
         boost::system::error_code ec;
@@ -194,8 +242,10 @@ void StxxlMesher::updateClumpKeyMap(
     }
 }
 
-void StxxlMesher::flushBuffer()
+void StxxlMesher::flushBuffer(Timeplot::Worker &tworker)
 {
+    if (!reorderBuffer)
+        return;
     Statistics::Timer flushTimer("mesher.flush");
     BOOST_FOREACH(Chunk &chunk, chunks)
     {
@@ -206,10 +256,10 @@ void StxxlMesher::flushBuffer()
                 const std::size_t numVertices = clump.numInternalVertices + clump.numExternalVertices;
                 const std::tr1::uint64_t firstVertex = writtenVerticesTmp;
                 const std::tr1::uint64_t firstTriangle = writtenTrianglesTmp;
-                verticesTmpFile.write(reinterpret_cast<const char *>(&verticesBuffer[clump.firstVertex]),
-                                      numVertices * sizeof(vertex_type));
-                trianglesTmpFile.write(reinterpret_cast<const char *>(&trianglesBuffer[clump.firstTriangle]),
-                                       clump.numTriangles * sizeof(triangle_type));
+                reorderBuffer->vertexRanges.push_back(std::make_pair(
+                        clump.firstVertex, clump.firstVertex + numVertices));
+                reorderBuffer->triangleRanges.push_back(std::make_pair(
+                        clump.firstTriangle, clump.firstTriangle + clump.numTriangles));
                 writtenVerticesTmp += numVertices;
                 writtenTrianglesTmp += clump.numTriangles;
                 chunk.clumps.push_back(Chunk::Clump(
@@ -223,8 +273,8 @@ void StxxlMesher::flushBuffer()
             chunk.bufferedClumps.clear();
         }
     }
-    verticesBuffer.clear();
-    trianglesBuffer.clear();
+    tmpWriter.push(reorderBuffer, tworker, 1);
+    reorderBuffer.reset();
 }
 
 void StxxlMesher::updateLocalClumps(
@@ -232,7 +282,8 @@ void StxxlMesher::updateLocalClumps(
     const Statistics::Container::PODBuffer<clump_id> &globalClumpId,
     clump_id clumpIdFirst,
     clump_id clumpIdLast,
-    HostKeyMesh &mesh)
+    HostKeyMesh &mesh,
+    Timeplot::Worker &tworker)
 {
     const std::size_t numVertices = mesh.vertices.size();
     const std::size_t numInternalVertices = numVertices - mesh.vertexKeys.size();
@@ -261,10 +312,21 @@ void StxxlMesher::updateLocalClumps(
 
     tmpVertexLabel.reserve(numVertices, false);
 
-    if ((numVertices + verticesBuffer.size()) * sizeof(vertex_type)
-        + (mesh.triangles.size() + trianglesBuffer.size()) * sizeof(triangle_type)
-        > getReorderCapacity())
-        flushBuffer();
+    if (reorderBuffer)
+    {
+        if ((numVertices + reorderBuffer->vertices.size()) * sizeof(vertex_type)
+            + (mesh.triangles.size() + reorderBuffer->triangles.size()) * sizeof(triangle_type)
+            > getReorderCapacity())
+            flushBuffer(tworker);
+    }
+    if (!reorderBuffer)
+    {
+        reorderBuffer = tmpWriter.get(tworker, 1);
+        reorderBuffer->vertices.clear();
+        reorderBuffer->triangles.clear();
+        reorderBuffer->vertexRanges.clear();
+        reorderBuffer->triangleRanges.clear();
+    }
 
     for (clump_id gid = clumpIdFirst; gid < clumpIdLast; gid++)
     {
@@ -301,7 +363,7 @@ void StxxlMesher::updateLocalClumps(
             }
 
             if (!elide)
-                verticesBuffer.push_back(mesh.vertices[vid]);
+                reorderBuffer->vertices.push_back(mesh.vertices[vid]);
         }
 
         // tmpVertexLabel now contains the intermediate encoded ID for each vertex.
@@ -311,21 +373,21 @@ void StxxlMesher::updateLocalClumps(
             triangle_type out;
             for (int j = 0; j < 3; j++)
                 out[j] = tmpVertexLabel[mesh.triangles[tid][j]];
-            trianglesBuffer.push_back(out);
+            reorderBuffer->triangles.push_back(out);
             clumpTriangles++;
         }
 
         chunk.bufferedClumps.push_back(Chunk::Clump(
-                verticesBuffer.size() - clumpInternalVertices - clumpExternalVertices,
+                reorderBuffer->vertices.size() - clumpInternalVertices - clumpExternalVertices,
                 clumpInternalVertices,
                 clumpExternalVertices,
-                trianglesBuffer.size() - clumpTriangles,
+                reorderBuffer->triangles.size() - clumpTriangles,
                 clumpTriangles,
                 gid));
     }
 }
 
-void StxxlMesher::add(MesherWork &work)
+void StxxlMesher::add(MesherWork &work, Timeplot::Worker &tworker)
 {
     if (work.chunkId.gen >= chunks.size())
         chunks.resize(work.chunkId.gen + 1);
@@ -346,22 +408,7 @@ void StxxlMesher::add(MesherWork &work)
 
     if (work.hasEvents)
         work.verticesEvent.wait();
-    updateLocalClumps(chunk, tmpClumpId, oldClumps, clumps.size(), mesh);
-}
-
-static void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &out)
-{
-    path = boost::filesystem::temp_directory_path();
-    boost::filesystem::path name = boost::filesystem::unique_path("mlsgpu-tmp-%%%%-%%%%-%%%%-%%%%");
-    path /= name; // appends
-    out.open(path);
-    if (!out)
-    {
-        int e = errno;
-        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
-            << boost::errinfo_file_name(path.string())
-            << boost::errinfo_errno(e);
-    }
+    updateLocalClumps(chunk, tmpClumpId, oldClumps, clumps.size(), mesh, tworker);
 }
 
 MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
@@ -370,38 +417,39 @@ MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
     (void) pass;
     assert(pass == 0);
 
-    createTmpFile(verticesTmpPath, verticesTmpFile);
-    createTmpFile(trianglesTmpPath, trianglesTmpFile);
     writtenVerticesTmp = 0;
     writtenTrianglesTmp = 0;
+    tmpWriter.start();
 
-    return boost::bind(&StxxlMesher::add, this, _1);
+    return boost::bind(&StxxlMesher::add, this, _1, _2);
 }
 
-void StxxlMesher::write(std::ostream *progressStream)
+void StxxlMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
+    Timeplot::Action writeAction("write", tworker, "finalize.time");
     FastPly::WriterBase &writer = getWriter();
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    flushBuffer();
-    verticesTmpFile.close();
-    trianglesTmpFile.close();
+    flushBuffer(tworker);
+    tmpWriter.stop();
 
-    boost::filesystem::ifstream verticesTmpRead(verticesTmpPath, std::ios::in | std::ios::binary);
+    boost::filesystem::ifstream verticesTmpRead(
+        tmpWriter.getVerticesPath(), std::ios::in | std::ios::binary);
     if (!verticesTmpRead)
     {
         int e = errno;
         throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
-            << boost::errinfo_file_name(verticesTmpPath.string())
+            << boost::errinfo_file_name(tmpWriter.getVerticesPath().string())
             << boost::errinfo_errno(e);
     }
-    boost::filesystem::ifstream trianglesTmpRead(trianglesTmpPath, std::ios::in | std::ios::binary);
+    boost::filesystem::ifstream
+        trianglesTmpRead(tmpWriter.getTrianglesPath(), std::ios::in | std::ios::binary);
     if (!trianglesTmpRead)
     {
         int e = errno;
         throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
-            << boost::errinfo_file_name(trianglesTmpPath.string())
+            << boost::errinfo_file_name(tmpWriter.getTrianglesPath().string())
             << boost::errinfo_errno(e);
     }
 
@@ -607,6 +655,7 @@ class DeviceMesher
 private:
     const MesherBase::InputFunctor in;
     const ChunkId chunkId;
+    Timeplot::Worker &tworker;
 
 public:
     typedef void result_type;
@@ -627,18 +676,18 @@ public:
         work.verticesEvent = wait[0];
         work.vertexKeysEvent = wait[1];
         work.trianglesEvent = wait[2];
-        in(work);
+        in(work, tworker);
     }
 
-    DeviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId)
-        : in(in), chunkId(chunkId) {}
+    DeviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId, Timeplot::Worker &tworker)
+        : in(in), chunkId(chunkId), tworker(tworker) {}
 };
 
 } // anonymous namespace
 
-Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId)
+Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId, Timeplot::Worker &tworker)
 {
-    return DeviceMesher(in, chunkId);
+    return DeviceMesher(in, chunkId, tworker);
 }
 
 MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer)

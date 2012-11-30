@@ -38,9 +38,10 @@
 #include "fast_ply.h"
 #include "union_find.h"
 #include "work_queue.h"
+#include "worker_group.h"
 #include "statistics.h"
 #include "allocator.h"
-#include "vector_inserter.h"
+#include "timeplot.h"
 
 /**
  * Enumeration of the supported mesher types
@@ -178,7 +179,7 @@ public:
      * After the function returns the mesh is not used again, so it may be
      * modified as past of the implementation.
      */
-    typedef boost::function<void(MesherWork &work)> InputFunctor;
+    typedef boost::function<void(MesherWork &work, Timeplot::Worker &tworker)> InputFunctor;
 
     /**
      * Function object that generates a filename from a chunk ID.
@@ -246,12 +247,13 @@ public:
     /**
      * Performs any final file I/O.
      *
+     * @param tworker         Timeplot worker for the current thread
      * @param progressStream  If non-NULL, a log stream for a progress meter.
      * @throw std::ios_base::failure on I/O failure (including failure to open the file).
      * @throw std::overflow_error if too many connected components were found.
      * @throw std::overflow_error if too many vertices were found in one output chunk.
      */
-    virtual void write(std::ostream *progressStream = NULL) = 0;
+    virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL) = 0;
 
 protected:
     FastPly::WriterBase &getWriter() const { return writer; }
@@ -300,6 +302,10 @@ private:
  */
 class StxxlMesher : public MesherBase
 {
+public:
+    typedef boost::array<float, 3> vertex_type;
+    typedef boost::array<cl_uint, 3> triangle_type;
+
 private:
     typedef std::tr1::int32_t clump_id;
 
@@ -405,6 +411,53 @@ private:
         }
     };
 
+    struct TmpWriterItem
+    {
+        Statistics::Container::vector<vertex_type> vertices;
+        Statistics::Container::vector<triangle_type> triangles;
+        Statistics::Container::vector<std::pair<std::size_t, std::size_t> > vertexRanges;
+        Statistics::Container::vector<std::pair<std::size_t, std::size_t> > triangleRanges;
+
+        TmpWriterItem();
+    };
+
+    class TmpWriterWorkerGroup;
+
+    class TmpWriterWorker : public WorkerBase
+    {
+    private:
+        TmpWriterWorkerGroup &owner;
+        std::ostream &verticesFile;
+        std::ostream &trianglesFile;
+    public:
+        TmpWriterWorker(TmpWriterWorkerGroup &owner, std::ostream &verticesFile, std::ostream &trianglesFile)
+            : WorkerBase("tmpwriter", 0),
+            owner(owner), verticesFile(verticesFile), trianglesFile(trianglesFile) {}
+        void operator()(TmpWriterItem &item);
+    };
+
+    /**
+     * Asynchronous writing of data to the temporary files.
+     */
+    class TmpWriterWorkerGroup : public WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>
+    {
+    private:
+        boost::filesystem::ofstream verticesFile;
+        boost::filesystem::ofstream trianglesFile;
+        boost::filesystem::path verticesPath;
+        boost::filesystem::path trianglesPath;
+    public:
+        explicit TmpWriterWorkerGroup(std::size_t spare);
+
+        void start();
+        void stopPostJoin();
+
+        const boost::filesystem::path &getVerticesPath() const { return verticesPath; }
+        const boost::filesystem::path &getTrianglesPath() const { return trianglesPath; }
+    };
+
+    friend class WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>;
+
     /**
      * @name
      * @{
@@ -421,34 +474,19 @@ private:
     Statistics::Container::PODBuffer<std::tr1::int32_t> tmpNextTriangle;
     /** @} */
 
-    /// Path to file holding temporary vertex data
-    boost::filesystem::path verticesTmpPath;
-    /// Path to file holding temporary triangle data
-    boost::filesystem::path trianglesTmpPath;
-
-    /// Temporary file holding vertex data
-    boost::filesystem::ofstream verticesTmpFile;
-    /// Temporary file holding triangle data
-    boost::filesystem::ofstream trianglesTmpFile;
-
+    /// Writer for temporary data
+    TmpWriterWorkerGroup tmpWriter;
     /// Total number of vertices written to temporary file
     std::tr1::uint64_t writtenVerticesTmp;
     /// Total number of triangles written to temporary file
     std::tr1::uint64_t writtenTrianglesTmp;
 
-    typedef boost::array<float, 3> vertex_type;
-    typedef boost::array<cl_uint, 3> triangle_type;
-
     /**
-     * @name
-     * @{
-     * Reorder buffers.
-     * Triangles and vertices are initially stored in these vectors, and later
-     * copied to the STXXL vectors in a more coherent order.
+     * Reorder buffer. Initially only the vertices and triangles are placed
+     * here. During @ref flushBuffer, the ranges to write are filled in from
+     * the per-chunk information.
      */
-    Statistics::Container::vector<vertex_type> verticesBuffer;
-    Statistics::Container::vector<triangle_type> trianglesBuffer;
-    /** @} */
+    boost::shared_ptr<TmpWriterItem> reorderBuffer;
 
     /**
      * All chunks seen so far. This is indexed by the generation number in the
@@ -520,45 +558,16 @@ private:
         const Statistics::Container::PODBuffer<clump_id> &globalClumpId,
         clump_id clumpIdFirst,
         clump_id clumpIdLast,
-        HostKeyMesh &mesh);
+        HostKeyMesh &mesh,
+        Timeplot::Worker &tworker);
 
     /**
-     * Transfer any data in the reordering buffer to the STXXL vector.
+     * Transfer any data in the reordering buffer to the temporary files.
      */
-    void flushBuffer();
+    void flushBuffer(Timeplot::Worker &tworker);
 
     /// Implementation of the functor
-    void add(MesherWork &work);
-
-    /**
-     * Function object that accepts incoming vertices and writes them to a writer.
-     * The vertices are buffered internally to avoid small writes.
-     */
-    class VertexBuffer : public boost::noncopyable
-    {
-    public:
-        typedef FastPly::WriterBase::size_type size_type;
-    private:
-        FastPly::WriterBase &writer;
-        size_type nextVertex;         ///< File index of first vertex in the buffer
-        Statistics::Container::vector<vertex_type> buffer;
-    public:
-        typedef void result_type;
-
-        /**
-         * Constructor.
-         *
-         * @param writer       Output stream
-         * @param capacity     Number of vertices to hold in buffer
-         */
-        VertexBuffer(FastPly::WriterBase &writer, size_type capacity);
-
-        /// Append a vertex
-        void operator()(const vertex_type &vertex);
-
-        /// Write any buffered data to the writer
-        void flush();
-    };
+    void add(MesherWork &work, Timeplot::Worker &worker);
 
 public:
     /**
@@ -573,8 +582,7 @@ public:
         tmpNextVertex("mem.StxxlMesher::tmpNextVertex"),
         tmpFirstTriangle("mem.StxxlMesher::tmpFirstTriangle"),
         tmpNextTriangle("mem.StxxlMesher::tmpNextTriangle"),
-        verticesBuffer("mem.StxxlMesher::verticesBuffer"),
-        trianglesBuffer("mem.StxxlMesher::trianglesBuffer"),
+        tmpWriter(2),
         chunks("mem.StxxlMesher::chunks"),
         clumps("mem.StxxlMesher::clumps"),
         clumpIdMap("mem.StxxlMesher::clumpIdMap")
@@ -585,7 +593,7 @@ public:
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
-    virtual void write(std::ostream *progressStream = NULL);
+    virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
 };
 
 /**
@@ -604,6 +612,7 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const Mes
  * @param chunkId   Chunk ID to pass to @a in.
  */
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in,
-                                     const ChunkId &chunkId);
+                                     const ChunkId &chunkId,
+                                     Timeplot::Worker &tworker);
 
 #endif /* !MESHER_H */
