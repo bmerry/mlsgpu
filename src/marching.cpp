@@ -238,12 +238,12 @@ void Marching::validateDevice(const cl::Device &device)
 
 std::tr1::uint64_t Marching::getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight)
 {
-    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES;
+    return MAX_MESH_SLICES * std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES;
 }
 
 std::tr1::uint64_t Marching::getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight)
 {
-    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3);
+    return MAX_MESH_SLICES * std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3);
 }
 
 CLH::ResourceUsage Marching::resourceUsage(
@@ -286,9 +286,9 @@ CLH::ResourceUsage Marching::resourceUsage(
     ans.addBuffer(vertexSpace * sizeof(cl_float4));
     ans.addBuffer((vertexSpace + 1) * sizeof(cl_ulong));
 
-    // weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
+    // weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_float4));
     // weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
-    ans.addBuffer(vertexSpace * 3 * sizeof(cl_float));
+    ans.addBuffer(vertexSpace * sizeof(cl_float4));
     ans.addBuffer(vertexSpace * sizeof(cl_ulong));
 
     // indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
@@ -296,11 +296,6 @@ CLH::ResourceUsage Marching::resourceUsage(
 
     // firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     ans.addBuffer(sizeof(cl_uint));
-
-    // tmpVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
-    // tmpVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
-    ans.addBuffer(vertexSpace * sizeof(cl_ulong));
-    ans.addBuffer(vertexSpace * sizeof(cl_float4));
 
     // Lookup tables
     ans.addBuffer(COUNT_TABLE_BYTES);
@@ -348,8 +343,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
         backingImages[i] = generator.allocateSlices(maxWidth, maxHeight, generator.maxSlices());
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
-    vertexSpace = sliceCells * MAX_CELL_VERTICES;
-    indexSpace = sliceCells * MAX_CELL_INDICES;
+    vertexSpace = getMaxVertices(maxWidth, maxHeight);
+    indexSpace = getMaxTriangles(maxWidth, maxHeight) * 3;
 
     // If these are updated, also update deviceMemory
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
@@ -359,13 +354,13 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
     unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
     unweldedVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_ulong));
-    weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * 3 * sizeof(cl_float));
+    // weldedVertices holds packed float3s, but because it's also used as the
+    // temporary buffer for sorting it needs to be able to hold float4s.
+    weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_float4));
     weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
     indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
     firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
-    tmpVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_ulong));
-    tmpVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
-    sortVertices.setTemporaryBuffers(tmpVertexKeys, tmpVertices);
+    sortVertices.setTemporaryBuffers(weldedVertices, weldedVertexKeys);
 
     cl::Program program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     genOccupiedKernel = cl::Kernel(program, "genOccupied");

@@ -92,6 +92,11 @@ public:
         /// Logarithm base 2 of @ref MAX_GLOBAL_DIMENSION.
         MAX_GLOBAL_DIMENSION_LOG2 = KEY_AXIS_BITS - 1
     };
+    enum
+    {
+        /// Number of slices for which to allocate mesh memory
+        MAX_MESH_SLICES = 2
+    };
 
     enum
     {
