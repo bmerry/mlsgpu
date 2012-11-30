@@ -485,7 +485,7 @@ void TestMarching::testGenerate(
 
     {
         FastPly::StreamWriter writer;
-        StxxlMesher mesher(writer, TrivialNamer(filename));
+        OOCMesher mesher(writer, TrivialNamer(filename));
         marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId(), tworker), size, keyOffset, NULL);
         mesher.write(tworker);
     }
@@ -494,7 +494,7 @@ void TestMarching::testGenerate(
 
     {
         MemoryWriter writer;
-        StxxlMesher mesher(writer, TrivialNamer(filename));
+        OOCMesher mesher(writer, TrivialNamer(filename));
         marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId(), tworker), size, keyOffset, NULL);
         mesher.write(tworker);
 

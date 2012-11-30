@@ -1173,23 +1173,23 @@ class TestMesherBaseSlow : public TestMesherBase
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 };
 
-class TestStxxlMesher : public TestMesherBase
+class TestOOCMesher : public TestMesherBase
 {
-    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesher, TestMesherBase);
+    CPPUNIT_TEST_SUB_SUITE(TestOOCMesher, TestMesherBase);
     CPPUNIT_TEST_SUITE_END();
 protected:
     virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesher, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOOCMesher, TestSet::perBuild());
 
-class TestStxxlMesherSlow : public TestStxxlMesher
+class TestOOCMesherSlow : public TestOOCMesher
 {
-    CPPUNIT_TEST_SUB_SUITE(TestStxxlMesherSlow, TestMesherBaseSlow);
+    CPPUNIT_TEST_SUB_SUITE(TestOOCMesherSlow, TestMesherBaseSlow);
     CPPUNIT_TEST_SUITE_END();
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStxxlMesherSlow, TestSet::perCommit());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOOCMesherSlow, TestSet::perCommit());
 
-MesherBase *TestStxxlMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
+MesherBase *TestOOCMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
 {
-    return new StxxlMesher(writer, namer);
+    return new OOCMesher(writer, namer);
 }

@@ -71,7 +71,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    const MesherType mesherType = STXXL_MESHER;
+    const MesherType mesherType = OOC_MESHER;
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();

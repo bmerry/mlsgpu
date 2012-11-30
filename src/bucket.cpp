@@ -22,7 +22,6 @@
 #include <boost/ref.hpp>
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
-#include <stxxl.h>
 #include "splat.h"
 #include "bucket.h"
 #include "bucket_internal.h"

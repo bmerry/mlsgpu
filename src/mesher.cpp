@@ -69,7 +69,7 @@ static void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofst
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
     std::map<std::string, MesherType> ans;
-    ans["stxxl"] = STXXL_MESHER;
+    ans["ooc"] = OOC_MESHER;
     return ans;
 }
 
@@ -84,15 +84,15 @@ std::string ChunkNamer::operator()(const ChunkId &chunkId) const
 }
 
 
-StxxlMesher::TmpWriterItem::TmpWriterItem()
-    : vertices("mem.StxxlMesher::TmpWriterItem::vertices"),
-    triangles("mem.StxxlMesher::TmpWriterItem::triangles"),
-    vertexRanges("mem.StxxlMesher::TmpWriterItem::vertexRanges"),
-    triangleRanges("mem.StxxlMesher::TmpWriterItem::triangleRanges")
+OOCMesher::TmpWriterItem::TmpWriterItem()
+    : vertices("mem.OOCMesher::TmpWriterItem::vertices"),
+    triangles("mem.OOCMesher::TmpWriterItem::triangles"),
+    vertexRanges("mem.OOCMesher::TmpWriterItem::vertexRanges"),
+    triangleRanges("mem.OOCMesher::TmpWriterItem::triangleRanges")
 {
 }
 
-void StxxlMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
+void OOCMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
     typedef std::pair<std::size_t, std::size_t> range;
@@ -112,7 +112,7 @@ void StxxlMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
     item.triangleRanges.clear();
 }
 
-StxxlMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
+OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
     : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1, spare)
 {
     for (std::size_t i = 0; i < 1 + spare; i++)
@@ -120,20 +120,20 @@ StxxlMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
     addWorker(new TmpWriterWorker(*this, verticesFile, trianglesFile));
 }
 
-void StxxlMesher::TmpWriterWorkerGroup::start()
+void OOCMesher::TmpWriterWorkerGroup::start()
 {
     createTmpFile(verticesPath, verticesFile);
     createTmpFile(trianglesPath, trianglesFile);
     WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>::start();
 }
 
-void StxxlMesher::TmpWriterWorkerGroup::stopPostJoin()
+void OOCMesher::TmpWriterWorkerGroup::stopPostJoin()
 {
     verticesFile.close();
     trianglesFile.close();
 }
 
-StxxlMesher::~StxxlMesher()
+OOCMesher::~OOCMesher()
 {
     if (tmpWriter.running())
         tmpWriter.stop();
@@ -156,7 +156,7 @@ StxxlMesher::~StxxlMesher()
     }
 }
 
-void StxxlMesher::computeLocalComponents(
+void OOCMesher::computeLocalComponents(
     std::size_t numVertices,
     const Statistics::Container::vector<triangle_type> &triangles,
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
@@ -172,7 +172,7 @@ void StxxlMesher::computeLocalComponents(
     }
 }
 
-void StxxlMesher::updateGlobalClumps(
+void OOCMesher::updateGlobalClumps(
     const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
     const Statistics::Container::vector<triangle_type> &triangles,
     Statistics::Container::PODBuffer<clump_id> &clumpId)
@@ -214,7 +214,7 @@ void StxxlMesher::updateGlobalClumps(
     }
 }
 
-void StxxlMesher::updateClumpKeyMap(
+void OOCMesher::updateClumpKeyMap(
     std::size_t numVertices,
     const Statistics::Container::vector<cl_ulong> &keys,
     const Statistics::Container::PODBuffer<clump_id> &clumpId)
@@ -242,7 +242,7 @@ void StxxlMesher::updateClumpKeyMap(
     }
 }
 
-void StxxlMesher::flushBuffer(Timeplot::Worker &tworker)
+void OOCMesher::flushBuffer(Timeplot::Worker &tworker)
 {
     if (!reorderBuffer)
         return;
@@ -277,7 +277,7 @@ void StxxlMesher::flushBuffer(Timeplot::Worker &tworker)
     reorderBuffer.reset();
 }
 
-void StxxlMesher::updateLocalClumps(
+void OOCMesher::updateLocalClumps(
     Chunk &chunk,
     const Statistics::Container::PODBuffer<clump_id> &globalClumpId,
     clump_id clumpIdFirst,
@@ -387,7 +387,7 @@ void StxxlMesher::updateLocalClumps(
     }
 }
 
-void StxxlMesher::add(MesherWork &work, Timeplot::Worker &tworker)
+void OOCMesher::add(MesherWork &work, Timeplot::Worker &tworker)
 {
     if (work.chunkId.gen >= chunks.size())
         chunks.resize(work.chunkId.gen + 1);
@@ -411,7 +411,7 @@ void StxxlMesher::add(MesherWork &work, Timeplot::Worker &tworker)
     updateLocalClumps(chunk, tmpClumpId, oldClumps, clumps.size(), mesh, tworker);
 }
 
-MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
+MesherBase::InputFunctor OOCMesher::functor(unsigned int pass)
 {
     /* only one pass, so ignore it */
     (void) pass;
@@ -421,10 +421,10 @@ MesherBase::InputFunctor StxxlMesher::functor(unsigned int pass)
     writtenTrianglesTmp = 0;
     tmpWriter.start();
 
-    return boost::bind(&StxxlMesher::add, this, _1, _2);
+    return boost::bind(&OOCMesher::add, this, _1, _2);
 }
 
-void StxxlMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
+void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
     Timeplot::Action writeAction("write", tworker, "finalize.time");
     FastPly::WriterBase &writer = getWriter();
@@ -503,13 +503,13 @@ void StxxlMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
      * although that is not actually used and could be skipped. This is declared
      * outside the loop purely to facilitate memory reuse.
      */
-    Statistics::Container::vector<std::tr1::uint32_t> externalRemap("mem.StxxlMesher::externalRemap");
+    Statistics::Container::vector<std::tr1::uint32_t> externalRemap("mem.OOCMesher::externalRemap");
     // Offset to first vertex of each clump in output file
-    Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.StxxlMesher::startVertex");
+    Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.OOCMesher::startVertex");
 
-    Statistics::Container::PODBuffer<vertex_type> vertices("mem.StxxlMesher::vertices");
-    Statistics::Container::PODBuffer<triangle_type> triangles("mem.StxxlMesher::triangles");
-    Statistics::Container::PODBuffer<std::tr1::uint8_t> trianglesRaw("mem.StxxlMesher::trianglesRaw");
+    Statistics::Container::PODBuffer<vertex_type> vertices("mem.OOCMesher::vertices");
+    Statistics::Container::PODBuffer<triangle_type> triangles("mem.OOCMesher::triangles");
+    Statistics::Container::PODBuffer<std::tr1::uint8_t> trianglesRaw("mem.OOCMesher::trianglesRaw");
 
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
@@ -694,7 +694,7 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const Mes
 {
     switch (type)
     {
-    case STXXL_MESHER:  return new StxxlMesher(writer, namer);
+    case OOC_MESHER:  return new OOCMesher(writer, namer);
     }
     return NULL; // should never be reached
 }

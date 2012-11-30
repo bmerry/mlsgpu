@@ -338,7 +338,7 @@ static void run(
         const float maxRadius = vm.count(Option::maxRadius)
             ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
         const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-        const MesherType mesherType = STXXL_MESHER;
+        const MesherType mesherType = OOC_MESHER;
         const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
         const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
         const double pruneThreshold = vm[Option::fitPrune].as<double>();

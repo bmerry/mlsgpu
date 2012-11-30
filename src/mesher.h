@@ -48,7 +48,7 @@
  */
 enum MesherType
 {
-    STXXL_MESHER
+    OOC_MESHER
 };
 
 /**
@@ -271,7 +271,7 @@ private:
 
 /**
  * Mesher class that can handle huge output meshes out-of-core.
- * It stores the data in STXXL containers before reordering and concatenating them
+ * It stores the data in temporary files before reordering and concatenating them
  * It thus requires storage roughly equal to the size of the output files (perhaps
  * smaller because it doesn't need a vertex count per polygon, but perhaps larger
  * because it keeps components that are later discarded).
@@ -300,7 +300,7 @@ private:
  * their (global) chunk ID, and a chunk-local hash table that maps it to the
  * triangle index used to encode it.
  */
-class StxxlMesher : public MesherBase
+class OOCMesher : public MesherBase
 {
 public:
     typedef boost::array<float, 3> vertex_type;
@@ -316,8 +316,8 @@ private:
     {
     public:
         /**
-         * Chunk-local clump data. This is used for referencing either the STXXL
-         * vectors long-term, or the reorder buffers short-term.
+         * Chunk-local clump data. This is used for referencing either the
+         * temporary files long-term, or the reorder buffers short-term.
          */
         struct Clump
         {
@@ -336,7 +336,7 @@ private:
             std::tr1::uint64_t firstTriangle;
             /// Number of triangles, starting from @ref firstTriangle
             std::tr1::uint32_t numTriangles;
-            /// Index within @ref StxxlMesher::clumps of this clump
+            /// Index within @ref OOCMesher::clumps of this clump
             clump_id globalId;
 
             /**
@@ -552,6 +552,7 @@ private:
      * @param clumpIdLast    One greater than largest value in @a globalClumpId
      * @param mesh           The original data. All fields (vertices, triangles and keys)
      *                       must have finished loading.
+     * @param tworker        Timeplot worker for recording interactions with the writer worker group
      */
     void updateLocalClumps(
         Chunk &chunk,
@@ -573,23 +574,23 @@ public:
     /**
      * @copydoc MesherBase::MesherBase
      */
-    StxxlMesher(FastPly::WriterBase &writer, const Namer &namer)
+    OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
         : MesherBase(writer, namer),
-        tmpNodes("mem.StxxlMesher::tmpNodes"),
-        tmpClumpId("mem.StxxlMesher::tmpClumpId"),
-        tmpVertexLabel("mem.StxxlMesher::tmpVertexLabel"),
-        tmpFirstVertex("mem.StxxlMesher::tmpFirstVertex"),
-        tmpNextVertex("mem.StxxlMesher::tmpNextVertex"),
-        tmpFirstTriangle("mem.StxxlMesher::tmpFirstTriangle"),
-        tmpNextTriangle("mem.StxxlMesher::tmpNextTriangle"),
+        tmpNodes("mem.OOCMesher::tmpNodes"),
+        tmpClumpId("mem.OOCMesher::tmpClumpId"),
+        tmpVertexLabel("mem.OOCMesher::tmpVertexLabel"),
+        tmpFirstVertex("mem.OOCMesher::tmpFirstVertex"),
+        tmpNextVertex("mem.OOCMesher::tmpNextVertex"),
+        tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
+        tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
         tmpWriter(2),
-        chunks("mem.StxxlMesher::chunks"),
-        clumps("mem.StxxlMesher::clumps"),
-        clumpIdMap("mem.StxxlMesher::clumpIdMap")
+        chunks("mem.OOCMesher::chunks"),
+        clumps("mem.OOCMesher::clumps"),
+        clumpIdMap("mem.OOCMesher::clumpIdMap")
     {
     }
 
-    ~StxxlMesher();
+    ~OOCMesher();
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
@@ -610,6 +611,7 @@ MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const Mes
  *
  * @param in        The mesher functor which will receive the host copy of the mesh.
  * @param chunkId   Chunk ID to pass to @a in.
+ * @param tworker   The timeplot worker for the thread that will call the functor.
  */
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in,
                                      const ChunkId &chunkId,

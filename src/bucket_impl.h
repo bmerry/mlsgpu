@@ -25,7 +25,6 @@
 #include "progress.h"
 #include "logging.h"
 #include "allocator.h"
-#include <stxxl.h>
 
 namespace Bucket
 {
