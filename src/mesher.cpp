@@ -26,6 +26,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
+#include <boost/system/error_code.hpp>
 #include <boost/foreach.hpp>
 #include <boost/type_traits/make_unsigned.hpp>
 #include <boost/exception/all.hpp>
@@ -92,6 +93,12 @@ void OOCMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
         trianglesFile.write(reinterpret_cast<char *>(&item.triangles[r.first]),
                             (r.second - r.first) * sizeof(triangle_type));
     }
+    if (!verticesFile || !trianglesFile)
+    {
+        Log::log[Log::error] << "Failed while writing temporary files: "
+            << boost::system::errc::make_error_code((boost::system::errc::errc_t) errno).message() << std::endl;
+        std::exit(1);
+    }
     item.vertices.clear();
     item.triangles.clear();
     item.vertexRanges.clear();
@@ -117,6 +124,12 @@ void OOCMesher::TmpWriterWorkerGroup::stopPostJoin()
 {
     verticesFile.close();
     trianglesFile.close();
+    if (!verticesFile || !trianglesFile)
+    {
+        Log::log[Log::error] << "Failed while writing temporary files: "
+            << boost::system::errc::make_error_code((boost::system::errc::errc_t) errno).message() << std::endl;
+        std::exit(1);
+    }
 }
 
 OOCMesher::~OOCMesher()
