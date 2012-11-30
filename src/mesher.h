@@ -411,11 +411,25 @@ private:
         }
     };
 
+    /**
+     * Data to be written asynchronously to the temporary files. The interface is
+     * similar to @c writev: @ref vertexRanges references ranges within @ref vertices
+     * that must be written consecutively to the vertices temp file, and similarly for
+     * @ref triangleRanges and @ref triangles.
+     */
     struct TmpWriterItem
     {
+        /// Backing store for vertices
         Statistics::Container::vector<vertex_type> vertices;
+        /// Backing store for triangles
         Statistics::Container::vector<triangle_type> triangles;
+        /**
+         * Ranges of @ref vertices to write. Each range is of [first, last) form.
+         */
         Statistics::Container::vector<std::pair<std::size_t, std::size_t> > vertexRanges;
+        /**
+         * Ranges of @ref triangles to write. Each range is of [first, last) form.
+         */
         Statistics::Container::vector<std::pair<std::size_t, std::size_t> > triangleRanges;
 
         TmpWriterItem();
@@ -423,12 +437,16 @@ private:
 
     class TmpWriterWorkerGroup;
 
+    /**
+     * Worker for asynchronous writes to the temporary files. These is only ever one of
+     * these workers, so there are no race conditions.
+     */
     class TmpWriterWorker : public WorkerBase
     {
     private:
-        TmpWriterWorkerGroup &owner;
-        std::ostream &verticesFile;
-        std::ostream &trianglesFile;
+        TmpWriterWorkerGroup &owner;   ///< Owning worker group
+        std::ostream &verticesFile;    ///< File for temporary vertices
+        std::ostream &trianglesFile;   ///< File for temporary triangles
     public:
         TmpWriterWorker(TmpWriterWorkerGroup &owner, std::ostream &verticesFile, std::ostream &trianglesFile)
             : WorkerBase("tmpwriter", 0),
@@ -437,25 +455,57 @@ private:
     };
 
     /**
-     * Asynchronous writing of data to the temporary files.
+     * Asynchronous writing of data to the temporary files. This class manages
+     * creation of the temporary files when it is started, but it does not
+     * handle their removal once no longer needed. It does, however, close the
+     * files when the group is stopped.
+     *
+     * Errors while writing the temporary files immediately terminate the program.
      */
     class TmpWriterWorkerGroup : public WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>
     {
     private:
+        /// File to which vertices are written
         boost::filesystem::ofstream verticesFile;
+        /// File to which triangles are written
         boost::filesystem::ofstream trianglesFile;
+        /// Filename for @ref verticesFile
         boost::filesystem::path verticesPath;
+        /// Filename for @ref trianglesFile
         boost::filesystem::path trianglesPath;
     public:
+        /**
+         * Constructor.
+         * @param spare  Number of reorder buffers that can be in flight
+         */
         explicit TmpWriterWorkerGroup(std::size_t spare);
 
+        /**
+         * @copydoc WorkerGroup::start
+         *
+         * This also handles opening the temporary files.
+         */
         void start();
+
+        /**
+         * Close the temporary files. This should not be called directly (it is called
+         * by @ref WorkerGroup).
+         */
         void stopPostJoin();
 
+        /**
+         * Get the path to the temporary file for vertices. If @ref start has
+         * not been called this will return an empty path.
+         */
         const boost::filesystem::path &getVerticesPath() const { return verticesPath; }
+        /**
+         * Get the path to the temporary file for triangles. If @ref start has
+         * not been called this will return an empty path.
+         */
         const boost::filesystem::path &getTrianglesPath() const { return trianglesPath; }
     };
 
+    // Needed to enable the curiously recursive template pattern
     friend class WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>;
 
     /**
@@ -485,6 +535,10 @@ private:
      * Reorder buffer. Initially only the vertices and triangles are placed
      * here. During @ref flushBuffer, the ranges to write are filled in from
      * the per-chunk information.
+     *
+     * This is initially a null pointer, and is also null immediate after a
+     * call to @ref flushBuffer. Functions (including @ref write) must be
+     * prepared to deal with this.
      */
     boost::shared_ptr<TmpWriterItem> reorderBuffer;
 
