@@ -50,21 +50,7 @@
 #include "union_find.h"
 #include "statistics.h"
 #include "clh.h"
-
-static void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &out)
-{
-    path = boost::filesystem::temp_directory_path();
-    boost::filesystem::path name = boost::filesystem::unique_path("mlsgpu-tmp-%%%%-%%%%-%%%%-%%%%");
-    path /= name; // appends
-    out.open(path);
-    if (!out)
-    {
-        int e = errno;
-        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
-            << boost::errinfo_file_name(path.string())
-            << boost::errinfo_errno(e);
-    }
-}
+#include "misc.h"
 
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {

@@ -374,6 +374,7 @@ def build(bld):
             'src/fast_ply.cpp',
             'src/grid.cpp',
             'src/logging.cpp',
+            'src/misc.cpp',
             'src/ply.cpp',
             'src/progress.cpp',
             'src/statistics.cpp',

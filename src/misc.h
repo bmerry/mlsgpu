@@ -13,6 +13,8 @@
 
 #include <boost/numeric/conversion/converter.hpp>
 #include <boost/type_traits/is_unsigned.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/filesystem/fstream.hpp>
 #include <limits>
 #include "tr1_cstdint.h"
 #include <cstring>
@@ -108,5 +110,24 @@ static inline std::tr1::uint32_t floatToBits(float x)
     std::memcpy(&ans, &x, sizeof(ans));
     return ans;
 }
+
+/**
+ * Create and open a temporary file. If @ref setTmpFileDir has been called, that
+ * directory is used, otherwise it uses the @c boost::filesystem default. The
+ * file is opened for output in binary mode.
+ *
+ * @param[out] path      The path to the temporary file.
+ * @param[out] out       The open temporary file.
+ * @throw std::ios::failure if the file could not be opened (with boost error
+ * info on the filename and errno)
+ *
+ * @see @ref setTmpFileDir
+ */
+void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &out);
+
+/**
+ * Set the directory to use for temporary files created by @ref createTmpFile.
+ */
+void setTmpFileDir(const boost::filesystem::path &tmpFileDir);
 
 #endif /* MLSGPU_MISC_H */

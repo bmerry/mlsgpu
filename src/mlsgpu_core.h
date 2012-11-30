@@ -27,6 +27,7 @@ namespace Option
     const char * const quiet = "quiet";
     const char * const debug = "debug";
     const char * const responseFile = "response-file";
+    const char * const tmpDir = "tmp-dir";
 
     const char * const fitSmooth = "fit-smooth";
     const char * const maxRadius = "max-radius";

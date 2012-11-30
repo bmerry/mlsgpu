@@ -53,7 +53,8 @@ static void addCommonOptions(po::options_description &opts)
         ("help,h",                "Show help")
         ("quiet,q",               "Do not show informational messages")
         (Option::debug,           "Show debug messages")
-        (Option::responseFile,    po::value<std::string>(), "Read options from file");
+        (Option::responseFile,    po::value<std::string>(), "Read options from file")
+        (Option::tmpDir,          po::value<boost::filesystem::path::string_type>(), "Directory to store temporary files");
 }
 
 static void addFitOptions(po::options_description &opts)
@@ -182,6 +183,10 @@ po::variables_map processOptions(int argc, char **argv)
         if (vm.count(Option::statisticsCL))
         {
             Statistics::enableEventTiming();
+        }
+        if (vm.count(Option::tmpDir))
+        {
+            setTmpFileDir(vm[Option::tmpDir].as<boost::filesystem::path::string_type>());
         }
 
         return vm;
