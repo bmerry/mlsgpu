@@ -9,9 +9,10 @@
 #endif
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
+#include <string>
 #include "../src/tr1_cstdint.h"
-#include "testutil.h"
 #include "../src/misc.h"
+#include "testutil.h"
 
 using namespace std;
 
@@ -173,4 +174,62 @@ void TestFloatToBits::testSimple()
 {
     CPPUNIT_ASSERT_EQUAL(UINT32_C(0x3F800000), floatToBits(1.0f));
     CPPUNIT_ASSERT_EQUAL(UINT32_C(0x00000000), floatToBits(0.0f));
+}
+
+
+/// Tests for temporary file creation
+class TestTmpFile : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestTmpFile);
+    CPPUNIT_TEST(testCreate);
+    CPPUNIT_TEST(testBadPath);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    boost::filesystem::path removePath; ///< Path to remove in teardown
+
+public:
+    void testCreate();      ///< Test basic creation
+    void testBadPath();     ///< Test exception handling when the path is wrong
+
+    virtual void tearDown();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestTmpFile, TestSet::perBuild());
+
+void TestTmpFile::testCreate()
+{
+    std::string testString = "TestTmpFile\n"; // \n to ensure binary mode
+
+    setTmpFileDir(boost::filesystem::path("."));
+    boost::filesystem::ofstream out;
+    boost::filesystem::path path;
+    createTmpFile(removePath, out);
+    CPPUNIT_ASSERT(!removePath.empty());
+    CPPUNIT_ASSERT(out);
+    out << "TestTmpFile\n"; // The \n is to ensure it is in binary mode
+    out.close();
+
+    boost::filesystem::ifstream in(removePath, std::ios::in | std::ios::binary);
+    char buffer[64];
+    in.read(buffer, sizeof(buffer));
+    CPPUNIT_ASSERT_EQUAL(int(testString.size()), int(in.gcount()));
+    std::string actualString(buffer, testString.size());
+    CPPUNIT_ASSERT_EQUAL(testString, actualString);
+    in.close();
+}
+
+void TestTmpFile::testBadPath()
+{
+    setTmpFileDir("//\\bad");
+    boost::filesystem::ofstream out;
+    CPPUNIT_ASSERT_THROW(createTmpFile(removePath, out), std::ios::failure);
+}
+
+void TestTmpFile::tearDown()
+{
+    setTmpFileDir(boost::filesystem::path());
+    if (!removePath.empty())
+    {
+        boost::filesystem::remove(removePath);
+    }
 }
