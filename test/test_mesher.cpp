@@ -31,6 +31,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/foreach.hpp>
 #include <boost/array.hpp>
+#include <boost/filesystem.hpp>
 #include <CL/cl.hpp>
 #include "testutil.h"
 #include "../src/fast_ply.h"
@@ -1181,6 +1182,154 @@ protected:
     virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOOCMesher, TestSet::perBuild());
+
+/**
+ * Tests for OOCMesher::TmpWriterWorkerGroup
+ */
+class TestTmpWriterWorkerGroup : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestTmpWriterWorkerGroup);
+    CPPUNIT_TEST(testInitialState);
+    CPPUNIT_TEST(testRandom);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    /// Checks that an obtained item is empty
+    void checkEmpty(const OOCMesher::TmpWriterItem &item);
+
+    OOCMesher::TmpWriterWorkerGroup group;
+
+public:
+    void testInitialState();  ///< Tests that the paths are initially empty
+    void testRandom();        ///< Throws in lots of random data, checks that it comes back
+
+    virtual void tearDown();  ///< Delete the temporary files
+
+    TestTmpWriterWorkerGroup() : group(2) {}
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestTmpWriterWorkerGroup, TestSet::perCommit());
+
+void TestTmpWriterWorkerGroup::checkEmpty(const OOCMesher::TmpWriterItem &item)
+{
+    CPPUNIT_ASSERT(item.vertices.empty());
+    CPPUNIT_ASSERT(item.triangles.empty());
+    CPPUNIT_ASSERT(item.vertexRanges.empty());
+    CPPUNIT_ASSERT(item.triangleRanges.empty());
+}
+
+void TestTmpWriterWorkerGroup::testInitialState()
+{
+    CPPUNIT_ASSERT(group.getVerticesPath().empty());
+    CPPUNIT_ASSERT(group.getTrianglesPath().empty());
+}
+
+void TestTmpWriterWorkerGroup::testRandom()
+{
+    using std::tr1::mt19937;
+    using std::tr1::uniform_int;
+    using std::tr1::uniform_real;
+    using std::tr1::variate_generator;
+    typedef OOCMesher::triangle_type triangle_type;
+    typedef OOCMesher::vertex_type vertex_type;
+
+    mt19937 engine;
+    variate_generator<mt19937 &, uniform_int<mt19937::result_type> > genNum(engine, uniform_int<mt19937::result_type>(0, 50));
+    variate_generator<mt19937 &, uniform_int<mt19937::result_type> > genTriangle(engine, uniform_int<mt19937::result_type>(0, 100000000));
+    variate_generator<mt19937 &, uniform_real<float> > genVertex(engine, uniform_real<float>(-100.0f, 100.0f));
+
+    Timeplot::Worker tworker("test");
+    group.start();
+
+    std::vector<vertex_type> expectedVertices;
+    std::vector<triangle_type> expectedTriangles;
+
+    for (int i = 0; i < 100; i++)
+    {
+        boost::shared_ptr<OOCMesher::TmpWriterItem> item = group.get(tworker, 1);
+        checkEmpty(*item);
+
+        int numVertices = genNum();
+        int numTriangles = genNum();
+        int numVertexRanges = genNum();
+        int numTriangleRanges = genNum();
+        std::vector<vertex_type> vertices;
+        std::vector<triangle_type> triangles;
+        for (int j = 0; j < numVertices; j++)
+        {
+            vertex_type v;
+            for (int k = 0; k < 3; k++)
+                v[k] = genVertex();
+            item->vertices.push_back(v);
+            vertices.push_back(v);
+        }
+        for (int j = 0; j < numTriangles; j++)
+        {
+            triangle_type t;
+            for (int k = 0; k < 3; k++)
+                t[k] = genTriangle();
+            item->triangles.push_back(t);
+            triangles.push_back(t);
+        }
+        for (int j = 0; j < numVertexRanges; j++)
+        {
+            std::size_t a = uniform_int<mt19937::result_type>(0, numVertices)(engine);
+            std::size_t b = uniform_int<mt19937::result_type>(0, numVertices)(engine);
+            if (a > b)
+                swap(a, b);
+            item->vertexRanges.push_back(std::make_pair(a, b));
+            for (std::size_t k = a; k < b; k++)
+                expectedVertices.push_back(vertices[k]);
+        }
+        for (int j = 0; j < numTriangleRanges; j++)
+        {
+            std::size_t a = uniform_int<mt19937::result_type>(0, numTriangles)(engine);
+            std::size_t b = uniform_int<mt19937::result_type>(0, numTriangles)(engine);
+            if (a > b)
+                swap(a, b);
+            item->triangleRanges.push_back(std::make_pair(a, b));
+            for (std::size_t k = a; k < b; k++)
+                expectedTriangles.push_back(triangles[k]);
+        }
+
+        group.push(item, tworker, 1);
+    }
+
+    group.stop();
+
+    CPPUNIT_ASSERT(!group.verticesFile.is_open());
+    CPPUNIT_ASSERT(!group.trianglesFile.is_open());
+    CPPUNIT_ASSERT(!group.getVerticesPath().empty());
+    CPPUNIT_ASSERT(!group.getTrianglesPath().empty());
+
+    boost::filesystem::ifstream inVertices(group.getVerticesPath(), std::ios::in | std::ios::binary);
+    boost::filesystem::ifstream inTriangles(group.getTrianglesPath(), std::ios::in | std::ios::binary);
+    std::vector<vertex_type> actualVertices(expectedVertices.size());
+    std::vector<triangle_type> actualTriangles(expectedTriangles.size());
+
+    inVertices.read(reinterpret_cast<char *>(&actualVertices[0]), expectedVertices.size() * sizeof(vertex_type));
+    CPPUNIT_ASSERT(inVertices);
+    MLSGPU_ASSERT_EQUAL(expectedVertices.size() * sizeof(vertex_type), inVertices.gcount());
+    for (std::size_t i = 0; i < expectedVertices.size(); i++)
+        for (int j = 0; j < 3; j++)
+            CPPUNIT_ASSERT_EQUAL(expectedVertices[i][j], actualVertices[i][j]);
+
+    inTriangles.read(reinterpret_cast<char *>(&actualTriangles[0]), expectedTriangles.size() * sizeof(triangle_type));
+    CPPUNIT_ASSERT(inTriangles);
+    MLSGPU_ASSERT_EQUAL(expectedTriangles.size() * sizeof(triangle_type), inTriangles.gcount());
+    for (std::size_t i = 0; i < expectedTriangles.size(); i++)
+        for (int j = 0; j < 3; j++)
+            CPPUNIT_ASSERT_EQUAL(expectedTriangles[i][j], actualTriangles[i][j]);
+}
+
+void TestTmpWriterWorkerGroup::tearDown()
+{
+    if (group.running())
+        group.stop();
+    if (!group.getVerticesPath().empty())
+        boost::filesystem::remove(group.getVerticesPath());
+    if (!group.getTrianglesPath().empty())
+        boost::filesystem::remove(group.getTrianglesPath());
+}
 
 class TestOOCMesherSlow : public TestOOCMesher
 {

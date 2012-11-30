@@ -43,6 +43,8 @@
 #include "allocator.h"
 #include "timeplot.h"
 
+class TestTmpWriterWorkerGroup;
+
 /**
  * Enumeration of the supported mesher types
  */
@@ -302,6 +304,7 @@ private:
  */
 class OOCMesher : public MesherBase
 {
+    friend class ::TestTmpWriterWorkerGroup;
 public:
     typedef boost::array<float, 3> vertex_type;
     typedef boost::array<cl_uint, 3> triangle_type;
@@ -464,6 +467,7 @@ private:
      */
     class TmpWriterWorkerGroup : public WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>
     {
+        friend class ::TestTmpWriterWorkerGroup;
     private:
         /// File to which vertices are written
         boost::filesystem::ofstream verticesFile;

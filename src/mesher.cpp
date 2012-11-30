@@ -319,13 +319,7 @@ void OOCMesher::updateLocalClumps(
             flushBuffer(tworker);
     }
     if (!reorderBuffer)
-    {
         reorderBuffer = tmpWriter.get(tworker, 1);
-        reorderBuffer->vertices.clear();
-        reorderBuffer->triangles.clear();
-        reorderBuffer->vertexRanges.clear();
-        reorderBuffer->triangleRanges.clear();
-    }
 
     for (clump_id gid = clumpIdFirst; gid < clumpIdLast; gid++)
     {
