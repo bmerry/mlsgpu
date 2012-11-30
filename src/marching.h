@@ -315,7 +315,7 @@ private:
     cl::Buffer indices;
 
     /**
-     * Sort keys corresponding from @ref unweldedVertices.
+     * Sort keys corresponding to @ref unweldedVertices.
      *
      * There is an additional sentinel at the end with value @c ULONG_MAX.
      */

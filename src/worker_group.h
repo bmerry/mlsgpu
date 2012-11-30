@@ -49,14 +49,14 @@ public:
 
     /**
      * Called when the group starts. Reimplement if special action is needed.
-     * Note that a group can be started and stopped multiple time, so this is
+     * Note that a group can be started and stopped multiple times, so this is
      * not equivalent to a constructor.
      */
     void start() {}
 
     /**
      * Called when the group stops. Reimplement if special action is needed.
-     * Note that a group can be started and stopped multiple time, so this is
+     * Note that a group can be started and stopped multiple times, so this is
      * not equivalent to a destructor.
      */
     void stop() {}
