@@ -90,13 +90,24 @@ def analyze_mesher(values):
     times['startup'] = values['mesher.pop.first']
     times['compute'] = values['mesher.compute']
     times['wait-in'] = values['mesher.pop']
+    if 'tmpwriter.get' in values:
+        times['wait-out'] = values['tmpwriter.get'] + values['tmpwriter.push']
     print_breakdown('Mesher', times, values['pass1.time'])
+
+def analyze_tmpwriter(values):
+    if 'tmpwriter.compute' in values:
+        times = OrderedDict()
+        times['startup'] = values['tmpwriter.pop.first']
+        times['compute'] = values['tmpwriter.compute']
+        times['wait-in'] = values['tmpwriter.pop']
+        print_breakdown('TmpWriter', times, values['pass1.time'])
 
 def analyze(values):
     analyze_bucket_coarse(values)
     analyze_bucket_fine(values)
     analyze_device(values)
     analyze_mesher(values)
+    analyze_tmpwriter(values)
 
 def main():
     values = parse_stats(sys.stdin)
