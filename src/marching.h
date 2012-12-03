@@ -363,12 +363,12 @@ private:
     /**
      * The image holding slices of the signed distance function.
      */
-    cl::Image2D backingImages[2];
+    cl::Image2D image;
 
     /**
      * The number of y steps between slices in the backing image.
      */
-    Grid::size_type backingZStride[2];
+    Grid::size_type zStride;
 
     /**
      * @name
@@ -567,17 +567,23 @@ public:
 
 private:
     /**
-     * Represents a single slice within a multi-slice image. Such
-     * images pack slices vertically, so @a yOffset is the number of
-     * pixels to skip vertically to find the slice in question.
-     * zStride is the y spacing between slices.
+     * Copy one slice of the image to another.
+     *
+     * @param queue           Command queue to use for enqueuing work.
+     * @param srcSlice        Z value within image for source
+     * @param trgSlice        Z value within image for destination
+     * @param width, height   Dimensions of slice data to copy.
+     * @param events          Events to wait for before starting (may be @c NULL).
+     * @param[out] event      Event signalled on completion (may be @c NULL).
      */
-    struct Slice
-    {
-        cl::Image2D image;
-        cl_uint yOffset;
-        cl_uint zStride;
-    };
+    void copySlice(
+        const cl::CommandQueue &queue,
+        Grid::size_type srcSlice,
+        Grid::size_type trgSlice,
+        Grid::size_type width,
+        Grid::size_type height,
+        const std::vector<cl::Event> *events,
+        cl::Event *event);
 
     /**
      * Determine which cells in a slice need to be processed further.
@@ -588,15 +594,14 @@ private:
      * geometry, and @ref numOccupied contains the number of cells.
      *
      * @param queue           Command queue to use for enqueuing work.
-     * @param sliceA,sliceB   Images containing isofunction values.
+     * @param slice           Lower of two slice numbers containing isofunction values.
      * @param width,height    Dimensions of the image portions that are populated.
      * @param events          Events to wait for before starting (may be @c NULL).
      *
      * @return The number of cells that need further processing.
      */
     std::size_t generateCells(const cl::CommandQueue &queue,
-                              const Slice &sliceA,
-                              const Slice &sliceB,
+                              Grid::size_type slice,
                               Grid::size_type width, Grid::size_type height,
                               const std::vector<cl::Event> *events);
 
@@ -609,14 +614,13 @@ private:
      * geometry.
      *
      * @param queue           Command queue to use for enqueuing work.
-     * @param sliceA,sliceB   Images containing isofunction values.
+     * @param slice           Lower of two slice numbers containing isofunction values.
      * @param compacted       Number of cells in @ref cells.
      * @param events          Events to wait for before starting (may be @c NULL).
      * @return The total number of vertices and indices that will be generated.
      */
     cl_uint2 countElements(const cl::CommandQueue &queue,
-                           const Slice &sliceA,
-                           const Slice &sliceB,
+                           Grid::size_type slice,
                            std::size_t compacted,
                            const std::vector<cl::Event> *events);
 
@@ -638,7 +642,7 @@ private:
      * @param zMax            Maximum potential z value of vertices (not cells).
      * @param output          Functor to which the welded geometry is passed.
      * @param events          Events to wait for before starting (may be @c NULL).
-     * @param event           Event to wait for before returning (may be @c NULL).
+     * @param[out] event      Event signalled on completion (may be @c NULL).
      */
     void shipOut(const cl::CommandQueue &queue,
                  const cl_uint3 &keyOffset,

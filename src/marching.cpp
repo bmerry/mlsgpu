@@ -257,7 +257,7 @@ CLH::ResourceUsage Marching::resourceUsage(
     (void) device; // not currently used, but should be used to determine usage of clogs
     (void) maxDepth; // has no effect
 
-    CLH::ResourceUsage ans = sliceUsage * 2;
+    CLH::ResourceUsage ans = sliceUsage;
 
     // The asserts above guarantee that these will not overflow
     const std::tr1::uint64_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
@@ -339,9 +339,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
         &Statistics::getStatistic<Statistics::Variable>("kernel.marching.sortVertices.time"));
 
     makeTables();
-    for (unsigned int i = 0; i < 2; i++)
-        backingImages[i] = generator.allocateSlices(
-            maxWidth, maxHeight, generator.maxSlices() + 1, backingZStride[i]);
+    image = generator.allocateSlices(
+        maxWidth, maxHeight, generator.maxSlices() + 1, zStride);
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = getMaxVertices(maxWidth, maxHeight);
@@ -377,16 +376,16 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     countElementsKernel.setArg(0, viCount);
     countElementsKernel.setArg(1, cells);
-    countElementsKernel.setArg(6, countTable);
+    countElementsKernel.setArg(5, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, unweldedVertexKeys);
     generateElementsKernel.setArg(2, indices);
     generateElementsKernel.setArg(3, viCount);
     generateElementsKernel.setArg(4, cells);
-    generateElementsKernel.setArg(9, startTable);
-    generateElementsKernel.setArg(10, dataTable);
-    generateElementsKernel.setArg(11, keyTable);
+    generateElementsKernel.setArg(8, startTable);
+    generateElementsKernel.setArg(9, dataTable);
+    generateElementsKernel.setArg(10, keyTable);
 
     countUniqueVerticesKernel.setArg(0, vertexUnique);
     countUniqueVerticesKernel.setArg(1, unweldedVertexKeys);
@@ -403,9 +402,30 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     reindexKernel.setArg(1, indexRemap);
 }
 
+void Marching::copySlice(
+    const cl::CommandQueue &queue,
+    Grid::size_type srcSlice,
+    Grid::size_type trgSlice,
+    Grid::size_type width,
+    Grid::size_type height,
+    const std::vector<cl::Event> *events,
+    cl::Event *event)
+{
+    cl::size_t<3> srcOrigin, trgOrigin, region;
+    srcOrigin[0] = 0;
+    srcOrigin[1] = srcSlice * zStride;
+    srcOrigin[2] = 0;
+    trgOrigin[0] = 0;
+    trgOrigin[1] = trgSlice * zStride;
+    trgOrigin[2] = 0;
+    region[0] = width;
+    region[1] = height;
+    region[2] = 1;
+    queue.enqueueCopyImage(image, image, srcOrigin, trgOrigin, region, events, event);
+}
+
 std::size_t Marching::generateCells(const cl::CommandQueue &queue,
-                                    const Slice &sliceA,
-                                    const Slice &sliceB,
+                                    Grid::size_type slice,
                                     Grid::size_type width, Grid::size_type height,
                                     const std::vector<cl::Event> *events)
 {
@@ -419,10 +439,9 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
     std::vector<cl::Event> wait(1);
     wait[0] = last;
 
-    genOccupiedKernel.setArg(2, sliceA.image);
-    genOccupiedKernel.setArg(3, sliceA.yOffset);
-    genOccupiedKernel.setArg(4, sliceB.image);
-    genOccupiedKernel.setArg(5, sliceB.yOffset);
+    genOccupiedKernel.setArg(2, image);
+    genOccupiedKernel.setArg(3, slice * zStride);
+    genOccupiedKernel.setArg(4, (slice + 1) * zStride);
     CLH::enqueueNDRangeKernel(queue,
                               genOccupiedKernel,
                               cl::NullRange,
@@ -441,18 +460,16 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 }
 
 cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
-                                 const Slice &sliceA,
-                                 const Slice &sliceB,
+                                 Grid::size_type slice,
                                  std::size_t compacted,
                                  const std::vector<cl::Event> *events)
 {
     cl::Event last;
     std::vector<cl::Event> wait(1);
 
-    countElementsKernel.setArg(2, sliceA.image);
-    countElementsKernel.setArg(3, sliceA.yOffset);
-    countElementsKernel.setArg(4, sliceB.image);
-    countElementsKernel.setArg(5, sliceB.yOffset);
+    countElementsKernel.setArg(2, image);
+    countElementsKernel.setArg(3, slice * zStride);
+    countElementsKernel.setArg(4, (slice + 1) * zStride);
     CLH::enqueueNDRangeKernel(queue,
                               countElementsKernel,
                               cl::NullRange,
@@ -575,43 +592,32 @@ void Marching::generate(
     cl_uint2 offsets = { {0, 0} };
     cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
 
-    Slice sliceA;
-    Slice sliceB = { backingImages[0], backingZStride[0], backingZStride[0] };
-    int nextBacking = 1;
-
     Grid::size_type nSlices = std::min(depth, generator.maxSlices());
-    generator.enqueue(queue, sliceB.image, size, 0, nSlices, sliceB.zStride, 1, events, &last);
+    generator.enqueue(queue, image, size, 0, nSlices, zStride, 0, events, &last);
+    Grid::size_type slice = 0; // image offset of first slice to process
 
     wait[0] = last;
 
     Grid::size_type shipOuts = 0;
     for (Grid::size_type z = 1; z < depth; z++)
     {
-        sliceA = sliceB;
         if (z % nSlices == 0)
         {
-            sliceB.image = backingImages[nextBacking];
-            sliceB.zStride = backingZStride[nextBacking];
-            sliceB.yOffset = sliceB.zStride;
-            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), sliceB.zStride, 1, &wait, &last);
+            // Copy end of previous range to start of current one
+            copySlice(queue, slice, 0, width, height, &wait, &last);
+            slice = 0;
             wait.resize(1);
             wait[0] = last;
 
-            nextBacking = !nextBacking;
-        }
-        else
-        {
-            sliceB.image = sliceA.image;
-            sliceB.yOffset = sliceA.yOffset + sliceA.zStride;
-            sliceB.zStride = sliceA.zStride;
+            generator.enqueue(queue, image, size, z, std::min(z + nSlices, depth), zStride, 1, &wait, &last);
+            wait[0] = last;
         }
 
-        std::size_t compacted = generateCells(queue, sliceA, sliceB,
-                                              width, height, &wait);
+        std::size_t compacted = generateCells(queue, slice, width, height, &wait);
         wait.clear();
         if (compacted > 0)
         {
-            cl_uint2 counts = countElements(queue, sliceA, sliceB, compacted, events);
+            cl_uint2 counts = countElements(queue, slice, compacted, events);
             if (offsets.s[0] + counts.s[0] > vertexSpace
                 || offsets.s[1] + counts.s[1] > indexSpace)
             {
@@ -633,15 +639,14 @@ void Marching::generate(
                 assert(counts.s[1] <= indexSpace);
             }
 
-            generateElementsKernel.setArg(5, sliceA.image);
-            generateElementsKernel.setArg(6, sliceA.yOffset);
-            generateElementsKernel.setArg(7, sliceB.image);
-            generateElementsKernel.setArg(8, sliceB.yOffset);
-            generateElementsKernel.setArg(12, cl_uint(z - 1));
-            generateElementsKernel.setArg(13, keyOffset);
-            generateElementsKernel.setArg(14, offsets);
-            generateElementsKernel.setArg(15, top);
-            generateElementsKernel.setArg(16, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(5, image);
+            generateElementsKernel.setArg(6, slice * zStride);
+            generateElementsKernel.setArg(7, (slice + 1) * zStride);
+            generateElementsKernel.setArg(11, cl_uint(z - 1));
+            generateElementsKernel.setArg(12, keyOffset);
+            generateElementsKernel.setArg(13, offsets);
+            generateElementsKernel.setArg(14, top);
+            generateElementsKernel.setArg(15, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             CLH::enqueueNDRangeKernelSplit(queue,
                                            generateElementsKernel,
                                            cl::NullRange,
@@ -655,6 +660,7 @@ void Marching::generate(
             offsets.s[1] += counts.s[1];
         }
         nonempty.add(compacted > 0);
+        slice++;
     }
     if (offsets.s[0] > 0)
     {

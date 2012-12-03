@@ -105,10 +105,9 @@ public:
     MlsFunctor(const cl::Context &context, MlsShape shape);
 
     /**
-     * Determines the resource usage of calling @ref allocateSlices, assuming a
-     * depth of @ref maxSlices().
+     * Determines the resource usage of calling @ref allocateSlices.
      */
-    static CLH::ResourceUsage sliceResourceUsage(Grid::size_type width, Grid::size_type height);
+    static CLH::ResourceUsage sliceResourceUsage(Grid::size_type width, Grid::size_type height, Grid::size_type depth);
 
     /**
      * Specify the parameters. This must be called before using this object as a functor.
