@@ -379,7 +379,6 @@ private:
     /** @} */
 
     cl::Kernel genOccupiedKernel;           ///< Kernel compiled from @ref genOccupied.
-    cl::Kernel countElementsKernel;         ///< Kernel compiled from @ref countElements.
     cl::Kernel generateElementsKernel;      ///< Kernel compiled from @ref generateElements.
     cl::Kernel countUniqueVerticesKernel;   ///< Kernel compiled from @ref countUniqueVertices.
     cl::Kernel compactVerticesKernel;       ///< Kernel compiled from @ref compactVerticesKernel.
@@ -391,7 +390,6 @@ private:
      * Statistics measuring time spent in kernels with corresponding names.
      */
     Statistics::Variable &genOccupiedKernelTime;
-    Statistics::Variable &countElementsKernelTime;
     Statistics::Variable &generateElementsKernelTime;
     Statistics::Variable &countUniqueVerticesKernelTime;
     Statistics::Variable &compactVerticesKernelTime;
@@ -586,12 +584,14 @@ private:
         cl::Event *event);
 
     /**
-     * Determine which cells in a slice need to be processed further.
+     * Determine which cells in a slice need to be processed further,
+     * and produce per-cell counts of vertices and indices.
      * This function may wait for previous events, but operates
      * synchronously. On input, two images contain adjacent slices of
      * samples of the function. On output, @ref cells contains a list
      * of x,y pairs giving the coordinates of the cells that will generate
-     * geometry, and @ref numOccupied contains the number of cells.
+     * geometry, @ref viCount contains the vertex and index counts per
+     * cell, and @ref numOccupied contains the number of cells.
      *
      * @param queue           Command queue to use for enqueuing work.
      * @param slice           Lower of two slice numbers containing isofunction values.
@@ -606,21 +606,21 @@ private:
                               const std::vector<cl::Event> *events);
 
     /**
-     * Count the number of (unwelded) vertices and indices that will be generated
-     * by each (compacted) cell. This function may wait for previous work,
-     * but does its own work synchronously and so does not return an event.
-     * On output, @ref viCount contains pairs of offsets into the vertex
-     * and index outputs that indicate where each cell should emit its
-     * geometry.
+     * Scan the unwelded element counts to determine locations and the total
+     * number of vertices and indices that will be generated.  This function
+     * may wait for previous work, but does its own work synchronously and so
+     * does not return an event.
      *
      * @param queue           Command queue to use for enqueuing work.
-     * @param slice           Lower of two slice numbers containing isofunction values.
-     * @param compacted       Number of cells in @ref cells.
+     * @param compacted       Number of cells (returned by @ref generateCells).
      * @param events          Events to wait for before starting (may be @c NULL).
      * @return The total number of vertices and indices that will be generated.
+     *
+     * @pre @ref viCount contains per-cell counts of vertices and indices
+     * @post @ref viCount contains pairs of offsets into the vertex and index
+     * outputs that indicate where each cell should emit its geometry.
      */
     cl_uint2 countElements(const cl::CommandQueue &queue,
-                           Grid::size_type slice,
                            std::size_t compacted,
                            const std::vector<cl::Event> *events);
 

@@ -314,7 +314,6 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
     context(context),
     genOccupiedKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.genOccupied.time")),
-    countElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countElements.time")),
     generateElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.generateElements.time")),
     countUniqueVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countUniqueVertices.time")),
     compactVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.compactVertices.time")),
@@ -364,7 +363,6 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     cl::Program program = CLH::build(context, std::vector<cl::Device>(1, device), "kernels/marching.cl");
     genOccupiedKernel = cl::Kernel(program, "genOccupied");
-    countElementsKernel = cl::Kernel(program, "countElements");
     generateElementsKernel = cl::Kernel(program, "generateElements");
     countUniqueVerticesKernel = cl::Kernel(program, "countUniqueVertices");
     compactVerticesKernel = cl::Kernel(program, "compactVertices");
@@ -372,11 +370,9 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     // Set up kernel arguments that never change.
     genOccupiedKernel.setArg(0, cells);
-    genOccupiedKernel.setArg(1, numOccupied);
-
-    countElementsKernel.setArg(0, viCount);
-    countElementsKernel.setArg(1, cells);
-    countElementsKernel.setArg(5, countTable);
+    genOccupiedKernel.setArg(1, viCount);
+    genOccupiedKernel.setArg(2, numOccupied);
+    genOccupiedKernel.setArg(6, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, unweldedVertexKeys);
@@ -439,9 +435,9 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
     std::vector<cl::Event> wait(1);
     wait[0] = last;
 
-    genOccupiedKernel.setArg(2, image);
-    genOccupiedKernel.setArg(3, slice * zStride);
-    genOccupiedKernel.setArg(4, (slice + 1) * zStride);
+    genOccupiedKernel.setArg(3, image);
+    genOccupiedKernel.setArg(4, slice * zStride);
+    genOccupiedKernel.setArg(5, (slice + 1) * zStride);
     CLH::enqueueNDRangeKernel(queue,
                               genOccupiedKernel,
                               cl::NullRange,
@@ -460,25 +456,13 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 }
 
 cl_uint2 Marching::countElements(const cl::CommandQueue &queue,
-                                 Grid::size_type slice,
                                  std::size_t compacted,
                                  const std::vector<cl::Event> *events)
 {
     cl::Event last;
     std::vector<cl::Event> wait(1);
 
-    countElementsKernel.setArg(2, image);
-    countElementsKernel.setArg(3, slice * zStride);
-    countElementsKernel.setArg(4, (slice + 1) * zStride);
-    CLH::enqueueNDRangeKernel(queue,
-                              countElementsKernel,
-                              cl::NullRange,
-                              cl::NDRange(compacted),
-                              cl::NullRange,
-                              events, &last, &countElementsKernelTime);
-    wait[0] = last;
-
-    scanElements.enqueue(queue, viCount, compacted + 1, NULL, &wait, &last);
+    scanElements.enqueue(queue, viCount, compacted + 1, NULL, events, &last);
     wait[0] = last;
 
     queue.enqueueReadBuffer(viCount, CL_TRUE, compacted * sizeof(cl_uint2), sizeof(cl_uint2),
@@ -617,7 +601,7 @@ void Marching::generate(
         wait.clear();
         if (compacted > 0)
         {
-            cl_uint2 counts = countElements(queue, slice, compacted, events);
+            cl_uint2 counts = countElements(queue, compacted, events);
             if (offsets.s[0] + counts.s[0] > vertexSpace
                 || offsets.s[1] + counts.s[1] > indexSpace)
             {

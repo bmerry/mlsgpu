@@ -44,25 +44,30 @@ inline bool isValid(const float iso[8])
 
 /**
  * For each cell which might produce triangles, appends the coordinates of the
- * cell to a buffer. It only needs to be conservative - nothing bad will happen
- * if it emits cells that end up producing nothing.
+ * cell to a buffer and the count of vertices and triangles to another.
  *
  * There is one work-item per cell in a slice, arranged in a 2D NDRange.
  *
  * @param[out] occupied      List of cell coordinates for occupied cells
+ * @param[out] viCount       Number of triangles+indices per cell.
  * @param[in,out] N          Number of occupied cells, incremented atomically
  * @param      isoImage      Image holding samples.
  * @param      yOffsetA      Initial Y offset in iso for lower z.
  * @param      yOffsetB      Initial Y offset in iso for higher z.
+ * @param      countTable    Lookup table of counts per cube code.
  *
- * @todo Explore Morton order, which will have been texture cache hits.
+ * @todo
+ * - Explore Morton order, which will have better texture cache hits.
+ * - Consider storing the count table in an image
  */
 __kernel void genOccupied(
-    __global uint2 *occupied,
-    volatile __global uint *N,
+    __global uint2 * restrict occupied,
+    __global uint2 * restrict viCount,
+    volatile __global uint * restrict N,
     __read_only image2d_t isoImage,
     uint yOffsetA,
-    uint yOffsetB)
+    uint yOffsetB,
+    __constant uchar2 * restrict countTable)
 {
     uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
 
@@ -83,43 +88,8 @@ __kernel void genOccupied(
     {
         uint pos = atomic_inc(N);
         occupied[pos] = gid;
+        viCount[pos] = convert_uint2(countTable[code]);
     }
-}
-
-/**
- * Count the number of triangles and indices produced by each cell.
- * There is one work-item per compacted cell.
- *
- * @param[out] viCount         Number of triangles+indices per cells.
- * @param      cells           Cell list written by @ref genOccupied.
- * @param      isoImage        Image holding samples.
- * @param      yOffsetA        Initial Y offset in iso for lower z.
- * @param      yOffsetB        Initial Y offset in iso for higher z.
- * @param      countTable      Lookup table of counts per cube code.
- */
-__kernel void countElements(
-    __global uint2 * restrict viCount,
-    __global const uint2 * restrict cells,
-    __read_only image2d_t isoImage,
-    uint yOffsetA,
-    uint yOffsetB,
-    __global const uchar2 * restrict countTable)
-{
-    uint gid = get_global_id(0);
-    uint2 cell = cells[gid];
-
-    float iso[8];
-    iso[0] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (0, yOffsetA))).x;
-    iso[1] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (1, yOffsetA))).x;
-    iso[2] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (0, yOffsetA + 1))).x;
-    iso[3] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (1, yOffsetA + 1))).x;
-    iso[4] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (0, yOffsetB))).x;
-    iso[5] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (1, yOffsetB))).x;
-    iso[6] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (0, yOffsetB + 1))).x;
-    iso[7] = read_imagef(isoImage, nearest, convert_int2(cell + (uint2) (1, yOffsetB + 1))).x;
-
-    uint code = makeCode(iso);
-    viCount[gid] = convert_uint2(countTable[code]);
 }
 
 /**
