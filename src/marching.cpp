@@ -341,7 +341,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
         backingImages[i] = generator.allocateSlices(
-            maxWidth, maxHeight, generator.maxSlices(), backingZStride[i]);
+            maxWidth, maxHeight, generator.maxSlices() + 1, backingZStride[i]);
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = getMaxVertices(maxWidth, maxHeight);
@@ -576,11 +576,11 @@ void Marching::generate(
     cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
 
     Slice sliceA;
-    Slice sliceB = { backingImages[0], 0, backingZStride[0] };
+    Slice sliceB = { backingImages[0], backingZStride[0], backingZStride[0] };
     int nextBacking = 1;
 
     Grid::size_type nSlices = std::min(depth, generator.maxSlices());
-    generator.enqueue(queue, sliceB.image, size, 0, nSlices, sliceB.zStride, 0, events, &last);
+    generator.enqueue(queue, sliceB.image, size, 0, nSlices, sliceB.zStride, 1, events, &last);
 
     wait[0] = last;
 
@@ -592,8 +592,8 @@ void Marching::generate(
         {
             sliceB.image = backingImages[nextBacking];
             sliceB.zStride = backingZStride[nextBacking];
-            sliceB.yOffset = 0;
-            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), sliceB.zStride, 0, &wait, &last);
+            sliceB.yOffset = sliceB.zStride;
+            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), sliceB.zStride, 1, &wait, &last);
             wait.resize(1);
             wait[0] = last;
 

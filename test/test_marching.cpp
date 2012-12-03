@@ -69,7 +69,7 @@ public:
     {
         CPPUNIT_ASSERT(width > 0);
         CPPUNIT_ASSERT(height > 0);
-        CPPUNIT_ASSERT(0 < depth && depth <= maxSlices());
+        CPPUNIT_ASSERT(depth > 0);
 
         zStride = height + 1;
         return cl::Image2D(context, CL_MEM_READ_ONLY, cl::ImageFormat(CL_R, CL_FLOAT),

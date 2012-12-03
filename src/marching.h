@@ -170,7 +170,7 @@ public:
          * @param width,height,depth   Dimensions of the data
          * @param[out] zStride         Y steps between slices
          *
-         * @pre @a depth &lt;= @ref maxSlices().
+         * @pre @a width, @a height and @a depth are positive.
          * @post @a zStride &gt;= @a height
          *
          * @return An image of dimensions at least @a width by @a zStride * @a depth.
