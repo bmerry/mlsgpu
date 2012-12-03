@@ -85,11 +85,13 @@ CLH::ResourceUsage MlsFunctor::sliceResourceUsage(Grid::size_type width, Grid::s
 }
 
 cl::Image2D MlsFunctor::allocateSlices(
-    Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
+    Grid::size_type width, Grid::size_type height, Grid::size_type depth,
+    Grid::size_type &zStride) const
 {
     width = roundUp(width, wgs[0]);
     height = roundUp(height, wgs[1]);
     depth = roundUp(depth, wgs[2]);
+    zStride = height;
 
     return cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
                        width, height * depth);
@@ -100,21 +102,22 @@ void MlsFunctor::enqueue(
     const cl::Image2D &distance,
     const Grid::size_type size[3],
     Grid::size_type zFirst, Grid::size_type zLast,
-    Grid::size_type &zStride,
+    Grid::size_type zStride,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     Grid::size_type width = roundUp(size[0], wgs[0]);
     Grid::size_type height = roundUp(size[1], wgs[1]);
 
-    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);
-    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= height * (zLast - zFirst), std::length_error);
+    MLSGPU_ASSERT(zStride == height, std::invalid_argument);
     MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
     MLSGPU_ASSERT(zFirst % wgs[2] == 0, std::invalid_argument);
+    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);
+    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst), std::length_error);
 
     kernel.setArg(0, distance);
     kernel.setArg(6, cl_int(zFirst));
-    kernel.setArg(7, cl_int(height));
+    kernel.setArg(7, cl_int(zStride));
 
     const std::size_t wgs3 = wgs[0] * wgs[1] * wgs[2];
     const std::size_t blocks[3] =
@@ -130,7 +133,6 @@ void MlsFunctor::enqueue(
                               cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
                               cl::NDRange(wgs3, 1, 1),
                               events, event, &kernelTime);
-    zStride = height;
 }
 
 void MlsFunctor::setBoundaryLimit(float limit)

@@ -340,7 +340,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     makeTables();
     for (unsigned int i = 0; i < 2; i++)
-        backingImages[i] = generator.allocateSlices(maxWidth, maxHeight, generator.maxSlices());
+        backingImages[i] = generator.allocateSlices(
+            maxWidth, maxHeight, generator.maxSlices(), backingZStride[i]);
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     vertexSpace = getMaxVertices(maxWidth, maxHeight);
@@ -575,12 +576,11 @@ void Marching::generate(
     cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
 
     Slice sliceA;
-    Slice sliceB = { backingImages[0], 0 };
+    Slice sliceB = { backingImages[0], 0, backingZStride[0] };
     int nextBacking = 1;
 
     Grid::size_type nSlices = std::min(depth, generator.maxSlices());
-    Grid::size_type zStride;
-    generator.enqueue(queue, sliceB.image, size, 0, nSlices, zStride, events, &last);
+    generator.enqueue(queue, sliceB.image, size, 0, nSlices, sliceB.zStride, events, &last);
 
     wait[0] = last;
 
@@ -591,8 +591,9 @@ void Marching::generate(
         if (z % nSlices == 0)
         {
             sliceB.image = backingImages[nextBacking];
+            sliceB.zStride = backingZStride[nextBacking];
             sliceB.yOffset = 0;
-            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), zStride, &wait, &last);
+            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), sliceB.zStride, &wait, &last);
             wait.resize(1);
             wait[0] = last;
 
@@ -601,7 +602,8 @@ void Marching::generate(
         else
         {
             sliceB.image = sliceA.image;
-            sliceB.yOffset = sliceA.yOffset + zStride;
+            sliceB.yOffset = sliceA.yOffset + sliceA.zStride;
+            sliceB.zStride = sliceA.zStride;
         }
 
         std::size_t compacted = generateCells(queue, sliceA, sliceB,

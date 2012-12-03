@@ -167,11 +167,17 @@ public:
          * desires. This may be useful if it uses a fixed workgroup size which
          * would otherwise cause it to access outside the image dimensions.
          *
-         * @pre @a depth &lt;= @ref maxSlices().
+         * @param width,height,depth   Dimensions of the data
+         * @param[out] zStride         Y steps between slices
          *
-         * @return An image of dimensions at least @a width by @a height * @a depth.
+         * @pre @a depth &lt;= @ref maxSlices().
+         * @post @a zStride &gt;= @a height
+         *
+         * @return An image of dimensions at least @a width by @a zStride * @a depth.
          */
-        virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const = 0;
+        virtual cl::Image2D allocateSlices(
+            Grid::size_type width, Grid::size_type height, Grid::size_type depth,
+            Grid::size_type &zStride) const = 0;
 
         /**
          * Enqueue CL work to compute the signed distance function.
@@ -183,7 +189,7 @@ public:
          * @param distance              Output storage for the signed distance function
          * @param size                  The dimensions of the entire volume.
          * @param zFirst, zLast         Half-open range of Z values to process.
-         * @param[out] zStride          Y step between slices.
+         * @param zStride               Y step between slices, as returned by @ref allocateSlices
          * @param events                Events to wait for (may be @c NULL).
          * @param[out] event            Event signaled on completion (may be @c NULL).
          *
@@ -192,19 +198,19 @@ public:
          * - 0 &lt;= @a zFirst &lt; @a zLast &lt;= @a size[2].
          * - @a distance was allocated using @ref allocateSlices with dimensions at
          *      least @a size[0], @a size[1], (@a zLast - @a zFirst).
+         * - @a zStride is the same value returned by @ref allocateSlices
          * - @a zFirst is a multiple of @ref maxSlices().
          * - @a zLast &lt; @a zFirst + @ref maxSlices().
          * @post
          * - The signed distance for point (x, y, z) in the volume will be stored
          *   in @a distance at coordinates x, y + (z - zFirst) * zStride.
-         * - @a zStride is at least @a size[1].
          */
         virtual void enqueue(
             const cl::CommandQueue &queue,
             const cl::Image2D &distance,
             const Grid::size_type size[3],
             Grid::size_type zFirst, Grid::size_type zLast,
-            Grid::size_type &zStride,
+            Grid::size_type zStride,
             const std::vector<cl::Event> *events,
             cl::Event *event) = 0;
     };
@@ -355,6 +361,11 @@ private:
      * The images holding two slices of the signed distance function.
      */
     cl::Image2D backingImages[2];
+
+    /**
+     * The zStride values for the two backing images
+     */
+    Grid::size_type backingZStride[2];
 
     /**
      * @name
@@ -556,11 +567,13 @@ private:
      * Represents a single slice within a multi-slice image. Such
      * images pack slices vertically, so @a yOffset is the number of
      * pixels to skip vertically to find the slice in question.
+     * zStride is the y spacing between slices.
      */
     struct Slice
     {
         cl::Image2D image;
         cl_uint yOffset;
+        cl_uint zStride;
     };
 
     /**

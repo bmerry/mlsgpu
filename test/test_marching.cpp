@@ -63,16 +63,17 @@ public:
         return 11; // a non power-of-two to make sure that works
     }
 
-    virtual cl::Image2D allocateSlices(Grid::size_type width, Grid::size_type height, Grid::size_type depth) const
+    virtual cl::Image2D allocateSlices(
+        Grid::size_type width, Grid::size_type height, Grid::size_type depth,
+        Grid::size_type &zStride) const
     {
         CPPUNIT_ASSERT(width > 0);
         CPPUNIT_ASSERT(height > 0);
         CPPUNIT_ASSERT(0 < depth && depth <= maxSlices());
 
-        // We use a zStride to height + 1 instead of the usual height, to check
-        // that it is applied correctly.
+        zStride = height + 1;
         return cl::Image2D(context, CL_MEM_READ_ONLY, cl::ImageFormat(CL_R, CL_FLOAT),
-                           width, (height + 1) * depth);
+                           width, zStride * depth);
     }
 
     virtual void enqueue(
@@ -80,11 +81,11 @@ public:
         const cl::Image2D &distance,
         const Grid::size_type size[3],
         Grid::size_type zFirst, Grid::size_type zLast,
-        Grid::size_type &zStride,
+        Grid::size_type zStride,
         const std::vector<cl::Event> *events,
         cl::Event *event)
     {
-        zStride = size[1] + 1; // see comment in allocateSlices
+        CPPUNIT_ASSERT(zStride >= size[1] + 1); // see comment in allocateSlices
         CPPUNIT_ASSERT(0 < size[0]);
         CPPUNIT_ASSERT(0 < size[1]);
         CPPUNIT_ASSERT(0 < size[2]);

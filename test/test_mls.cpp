@@ -448,9 +448,9 @@ void TestMls::testProcessCorners()
                          hCommands.size() * sizeof(SplatTreeCL::command_type), &hCommands[0]);
 
     MlsFunctor generator(context, MLS_SHAPE_SPHERE);
-    cl::Image2D dCorners = generator.allocateSlices(size[0], size[1], zLast - zFirst);
-
     Grid::size_type zStride;
+    cl::Image2D dCorners = generator.allocateSlices(size[0], size[1], zLast - zFirst, zStride);
+
     generator.set(offset, dSplats, dCommands, dStart, subsampling);
     generator.enqueue(queue, dCorners, size, zFirst, zLast, zStride, NULL, NULL);
     queue.finish();

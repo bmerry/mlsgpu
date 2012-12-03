@@ -136,7 +136,8 @@ public:
      * @ref wgs.
      */
     virtual cl::Image2D allocateSlices(
-        Grid::size_type width, Grid::size_type height, Grid::size_type depth) const;
+        Grid::size_type width, Grid::size_type height, Grid::size_type depth,
+        Grid::size_type &zStride) const;
 
     /**
      * @pre The tree passed to @ref set was constructed with dimensions at least
@@ -147,7 +148,7 @@ public:
         const cl::Image2D &distance,
         const Grid::size_type size[3],
         Grid::size_type zFirst, Grid::size_type zLast,
-        Grid::size_type &zStride,
+        Grid::size_type zStride,
         const std::vector<cl::Event> *events,
         cl::Event *event);
 
