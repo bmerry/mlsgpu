@@ -580,7 +580,7 @@ void Marching::generate(
     int nextBacking = 1;
 
     Grid::size_type nSlices = std::min(depth, generator.maxSlices());
-    generator.enqueue(queue, sliceB.image, size, 0, nSlices, sliceB.zStride, events, &last);
+    generator.enqueue(queue, sliceB.image, size, 0, nSlices, sliceB.zStride, 0, events, &last);
 
     wait[0] = last;
 
@@ -593,7 +593,7 @@ void Marching::generate(
             sliceB.image = backingImages[nextBacking];
             sliceB.zStride = backingZStride[nextBacking];
             sliceB.yOffset = 0;
-            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), sliceB.zStride, &wait, &last);
+            generator.enqueue(queue, sliceB.image, size, z, std::min(z + nSlices, depth), sliceB.zStride, 0, &wait, &last);
             wait.resize(1);
             wait[0] = last;
 

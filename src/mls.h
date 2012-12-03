@@ -148,7 +148,7 @@ public:
         const cl::Image2D &distance,
         const Grid::size_type size[3],
         Grid::size_type zFirst, Grid::size_type zLast,
-        Grid::size_type zStride,
+        Grid::size_type zStride, Grid::size_type zOffset,
         const std::vector<cl::Event> *events,
         cl::Event *event);
 

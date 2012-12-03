@@ -190,6 +190,7 @@ public:
          * @param size                  The dimensions of the entire volume.
          * @param zFirst, zLast         Half-open range of Z values to process.
          * @param zStride               Y step between slices, as returned by @ref allocateSlices
+         * @param zOffset               Number slices to skip over in the output image
          * @param events                Events to wait for (may be @c NULL).
          * @param[out] event            Event signaled on completion (may be @c NULL).
          *
@@ -197,20 +198,22 @@ public:
          * - All elements of @a size are positive.
          * - 0 &lt;= @a zFirst &lt; @a zLast &lt;= @a size[2].
          * - @a distance was allocated using @ref allocateSlices with dimensions at
-         *      least @a size[0], @a size[1], (@a zLast - @a zFirst).
+         *      least @a size[0], @a size[1], (@a zLast - @a zFirst) + @a zOffset.
          * - @a zStride is the same value returned by @ref allocateSlices
          * - @a zFirst is a multiple of @ref maxSlices().
          * - @a zLast &lt; @a zFirst + @ref maxSlices().
          * @post
          * - The signed distance for point (x, y, z) in the volume will be stored
-         *   in @a distance at coordinates x, y + (z - zFirst) * zStride.
+         *   in @a distance at coordinates x, y + (z - zFirst + zOffset) * zStride.
+         * - The pixels for slices skipped by @a zOffset are unaffected.
+         * - Other pixels in the image have undefined values.
          */
         virtual void enqueue(
             const cl::CommandQueue &queue,
             const cl::Image2D &distance,
             const Grid::size_type size[3],
             Grid::size_type zFirst, Grid::size_type zLast,
-            Grid::size_type zStride,
+            Grid::size_type zStride, Grid::size_type zOffset,
             const std::vector<cl::Event> *events,
             cl::Event *event) = 0;
     };
@@ -358,12 +361,12 @@ private:
     cl::Buffer firstExternal;
 
     /**
-     * The images holding two slices of the signed distance function.
+     * The image holding slices of the signed distance function.
      */
     cl::Image2D backingImages[2];
 
     /**
-     * The zStride values for the two backing images
+     * The number of y steps between slices in the backing image.
      */
     Grid::size_type backingZStride[2];
 

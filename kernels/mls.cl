@@ -270,6 +270,7 @@ inline float3 projectOriginPlane(const Plane * restrict plane)
  * @param      offset      Difference between global grid coordinates and the local region of interest.
  * @param      zFirst      Z value of the first slice, in local region coordinates.
  * @param      zStride     Y pixels between stacked Z slices.
+ * @param      zOffset     Number of slices to skip over in the image.
  * @param      boundaryFactor Value of \f$1 - \gamma^2\f$ where \f$\gamma\f$ is the maximum
  *                         normalised distance between the projection point and the weighted
  *                         center of the region.
@@ -287,6 +288,7 @@ void processCorners(
     int3 offset,
     int zFirst,
     uint zStride,
+    uint zOffset,
     float boundaryFactor)
 {
     __local command_type lSplatIds[MAX_BUCKET];
@@ -409,7 +411,7 @@ void processCorners(
 
     int3 lid3 = decode(lid);
     int2 outCoord = wid.xy + lid3.xy;
-    outCoord.y += (get_group_id(2) * WGS_Z + lid3.z) * zStride;
+    outCoord.y += (get_group_id(2) * WGS_Z + lid3.z + zOffset) * zStride;
     write_imagef(corners, outCoord, f);
 }
 

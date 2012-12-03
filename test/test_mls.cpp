@@ -449,10 +449,11 @@ void TestMls::testProcessCorners()
 
     MlsFunctor generator(context, MLS_SHAPE_SPHERE);
     Grid::size_type zStride;
-    cl::Image2D dCorners = generator.allocateSlices(size[0], size[1], zLast - zFirst, zStride);
+    Grid::size_type zOffset = 3;
+    cl::Image2D dCorners = generator.allocateSlices(size[0], size[1], zLast - zFirst + zOffset, zStride);
 
     generator.set(offset, dSplats, dCommands, dStart, subsampling);
-    generator.enqueue(queue, dCorners, size, zFirst, zLast, zStride, NULL, NULL);
+    generator.enqueue(queue, dCorners, size, zFirst, zLast, zStride, zOffset, NULL, NULL);
     queue.finish();
 
     // Read back and verify results
@@ -460,7 +461,7 @@ void TestMls::testProcessCorners()
     {
         cl_float hCorners[sizeY][sizeX];
         cl::size_t<3> origin, region;
-        origin[0] = 0; origin[1] = zStride * (z - zFirst); origin[2] = 0;
+        origin[0] = 0; origin[1] = zStride * (z - zFirst + zOffset); origin[2] = 0;
         region[0] = size[0]; region[1] = size[1]; region[2] = 1;
         queue.enqueueReadImage(dCorners, CL_TRUE, origin, region, 0, 0, &hCorners[0][0]);
 

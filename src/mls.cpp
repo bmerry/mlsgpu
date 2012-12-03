@@ -102,7 +102,7 @@ void MlsFunctor::enqueue(
     const cl::Image2D &distance,
     const Grid::size_type size[3],
     Grid::size_type zFirst, Grid::size_type zLast,
-    Grid::size_type zStride,
+    Grid::size_type zStride, Grid::size_type zOffset,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
@@ -113,11 +113,12 @@ void MlsFunctor::enqueue(
     MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
     MLSGPU_ASSERT(zFirst % wgs[2] == 0, std::invalid_argument);
     MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);
-    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst), std::length_error);
+    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst + zOffset), std::length_error);
 
     kernel.setArg(0, distance);
     kernel.setArg(6, cl_int(zFirst));
-    kernel.setArg(7, cl_int(zStride));
+    kernel.setArg(7, cl_uint(zStride));
+    kernel.setArg(8, cl_uint(zOffset));
 
     const std::size_t wgs3 = wgs[0] * wgs[1] * wgs[2];
     const std::size_t blocks[3] =
@@ -141,5 +142,5 @@ void MlsFunctor::setBoundaryLimit(float limit)
     // uniform distribution of samples and a straight boundary
     const float boundaryScale = (sqrt(6.0f) * 512) / (693 * boost::math::constants::pi<float>());
     const float gamma = boundaryScale * limit;
-    kernel.setArg(8, 1.0f - gamma * gamma);
+    kernel.setArg(9, 1.0f - gamma * gamma);
 }

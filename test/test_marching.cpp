@@ -81,7 +81,7 @@ public:
         const cl::Image2D &distance,
         const Grid::size_type size[3],
         Grid::size_type zFirst, Grid::size_type zLast,
-        Grid::size_type zStride,
+        Grid::size_type zStride, Grid::size_type zOffset,
         const std::vector<cl::Event> *events,
         cl::Event *event)
     {
@@ -95,7 +95,7 @@ public:
         CPPUNIT_ASSERT(zFirst < zLast && zLast <= size[2]);
         CPPUNIT_ASSERT(zLast - zFirst <= maxSlices());
         CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= size[0]);
-        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst));
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst + zOffset));
 
         std::vector<cl::Event> wait;
         cl::Event last;
@@ -111,7 +111,7 @@ public:
                 }
 
             cl::size_t<3> origin, region;
-            origin[0] = 0; origin[1] = zStride * (z - zFirst); origin[2] = 0;
+            origin[0] = 0; origin[1] = zStride * (z - zFirst + zOffset); origin[2] = 0;
             region[0] = size[0]; region[1] = size[1]; region[2] = 1;
             queue.enqueueWriteImage(distance, CL_TRUE, origin, region,
                                     size[0] * sizeof(float), 0, &sliceData[0],
