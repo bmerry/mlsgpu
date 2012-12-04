@@ -266,8 +266,8 @@ CLH::ResourceUsage Marching::resourceUsage(
 
     // Keep this in sync with the actual allocations below
 
-    // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
-    ans.addBuffer(sliceCells * sizeof(cl_uint2));
+    // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint3));
+    ans.addBuffer(sliceCells * sizeof(cl_uint3));
 
     // numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     ans.addBuffer(sizeof(cl_uint));
@@ -346,7 +346,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     indexSpace = getMaxTriangles(maxWidth, maxHeight) * 3;
 
     // If these are updated, also update deviceMemory
-    cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint2));
+    cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint3));
     numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
     vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
@@ -372,16 +372,16 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     genOccupiedKernel.setArg(0, cells);
     genOccupiedKernel.setArg(1, viCount);
     genOccupiedKernel.setArg(2, numOccupied);
-    genOccupiedKernel.setArg(6, countTable);
+    genOccupiedKernel.setArg(5, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, unweldedVertexKeys);
     generateElementsKernel.setArg(2, indices);
     generateElementsKernel.setArg(3, viCount);
     generateElementsKernel.setArg(4, cells);
-    generateElementsKernel.setArg(8, startTable);
-    generateElementsKernel.setArg(9, dataTable);
-    generateElementsKernel.setArg(10, keyTable);
+    generateElementsKernel.setArg(6, startTable);
+    generateElementsKernel.setArg(7, dataTable);
+    generateElementsKernel.setArg(8, keyTable);
 
     countUniqueVerticesKernel.setArg(0, vertexUnique);
     countUniqueVerticesKernel.setArg(1, unweldedVertexKeys);
@@ -436,14 +436,14 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
     wait[0] = last;
 
     genOccupiedKernel.setArg(3, image);
-    genOccupiedKernel.setArg(4, slice * zStride);
-    genOccupiedKernel.setArg(5, (slice + 1) * zStride);
-    CLH::enqueueNDRangeKernel(queue,
-                              genOccupiedKernel,
-                              cl::NullRange,
-                              cl::NDRange(width - 1, height - 1),
-                              cl::NullRange,
-                              &wait, &last, &genOccupiedKernelTime);
+    genOccupiedKernel.setArg(4, zStride);
+    CLH::enqueueNDRangeKernelSplit(
+        queue,
+        genOccupiedKernel,
+        cl::NDRange(0, 0, slice),
+        cl::NDRange(width - 1, height - 1, 1),
+        cl::NullRange,
+        &wait, &last, &genOccupiedKernelTime);
 
     wait[0] = last;
 
@@ -624,13 +624,12 @@ void Marching::generate(
             }
 
             generateElementsKernel.setArg(5, image);
-            generateElementsKernel.setArg(6, slice * zStride);
-            generateElementsKernel.setArg(7, (slice + 1) * zStride);
-            generateElementsKernel.setArg(11, cl_uint(z - 1));
-            generateElementsKernel.setArg(12, keyOffset);
-            generateElementsKernel.setArg(13, offsets);
-            generateElementsKernel.setArg(14, top);
-            generateElementsKernel.setArg(15, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+            generateElementsKernel.setArg(9, zStride);
+            generateElementsKernel.setArg(10, cl_uint(z - 1 - slice));
+            generateElementsKernel.setArg(11, keyOffset);
+            generateElementsKernel.setArg(12, offsets);
+            generateElementsKernel.setArg(13, top);
+            generateElementsKernel.setArg(14, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
             CLH::enqueueNDRangeKernelSplit(queue,
                                            generateElementsKernel,
                                            cl::NullRange,

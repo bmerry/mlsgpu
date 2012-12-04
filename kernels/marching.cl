@@ -46,14 +46,14 @@ inline bool isValid(const float iso[8])
  * For each cell which might produce triangles, appends the coordinates of the
  * cell to a buffer and the count of vertices and triangles to another.
  *
- * There is one work-item per cell in a slice, arranged in a 2D NDRange.
+ * There is one work-item per cell in a slice, arranged in a 3D NDRange. The
+ * Z coordinate indexes the image rather than the local volume.
  *
  * @param[out] occupied      List of cell coordinates for occupied cells
  * @param[out] viCount       Number of triangles+indices per cell.
  * @param[in,out] N          Number of occupied cells, incremented atomically
  * @param      isoImage      Image holding samples.
- * @param      yOffsetA      Initial Y offset in iso for lower z.
- * @param      yOffsetB      Initial Y offset in iso for higher z.
+ * @param      zStride       Y steps between slices.
  * @param      countTable    Lookup table of counts per cube code.
  *
  * @todo
@@ -61,25 +61,26 @@ inline bool isValid(const float iso[8])
  * - Consider storing the count table in an image
  */
 __kernel void genOccupied(
-    __global uint2 * restrict occupied,
+    __global uint3 * restrict occupied,
     __global uint2 * restrict viCount,
     volatile __global uint * restrict N,
     __read_only image2d_t isoImage,
-    uint yOffsetA,
-    uint yOffsetB,
+    uint zStride,
     __constant uchar2 * restrict countTable)
 {
-    uint2 gid = (uint2) (get_global_id(0), get_global_id(1));
+    uint3 gid = (uint3) (get_global_id(0), get_global_id(1), get_global_id(2));
+    uint y0 = gid.y + zStride * gid.z;
+    uint y1 = y0 + zStride;
 
     float iso[8];
-    iso[0] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (0, yOffsetA))).x;
-    iso[1] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (1, yOffsetA))).x;
-    iso[2] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (0, yOffsetA + 1))).x;
-    iso[3] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (1, yOffsetA + 1))).x;
-    iso[4] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (0, yOffsetB))).x;
-    iso[5] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (1, yOffsetB))).x;
-    iso[6] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (0, yOffsetB + 1))).x;
-    iso[7] = read_imagef(isoImage, nearest, convert_int2(gid + (uint2) (1, yOffsetB + 1))).x;
+    iso[0] = read_imagef(isoImage, nearest, (int2) (gid.x    , y0)).x;
+    iso[1] = read_imagef(isoImage, nearest, (int2) (gid.x + 1, y0)).x;
+    iso[2] = read_imagef(isoImage, nearest, (int2) (gid.x,     y0 + 1)).x;
+    iso[3] = read_imagef(isoImage, nearest, (int2) (gid.x + 1, y0 + 1)).x;
+    iso[4] = read_imagef(isoImage, nearest, (int2) (gid.x    , y1)).x;
+    iso[5] = read_imagef(isoImage, nearest, (int2) (gid.x + 1, y1)).x;
+    iso[6] = read_imagef(isoImage, nearest, (int2) (gid.x,     y1 + 1)).x;
+    iso[7] = read_imagef(isoImage, nearest, (int2) (gid.x + 1, y1 + 1)).x;
 
     uint code = makeCode(iso);
     bool valid = isValid(iso);
@@ -136,7 +137,7 @@ ulong computeKey(uint3 coords, uint3 top)
  * marked as external (which cannot necessarily be done when there is a split).
  *
  * The @a gridOffset parameter controls how cell coordinates are mapped to
- * global grid space to produce output vertices. For a cell with local
+ * global grid space to produce output vertices. For a cell with block-relative
  * coordinates xyz, the corresponding position in world space is
  * xyz + gridOffset.
  *
@@ -151,7 +152,7 @@ ulong computeKey(uint3 coords, uint3 top)
  * @param      startTable      Lookup table indicating where to find vertices/indices in @a dataTable.
  * @param      dataTable       Lookup table of vertex and index indices.
  * @param      keyTable        Lookup table for cell-relative vertex keys.
- * @param      z               Z coordinate of the current slice.
+ * @param      zOffset         Z coordinate of the first image slice
  * @param      gridOffset      Transformation from grid-local to grid-global coordinates.
  * @param      offsets         Offset to add to all elements of @a viStart.
  * @param      top             See above.
@@ -162,14 +163,13 @@ __kernel void generateElements(
     __global ulong *vertexKeys,
     __global uint *indices,
     __global const uint2 * restrict viStart,
-    __global const uint2 * restrict cells,
+    __global const uint3 * restrict cells,
     __read_only image2d_t isoImage,
-    uint yOffsetA,
-    uint yOffsetB,
     __global const ushort2 * restrict startTable,
     __global const uchar * restrict dataTable,
     __global const uint3 * restrict keyTable,
-    uint z,
+    uint zStride,
+    uint zOffset,
     uint3 gridOffset,
     uint2 offsets,
     uint3 top,
@@ -177,21 +177,22 @@ __kernel void generateElements(
 {
     const uint gid = get_global_id(0);
     const uint lid = get_local_id(0);
-    uint3 cell;
-    cell.xy = cells[gid];
-    cell.z = z;
+    uint3 cell = cells[gid];
+    const uint y0 = cell.z * zStride + cell.y;
+    const uint y1 = y0 + zStride;
+    cell.z += zOffset;
     const uint3 globalCell = cell + gridOffset;
     __local float3 *lverts = lvertices + NUM_EDGES * lid;
 
     float iso[8];
-    iso[0] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetA))).x;
-    iso[1] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetA))).x;
-    iso[2] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetA + 1))).x;
-    iso[3] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetA + 1))).x;
-    iso[4] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetB))).x;
-    iso[5] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetB))).x;
-    iso[6] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (0, yOffsetB + 1))).x;
-    iso[7] = read_imagef(isoImage, nearest, convert_int2(cell.xy + (uint2) (1, yOffsetB + 1))).x;
+    iso[0] = read_imagef(isoImage, nearest, (int2) (cell.x    , y0)).x;
+    iso[1] = read_imagef(isoImage, nearest, (int2) (cell.x + 1, y0)).x;
+    iso[2] = read_imagef(isoImage, nearest, (int2) (cell.x,     y0 + 1)).x;
+    iso[3] = read_imagef(isoImage, nearest, (int2) (cell.x + 1, y0 + 1)).x;
+    iso[4] = read_imagef(isoImage, nearest, (int2) (cell.x    , y1)).x;
+    iso[5] = read_imagef(isoImage, nearest, (int2) (cell.x + 1, y1)).x;
+    iso[6] = read_imagef(isoImage, nearest, (int2) (cell.x,     y1 + 1)).x;
+    iso[7] = read_imagef(isoImage, nearest, (int2) (cell.x + 1, y1 + 1)).x;
 
     lverts[0] = INTERP(0, 1);
     lverts[1] = INTERP(0, 2);

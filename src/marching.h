@@ -299,8 +299,9 @@ private:
     cl::Buffer viCount;
 
     /**
-     * Buffer of uint2 values, indexed by compacted cell ID. They are the 2D
-     * coordinates of the corresponding original cell.
+     * Buffer of uint3 values, indexed by compacted cell ID. They are the 3D
+     * coordinates of the corresponding original cell, with the Z coordinate
+     * indexing @ref image rather than the full volume.
      */
     cl::Buffer cells;
 
