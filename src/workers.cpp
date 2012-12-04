@@ -132,12 +132,11 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     int levels)
 {
     Grid::size_type block = maxCells + 1;
+
     // TODO: need a better way to integrate this into Marching, particularly to get
     // it's actual slice depth.
-    CLH::ResourceUsage sliceUsage =
-        MlsFunctor::sliceResourceUsage(block, block, MlsFunctor::wgs[2] + 1);
     CLH::ResourceUsage workerUsage;
-    workerUsage += Marching::resourceUsage(device, block, block, block, sliceUsage);
+    workerUsage += Marching::resourceUsage(device, block, block, block, MlsFunctor::wgs[2], MlsFunctor::wgs);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
 
     CLH::ResourceUsage itemUsage;
@@ -157,7 +156,8 @@ DeviceWorkerGroupBase::Worker::Worker(
     queue(context, device, Statistics::isEventTimingEnabled() ? CL_QUEUE_PROFILING_ENABLE : 0),
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
-    marching(context, device, input, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1),
+    marching(context, device, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1,
+             input.alignment()[2], input.alignment()),
     scaleBias(context)
 {
     input.setBoundaryLimit(boundaryLimit);

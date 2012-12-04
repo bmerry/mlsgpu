@@ -58,22 +58,10 @@ protected:
     }
 
 public:
-    virtual Grid::size_type maxSlices() const
+    virtual const Grid::size_type *alignment() const
     {
-        return 11; // a non power-of-two to make sure that works
-    }
-
-    virtual cl::Image2D allocateSlices(
-        Grid::size_type width, Grid::size_type height, Grid::size_type depth,
-        Grid::size_type &zStride) const
-    {
-        CPPUNIT_ASSERT(width > 0);
-        CPPUNIT_ASSERT(height > 0);
-        CPPUNIT_ASSERT(depth > 0);
-
-        zStride = height + 1;
-        return cl::Image2D(context, CL_MEM_READ_ONLY, cl::ImageFormat(CL_R, CL_FLOAT),
-                           width, zStride * depth);
+        static const Grid::size_type ans[3] = { 7, 5, 11 }; // non power-of-two to make sure that works
+        return ans;
     }
 
     virtual void enqueue(
@@ -93,7 +81,6 @@ public:
         CPPUNIT_ASSERT(size[1] <= maxHeight);
         CPPUNIT_ASSERT(size[2] <= maxDepth);
         CPPUNIT_ASSERT(zFirst < zLast && zLast <= size[2]);
-        CPPUNIT_ASSERT(zLast - zFirst <= maxSlices());
         CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= size[0]);
         CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst + zOffset));
 
@@ -264,7 +251,7 @@ cl::Buffer TestMarching::vectorToBuffer(cl_mem_flags flags, const vector<T> &v)
 void TestMarching::testConstructor()
 {
     AlternatingGenerator generator(context, 2, 2, 2);
-    Marching marching(context, device, generator, 2, 2, 2);
+    Marching marching(context, device, 2, 2, 2, generator.alignment()[2], generator.alignment());
 
     vector<cl_uchar2> countTable = bufferToVector<cl_uchar2>(marching.countTable);
     vector<cl_ushort2> startTable = bufferToVector<cl_ushort2>(marching.startTable);
@@ -414,7 +401,7 @@ void TestMarching::testCompactVertices()
     }
 
     AlternatingGenerator generator(context, 2, 2, 2);
-    Marching marching(context, device, generator, 2, 2, 2);
+    Marching marching(context, device, 2, 2, 2, generator.alignment()[2], generator.alignment());
     callCompactVertices(marching.compactVerticesKernel, 3, 5,
                         outVertices, outKeys, indexRemap, firstExternal,
                         vertexUnique, inVertices, inKeys, 200);
@@ -480,7 +467,7 @@ void TestMarching::testGenerate(
     Grid::size_type size[3] = { width, height, depth };
 
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    Marching marching(context, device, generator, maxWidth, maxHeight, maxDepth);
+    Marching marching(context, device, maxWidth, maxHeight, maxDepth, generator.alignment()[2], generator.alignment());
 
     /*** Pass 1: write to file ***/
 

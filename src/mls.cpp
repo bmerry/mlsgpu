@@ -30,7 +30,7 @@ std::map<std::string, MlsShape> MlsShapeWrapper::getNameMap()
     return ans;
 }
 
-const std::size_t MlsFunctor::wgs[3] = {8, 8, 8};
+const Grid::size_type MlsFunctor::wgs[3] = {8, 8, 8};
 const int MlsFunctor::subsamplingMin = 3; // must be at least log2 of highest wgs
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
@@ -74,28 +74,9 @@ void MlsFunctor::set(const Grid::difference_type offset[3],
     set(offset, tree.getSplats(), tree.getCommands(), tree.getStart(), subsamplingShift);
 }
 
-CLH::ResourceUsage MlsFunctor::sliceResourceUsage(Grid::size_type width, Grid::size_type height, Grid::size_type depth)
+const Grid::size_type *MlsFunctor::alignment() const
 {
-    width = roundUp(width, wgs[0]);
-    height = roundUp(height, wgs[1]);
-    depth = roundUp(depth, wgs[2]);
-
-    CLH::ResourceUsage ans;
-    ans.addImage(width, height * depth, sizeof(cl_float));
-    return ans;
-}
-
-cl::Image2D MlsFunctor::allocateSlices(
-    Grid::size_type width, Grid::size_type height, Grid::size_type depth,
-    Grid::size_type &zStride) const
-{
-    width = roundUp(width, wgs[0]);
-    height = roundUp(height, wgs[1]);
-    depth = roundUp(depth, wgs[2]);
-    zStride = height;
-
-    return cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
-                       width, height * depth);
+    return wgs;
 }
 
 void MlsFunctor::enqueue(
@@ -110,7 +91,7 @@ void MlsFunctor::enqueue(
     Grid::size_type width = roundUp(size[0], wgs[0]);
     Grid::size_type height = roundUp(size[1], wgs[1]);
 
-    MLSGPU_ASSERT(zStride == height, std::invalid_argument);
+    MLSGPU_ASSERT(zStride >= height, std::invalid_argument);
     MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
     MLSGPU_ASSERT(zFirst % wgs[2] == 0, std::invalid_argument);
     MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);

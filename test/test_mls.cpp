@@ -28,6 +28,7 @@
 #include "../src/splat.h"
 #include "../src/mls.h"
 #include "../src/splat_tree_cl.h"
+#include "../src/misc.h"
 
 using namespace std;
 
@@ -448,9 +449,12 @@ void TestMls::testProcessCorners()
                          hCommands.size() * sizeof(SplatTreeCL::command_type), &hCommands[0]);
 
     MlsFunctor generator(context, MLS_SHAPE_SPHERE);
-    Grid::size_type zStride;
+    Grid::size_type imageWidth = roundUp(size[0], generator.alignment()[0]);
+    Grid::size_type imageHeight = roundUp(size[1], generator.alignment()[1]);
+    Grid::size_type zStride = imageHeight + 10;
     Grid::size_type zOffset = 3;
-    cl::Image2D dCorners = generator.allocateSlices(size[0], size[1], zLast - zFirst + zOffset, zStride);
+    cl::Image2D dCorners = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
+                                       imageWidth, zStride * (zLast - zFirst + zOffset), zStride);
 
     generator.set(offset, dSplats, dCommands, dStart, subsampling);
     generator.enqueue(queue, dCorners, size, zFirst, zLast, zStride, zOffset, NULL, NULL);

@@ -25,6 +25,7 @@
 #include "errors.h"
 #include "statistics.h"
 #include "statistics_cl.h"
+#include "misc.h"
 
 const unsigned char Marching::edgeIndices[NUM_EDGES][2] =
 {
@@ -236,44 +237,52 @@ void Marching::validateDevice(const cl::Device &device)
         throw CLH::invalid_device(device, "images are not supported");
 }
 
-std::tr1::uint64_t Marching::getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight)
+std::tr1::uint64_t Marching::getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe)
 {
-    return MAX_MESH_SLICES * std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES;
+    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES * maxSwathe;
 }
 
-std::tr1::uint64_t Marching::getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight)
+std::tr1::uint64_t Marching::getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe)
 {
-    return MAX_MESH_SLICES * std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3);
+    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3) * maxSwathe;
 }
 
 CLH::ResourceUsage Marching::resourceUsage(
     const cl::Device &device,
     Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
-    const CLH::ResourceUsage &sliceUsage)
+    Grid::size_type maxSwathe,
+    const Grid::size_type alignment[3])
 {
-    MLSGPU_ASSERT(maxWidth <= MAX_DIMENSION, std::invalid_argument);
-    MLSGPU_ASSERT(maxHeight <= MAX_DIMENSION, std::invalid_argument);
-    MLSGPU_ASSERT(maxDepth <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(2 <= maxDepth && maxDepth <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(alignment[2] <= maxSwathe, std::invalid_argument);
     (void) device; // not currently used, but should be used to determine usage of clogs
-    (void) maxDepth; // has no effect
 
-    CLH::ResourceUsage ans = sliceUsage;
+    Grid::size_type imageWidth = roundUp(maxWidth, alignment[0]);
+    Grid::size_type imageHeight = roundUp(maxHeight, alignment[1]);
+    maxSwathe = std::min(maxSwathe, maxDepth) / alignment[2] * alignment[2];
 
     // The asserts above guarantee that these will not overflow
     const std::tr1::uint64_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
-    const std::tr1::uint64_t vertexSpace = getMaxVertices(maxWidth, maxHeight);
-    const std::tr1::uint64_t indexSpace = getMaxTriangles(maxWidth, maxHeight) * 3;
+    const std::tr1::uint64_t swatheCells = sliceCells * maxSwathe;
+    const std::tr1::uint64_t vertexSpace = getMaxVertices(maxWidth, maxHeight, maxSwathe);
+    const std::tr1::uint64_t indexSpace = getMaxTriangles(maxWidth, maxHeight, maxSwathe) * 3;
 
+    CLH::ResourceUsage ans;
     // Keep this in sync with the actual allocations below
 
-    // cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint3));
-    ans.addBuffer(sliceCells * sizeof(cl_uint3));
+    // image = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), imageWidth, imageHeight * (maxSwathe + 1));
+    ans.addImage(imageWidth, imageHeight * (maxSwathe + 1), sizeof(cl_float));
+
+    // cells = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint3));
+    ans.addBuffer(swatheCells * sizeof(cl_uint3));
 
     // numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     ans.addBuffer(sizeof(cl_uint));
 
-    // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
-    ans.addBuffer((sliceCells + 1) * sizeof(cl_uint2));
+    // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (swatheCells + 1) * sizeof(cl_uint2));
+    ans.addBuffer((swatheCells + 1) * sizeof(cl_uint2));
 
     // vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
     ans.addBuffer((vertexSpace + 1) * sizeof(cl_uint));
@@ -308,8 +317,9 @@ CLH::ResourceUsage Marching::resourceUsage(
 }
 
 Marching::Marching(const cl::Context &context, const cl::Device &device,
-                   const Generator &generator,
-                   Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth)
+                   Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+                   Grid::size_type maxSwathe,
+                   const Grid::size_type alignment[3])
 :
     maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
     context(context),
@@ -326,6 +336,11 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxDepth && maxDepth <= MAX_DIMENSION, std::invalid_argument);
+    MLSGPU_ASSERT(alignment[2] <= maxSwathe, std::invalid_argument);
+
+    Grid::size_type imageWidth = roundUp(maxWidth, alignment[0]);
+    Grid::size_type imageHeight = roundUp(maxHeight, alignment[1]);
+    this->maxSwathe = std::min(maxSwathe, maxDepth) / alignment[2] * alignment[2];
 
     scanUint.setEventCallback(
         &Statistics::timeEventCallback,
@@ -338,17 +353,19 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
         &Statistics::getStatistic<Statistics::Variable>("kernel.marching.sortVertices.time"));
 
     makeTables();
-    image = generator.allocateSlices(
-        maxWidth, maxHeight, generator.maxSlices() + 1, zStride);
+    image = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
+                        imageWidth, imageHeight * (maxSwathe + 1));
+    zStride = imageHeight;
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
-    vertexSpace = getMaxVertices(maxWidth, maxHeight);
-    indexSpace = getMaxTriangles(maxWidth, maxHeight) * 3;
+    const std::size_t swatheCells = sliceCells * maxSwathe;
+    vertexSpace = getMaxVertices(maxWidth, maxHeight, maxSwathe);
+    indexSpace = getMaxTriangles(maxWidth, maxHeight, maxSwathe) * 3;
 
     // If these are updated, also update deviceMemory
-    cells = cl::Buffer(context, CL_MEM_READ_WRITE, sliceCells * sizeof(cl_uint3));
+    cells = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint3));
     numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
-    viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (sliceCells + 1) * sizeof(cl_uint2));
+    viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (swatheCells + 1) * sizeof(cl_uint2));
     vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
     unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
@@ -420,10 +437,11 @@ void Marching::copySlice(
     queue.enqueueCopyImage(image, image, srcOrigin, trgOrigin, region, events, event);
 }
 
-std::size_t Marching::generateCells(const cl::CommandQueue &queue,
-                                    Grid::size_type slice,
-                                    Grid::size_type width, Grid::size_type height,
-                                    const std::vector<cl::Event> *events)
+std::size_t Marching::generateCells(
+    const cl::CommandQueue &queue,
+    Grid::size_type firstSlice, Grid::size_type lastSlice,
+    Grid::size_type width, Grid::size_type height,
+    const std::vector<cl::Event> *events)
 {
     cl::Event last;
 
@@ -437,12 +455,15 @@ std::size_t Marching::generateCells(const cl::CommandQueue &queue,
 
     genOccupiedKernel.setArg(3, image);
     genOccupiedKernel.setArg(4, zStride);
+    // TODO: round image size up to multiple of local work group size,
+    // to avoid extra splits; will only work if combined with NaN padding
+    // though, and also requires the generator to respect the padding.
     CLH::enqueueNDRangeKernelSplit(
         queue,
         genOccupiedKernel,
-        cl::NDRange(0, 0, slice),
-        cl::NDRange(width - 1, height - 1, 1),
-        cl::NullRange,
+        cl::NDRange(0, 0, firstSlice),
+        cl::NDRange(width - 1, height - 1, lastSlice - firstSlice),
+        cl::NDRange(16, 16, 1),
         &wait, &last, &genOccupiedKernelTime);
 
     wait[0] = last;
@@ -571,61 +592,60 @@ void Marching::generate(
     MLSGPU_ASSERT(1U <= height && height <= maxHeight, std::length_error);
     MLSGPU_ASSERT(1U <= depth && depth <= maxDepth, std::length_error);
 
-    std::vector<cl::Event> wait(1);
+    std::vector<cl::Event> wait;
     cl::Event last, readEvent;
     cl_uint2 offsets = { {0, 0} };
     cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
+    Grid::size_type swathe = maxSwathe;
 
-    Grid::size_type nSlices = std::min(depth, generator.maxSlices());
-    generator.enqueue(queue, image, size, 0, nSlices, zStride, 0, events, &last);
-    Grid::size_type slice = 0; // image offset of first slice to process
-
-    wait[0] = last;
+    if (events != NULL)
+        wait = *events;
 
     Grid::size_type shipOuts = 0;
-    for (Grid::size_type z = 1; z < depth; z++)
+    for (Grid::size_type z = 0; z < depth; z += swathe)
     {
-        if (z % nSlices == 0)
+        if (z != 0)
         {
             // Copy end of previous range to start of current one
-            copySlice(queue, slice, 0, width, height, &wait, &last);
-            slice = 0;
+            copySlice(queue, swathe, 0, width, height, &wait, &last);
             wait.resize(1);
             wait[0] = last;
-
-            generator.enqueue(queue, image, size, z, std::min(z + nSlices, depth), zStride, 1, &wait, &last);
-            wait[0] = last;
         }
+        generator.enqueue(queue, image, size, z, std::min(z + swathe, depth), zStride, 1, &wait, &last);
+        wait.resize(1);
+        wait[0] = last;
 
-        std::size_t compacted = generateCells(queue, slice, width, height, &wait);
+        Grid::size_type firstSlice = z == 0 ? 1 : 0;
+        Grid::size_type lastSlice = std::min(swathe, depth - z);
+        std::size_t compacted = generateCells(queue, firstSlice, lastSlice, width, height, &wait);
         wait.clear();
+
         if (compacted > 0)
         {
             cl_uint2 counts = countElements(queue, compacted, events);
+            /* We'd better have enough room to process one layer at a time.
+             */
+            assert(counts.s[0] <= vertexSpace);
+            assert(counts.s[1] <= indexSpace);
             if (offsets.s[0] + counts.s[0] > vertexSpace
                 || offsets.s[1] + counts.s[1] > indexSpace)
             {
-                /* Too much information in this layer to just append. Ship out
-                 * what we have before processing this layer.
+                /* Too much information in these layers to just append. Ship out
+                 * what we have before processing this layers.
                  */
-                shipOut(queue, keyOffset, offsets, z - 1, output, &wait, &last);
+                shipOut(queue, keyOffset, offsets, z, output, &wait, &last);
                 shipOuts++;
                 wait.resize(1);
                 wait[0] = last;
 
                 offsets.s[0] = 0;
                 offsets.s[1] = 0;
-                top.s[2] = 2 * (z - 1);
-
-                /* We'd better have enough room to process one layer at a time.
-                 */
-                assert(counts.s[0] <= vertexSpace);
-                assert(counts.s[1] <= indexSpace);
+                top.s[2] = 2 * z;
             }
 
             generateElementsKernel.setArg(5, image);
             generateElementsKernel.setArg(9, zStride);
-            generateElementsKernel.setArg(10, cl_uint(z - 1 - slice));
+            generateElementsKernel.setArg(10, cl_uint(z - 1));
             generateElementsKernel.setArg(11, keyOffset);
             generateElementsKernel.setArg(12, offsets);
             generateElementsKernel.setArg(13, top);
@@ -643,8 +663,8 @@ void Marching::generate(
             offsets.s[1] += counts.s[1];
         }
         nonempty.add(compacted > 0);
-        slice++;
     }
+
     if (offsets.s[0] > 0)
     {
         shipOut(queue, keyOffset, offsets, depth - 1, output, &wait, &last);

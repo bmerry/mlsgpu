@@ -90,7 +90,7 @@ public:
     /**
      * Work group size for @ref kernel.
      */
-    static const std::size_t wgs[3];
+    static const Grid::size_type wgs[3];
 
     /**
      * Minimum subsampling for corresponding octree.
@@ -103,11 +103,6 @@ public:
      * @param shape     The shape to fit to the data.
      */
     MlsFunctor(const cl::Context &context, MlsShape shape);
-
-    /**
-     * Determines the resource usage of calling @ref allocateSlices.
-     */
-    static CLH::ResourceUsage sliceResourceUsage(Grid::size_type width, Grid::size_type height, Grid::size_type depth);
 
     /**
      * Specify the parameters. This must be called before using this object as a functor.
@@ -126,17 +121,7 @@ public:
     void set(const Grid::difference_type offset[3],
              const SplatTreeCL &tree, unsigned int subsamplingShift);
 
-    virtual Grid::size_type maxSlices() const { return wgs[2]; }
-
-    /**
-     * @copydoc Marching::Generator::allocateSlices
-     *
-     * @note This implementation will round the allocation up to multiples of
-     * @ref wgs.
-     */
-    virtual cl::Image2D allocateSlices(
-        Grid::size_type width, Grid::size_type height, Grid::size_type depth,
-        Grid::size_type &zStride) const;
+    virtual const Grid::size_type *alignment() const;
 
     /**
      * @pre The tree passed to @ref set was constructed with dimensions at least

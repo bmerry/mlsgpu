@@ -92,11 +92,6 @@ public:
         /// Logarithm base 2 of @ref MAX_GLOBAL_DIMENSION.
         MAX_GLOBAL_DIMENSION_LOG2 = KEY_AXIS_BITS - 1
     };
-    enum
-    {
-        /// Number of slices for which to allocate mesh memory
-        MAX_MESH_SLICES = 2
-    };
 
     enum
     {
@@ -153,31 +148,16 @@ public:
         virtual ~Generator() {}
 
         /**
-         * Return the maximum number of slices this class can process at a
-         * time. It also indicates an alignment requirement (see @ref enqueue).
+         * Returns alignment requirements. The X and Y alignment requirements
+         * are used to pad up image allocations. The Z alignment requirement
+         * restricts the starting Z value for enqueuing. The value must be
+         * constant per axis.
+         *
+         * @return A 3-element array of X, Y, Z alignment values
+         *
+         * @see @ref enqueue
          */
-        virtual Grid::size_type maxSlices() const = 0;
-
-        /**
-         * Allocate storage for holding a range of slices. The image must allow
-         * CL to read from it. The layout is that slices are stacked up along
-         * the Y dimension.
-         *
-         * The caller may choose to pad the image to a larger size if it
-         * desires. This may be useful if it uses a fixed workgroup size which
-         * would otherwise cause it to access outside the image dimensions.
-         *
-         * @param width,height,depth   Dimensions of the data
-         * @param[out] zStride         Y steps between slices
-         *
-         * @pre @a width, @a height and @a depth are positive.
-         * @post @a zStride &gt;= @a height
-         *
-         * @return An image of dimensions at least @a width by @a zStride * @a depth.
-         */
-        virtual cl::Image2D allocateSlices(
-            Grid::size_type width, Grid::size_type height, Grid::size_type depth,
-            Grid::size_type &zStride) const = 0;
+        virtual const Grid::size_type *alignment() const = 0;
 
         /**
          * Enqueue CL work to compute the signed distance function.
@@ -189,7 +169,7 @@ public:
          * @param distance              Output storage for the signed distance function
          * @param size                  The dimensions of the entire volume.
          * @param zFirst, zLast         Half-open range of Z values to process.
-         * @param zStride               Y step between slices, as returned by @ref allocateSlices
+         * @param zStride               Y step between slices
          * @param zOffset               Number slices to skip over in the output image
          * @param events                Events to wait for (may be @c NULL).
          * @param[out] event            Event signaled on completion (may be @c NULL).
@@ -197,11 +177,11 @@ public:
          * @pre
          * - All elements of @a size are positive.
          * - 0 &lt;= @a zFirst &lt; @a zLast &lt;= @a size[2].
-         * - @a distance was allocated using @ref allocateSlices with dimensions at
-         *      least @a size[0], @a size[1], (@a zLast - @a zFirst) + @a zOffset.
-         * - @a zStride is the same value returned by @ref allocateSlices
-         * - @a zFirst is a multiple of @ref maxSlices().
-         * - @a zLast &lt; @a zFirst + @ref maxSlices().
+         * - The X size of @a distance is at least <code>roundUp</code>(@a size[0], @ref alignment(0))</code>.
+         * - The Y size of @a distance is at least
+         *   @a zStride * (@a zLast - @a zFirst + @a zOffset).
+         * - @a zStride is at least <code>roundUp</code>(@a size[1], @ref alignment(1))
+         * - @a zFirst is a multiple of @ref alignment(2).
          * @post
          * - The signed distance for point (x, y, z) in the volume will be stored
          *   in @a distance at coordinates x, y + (z - zFirst + zOffset) * zStride.
@@ -246,14 +226,18 @@ private:
     static const unsigned char tetrahedronIndices[NUM_TETRAHEDRA][4];
 
     /**
-     * The number of cell corners (not cells) in the grid.
+     * The maximum number of cell corners (not cells) in the grid, excluding
+     * alignment padding.
      */
     Grid::size_type maxWidth, maxHeight, maxDepth;
 
     /**
+     * The number of slices to process in one go.
+     */
+    Grid::size_type maxSwathe;
+
+    /**
      * Space allocated to hold intermediate vertices and indices.
-     *
-     * @todo Make these tunable.
      */
     std::size_t vertexSpace, indexSpace;
 
@@ -443,13 +427,13 @@ public:
      * Returns the maximum number of vertices that may be passed in a call
      * to the output function.
      */
-    static std::tr1::uint64_t getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight);
+    static std::tr1::uint64_t getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe);
 
     /**
      * Returns the maximum number of triangles that may be passed in a call
      * to the output function.
      */
-    static std::tr1::uint64_t getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight);
+    static std::tr1::uint64_t getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe);
 
     /**
      * Estimates the device memory required for particular values of the
@@ -457,9 +441,7 @@ public:
      * memory allocated in buffers and images, but excludes all overheads for
      * fragmentation, alignment, parameters, programs, command buffers etc.
      *
-     * @param device, maxWidth, maxHeight, maxDepth  Parameters that would be passed to the constructor.
-     * @param sliceUsage Resources required by the generator per call to
-     *                   <code>generator.allocateSlices(maxWidth, maxHeight, generator.maxSlices())</code>
+     * @param device, maxWidth, maxHeight, maxDepth, maxSwathe, alignment  Parameters that would be passed to the constructor.
      *
      * @return The required resources.
      *
@@ -468,7 +450,8 @@ public:
     static CLH::ResourceUsage resourceUsage(
         const cl::Device &device,
         Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
-        const CLH::ResourceUsage &sliceUsage);
+        Grid::size_type maxSwathe,
+        const Grid::size_type alignment[3]);
 
     /**
      * The function type to pass to @ref generate for receiving output data.
@@ -514,18 +497,18 @@ public:
      *
      * @param context        OpenCL context used to allocate buffers.
      * @param device         Device for which kernels are to be compiled.
-     * @param generator      Generator used to allocate the slice data and pad the
-     *                       dimensions. It need not be the same one passed to
-     *                       @ref generate, as long as they have the same metadata
-     *                       and can interchange image allocations.
      * @param maxWidth, maxHeight, maxDepth Maximum X, Y, Z dimensions (in corners) of the provided sampling grid.
+     * @param maxSwathe      Maximum number of slices to process in one go (in cells)
+     * @param alignment      Alignment values that would be returned by @ref Generator::alignment.
      *
      * @pre
-     * - @a maxWidth, @a maxHeight and @a maxDepth are between 2 and @ref MAX_DIMENSION.
+     * - @a maxWidth, @a maxHeight, @a maxDepth are between 2 and @ref MAX_DIMENSION.
+     * - @a maxSwathe is at least @a alignment[2]
      */
     Marching(const cl::Context &context, const cl::Device &device,
-             const Generator &generator,
-             Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth);
+             Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
+             Grid::size_type maxSwathe,
+             const Grid::size_type alignment[3]);
 
     /**
      * Generate an isosurface.
@@ -554,8 +537,11 @@ public:
      *
      * @note @a size is in units of corners, which is one more than the number of cells.
      *
-     * @pre The values of @a size must not exceed the dimensions passed to the
-     * constructor.
+     * @pre
+     * - The values of @a size must not exceed the dimensions passed to the
+     *   constructor.
+     * - The generator's alignment must be compatible with (i.e., divide into) the
+     *   alignment values passed to the constructor.
      */
     void generate(const cl::CommandQueue &queue,
                   Generator &generator,
@@ -595,16 +581,21 @@ private:
      * cell, and @ref numOccupied contains the number of cells.
      *
      * @param queue           Command queue to use for enqueuing work.
-     * @param slice           Lower of two slice numbers containing isofunction values.
+     * @param firstSlice      First slice in image containing isovalues.
+     * @param lastSlice       Last slice in image containing isovalues.
      * @param width,height    Dimensions of the image portions that are populated.
      * @param events          Events to wait for before starting (may be @c NULL).
      *
      * @return The number of cells that need further processing.
+     *
+     * @note @a firstSlice and @a lastSlice reference corners, so only
+     * @a lastSlice - @a firstSlice cell-slices are processed.
      */
-    std::size_t generateCells(const cl::CommandQueue &queue,
-                              Grid::size_type slice,
-                              Grid::size_type width, Grid::size_type height,
-                              const std::vector<cl::Event> *events);
+    std::size_t generateCells(
+        const cl::CommandQueue &queue,
+        Grid::size_type firstSlice, Grid::size_type lastSlice,
+        Grid::size_type width, Grid::size_type height,
+        const std::vector<cl::Event> *events);
 
     /**
      * Scan the unwelded element counts to determine locations and the total
