@@ -322,6 +322,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     countUniqueVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countUniqueVertices.time")),
     compactVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.compactVertices.time")),
     reindexKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.reindex.time")),
+    copySliceTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.copySlice.time")),
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
@@ -380,6 +381,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     countUniqueVerticesKernel = cl::Kernel(program, "countUniqueVertices");
     compactVerticesKernel = cl::Kernel(program, "compactVertices");
     reindexKernel = cl::Kernel(program, "reindex");
+    copySliceKernel = cl::Kernel(program, "copySlice");
 
     // Set up kernel arguments that never change.
     genOccupiedKernel.setArg(0, cells);
@@ -430,7 +432,38 @@ void Marching::copySlice(
     region[0] = width;
     region[1] = height;
     region[2] = 1;
-    queue.enqueueCopyImage(image, image, srcOrigin, trgOrigin, region, events, event);
+
+    try
+    {
+        cl::Event last;
+        queue.enqueueCopyImage(image, image, srcOrigin, trgOrigin, region, events, &last);
+        Statistics::timeEvent(last, copySliceTime);
+        if (event != NULL)
+            *event = last;
+    }
+    catch (cl::Error &e)
+    {
+        if (e.err() != CL_MEM_COPY_OVERLAP)
+            throw;
+        /* Workaround for AMD APP SDK v2.8 (and earlier), which does not
+         * allow copies from an image to the same image.
+         */
+        cl_int2 offset;
+        offset.s[0] = (cl_int) trgOrigin[0] - (cl_int) srcOrigin[0];
+        offset.s[1] = (cl_int) trgOrigin[1] - (cl_int) srcOrigin[1];
+
+        copySliceKernel.setArg(0, image);
+        copySliceKernel.setArg(1, image);
+        copySliceKernel.setArg(2, offset);
+        CLH::enqueueNDRangeKernelSplit(
+            queue,
+            copySliceKernel,
+            cl::NDRange(srcOrigin[0], srcOrigin[1]),
+            cl::NDRange(region[0], region[1]),
+            cl::NullRange,
+            events, event,
+            &copySliceTime);
+    }
 }
 
 std::size_t Marching::generateCells(

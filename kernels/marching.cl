@@ -318,6 +318,24 @@ __kernel void reindex(
     indices[gid] = indexRemap[indices[gid]];
 }
 
+/**
+ * Kernel implementing limited subset of @c clEnqueueCopyImage.
+ * This is to work around bugs in the AMD APP SDK v2.8 (and earlier, and maybe
+ * later). Since it is only for bug workaround, it has not been optimized.
+ *
+ * @see @ref Marching::copySlice.
+ */
+__kernel void copySlice(
+    __read_only image2d_t srcImage,
+    __write_only image2d_t trgImage,
+    int2 trgOffset)
+{
+    int2 srcAddr = (int2) (get_global_id(0), get_global_id(1));
+    float4 value = read_imagef(srcImage, nearest, srcAddr);
+    int2 trgAddr = srcAddr + trgOffset;
+    write_imagef(trgImage, trgAddr, value);
+}
+
 /*******************************************************************************
  * Test code only below here.
  *******************************************************************************/

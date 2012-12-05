@@ -374,6 +374,7 @@ private:
     cl::Kernel countUniqueVerticesKernel;   ///< Kernel compiled from @ref countUniqueVertices.
     cl::Kernel compactVerticesKernel;       ///< Kernel compiled from @ref compactVerticesKernel.
     cl::Kernel reindexKernel;               ///< Kernel compiled from @ref reindexKernel.
+    cl::Kernel copySliceKernel;             ///< Kernel compiled from @ref copySliceKernel (for driver bug workaround).
 
     /**
      * @name
@@ -385,6 +386,8 @@ private:
     Statistics::Variable &countUniqueVerticesKernelTime;
     Statistics::Variable &compactVerticesKernelTime;
     Statistics::Variable &reindexKernelTime;
+    Statistics::Variable &copySliceTime;    ///< Time for slice copy, either with kernel or with @c clEnqueueCopyImage
+
     /** @} */
 
     clogs::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
