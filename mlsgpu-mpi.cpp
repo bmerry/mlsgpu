@@ -237,7 +237,9 @@ void Slave::operator()() const
     GatherGroup gatherGroup(devices.size() * numDeviceThreads * 8, gatherComm, gatherRoot);
     DeviceWorkerGroup deviceWorkerGroup(
         numDeviceThreads, deviceWorkerSpare(vm), GetOutputFunctor(gatherGroup),
-        devices, maxDeviceSplats, blockCells, levels, subsampling,
+        devices,
+        maxDeviceSplats, blockCells, meshMemory(vm),
+        levels, subsampling,
         boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, 1, deviceWorkerGroup,

@@ -351,6 +351,14 @@ int deviceWorkerSpare(const po::variables_map &vm)
     return std::max(bucketThreads, 6);
 }
 
+std::size_t meshMemory(const po::variables_map &vm)
+{
+    const int levels = vm[Option::levels].as<int>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
+    return maxCells * maxCells * 2 * Marching::MAX_CELL_BYTES;
+}
+
 CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
 {
     const int levels = vm[Option::levels].as<int>();
@@ -362,7 +370,8 @@ CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
     // TODO: get rid of device parameter
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
-        deviceThreads, deviceSpare, cl::Device(), maxDeviceSplats, maxCells, levels);
+        deviceThreads, deviceSpare, cl::Device(), maxDeviceSplats,
+        maxCells, meshMemory(vm), levels);
     return totalUsage;
 }
 

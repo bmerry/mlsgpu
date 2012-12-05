@@ -114,7 +114,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             DeviceWorkerGroup deviceWorkerGroup(
                 numDeviceThreads, deviceWorkerSpare(vm),
                 boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
-                devices, maxDeviceSplats, blockCells, levels, subsampling,
+                devices,
+                maxDeviceSplats, blockCells, meshMemory(vm),
+                levels, subsampling,
                 boundaryLimit, shape);
             FineBucketGroup fineBucketGroup(
                 numBucketThreads, 1, deviceWorkerGroup,

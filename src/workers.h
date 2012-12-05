@@ -182,6 +182,7 @@ private:
     Grid fullGrid;
     const std::size_t maxSplats;
     const Grid::size_type maxCells;
+    const std::size_t meshMemory;
     const int subsampling;
 
     friend class DeviceWorkerGroupBase::Worker;
@@ -200,7 +201,7 @@ public:
      * @param devices            OpenCL context and device to run on, with associated contexts.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
-     * @param levels             Space to allocate for the octree.
+     * @param levels             Levels to allocate for the octree.
      * @param subsampling        Octree subsampling level.
      * @param boundaryLimit      Tuning factor for boundary pruning.
      * @param shape              The shape to fit to the data
@@ -209,7 +210,7 @@ public:
         std::size_t numWorkers, std::size_t spare,
         OutputGenerator outputGenerator,
         const std::vector<std::pair<cl::Context, cl::Device> > &devices,
-        std::size_t maxSplats, Grid::size_type maxCells,
+        std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
         int levels, int subsampling, float boundaryLimit,
         MlsShape shape);
 
@@ -217,7 +218,7 @@ public:
     static CLH::ResourceUsage resourceUsage(
         std::size_t numWorkers, std::size_t spare,
         const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells,
+        std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
         int levels);
 
     /**

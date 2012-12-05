@@ -67,6 +67,12 @@ public:
     };
     enum
     {
+        /// Bytes of storage required for all internal data for a worst-case cell
+        MAX_CELL_BYTES = MAX_CELL_VERTICES * (2 * sizeof(cl_uint) + 2 * sizeof(cl_float4) + 2 * sizeof(cl_ulong))
+            + MAX_CELL_INDICES * sizeof(cl_uint)
+    };
+    enum
+    {
         NUM_CUBES = 256        ///< Number of possible vertex codes for a cube (2^vertices)
     };
     enum
@@ -424,24 +430,12 @@ public:
     static void validateDevice(const cl::Device &device);
 
     /**
-     * Returns the maximum number of vertices that may be passed in a call
-     * to the output function.
-     */
-    static std::tr1::uint64_t getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe);
-
-    /**
-     * Returns the maximum number of triangles that may be passed in a call
-     * to the output function.
-     */
-    static std::tr1::uint64_t getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe);
-
-    /**
      * Estimates the device memory required for particular values of the
      * constructor arguments. This is intended to fairly accurately reflect
      * memory allocated in buffers and images, but excludes all overheads for
      * fragmentation, alignment, parameters, programs, command buffers etc.
      *
-     * @param device, maxWidth, maxHeight, maxDepth, maxSwathe, alignment  Parameters that would be passed to the constructor.
+     * @param device, maxWidth, maxHeight, maxDepth, maxSwathe, meshMemory, alignment  Parameters that would be passed to the constructor.
      *
      * @return The required resources.
      *
@@ -451,6 +445,7 @@ public:
         const cl::Device &device,
         Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
         Grid::size_type maxSwathe,
+        std::size_t meshMemory,
         const Grid::size_type alignment[3]);
 
     /**
@@ -499,15 +494,18 @@ public:
      * @param device         Device for which kernels are to be compiled.
      * @param maxWidth, maxHeight, maxDepth Maximum X, Y, Z dimensions (in corners) of the provided sampling grid.
      * @param maxSwathe      Maximum number of slices to process in one go (in cells)
+     * @param meshMemory     Bytes of memory to allocate for mesh data (including internal data)
      * @param alignment      Alignment values that would be returned by @ref Generator::alignment.
      *
      * @pre
      * - @a maxWidth, @a maxHeight, @a maxDepth are between 2 and @ref MAX_DIMENSION.
      * - @a maxSwathe is at least @a alignment[2]
+     * - @a meshMemory &gt;= (@a maxWidth - 1) * (@a maxHeight - 1) * @ref MAX_CELL_BYTES
      */
     Marching(const cl::Context &context, const cl::Device &device,
              Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
              Grid::size_type maxSwathe,
+             std::size_t meshMemory,
              const Grid::size_type alignment[3]);
 
     /**

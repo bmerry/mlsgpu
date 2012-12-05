@@ -90,7 +90,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers, std::size_t spare,
     OutputGenerator outputGenerator,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
-    std::size_t maxSplats, Grid::size_type maxCells,
+    std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
     int levels, int subsampling, float boundaryLimit,
     MlsShape shape)
 :
@@ -98,7 +98,8 @@ DeviceWorkerGroup::DeviceWorkerGroup(
         "device",
         devices.size(), numWorkers, spare),
     progress(NULL), outputGenerator(outputGenerator),
-    maxSplats(maxSplats), maxCells(maxCells), subsampling(subsampling)
+    maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
+    subsampling(subsampling)
 {
     for (std::size_t i = 0; i < (numWorkers + spare) * devices.size(); i++)
     {
@@ -128,15 +129,15 @@ void DeviceWorkerGroup::start(const Grid &fullGrid)
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     std::size_t numWorkers, std::size_t spare,
     const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells,
+    std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
     int levels)
 {
     Grid::size_type block = maxCells + 1;
 
-    // TODO: need a better way to integrate this into Marching, particularly to get
-    // it's actual slice depth.
     CLH::ResourceUsage workerUsage;
-    workerUsage += Marching::resourceUsage(device, block, block, block, MlsFunctor::wgs[2], MlsFunctor::wgs);
+    workerUsage += Marching::resourceUsage(
+        device, block, block, block,
+        MlsFunctor::wgs[2], meshMemory, MlsFunctor::wgs);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
 
     CLH::ResourceUsage itemUsage;
@@ -157,7 +158,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
     marching(context, device, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1,
-             input.alignment()[2], input.alignment()),
+             input.alignment()[2], owner.meshMemory, input.alignment()),
     scaleBias(context)
 {
     input.setBoundaryLimit(boundaryLimit);

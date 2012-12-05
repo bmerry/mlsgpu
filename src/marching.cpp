@@ -237,26 +237,18 @@ void Marching::validateDevice(const cl::Device &device)
         throw CLH::invalid_device(device, "images are not supported");
 }
 
-std::tr1::uint64_t Marching::getMaxVertices(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe)
-{
-    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * MAX_CELL_VERTICES * maxSwathe;
-}
-
-std::tr1::uint64_t Marching::getMaxTriangles(Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxSwathe)
-{
-    return std::tr1::uint64_t(maxWidth - 1) * (maxHeight - 1) * (MAX_CELL_INDICES / 3) * maxSwathe;
-}
-
 CLH::ResourceUsage Marching::resourceUsage(
     const cl::Device &device,
     Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
     Grid::size_type maxSwathe,
+    std::size_t meshMemory,
     const Grid::size_type alignment[3])
 {
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxDepth && maxDepth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(alignment[2] <= maxSwathe, std::invalid_argument);
+    MLSGPU_ASSERT(meshMemory >= (maxWidth - 1) * (maxHeight - 1) * MAX_CELL_BYTES, std::invalid_argument);
     (void) device; // not currently used, but should be used to determine usage of clogs
 
     Grid::size_type imageWidth = roundUp(maxWidth, alignment[0]);
@@ -266,8 +258,9 @@ CLH::ResourceUsage Marching::resourceUsage(
     // The asserts above guarantee that these will not overflow
     const std::tr1::uint64_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     const std::tr1::uint64_t swatheCells = sliceCells * maxSwathe;
-    const std::tr1::uint64_t vertexSpace = getMaxVertices(maxWidth, maxHeight, maxSwathe);
-    const std::tr1::uint64_t indexSpace = getMaxTriangles(maxWidth, maxHeight, maxSwathe) * 3;
+    const std::tr1::uint64_t meshCells = meshMemory / MAX_CELL_BYTES;
+    const std::tr1::uint64_t vertexSpace = meshCells * MAX_CELL_VERTICES;
+    const std::tr1::uint64_t indexSpace = meshCells * MAX_CELL_INDICES;
 
     CLH::ResourceUsage ans;
     // Keep this in sync with the actual allocations below
@@ -319,6 +312,7 @@ CLH::ResourceUsage Marching::resourceUsage(
 Marching::Marching(const cl::Context &context, const cl::Device &device,
                    Grid::size_type maxWidth, Grid::size_type maxHeight, Grid::size_type maxDepth,
                    Grid::size_type maxSwathe,
+                   std::size_t meshMemory,
                    const Grid::size_type alignment[3])
 :
     maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
@@ -337,6 +331,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxDepth && maxDepth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(alignment[2] <= maxSwathe, std::invalid_argument);
+    MLSGPU_ASSERT(meshMemory >= (maxWidth - 1) * (maxHeight - 1) * MAX_CELL_BYTES, std::invalid_argument);
 
     Grid::size_type imageWidth = roundUp(maxWidth, alignment[0]);
     Grid::size_type imageHeight = roundUp(maxHeight, alignment[1]);
@@ -359,8 +354,9 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
     const std::size_t sliceCells = (maxWidth - 1) * (maxHeight - 1);
     const std::size_t swatheCells = sliceCells * maxSwathe;
-    vertexSpace = getMaxVertices(maxWidth, maxHeight, maxSwathe);
-    indexSpace = getMaxTriangles(maxWidth, maxHeight, maxSwathe) * 3;
+    const std::size_t meshCells = meshMemory / MAX_CELL_BYTES;
+    vertexSpace = meshCells * MAX_CELL_VERTICES;
+    indexSpace = meshCells * MAX_CELL_INDICES;
 
     // If these are updated, also update deviceMemory
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint3));

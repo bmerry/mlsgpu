@@ -251,7 +251,9 @@ cl::Buffer TestMarching::vectorToBuffer(cl_mem_flags flags, const vector<T> &v)
 void TestMarching::testConstructor()
 {
     AlternatingGenerator generator(context, 2, 2, 2);
-    Marching marching(context, device, 2, 2, 2, generator.alignment()[2], generator.alignment());
+    Marching marching(context, device, 2, 2, 2, generator.alignment()[2],
+                      4096,
+                      generator.alignment());
 
     vector<cl_uchar2> countTable = bufferToVector<cl_uchar2>(marching.countTable);
     vector<cl_ushort2> startTable = bufferToVector<cl_ushort2>(marching.startTable);
@@ -401,7 +403,8 @@ void TestMarching::testCompactVertices()
     }
 
     AlternatingGenerator generator(context, 2, 2, 2);
-    Marching marching(context, device, 2, 2, 2, generator.alignment()[2], generator.alignment());
+    Marching marching(context, device, 2, 2, 2,
+                      generator.alignment()[2], 4096, generator.alignment());
     callCompactVertices(marching.compactVerticesKernel, 3, 5,
                         outVertices, outKeys, indexRemap, firstExternal,
                         vertexUnique, inVertices, inKeys, 200);
@@ -467,7 +470,12 @@ void TestMarching::testGenerate(
     Grid::size_type size[3] = { width, height, depth };
 
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
-    Marching marching(context, device, maxWidth, maxHeight, maxDepth, generator.alignment()[2], generator.alignment());
+    Grid::size_type swathe = generator.alignment()[2];
+    // TODO: test with smaller meshMemory
+    Marching marching(context, device, maxWidth, maxHeight, maxDepth,
+                      swathe,
+                      (maxWidth - 1) * (maxHeight - 1) * swathe * Marching::MAX_CELL_BYTES,
+                      generator.alignment());
 
     /*** Pass 1: write to file ***/
 

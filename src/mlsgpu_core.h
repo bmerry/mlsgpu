@@ -101,6 +101,11 @@ void setLogLevel(const boost::program_options::variables_map &vm);
 int deviceWorkerSpare(const boost::program_options::variables_map &vm);
 
 /**
+ * Amount of GPU memory to reserve for mesh output.
+ */
+std::size_t meshMemory(const boost::program_options::variables_map &vm);
+
+/**
  * Estimate the per-device resource usage based on command-line options.
  */
 CLH::ResourceUsage resourceUsage(const boost::program_options::variables_map &vm);
