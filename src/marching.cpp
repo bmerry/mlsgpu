@@ -415,10 +415,12 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 
 void Marching::copySlice(
     const cl::CommandQueue &queue,
+    const cl::Image2D &image,
     Grid::size_type srcSlice,
     Grid::size_type trgSlice,
     Grid::size_type width,
     Grid::size_type height,
+    Grid::size_type zStride,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
@@ -636,7 +638,7 @@ void Marching::generate(
         if (z != 0)
         {
             // Copy end of previous range to start of current one
-            copySlice(queue, swathe, 0, width, height, &wait, &last);
+            copySlice(queue, image, swathe, 0, width, height, zStride, &wait, &last);
             wait.resize(1);
             wait[0] = last;
         }

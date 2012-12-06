@@ -168,6 +168,7 @@ class TestMarching : public CLH::Test::TestFixture
     CPPUNIT_TEST(testConstructor);
     CPPUNIT_TEST(testComputeKey);
     CPPUNIT_TEST(testCompactVertices);
+    CPPUNIT_TEST(testCopySlice);
     CPPUNIT_TEST(testSphere);
     CPPUNIT_TEST(testTruncatedSphere);
     CPPUNIT_TEST(testAlternating);
@@ -223,6 +224,7 @@ private:
     void testConstructor();     ///< Basic sanity tests on the tables
     void testComputeKey();      ///< Test @ref computeKey helper function
     void testCompactVertices(); ///< Test @ref compactVertices kernel
+    void testCopySlice();       ///< Test @ref copySlice, both kernel and wrapper function
     void testSphere();          ///< Builds a sphere
     void testTruncatedSphere(); ///< Builds a sphere that is truncated by the bounding box
     void testAlternating();     ///< Build a structure with lots of geometry
@@ -457,6 +459,64 @@ void TestMarching::testCompactVertices()
     CPPUNIT_ASSERT_EQUAL(cl_uint(2), indexRemap[3]);
     CPPUNIT_ASSERT_EQUAL(cl_uint(0), indexRemap[4]);
     CPPUNIT_ASSERT_EQUAL(cl_uint(3), firstExternal);
+}
+
+void TestMarching::testCopySlice()
+{
+    cl_float values[8][2] =
+    {
+        { 0.1f, 0.1f },
+        { 0.1f, 0.1f },
+        { 0.1f, 0.1f },
+        { 0.1f, 0.1f },
+        { 1.5f, -0.5f },
+        { 2.0f, -3.0f },
+        { 0.1f, 0.1f },
+        { 0.1f, 0.1f }
+    };
+
+    const cl_float expected[8][2] =
+    {
+        { 1.5f, -0.5f },
+        { 2.0f, -3.0f },
+        { 1.5f, -0.5f },
+        { 2.0f, -3.0f },
+        { 1.5f, -0.5f },
+        { 2.0f, -3.0f },
+        { 0.1f, 0.1f },
+        { 0.1f, 0.1f }
+    };
+
+    cl::Image2D image(
+        context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, cl::ImageFormat(CL_R, CL_FLOAT),
+        2, 8, 0, values);
+
+    AlternatingGenerator generator(context, 2, 2, 4);
+    Marching marching(context, device, 2, 2, 4,
+                      generator.alignment()[2], 4096, generator.alignment());
+
+    cl::size_t<3> srcOrigin, trgOrigin, region;
+    srcOrigin[0] = 0; srcOrigin[1] = 4; srcOrigin[2] = 0;
+    trgOrigin[0] = 0; trgOrigin[1] = 2; trgOrigin[2] = 0;
+    region[0] = 2; region[1] = 2; region[2] = 1;
+
+    cl_int2 trgOffset = {{ 0, -2 }};
+    marching.copySliceKernel.setArg(0, image);
+    marching.copySliceKernel.setArg(1, image);
+    marching.copySliceKernel.setArg(2, trgOffset);
+
+    queue.enqueueNDRangeKernel(
+        marching.copySliceKernel,
+        cl::NDRange(0, 4),
+        cl::NDRange(2, 2),
+        cl::NDRange(2, 1));
+    queue.enqueueBarrier();
+    marching.copySlice(queue, image, 2, 0, 2, 2, 2, NULL, NULL);
+    queue.finish();
+
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 2; j++)
+            CPPUNIT_ASSERT_EQUAL(expected[i][j], values[i][j]);
 }
 
 void TestMarching::testGenerate(

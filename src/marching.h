@@ -556,18 +556,22 @@ private:
      * Copy one slice of the image to another.
      *
      * @param queue           Command queue to use for enqueuing work.
-     * @param srcSlice        Z value within image for source
-     * @param trgSlice        Z value within image for destination
+     * @param image           Image to operate on.
+     * @param srcSlice        Z value within image for source.
+     * @param trgSlice        Z value within image for destination.
      * @param width, height   Dimensions of slice data to copy.
+     * @param zStride         Y steps between slices.
      * @param events          Events to wait for before starting (may be @c NULL).
      * @param[out] event      Event signalled on completion (may be @c NULL).
      */
     void copySlice(
         const cl::CommandQueue &queue,
+        const cl::Image2D &image,
         Grid::size_type srcSlice,
         Grid::size_type trgSlice,
         Grid::size_type width,
         Grid::size_type height,
+        Grid::size_type zStride,
         const std::vector<cl::Event> *events,
         cl::Event *event);
 
