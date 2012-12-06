@@ -693,7 +693,7 @@ Grid::size_type Marching::addSlices(
 
                 offsets.s[0] = 0;
                 offsets.s[1] = 0;
-                top.s[2] = z;
+                top.s[2] = 2 * z;
             }
 
             scanElements.enqueue(queue, viCount, compacted, &offsets, &wait, &last);
