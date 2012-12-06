@@ -531,10 +531,9 @@ void TestMarching::testGenerate(
 
     cl_uint3 keyOffset = {{ 0, 0, 0 }};
     Grid::size_type swathe = generator.alignment()[2];
-    // TODO: test with smaller meshMemory
     Marching marching(context, device, maxWidth, maxHeight, maxDepth,
                       swathe,
-                      (maxWidth - 1) * (maxHeight - 1) * swathe * Marching::MAX_CELL_BYTES,
+                      (maxWidth - 1) * (maxHeight - 1) * Marching::MAX_CELL_BYTES,
                       generator.alignment());
 
     /*** Pass 1: write to file ***/

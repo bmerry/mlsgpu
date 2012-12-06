@@ -613,25 +613,6 @@ private:
         const std::vector<cl::Event> *events);
 
     /**
-     * Scan the unwelded element counts to determine locations and the total
-     * number of vertices and indices that will be generated.  This function
-     * may wait for previous work, but does its own work synchronously and so
-     * does not return an event.
-     *
-     * @param queue           Command queue to use for enqueuing work.
-     * @param compacted       Number of cells (returned by @ref generateCells).
-     * @param events          Events to wait for before starting (may be @c NULL).
-     * @return The total number of vertices and indices that will be generated.
-     *
-     * @pre @ref viCount contains per-cell counts of vertices and indices
-     * @post @ref viCount contains pairs of offsets into the vertex and index
-     * outputs that indicate where each cell should emit its geometry.
-     */
-    cl_uint2 countElements(const cl::CommandQueue &queue,
-                           std::size_t compacted,
-                           const std::vector<cl::Event> *events);
-
-    /**
      * Post-process a batch of geometry and send it to the output functor.
      * This function operates asynchronously, with an event returned to
      * indicate completion. It handles welding of shared vertices into
@@ -658,6 +639,18 @@ private:
                  const OutputFunctor &output,
                  const std::vector<cl::Event> *events,
                  cl::Event *event);
+
+    Grid::size_type addSlices(
+        const cl::CommandQueue &queue,
+        const OutputFunctor &output,
+        Grid::size_type width, Grid::size_type height,
+        Grid::size_type zOffset,
+        const cl_uint3 &keyOffset,
+        const cl::NDRange &localSize,
+        Grid::size_type firstSlice, Grid::size_type lastSlice,
+        cl_uint2 &offsets, cl_uint3 &top,
+        const std::vector<cl::Event> *events,
+        cl::Event *event);
 };
 
 #endif /* !MARCHING_H */

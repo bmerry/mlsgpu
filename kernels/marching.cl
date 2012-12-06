@@ -174,9 +174,8 @@ __kernel void generateElements(
     __global const uchar * restrict dataTable,
     __global const uint3 * restrict keyTable,
     uint zStride,
-    uint zOffset,
+    int zOffset,
     uint3 gridOffset,
-    uint2 offsets,
     uint3 top,
     __local float3 *lvertices)
 {
@@ -220,7 +219,7 @@ __kernel void generateElements(
     lverts[18] = INTERP(6, 7);
 
     uint code = makeCode(iso);
-    uint2 viNext = viStart[gid] + offsets;
+    uint2 viNext = viStart[gid];
     uint vNext = viNext.s0;
     uint iNext = viNext.s1;
 
