@@ -301,6 +301,13 @@ private:
     cl::Buffer numOccupied;
 
     /**
+     * Number of vertices and indices produced for each slice. Each element
+     * is a uint2, and is indexed relative to the swathe i.e. it matches z
+     * coordinates within @ref image.
+     */
+    cl::Buffer viHistogram;
+
+    /**
      * Intermediate unwelded vertices. These are @c cl_float4 values, with the
      * w component holding a bit-cast of the original index before sorting by key.
      */
@@ -396,6 +403,9 @@ private:
 
     /// Pinned memory for doing readbacks
     CLH::PinnedMemory<Readback> readback;
+
+    /// Pinned memory for reading back @ref viHistogram;
+    CLH::PinnedMemory<cl_uint2> viReadback;
 
     /**
      * Finds the edge incident on vertices v0 and v1.

@@ -52,6 +52,7 @@ inline bool isValid(const float iso[8])
  * @param[out] occupied      List of cell coordinates for occupied cells
  * @param[out] viCount       Number of triangles+indices per cell.
  * @param[in,out] N          Number of occupied cells, incremented atomically
+ * @param[in,out] viHistogram Per-slice histogram of vertex and index counts (actually a uint2)
  * @param      isoImage      Image holding samples.
  * @param      zStride       Y steps between slices.
  * @param      countTable    Lookup table of counts per cube code.
@@ -64,6 +65,7 @@ __kernel void genOccupied(
     __global uint3 * restrict occupied,
     __global uint2 * restrict viCount,
     volatile __global uint * restrict N,
+    volatile __global uint * restrict viHistogram,
     __read_only image2d_t isoImage,
     uint zStride,
     __constant uchar2 * restrict countTable)
@@ -89,7 +91,10 @@ __kernel void genOccupied(
     {
         uint pos = atomic_inc(N);
         occupied[pos] = gid;
-        viCount[pos] = convert_uint2(countTable[code]);
+        uint2 vi = convert_uint2(countTable[code]);
+        viCount[pos] = vi;
+        atomic_add(&viHistogram[2 * gid.z], vi.x);
+        atomic_add(&viHistogram[2 * gid.z + 1], vi.y);
     }
 }
 

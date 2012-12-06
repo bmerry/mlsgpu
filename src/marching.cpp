@@ -274,6 +274,9 @@ CLH::ResourceUsage Marching::resourceUsage(
     // numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     ans.addBuffer(sizeof(cl_uint));
 
+    // viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxSwathe * sizeof(cl_uint2));
+    ans.addBuffer(maxSwathe * sizeof(cl_uint2));
+
     // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (swatheCells + 1) * sizeof(cl_uint2));
     ans.addBuffer((swatheCells + 1) * sizeof(cl_uint2));
 
@@ -326,7 +329,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
-    readback(context, device)
+    readback(context, device),
+    viReadback(context, device, maxSwathe)
 {
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);
@@ -362,6 +366,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     // If these are updated, also update deviceMemory
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint3));
     numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
+    viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxSwathe * sizeof(cl_uint2));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, (swatheCells + 1) * sizeof(cl_uint2));
     vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
@@ -387,7 +392,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     genOccupiedKernel.setArg(0, cells);
     genOccupiedKernel.setArg(1, viCount);
     genOccupiedKernel.setArg(2, numOccupied);
-    genOccupiedKernel.setArg(5, countTable);
+    genOccupiedKernel.setArg(3, viHistogram);
+    genOccupiedKernel.setArg(6, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, unweldedVertexKeys);
@@ -474,18 +480,25 @@ std::size_t Marching::generateCells(
     Grid::size_type width, Grid::size_type height,
     const std::vector<cl::Event> *events)
 {
-    cl::Event last;
+    const std::size_t viOffset = firstSlice * sizeof(cl_uint2);
+    const std::size_t viSize = (lastSlice - firstSlice) * sizeof(cl_uint2);
+    cl::Event last, last2;
 
-    const cl_uint zero = 0;
+    readback->compacted = 0;
     queue.enqueueWriteBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
-                             &zero, events, &last);
+                             &readback->compacted, events, &last);
+    std::memset(viReadback.get() + firstSlice, 0, viSize);
+    queue.enqueueWriteBuffer(viHistogram, CL_FALSE,
+                             viOffset, viSize,
+                             viReadback.get() + firstSlice, events, &last2);
     // TODO: account for time
 
-    std::vector<cl::Event> wait(1);
+    std::vector<cl::Event> wait(2);
     wait[0] = last;
+    wait[1] = last2;
 
-    genOccupiedKernel.setArg(3, image);
-    genOccupiedKernel.setArg(4, zStride);
+    genOccupiedKernel.setArg(4, image);
+    genOccupiedKernel.setArg(5, zStride);
     // TODO: round image size up to multiple of local work group size,
     // to avoid extra splits; will only work if combined with NaN padding
     // though, and also requires the generator to respect the padding.
@@ -497,12 +510,16 @@ std::size_t Marching::generateCells(
         cl::NDRange(16, 16, 1),
         &wait, &last, &genOccupiedKernelTime);
 
+    wait.resize(1);
     wait[0] = last;
 
-    queue.enqueueReadBuffer(numOccupied, CL_TRUE, 0, sizeof(cl_uint),
+    queue.enqueueReadBuffer(viHistogram, CL_FALSE, viOffset, viSize,
+                            viReadback.get() + firstSlice, &wait, NULL);
+    queue.enqueueReadBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
                             &readback->compacted,
                             &wait, NULL);
-    // TODO: account for time
+    // TODO: account for time for the above
+    queue.finish();
 
     return readback->compacted;
 }

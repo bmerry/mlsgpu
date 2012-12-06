@@ -183,16 +183,13 @@ public:
 template<typename T>
 class PinnedMemory : public detail::TypedMemoryMapping<T>
 {
-private:
-    // Shadow the base class version to prevent accident use as an array
-    T &operator[](std::size_t index);
 public:
-    PinnedMemory(const cl::Context &context, const cl::Device &device)
-        : detail::TypedMemoryMapping<T>(cl::Buffer(context, CL_MEM_ALLOC_HOST_PTR, sizeof(T)), device)
+    PinnedMemory(const cl::Context &context, const cl::Device &device, std::size_t nElements = 1)
+        : detail::TypedMemoryMapping<T>(cl::Buffer(context, CL_MEM_ALLOC_HOST_PTR, nElements * sizeof(T)), device)
     {
         T *ptr = static_cast<T *>(this->getQueue().enqueueMapBuffer(
                 static_cast<const cl::Buffer &>(this->getMemory()),
-                CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, sizeof(T)));
+                CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, nElements * sizeof(T)));
         this->setPointer(ptr);
         new(ptr) T(); // run constructor on the allocated memory
     }
