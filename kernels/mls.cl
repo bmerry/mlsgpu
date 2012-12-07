@@ -265,12 +265,10 @@ inline float3 projectOriginPlane(const Plane * restrict plane)
  *
  * @param[out] corners     The isovalues from a slice.
  * @param      splats      Input splats, in global grid coordinates, and with the inverse squared radius in the w component.
- * @param      commands, start Encoded octree for the region of interest.
+ * @param      commands, start Encoded octree for the local bin
  * @param      startShift  Subsampling shift for octree, times 3.
  * @param      offset      Difference between global grid coordinates and the local region of interest.
- * @param      zFirst      Z value of the first slice, in local region coordinates.
- * @param      zStride     Y pixels between stacked Z slices.
- * @param      zOffset     Number of slices to skip over in the image.
+ * @param      zStride, zBias See @ref Marching::ImageParams
  * @param      boundaryFactor Value of \f$1 - \gamma^2\f$ where \f$\gamma\f$ is the maximum
  *                         normalised distance between the projection point and the weighted
  *                         center of the region.
@@ -286,9 +284,8 @@ void processCorners(
     __global const command_type * restrict start,
     uint startShift,
     int3 offset,
-    int zFirst,
     uint zStride,
-    uint zOffset,
+    int zBias,
     float boundaryFactor)
 {
     __local command_type lSplatIds[MAX_BUCKET];
@@ -297,7 +294,7 @@ void processCorners(
     int3 wid;  // position of one corner of the workgroup in region coordinates
     wid.x = get_group_id(0) * WGS_X;
     wid.y = get_group_id(1) * WGS_Y;
-    wid.z = zFirst + get_group_id(2) * WGS_Z;
+    wid.z = get_group_id(2) * WGS_Z;
     uint code = makeCode(wid) >> startShift;
     command_type pos = start[code];
 
@@ -411,7 +408,7 @@ void processCorners(
 
     int3 lid3 = decode(lid);
     int2 outCoord = wid.xy + lid3.xy;
-    outCoord.y += (get_group_id(2) * WGS_Z + lid3.z + zOffset) * zStride;
+    outCoord.y += (get_group_id(2) * WGS_Z + lid3.z) * zStride + zBias;
     write_imagef(corners, outCoord, f);
 }
 

@@ -82,37 +82,34 @@ const Grid::size_type *MlsFunctor::alignment() const
 void MlsFunctor::enqueue(
     const cl::CommandQueue &queue,
     const cl::Image2D &distance,
-    const Grid::size_type size[3],
-    Grid::size_type zFirst, Grid::size_type zLast,
-    Grid::size_type zStride, Grid::size_type zOffset,
+    const Marching::Swathe &swathe,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    Grid::size_type width = roundUp(size[0], wgs[0]);
-    Grid::size_type height = roundUp(size[1], wgs[1]);
+    Grid::size_type width = roundUp(swathe.width, wgs[0]);
+    Grid::size_type height = roundUp(swathe.height, wgs[1]);
 
-    MLSGPU_ASSERT(zStride >= height, std::invalid_argument);
-    MLSGPU_ASSERT(zFirst < zLast, std::invalid_argument);
-    MLSGPU_ASSERT(zFirst % wgs[2] == 0, std::invalid_argument);
+    MLSGPU_ASSERT(swathe.zStride >= height, std::invalid_argument);
+    MLSGPU_ASSERT(swathe.zFirst <= swathe.zLast, std::invalid_argument);
+    MLSGPU_ASSERT(swathe.zFirst % wgs[2] == 0, std::invalid_argument);
     MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= width, std::length_error);
-    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst + zOffset), std::length_error);
+    MLSGPU_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= swathe.zStride * (swathe.zLast + 1) + swathe.zBias, std::length_error);
 
     kernel.setArg(0, distance);
-    kernel.setArg(6, cl_int(zFirst));
-    kernel.setArg(7, cl_uint(zStride));
-    kernel.setArg(8, cl_uint(zOffset));
+    kernel.setArg(6, cl_uint(swathe.zStride));
+    kernel.setArg(7, cl_int(swathe.zBias));
 
     const std::size_t wgs3 = wgs[0] * wgs[1] * wgs[2];
     const std::size_t blocks[3] =
     {
         width / wgs[0],
         height / wgs[1],
-        divUp(zLast - zFirst, wgs[2])
+        divUp(swathe.zLast - swathe.zFirst + 1, wgs[2])
     };
 
     CLH::enqueueNDRangeKernel(queue,
                               kernel,
-                              cl::NullRange,
+                              cl::NDRange(0, 0, swathe.zFirst / wgs[2]),
                               cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
                               cl::NDRange(wgs3, 1, 1),
                               events, event, &kernelTime);
@@ -124,5 +121,5 @@ void MlsFunctor::setBoundaryLimit(float limit)
     // uniform distribution of samples and a straight boundary
     const float boundaryScale = (sqrt(6.0f) * 512) / (693 * boost::math::constants::pi<float>());
     const float gamma = boundaryScale * limit;
-    kernel.setArg(9, 1.0f - gamma * gamma);
+    kernel.setArg(8, 1.0f - gamma * gamma);
 }

@@ -67,41 +67,37 @@ public:
     virtual void enqueue(
         const cl::CommandQueue &queue,
         const cl::Image2D &distance,
-        const Grid::size_type size[3],
-        Grid::size_type zFirst, Grid::size_type zLast,
-        Grid::size_type zStride, Grid::size_type zOffset,
+        const Marching::Swathe &swathe,
         const std::vector<cl::Event> *events,
         cl::Event *event)
     {
-        CPPUNIT_ASSERT(zStride >= size[1] + 1); // see comment in allocateSlices
-        CPPUNIT_ASSERT(0 < size[0]);
-        CPPUNIT_ASSERT(0 < size[1]);
-        CPPUNIT_ASSERT(0 < size[2]);
-        CPPUNIT_ASSERT(size[0] <= maxWidth);
-        CPPUNIT_ASSERT(size[1] <= maxHeight);
-        CPPUNIT_ASSERT(size[2] <= maxDepth);
-        CPPUNIT_ASSERT(zFirst < zLast && zLast <= size[2]);
-        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= size[0]);
-        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= zStride * (zLast - zFirst + zOffset));
+        CPPUNIT_ASSERT(swathe.zStride >= swathe.height + 1); // see comment in allocateSlices
+        CPPUNIT_ASSERT(0 < swathe.width);
+        CPPUNIT_ASSERT(0 < swathe.height);
+        CPPUNIT_ASSERT(swathe.width <= maxWidth);
+        CPPUNIT_ASSERT(swathe.height <= maxHeight);
+        CPPUNIT_ASSERT(swathe.zFirst <= swathe.zLast);
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= swathe.width);
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= swathe.zStride * (swathe.zLast + 1) + swathe.zBias);
 
         std::vector<cl::Event> wait;
         cl::Event last;
         if (events != NULL)
             wait = *events;
 
-        for (cl_uint z = zFirst; z < zLast; z++)
+        for (cl_uint z = swathe.zFirst; z <= swathe.zLast; z++)
         {
-            for (cl_uint y = 0; y < size[1]; y++)
-                for (cl_uint x = 0; x < size[0]; x++)
+            for (cl_uint y = 0; y < swathe.height; y++)
+                for (cl_uint x = 0; x < swathe.width; x++)
                 {
-                    sliceData[y * size[0] + x] = generate(x, y, z);
+                    sliceData[y * swathe.height + x] = generate(x, y, z);
                 }
 
             cl::size_t<3> origin, region;
-            origin[0] = 0; origin[1] = zStride * (z - zFirst + zOffset); origin[2] = 0;
-            region[0] = size[0]; region[1] = size[1]; region[2] = 1;
+            origin[0] = 0; origin[1] = z * swathe.zStride + swathe.zBias; origin[2] = 0;
+            region[0] = swathe.width; region[1] = swathe.height; region[2] = 1;
             queue.enqueueWriteImage(distance, CL_TRUE, origin, region,
-                                    size[0] * sizeof(float), 0, &sliceData[0],
+                                    swathe.width * sizeof(float), 0, &sliceData[0],
                                     &wait, &last);
             wait.resize(1);
             wait[0] = last;
@@ -491,6 +487,12 @@ void TestMarching::testCopySlice()
         context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, cl::ImageFormat(CL_R, CL_FLOAT),
         2, 8, 0, values);
 
+    Marching::ImageParams params;
+    params.width = 2;
+    params.height = 2;
+    params.zStride = 2;
+    params.zBias = 1; // should not be used
+
     AlternatingGenerator generator(context, 2, 2, 4);
     Marching marching(context, device, 2, 2, 4,
                       generator.alignment()[2], 4096, generator.alignment());
@@ -511,7 +513,7 @@ void TestMarching::testCopySlice()
         cl::NDRange(2, 2),
         cl::NDRange(2, 1));
     queue.enqueueBarrier();
-    marching.copySlice(queue, image, 2, 0, 2, 2, 2, NULL, NULL);
+    marching.copySlice(queue, image, 2, 0, params, NULL, NULL);
     queue.finish();
 
     for (int i = 0; i < 8; i++)

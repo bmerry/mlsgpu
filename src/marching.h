@@ -44,14 +44,20 @@ class TestMarching;
  *  - Boundary ("external") vertices have associated vertex keys that uniquely identify
  *    them and allow them to be welded in a post-processing step.
  *
- * The implementation operates on a slice at a time. For each slice, it:
+ * The implementation operates on @em swathes of slices at a time. For each
+ * swathe, it:
  *  -# Identifies the cells that are not empty (not entirely inside, entirely
- *     outside, or containing non-finite values).
+ *     outside, or containing non-finite values) and counts the vertices and indices
+ *     they produce.
  *  -# Compacts those cells into an array to allow more efficient iteration over them.
- *  -# Extracts the number of vertices and indices each (compacted) cell will produce.
- *  -# Performs of these counts to allocate positions in the array. These scans are
- *     seeded with the total number already produced.
+ *  -# Performs a scan of these counts to allocate positions in the array.
+ *     This scan is seeded with the total number already produced.
  *  -# Generates the vertices and indices.
+ *
+ * The user specifies the maximum memory to use for intermediate vertices and indices.
+ * If this amount is exceeded, the existing data is shipped out and collection is
+ * restarted. It is also possible that a single swathe has too much data, in which case
+ * it is split into separate slices. However, slices are never split.
  */
 class Marching
 {
@@ -145,6 +151,33 @@ public:
     };
 
     /**
+     * Contains data necessary for accessing slices in a packed image.
+     * The @a width and @a height may be less than the actual allocated
+     * sizes, but describe the dimensions that contain payload.
+     * A point at coordinates (@a x, @a y, @a z) in the volume is stored
+     * at location (@a x, @a z * @c zStride + @c zBias). Note that in
+     * most cases @a zBias will be negative.
+     */
+    struct ImageParams
+    {
+        Grid::size_type width;
+        Grid::size_type height;
+        cl_uint zStride;
+        cl_int zBias;
+    };
+
+    /**
+     * Augments image parameters with a range of slices to process in the
+     * image. The @c zFirst and @c zLast can be considered to be either
+     * a closed interval of corners or a half-open interval of cells.
+     */
+    struct Swathe : public ImageParams
+    {
+        Grid::size_type zFirst;
+        Grid::size_type zLast;
+    };
+
+    /**
      * An interface for classes that supply the signed distance function
      * for @ref Marching.
      */
@@ -173,33 +206,28 @@ public:
          *
          * @param queue                 The command queue to use.
          * @param distance              Output storage for the signed distance function
-         * @param size                  The dimensions of the entire volume.
-         * @param zFirst, zLast         Half-open range of Z values to process.
-         * @param zStride               Y step between slices
-         * @param zOffset               Number slices to skip over in the output image
+         * @param swathe                Swathe of values to produce
          * @param events                Events to wait for (may be @c NULL).
          * @param[out] event            Event signaled on completion (may be @c NULL).
          *
          * @pre
-         * - All elements of @a size are positive.
-         * - 0 &lt;= @a zFirst &lt; @a zLast &lt;= @a size[2].
-         * - The X size of @a distance is at least <code>roundUp</code>(@a size[0], @ref alignment(0))</code>.
+         * - @a swathe.width and @a swathe.height are positive.
+         * - @a swathe.zFirst &lt;= @a swathe.zLast
+         * - The X size of @a distance is at least <code>roundUp</code>(@a swathe.width, @ref alignment(0))</code>.
          * - The Y size of @a distance is at least
-         *   @a zStride * (@a zLast - @a zFirst + @a zOffset).
-         * - @a zStride is at least <code>roundUp</code>(@a size[1], @ref alignment(1))
-         * - @a zFirst is a multiple of @ref alignment(2).
+         *   @a swathe.zStride * (@a zLast + 1) + @a zBias
+         * - @a swathe.zStride is at least <code>roundUp</code>(@a swathe.height, @ref alignment(1))
+         * - @a swathe.zFirst is a multiple of @ref alignment(2).
          * @post
-         * - The signed distance for point (x, y, z) in the volume will be stored
-         *   in @a distance at coordinates x, y + (z - zFirst + zOffset) * zStride.
-         * - The pixels for slices skipped by @a zOffset are unaffected.
+         * - The signed distances for @a z values in the swathe will be stored
+         *   in @a distance (see @ref ImageParams for details).
+         * - The pixels at lower @a z coordinates are unaffected.
          * - Other pixels in the image have undefined values.
          */
         virtual void enqueue(
             const cl::CommandQueue &queue,
             const cl::Image2D &distance,
-            const Grid::size_type size[3],
-            Grid::size_type zFirst, Grid::size_type zLast,
-            Grid::size_type zStride, Grid::size_type zOffset,
+            const Swathe &swathe,
             const std::vector<cl::Event> *events,
             cl::Event *event) = 0;
     };
@@ -302,8 +330,7 @@ private:
 
     /**
      * Number of vertices and indices produced for each slice. Each element
-     * is a uint2, and is indexed relative to the swathe i.e. it matches z
-     * coordinates within @ref image.
+     * is a uint2, and is indexed relative to the local volume.
      */
     cl::Buffer viHistogram;
 
@@ -404,7 +431,7 @@ private:
     /// Pinned memory for doing readbacks
     CLH::PinnedMemory<Readback> readback;
 
-    /// Pinned memory for reading back @ref viHistogram;
+    /// Pinned memory for reading back @ref viHistogram
     CLH::PinnedMemory<cl_uint2> viReadback;
 
     /**
@@ -567,21 +594,21 @@ private:
      *
      * @param queue           Command queue to use for enqueuing work.
      * @param image           Image to operate on.
-     * @param srcSlice        Z value within image for source.
-     * @param trgSlice        Z value within image for destination.
-     * @param width, height   Dimensions of slice data to copy.
-     * @param zStride         Y steps between slices.
+     * @param src             Slice number for source.
+     * @param trg             Slice number for target.
+     * @param params          Image parameters.
      * @param events          Events to wait for before starting (may be @c NULL).
      * @param[out] event      Event signalled on completion (may be @c NULL).
+     *
+     * @note @a src and @a trg are image-relative i.e., the @c zBias in
+     * @a params does not apply.
      */
     void copySlice(
         const cl::CommandQueue &queue,
         const cl::Image2D &image,
-        Grid::size_type srcSlice,
-        Grid::size_type trgSlice,
-        Grid::size_type width,
-        Grid::size_type height,
-        Grid::size_type zStride,
+        Grid::size_type zSrc,
+        Grid::size_type zTrg,
+        const ImageParams &params,
         const std::vector<cl::Event> *events,
         cl::Event *event);
 
@@ -596,9 +623,7 @@ private:
      * cell, and @ref numOccupied contains the number of cells.
      *
      * @param queue           Command queue to use for enqueuing work.
-     * @param firstSlice      First slice in image containing isovalues.
-     * @param lastSlice       Last slice in image containing isovalues.
-     * @param width,height    Dimensions of the image portions that are populated.
+     * @param swathe          Swathe of data to process
      * @param events          Events to wait for before starting (may be @c NULL).
      *
      * @return The number of cells that need further processing.
@@ -608,8 +633,7 @@ private:
      */
     std::size_t generateCells(
         const cl::CommandQueue &queue,
-        Grid::size_type firstSlice, Grid::size_type lastSlice,
-        Grid::size_type width, Grid::size_type height,
+        const Swathe &swathe,
         const std::vector<cl::Event> *events);
 
     /**
@@ -643,11 +667,9 @@ private:
     Grid::size_type addSlices(
         const cl::CommandQueue &queue,
         const OutputFunctor &output,
-        Grid::size_type width, Grid::size_type height,
-        Grid::size_type zOffset,
+        const Swathe &swathe,
         const cl_uint3 &keyOffset,
         const cl::NDRange &localSize,
-        Grid::size_type firstSlice, Grid::size_type lastSlice,
         cl_uint2 &offsets, cl_uint3 &top,
         const std::vector<cl::Event> *events,
         cl::Event *event);

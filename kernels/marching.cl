@@ -44,17 +44,17 @@ inline bool isValid(const float iso[8])
 
 /**
  * For each cell which might produce triangles, appends the coordinates of the
- * cell to a buffer and the count of vertices and triangles to another.
+ * cell to a buffer and the count of vertices and triangles to another. It also
+ * produces a per-slice histogram.
  *
- * There is one work-item per cell in a slice, arranged in a 3D NDRange. The
- * Z coordinate indexes the image rather than the local volume.
+ * There is one work-item per cell in a swathe, arranged in a 3D NDRange.
  *
  * @param[out] occupied      List of cell coordinates for occupied cells
  * @param[out] viCount       Number of triangles+indices per cell.
  * @param[in,out] N          Number of occupied cells, incremented atomically
  * @param[in,out] viHistogram Per-slice histogram of vertex and index counts (actually a uint2)
  * @param      isoImage      Image holding samples.
- * @param      zStride       Y steps between slices.
+ * @param      zStride, zBias See @ref Marching::ImageParams.
  * @param      countTable    Lookup table of counts per cube code.
  *
  * @todo
@@ -68,10 +68,11 @@ __kernel void genOccupied(
     volatile __global uint * restrict viHistogram,
     __read_only image2d_t isoImage,
     uint zStride,
+    int zBias,
     __constant uchar2 * restrict countTable)
 {
     uint3 gid = (uint3) (get_global_id(0), get_global_id(1), get_global_id(2));
-    uint y0 = gid.y + zStride * gid.z;
+    uint y0 = gid.y + zStride * gid.z + zBias;
     uint y1 = y0 + zStride;
 
     float iso[8];
@@ -152,12 +153,10 @@ ulong computeKey(uint3 coords, uint3 top)
  * @param      viStart         Position to start writing vertices/indices for each cell.
  * @param      cells           List of compacted cells written by @ref genOccupied.
  * @param      isoImage        Image holding samples.
- * @param      yOffsetA        Initial Y offset in iso for lower z.
- * @param      yOffsetB        Initial Y offset in iso for higher z.
  * @param      startTable      Lookup table indicating where to find vertices/indices in @a dataTable.
  * @param      dataTable       Lookup table of vertex and index indices.
  * @param      keyTable        Lookup table for cell-relative vertex keys.
- * @param      zOffset         Z coordinate of the first image slice
+ * @param      zStride, zBias  See @ref Marching::ImageParams
  * @param      gridOffset      Transformation from grid-local to grid-global coordinates.
  * @param      offsets         Offset to add to all elements of @a viStart.
  * @param      top             See above.
@@ -174,7 +173,7 @@ __kernel void generateElements(
     __global const uchar * restrict dataTable,
     __global const uint3 * restrict keyTable,
     uint zStride,
-    int zOffset,
+    int zBias,
     uint3 gridOffset,
     uint3 top,
     __local float3 *lvertices)
@@ -182,9 +181,8 @@ __kernel void generateElements(
     const uint gid = get_global_id(0);
     const uint lid = get_local_id(0);
     uint3 cell = cells[gid];
-    const uint y0 = cell.z * zStride + cell.y;
+    const uint y0 = cell.z * zStride + zBias + cell.y;
     const uint y1 = y0 + zStride;
-    cell.z += zOffset;
     const uint3 globalCell = cell + gridOffset;
     __local float3 *lverts = lvertices + NUM_EDGES * lid;
 

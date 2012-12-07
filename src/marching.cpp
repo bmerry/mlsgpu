@@ -274,8 +274,8 @@ CLH::ResourceUsage Marching::resourceUsage(
     // numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
     ans.addBuffer(sizeof(cl_uint));
 
-    // viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxSwathe * sizeof(cl_uint2));
-    ans.addBuffer(maxSwathe * sizeof(cl_uint2));
+    // viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxDepth * sizeof(cl_uint2));
+    ans.addBuffer(maxDepth * sizeof(cl_uint2));
 
     // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint2));
     ans.addBuffer(swatheCells * sizeof(cl_uint2));
@@ -366,7 +366,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     // If these are updated, also update deviceMemory
     cells = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint3));
     numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
-    viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxSwathe * sizeof(cl_uint2));
+    viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxDepth * sizeof(cl_uint2));
     viCount = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint2));
     vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
     indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
@@ -393,7 +393,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     genOccupiedKernel.setArg(1, viCount);
     genOccupiedKernel.setArg(2, numOccupied);
     genOccupiedKernel.setArg(3, viHistogram);
-    genOccupiedKernel.setArg(6, countTable);
+    genOccupiedKernel.setArg(7, countTable);
 
     generateElementsKernel.setArg(0, unweldedVertices);
     generateElementsKernel.setArg(1, unweldedVertexKeys);
@@ -404,7 +404,6 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     generateElementsKernel.setArg(6, startTable);
     generateElementsKernel.setArg(7, dataTable);
     generateElementsKernel.setArg(8, keyTable);
-    generateElementsKernel.setArg(9, zStride);
 
     countUniqueVerticesKernel.setArg(0, vertexUnique);
     countUniqueVerticesKernel.setArg(1, unweldedVertexKeys);
@@ -424,23 +423,21 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
 void Marching::copySlice(
     const cl::CommandQueue &queue,
     const cl::Image2D &image,
-    Grid::size_type srcSlice,
-    Grid::size_type trgSlice,
-    Grid::size_type width,
-    Grid::size_type height,
-    Grid::size_type zStride,
+    Grid::size_type src,
+    Grid::size_type trg,
+    const ImageParams &params,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     cl::size_t<3> srcOrigin, trgOrigin, region;
     srcOrigin[0] = 0;
-    srcOrigin[1] = srcSlice * zStride;
+    srcOrigin[1] = src * params.zStride;
     srcOrigin[2] = 0;
     trgOrigin[0] = 0;
-    trgOrigin[1] = trgSlice * zStride;
+    trgOrigin[1] = trg * params.zStride;
     trgOrigin[2] = 0;
-    region[0] = width;
-    region[1] = height;
+    region[0] = params.width;
+    region[1] = params.height;
     region[2] = 1;
 
     try
@@ -478,21 +475,20 @@ void Marching::copySlice(
 
 std::size_t Marching::generateCells(
     const cl::CommandQueue &queue,
-    Grid::size_type firstSlice, Grid::size_type lastSlice,
-    Grid::size_type width, Grid::size_type height,
+    const Swathe &swathe,
     const std::vector<cl::Event> *events)
 {
-    const std::size_t viOffset = firstSlice * sizeof(cl_uint2);
-    const std::size_t viSize = (lastSlice - firstSlice) * sizeof(cl_uint2);
+    const std::size_t viOffset = swathe.zFirst * sizeof(cl_uint2);
+    const std::size_t viSize = (swathe.zLast - swathe.zFirst) * sizeof(cl_uint2);
     cl::Event last, last2;
 
     readback->compacted = 0;
     queue.enqueueWriteBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
                              &readback->compacted, events, &last);
-    std::memset(viReadback.get() + firstSlice, 0, viSize);
+    std::memset(viReadback.get() + swathe.zFirst, 0, viSize);
     queue.enqueueWriteBuffer(viHistogram, CL_FALSE,
                              viOffset, viSize,
-                             viReadback.get() + firstSlice, events, &last2);
+                             viReadback.get() + swathe.zFirst, events, &last2);
     // TODO: account for time
 
     std::vector<cl::Event> wait(2);
@@ -500,15 +496,16 @@ std::size_t Marching::generateCells(
     wait[1] = last2;
 
     genOccupiedKernel.setArg(4, image);
-    genOccupiedKernel.setArg(5, zStride);
+    genOccupiedKernel.setArg(5, swathe.zStride);
+    genOccupiedKernel.setArg(6, swathe.zBias);
     // TODO: round image size up to multiple of local work group size,
     // to avoid extra splits; will only work if combined with NaN padding
     // though, and also requires the generator to respect the padding.
     CLH::enqueueNDRangeKernelSplit(
         queue,
         genOccupiedKernel,
-        cl::NDRange(0, 0, firstSlice),
-        cl::NDRange(width - 1, height - 1, lastSlice - firstSlice),
+        cl::NDRange(0, 0, swathe.zFirst),
+        cl::NDRange(swathe.width - 1, swathe.height - 1, swathe.zLast - swathe.zFirst),
         cl::NDRange(16, 16, 1),
         &wait, &last, &genOccupiedKernelTime);
 
@@ -516,7 +513,7 @@ std::size_t Marching::generateCells(
     wait[0] = last;
 
     queue.enqueueReadBuffer(viHistogram, CL_FALSE, viOffset, viSize,
-                            viReadback.get() + firstSlice, &wait, NULL);
+                            viReadback.get() + swathe.zFirst, &wait, NULL);
     queue.enqueueReadBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
                             &readback->compacted,
                             &wait, NULL);
@@ -605,11 +602,9 @@ void Marching::shipOut(const cl::CommandQueue &queue,
 Grid::size_type Marching::addSlices(
     const cl::CommandQueue &queue,
     const OutputFunctor &output,
-    Grid::size_type width, Grid::size_type height,
-    Grid::size_type zOffset,
+    const Swathe &swathe,
     const cl_uint3 &keyOffset,
     const cl::NDRange &localSize,
-    Grid::size_type firstSlice, Grid::size_type lastSlice,
     cl_uint2 &offsets, cl_uint3 &top,
     const std::vector<cl::Event> *events,
     cl::Event *event)
@@ -620,13 +615,13 @@ Grid::size_type Marching::addSlices(
     cl::Event last;
     Grid::size_type shipOuts = 0;
 
-    std::size_t compacted = generateCells(queue, firstSlice, lastSlice, width, height, events);
+    std::size_t compacted = generateCells(queue, swathe, events);
 
     if (compacted > 0)
     {
         // Reduce the per-slice histogam
         cl_uint2 counts = {{ 0, 0 }};
-        for (Grid::size_type i = firstSlice; i < lastSlice; i++)
+        for (Grid::size_type i = swathe.zFirst; i < swathe.zLast; i++)
             for (int j = 0; j < 2; j++)
                 counts.s[j] += viReadback[i].s[j];
 
@@ -635,13 +630,13 @@ Grid::size_type Marching::addSlices(
         {
             // Swathe is too big on its own. Subdivide it and start
             // again
-            Grid::size_type subFirst = firstSlice;
-            while (subFirst < lastSlice)
+            Grid::size_type subFirst = swathe.zFirst;
+            while (subFirst < swathe.zLast)
             {
-                Grid::size_type subLast = subFirst;
+                Grid::size_type subLast = swathe.zLast;
                 counts.s[0] = 0;
                 counts.s[1] = 0;
-                while (subLast < lastSlice
+                while (subLast < swathe.zLast
                        && offsets.s[0] + counts.s[0] + viReadback[subLast].s[0] <= vertexSpace
                        && offsets.s[1] + counts.s[1] + viReadback[subLast].s[1] <= indexSpace)
                 {
@@ -654,7 +649,7 @@ Grid::size_type Marching::addSlices(
                     // Can't combine with previous swathe in a shipOut, so just ignore
                     // previous data when picking a size. The recursive addSlice call
                     // will call shipOut.
-                    while (subLast < lastSlice
+                    while (subLast < swathe.zLast
                            && counts.s[0] + viReadback[subLast].s[0] <= vertexSpace
                            && counts.s[1] + viReadback[subLast].s[1] <= indexSpace)
                     {
@@ -666,10 +661,12 @@ Grid::size_type Marching::addSlices(
                 // This should pass because we impose a lower bound of one slice on
                 // meshMemory.
                 assert(subLast > subFirst);
+                Swathe subSwathe = swathe;
+                subSwathe.zFirst = subFirst;
+                subSwathe.zLast = subLast;
                 shipOuts += addSlices(
                     queue, output,
-                    width, height, zOffset, keyOffset, localSize,
-                    subFirst, subLast,
+                    subSwathe, keyOffset, localSize,
                     offsets, top,
                     &wait, &last);
                 wait.resize(1);
@@ -680,27 +677,27 @@ Grid::size_type Marching::addSlices(
         }
         else
         {
-            Grid::size_type z = firstSlice + zOffset;
             if (offsets.s[0] + counts.s[0] > vertexSpace
                 || offsets.s[1] + counts.s[1] > indexSpace)
             {
                 /* The swathe fits, but only after we flush previous data.
                  */
-                shipOut(queue, keyOffset, offsets, z, output, &wait, &last);
+                shipOut(queue, keyOffset, offsets, swathe.zFirst, output, &wait, &last);
                 shipOuts++;
                 wait.resize(1);
                 wait[0] = last;
 
                 offsets.s[0] = 0;
                 offsets.s[1] = 0;
-                top.s[2] = 2 * z;
+                top.s[2] = 2 * swathe.zFirst;
             }
 
             scanElements.enqueue(queue, viCount, compacted, &offsets, &wait, &last);
             wait.resize(1);
             wait[0] = last;
 
-            generateElementsKernel.setArg(10, zOffset);
+            generateElementsKernel.setArg(9, swathe.zStride);
+            generateElementsKernel.setArg(10, swathe.zBias);
             generateElementsKernel.setArg(12, top);
             CLH::enqueueNDRangeKernelSplit(queue,
                                            generateElementsKernel,
@@ -738,45 +735,49 @@ void Marching::generate(
     generateElementsKernel.setArg(11, keyOffset);
     generateElementsKernel.setArg(13, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
 
-    const Grid::size_type width = size[0];
-    const Grid::size_type height = size[1];
+    Swathe swathe;
+    swathe.width = size[0];
+    swathe.height = size[1];
+    swathe.zStride = zStride;
+
     const Grid::size_type depth = size[2];
-    MLSGPU_ASSERT(1U <= width && width <= maxWidth, std::length_error);
-    MLSGPU_ASSERT(1U <= height && height <= maxHeight, std::length_error);
+    MLSGPU_ASSERT(1U <= swathe.width && swathe.width <= maxWidth, std::length_error);
+    MLSGPU_ASSERT(1U <= swathe.height && swathe.height <= maxHeight, std::length_error);
     MLSGPU_ASSERT(1U <= depth && depth <= maxDepth, std::length_error);
 
     std::vector<cl::Event> wait;
     cl::Event last, readEvent;
     cl_uint2 offsets = { {0, 0} };
-    cl_uint3 top = { {2 * (width - 1), 2 * (height - 1), 0} };
-    Grid::size_type swathe = maxSwathe;
+    cl_uint3 top = { {2 * (swathe.width - 1), 2 * (swathe.height - 1), 0} };
 
     if (events != NULL)
         wait = *events;
 
     Grid::size_type shipOuts = 0;
-    for (Grid::size_type z = 0; z < depth; z += swathe)
+    for (Grid::size_type z = 0; z < depth; z += maxSwathe)
     {
+        swathe.zFirst = z;
+        swathe.zLast = std::min(depth, z + maxSwathe) - 1;
+        swathe.zBias = (1 - cl_int(z)) * cl_int(swathe.zStride);
+
         if (z != 0)
         {
             // Copy end of previous range to start of current one
-            copySlice(queue, image, swathe, 0, width, height, zStride, &wait, &last);
+            copySlice(queue, image, maxSwathe, 0, swathe, &wait, &last);
             wait.resize(1);
             wait[0] = last;
         }
-        generator.enqueue(queue, image, size, z, std::min(z + swathe, depth), zStride, 1, &wait, &last);
+        generator.enqueue(queue, image, swathe, &wait, &last);
         wait.resize(1);
         wait[0] = last;
 
-        Grid::size_type firstSlice = z == 0 ? 1 : 0;
-        Grid::size_type lastSlice = std::min(swathe, depth - z);
-        cl_int zOffset = cl_int(z) - 1;
+        if (z > 0)
+            swathe.zFirst--; // Use the copied previous slice as well
 
         shipOuts += addSlices(
             queue, output,
-            width, height, zOffset, keyOffset,
+            swathe, keyOffset,
             cl::NDRange(wgsCompacted),
-            firstSlice, lastSlice,
             offsets, top,
             &wait, &last);
         wait.resize(1);

@@ -405,8 +405,18 @@ void TestMls::testProcessCorners()
     const Grid::size_type sizeY = 24;
     const Grid::size_type sizeZ = 28;
     const Grid::size_type size[3] = {sizeX, sizeY, sizeZ};
-    const Grid::size_type zFirst = MlsFunctor::wgs[2], zLast = 26;
     const Grid::difference_type offset[3] = { 20, 15, 33 };
+
+    MlsFunctor generator(context, MLS_SHAPE_SPHERE);
+    Marching::Swathe swathe;
+    swathe.width = sizeX;
+    swathe.height = sizeY;
+    Grid::size_type imageWidth = roundUp(sizeX, generator.alignment()[0]);
+    Grid::size_type imageHeight = roundUp(sizeY, generator.alignment()[1]);
+    swathe.zFirst = MlsFunctor::wgs[2];
+    swathe.zLast = 26;
+    swathe.zStride = imageHeight + 10;
+    swathe.zBias = (2 - cl_int(swathe.zFirst)) * cl_int(swathe.zStride);
 
     unsigned int subsampling = MlsFunctor::subsamplingMin;
     while ((Grid::size_type(2) << subsampling) < *max_element(size, size + 3))
@@ -448,29 +458,24 @@ void TestMls::testProcessCorners()
     cl::Buffer dCommands(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                          hCommands.size() * sizeof(SplatTreeCL::command_type), &hCommands[0]);
 
-    MlsFunctor generator(context, MLS_SHAPE_SPHERE);
-    Grid::size_type imageWidth = roundUp(size[0], generator.alignment()[0]);
-    Grid::size_type imageHeight = roundUp(size[1], generator.alignment()[1]);
-    Grid::size_type zStride = imageHeight + 10;
-    Grid::size_type zOffset = 3;
     cl::Image2D dCorners = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
-                                       imageWidth, zStride * (zLast - zFirst + zOffset), zStride);
+                                       imageWidth, (swathe.zLast + 1) * swathe.zStride + swathe.zBias);
 
     generator.set(offset, dSplats, dCommands, dStart, subsampling);
-    generator.enqueue(queue, dCorners, size, zFirst, zLast, zStride, zOffset, NULL, NULL);
+    generator.enqueue(queue, dCorners, swathe, NULL, NULL);
     queue.finish();
 
     // Read back and verify results
-    for (Grid::size_type z = zFirst; z < zLast; z++)
+    for (Grid::size_type z = swathe.zFirst; z <= swathe.zLast; z++)
     {
         cl_float hCorners[sizeY][sizeX];
         cl::size_t<3> origin, region;
-        origin[0] = 0; origin[1] = zStride * (z - zFirst + zOffset); origin[2] = 0;
-        region[0] = size[0]; region[1] = size[1]; region[2] = 1;
+        origin[0] = 0; origin[1] = z * swathe.zStride + swathe.zBias; origin[2] = 0;
+        region[0] = swathe.width; region[1] = swathe.height; region[2] = 1;
         queue.enqueueReadImage(dCorners, CL_TRUE, origin, region, 0, 0, &hCorners[0][0]);
 
-        for (unsigned int y = 0; y < size[1]; y++)
-            for (unsigned int x = 0; x < size[0]; x++)
+        for (unsigned int y = 0; y < swathe.height; y++)
+            for (unsigned int x = 0; x < swathe.width; x++)
             {
                 float cx = x + offset[0];
                 float cy = y + offset[1];
