@@ -215,7 +215,7 @@ public:
          * - @a swathe.zFirst &lt;= @a swathe.zLast
          * - The X size of @a distance is at least <code>roundUp</code>(@a swathe.width, @ref alignment(0))</code>.
          * - The Y size of @a distance is at least
-         *   @a swathe.zStride * (@a zLast + 1) + @a zBias
+         *   @a swathe.zStride * roundUp(@a zLast + 1, @ref alignment(2)) + @a zBias
          * - @a swathe.zStride is at least <code>roundUp</code>(@a swathe.height, @ref alignment(1))
          * - @a swathe.zFirst is a multiple of @ref alignment(2).
          * @post

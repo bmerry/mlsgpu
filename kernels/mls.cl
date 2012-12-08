@@ -294,7 +294,7 @@ void processCorners(
     int3 wid;  // position of one corner of the workgroup in region coordinates
     wid.x = get_group_id(0) * WGS_X;
     wid.y = get_group_id(1) * WGS_Y;
-    wid.z = get_group_id(2) * WGS_Z;
+    wid.z = get_group_id(2) * WGS_Z + get_global_offset(2);
     uint code = makeCode(wid) >> startShift;
     command_type pos = start[code];
 
@@ -407,9 +407,9 @@ void processCorners(
     }
 
     int3 lid3 = decode(lid);
-    int2 outCoord = wid.xy + lid3.xy;
-    outCoord.y += (get_group_id(2) * WGS_Z + lid3.z) * zStride + zBias;
-    write_imagef(corners, outCoord, f);
+    int3 outCoord = wid + lid3;
+    outCoord.y += outCoord.z * zStride + zBias;
+    write_imagef(corners, outCoord.xy, f);
 }
 
 /*******************************************************************************

@@ -31,6 +31,7 @@
 #include "../src/marching.h"
 #include "../src/mesher.h"
 #include "../src/fast_ply.h"
+#include "../src/misc.h"
 
 using namespace std;
 
@@ -71,14 +72,14 @@ public:
         const std::vector<cl::Event> *events,
         cl::Event *event)
     {
-        CPPUNIT_ASSERT(swathe.zStride >= swathe.height + 1); // see comment in allocateSlices
+        CPPUNIT_ASSERT(swathe.zStride >= roundUp(swathe.height + 1, alignment()[1]));
         CPPUNIT_ASSERT(0 < swathe.width);
         CPPUNIT_ASSERT(0 < swathe.height);
         CPPUNIT_ASSERT(swathe.width <= maxWidth);
         CPPUNIT_ASSERT(swathe.height <= maxHeight);
         CPPUNIT_ASSERT(swathe.zFirst <= swathe.zLast);
-        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= swathe.width);
-        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= swathe.zStride * (swathe.zLast + 1) + swathe.zBias);
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_WIDTH>() >= roundUp(swathe.width, alignment()[0]));
+        CPPUNIT_ASSERT(distance.getImageInfo<CL_IMAGE_HEIGHT>() >= swathe.zStride * roundUp(swathe.zLast + 1, alignment()[2]) + swathe.zBias);
 
         std::vector<cl::Event> wait;
         cl::Event last;

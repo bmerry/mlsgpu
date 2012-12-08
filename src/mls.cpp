@@ -109,7 +109,7 @@ void MlsFunctor::enqueue(
 
     CLH::enqueueNDRangeKernel(queue,
                               kernel,
-                              cl::NDRange(0, 0, swathe.zFirst / wgs[2]),
+                              cl::NDRange(0, 0, swathe.zFirst),
                               cl::NDRange(wgs3 * blocks[0], blocks[1], blocks[2]),
                               cl::NDRange(wgs3, 1, 1),
                               events, event, &kernelTime);
