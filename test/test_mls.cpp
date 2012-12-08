@@ -413,6 +413,7 @@ void TestMls::testProcessCorners()
     swathe.height = sizeY;
     Grid::size_type imageWidth = roundUp(sizeX, generator.alignment()[0]);
     Grid::size_type imageHeight = roundUp(sizeY, generator.alignment()[1]);
+    Grid::size_type imageDepth = roundUp(sizeZ, generator.alignment()[2]);
     swathe.zFirst = MlsFunctor::wgs[2];
     swathe.zLast = 26;
     swathe.zStride = imageHeight + 10;
@@ -459,7 +460,7 @@ void TestMls::testProcessCorners()
                          hCommands.size() * sizeof(SplatTreeCL::command_type), &hCommands[0]);
 
     cl::Image2D dCorners = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
-                                       imageWidth, (swathe.zLast + 1) * swathe.zStride + swathe.zBias);
+                                       imageWidth, imageDepth * swathe.zStride + swathe.zBias);
 
     generator.set(offset, dSplats, dCommands, dStart, subsampling);
     generator.enqueue(queue, dCorners, swathe, NULL, NULL);
