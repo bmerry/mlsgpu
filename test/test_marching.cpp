@@ -90,7 +90,7 @@ public:
             for (cl_uint y = 0; y < swathe.height; y++)
                 for (cl_uint x = 0; x < swathe.width; x++)
                 {
-                    sliceData[y * swathe.height + x] = generate(x, y, z);
+                    sliceData[y * swathe.width + x] = generate(x, y, z);
                 }
 
             cl::size_t<3> origin, region;
