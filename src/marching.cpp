@@ -633,7 +633,7 @@ Grid::size_type Marching::addSlices(
             Grid::size_type subFirst = swathe.zFirst;
             while (subFirst < swathe.zLast)
             {
-                Grid::size_type subLast = swathe.zLast;
+                Grid::size_type subLast = subFirst;
                 counts.s[0] = 0;
                 counts.s[1] = 0;
                 while (subLast < swathe.zLast
