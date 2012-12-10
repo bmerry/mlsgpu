@@ -485,7 +485,7 @@ void TestMarching::testCopySlice()
     };
 
     cl::Image2D image(
-        context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, cl::ImageFormat(CL_R, CL_FLOAT),
+        context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, cl::ImageFormat(CL_R, CL_FLOAT),
         2, 8, 0, values);
 
     Marching::ImageParams params;
@@ -516,6 +516,11 @@ void TestMarching::testCopySlice()
     queue.enqueueBarrier();
     marching.copySlice(queue, image, 2, 0, params, NULL, NULL);
     queue.finish();
+
+    memset(values, 0, sizeof(values));
+    srcOrigin[1] = 0;
+    region[1] = 8;
+    queue.enqueueReadImage(image, CL_TRUE, srcOrigin, region, 0, 0, &values[0][0]);
 
     for (int i = 0; i < 8; i++)
         for (int j = 0; j < 2; j++)
