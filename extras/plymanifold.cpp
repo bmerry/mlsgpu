@@ -15,8 +15,8 @@
 #include <iterator>
 #include <boost/array.hpp>
 #include "../test/manifold.h"
-#include "../src/ply.h"
 #include "../src/logging.h"
+#include "ply.h"
 
 using namespace std;
 

@@ -11,6 +11,7 @@
 #endif
 #include <boost/array.hpp>
 #include <boost/multi_array.hpp>
+#include <boost/foreach.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/numeric/conversion/converter.hpp>

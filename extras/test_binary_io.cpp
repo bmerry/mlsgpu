@@ -15,8 +15,8 @@
 #include <sstream>
 #include <algorithm>
 #include <limits>
-#include "testutil.h"
-#include "../src/binary_io.h"
+#include "../test/testutil.h"
+#include "../extras/binary_io.h"
 
 /// Tests for @ref readBinary and @ref writeBinary
 class TestBinary : public CppUnit::TestFixture

@@ -35,10 +35,10 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/numeric/conversion/cast.hpp>
-#include "tr1_cstdint.h"
+#include "../src/tr1_cstdint.h"
+#include "../src/errors.h"
 #include "binary_io.h"
 #include "ascii_io.h"
-#include "errors.h"
 
 class TestPlyReader;
 

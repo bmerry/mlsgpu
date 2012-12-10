@@ -17,7 +17,7 @@
 #include <boost/type_traits/is_signed.hpp>
 #include <boost/type_traits/is_integral.hpp>
 #include <boost/type_traits/is_floating_point.hpp>
-#include "tr1_cstdint.h"
+#include "../src/tr1_cstdint.h"
 #include <boost/tr1/cmath.hpp>
 #include <limits>
 #include <typeinfo>

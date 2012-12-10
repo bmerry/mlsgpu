@@ -11,7 +11,6 @@
 #include <limits>
 #include <cmath>
 #include <boost/tr1/cmath.hpp>
-#include "ply.h"
 #include "splat.h"
 #include "misc.h"
 
@@ -109,20 +108,4 @@ Splat CompareSplatsMorton::max_value() const
     Splat ans;
     ans.radius = BIG_MARKER;
     return ans;
-}
-
-void SplatBuilder::validateProperties(const PLY::PropertyTypeSet &properties)
-{
-    static const char * const names[] = {"radius", "x", "y", "z", "nx", "ny", "nz"};
-    for (unsigned int i = 0; i < sizeof(names) / sizeof(names[0]); i++)
-    {
-        PLY::PropertyTypeSet::index<PLY::Name>::type::const_iterator p;
-        p = properties.get<PLY::Name>().find(names[i]);
-        if (p == properties.get<PLY::Name>().end())
-        {
-            throw PLY::FormatError(std::string("Missing property ") + names[i]);
-        }
-        else if (p->isList)
-            throw PLY::FormatError(std::string("Property ") + names[i] + " should not be a list");
-    }
 }

@@ -12,8 +12,8 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <sstream>
 #include <string>
-#include "../src/ply.h"
-#include "testutil.h"
+#include "../extras/ply.h"
+#include "../test/testutil.h"
 
 using namespace std;
 

@@ -239,21 +239,6 @@ def configure(conf):
         use = 'STXXL',
         msg = 'Checking for STXXL')
 
-    if conf.options.enable_extras:
-        conf.check_cfg(package = 'eigen3', uselib_store = 'EIGEN', args = ['--cflags', '--libs'])
-        conf.check_cxx(
-                features = ['cxx', 'cxxprogram'],
-                header_name = 'nabo/nabo.h',
-                lib = 'nabo',
-                use = 'EIGEN',
-                uselib_store = 'NABO',
-                msg = 'Checking for libnabo')
-        conf.check_cxx(
-                features = ['cxx', 'cxxprogram'],
-                header_name = 'sl/kdtree.hpp',
-                lib = 'sl',
-                uselib_store = 'SL',
-                msg = 'Checking for sl')
     conf.env['extras'] = conf.options.enable_extras
 
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
@@ -375,7 +360,6 @@ def build(bld):
             'src/grid.cpp',
             'src/logging.cpp',
             'src/misc.cpp',
-            'src/ply.cpp',
             'src/progress.cpp',
             'src/statistics.cpp',
             'src/splat.cpp',
@@ -435,17 +419,12 @@ def build(bld):
 
     if bld.env['extras']:
         bld.program(
-                source = ['extras/plymanifold.cpp', 'test/manifold.cpp'],
+                source = [
+                    'extras/plymanifold.cpp', 
+                    'extras/ply.cpp',
+                    'test/manifold.cpp'],
                 target = 'plymanifold',
                 use = 'BOOST_MATH libmls_core',
-                install_path = None)
-        bld.program(
-                source = [
-                    'extras/normals.cpp',
-                    'extras/normals_bucket.cpp',
-                    'extras/normals_sweep.cpp'],
-                target = 'normals',
-                use = 'STXXL BOOST EIGEN NABO SL provenance libmls_core',
                 install_path = None)
 
     if bld.env['XSLTPROC']:
@@ -476,7 +455,7 @@ def build(bld):
         test_use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl']
         if bld.env['extras']:
             nonmpi_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
-            test_use.append('EIGEN')
+            nonmpi_sources.append('extras/ply.cpp')
 
         # TODO: use a static library for common_sources
         bld.program(

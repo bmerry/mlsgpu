@@ -13,8 +13,8 @@
 #include "../src/tr1_cstdint.h"
 #include <boost/tr1/cmath.hpp>
 #include <limits>
-#include "../src/ascii_io.h"
-#include "testutil.h"
+#include "../extras/ascii_io.h"
+#include "../test/testutil.h"
 
 using namespace std;
 using namespace std::tr1;
