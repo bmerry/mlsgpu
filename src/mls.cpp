@@ -34,8 +34,7 @@ const Grid::size_type MlsFunctor::wgs[3] = {8, 8, 8};
 const int MlsFunctor::subsamplingMin = 3; // must be at least log2 of highest wgs
 
 MlsFunctor::MlsFunctor(const cl::Context &context, MlsShape shape)
-    : context(context),
-    kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.processCorners.time"))
+    : kernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.mls.processCorners.time"))
 {
     // These would ideally be static assertions, but C++ doesn't allow that
     MLSGPU_ASSERT((1U << subsamplingMin) >= *std::max_element(wgs, wgs + 3), std::length_error);

@@ -213,14 +213,14 @@ public:
          * @pre
          * - @a swathe.width and @a swathe.height are positive.
          * - @a swathe.zFirst &lt;= @a swathe.zLast
-         * - The X size of @a distance is at least <code>roundUp</code>(@a swathe.width, @ref alignment(0))</code>.
+         * - The X size of @a distance is at least <code>roundUp</code>(@a swathe.width, #alignment (0)).
          * - The Y size of @a distance is at least
-         *   @a swathe.zStride * roundUp(@a zLast + 1, @ref alignment(2)) + @a zBias
-         * - @a swathe.zStride is at least <code>roundUp</code>(@a swathe.height, @ref alignment(1))
-         * - @a swathe.zFirst is a multiple of @ref alignment(2).
+         *   @a swathe.zStride * roundUp(@a zLast + 1, #alignment (2)) + @a zBias
+         * - @a swathe.zStride is at least <code>roundUp</code>(@a swathe.height, #alignment (1))
+         * - @a swathe.zFirst is a multiple of #alignment (2).
          * @post
          * - The signed distances for @a z values in the swathe will be stored
-         *   in @a distance (see @ref ImageParams for details).
+         *   in @a distance (see @ref Marching::ImageParams for details).
          * - The pixels at lower @a z coordinates are unaffected.
          * - Other pixels in the image have undefined values.
          */
@@ -274,8 +274,6 @@ private:
      * Space allocated to hold intermediate vertices and indices.
      */
     std::size_t vertexSpace, indexSpace;
-
-    cl::Context context;   ///< OpenCL context used to allocate buffers
 
     /**
      * Buffer of uchar2 values, indexed by cube code. The two elements are
@@ -421,6 +419,8 @@ private:
     Statistics::Variable &compactVerticesKernelTime;
     Statistics::Variable &reindexKernelTime;
     Statistics::Variable &copySliceTime;    ///< Time for slice copy, either with kernel or with @c clEnqueueCopyImage
+    Statistics::Variable &zeroTime;         ///< Time to zero out buffers
+    Statistics::Variable &readbackTime;     ///< Time to read back metadata
 
     /** @} */
 
@@ -458,7 +458,7 @@ private:
     /**
      * Populate the static tables describing how to slice up cells.
      */
-    void makeTables();
+    void makeTables(const cl::Context &context);
 
 public:
     /**
@@ -525,11 +525,6 @@ public:
      * Constructor. Note that it must be possible to allocate an OpenCL 2D image of
      * dimensions @a width by @a height, so they should be constrained appropriately.
      *
-     * Apart from O(1) overheads for tables etc, the total OpenCL memory
-     * allocated is:
-     *  - 20 * (@a width - 1) * (@a height - 1) bytes in buffers.
-     *  - two calls to @ref Generator::allocateSlices.
-     *
      * @param context        OpenCL context used to allocate buffers.
      * @param device         Device for which kernels are to be compiled.
      * @param maxWidth, maxHeight, maxDepth Maximum X, Y, Z dimensions (in corners) of the provided sampling grid.
@@ -594,8 +589,8 @@ private:
      *
      * @param queue           Command queue to use for enqueuing work.
      * @param image           Image to operate on.
-     * @param src             Slice number for source.
-     * @param trg             Slice number for target.
+     * @param zSrc            Slice number for source.
+     * @param zTrg            Slice number for target.
      * @param params          Image parameters.
      * @param events          Events to wait for before starting (may be @c NULL).
      * @param[out] event      Event signalled on completion (may be @c NULL).
@@ -664,13 +659,33 @@ private:
                  const std::vector<cl::Event> *events,
                  cl::Event *event);
 
+    /**
+     * Recursively process a swathe. This function will call @ref shipOut as
+     * necessary to make space in the vertex and index buffers. It will first
+     * attempt to process the whole swathe in one go, but failing that it will
+     * use a slice histogram to split it into maximal pieces.
+     *
+     * @param queue           Command queue to use for enqueuing work.
+     * @param output          Passed to @ref shipOut.
+     * @param swathe          The range of slices to process.
+     * @param keyOffset       Passed to @ref shipOut.
+     * @param localSize       Work group size, matching the dynamic local memory allocation.
+     * @param[in,out] offsets Positions in vertex and index buffers to start appending.
+     * @param[in,out] zTop    Z value for corners at top of last shipped-out data
+     * @param events          Events to wait for before starting (may be @c NULL).
+     * @param[out] event      Event signalled on completion (may be @c NULL).
+     *
+     * @pre
+     * - All kernel arguments for @ref generateElements have been set, except for
+     *   @a top.
+     */
     Grid::size_type addSlices(
         const cl::CommandQueue &queue,
         const OutputFunctor &output,
         const Swathe &swathe,
         const cl_uint3 &keyOffset,
-        const cl::NDRange &localSize,
-        cl_uint2 &offsets, cl_uint3 &top,
+        std::size_t localSize,
+        cl_uint2 &offsets, cl_uint &zTop,
         const std::vector<cl::Event> *events,
         cl::Event *event);
 };

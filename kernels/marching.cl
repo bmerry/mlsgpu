@@ -158,7 +158,6 @@ ulong computeKey(uint3 coords, uint3 top)
  * @param      keyTable        Lookup table for cell-relative vertex keys.
  * @param      zStride, zBias  See @ref Marching::ImageParams
  * @param      gridOffset      Transformation from grid-local to grid-global coordinates.
- * @param      offsets         Offset to add to all elements of @a viStart.
  * @param      top             See above.
  * @param      lvertices       Scratch space of @ref NUM_EDGES elements per work item.
  */

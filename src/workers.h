@@ -201,6 +201,7 @@ public:
      * @param devices            OpenCL context and device to run on, with associated contexts.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
+     * @param meshMemory         Maximum device bytes to use for mesh-related data.
      * @param levels             Levels to allocate for the octree.
      * @param subsampling        Octree subsampling level.
      * @param boundaryLimit      Tuning factor for boundary pruning.

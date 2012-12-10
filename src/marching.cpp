@@ -86,7 +86,7 @@ unsigned int Marching::permutationParity(Iterator first, Iterator last)
     return parity;
 }
 
-void Marching::makeTables()
+void Marching::makeTables(const cl::Context &context)
 {
     std::vector<cl_uchar> hVertexTable, hIndexTable;
     std::vector<cl_uint3> hKeyTable;
@@ -319,13 +319,14 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
                    const Grid::size_type alignment[3])
 :
     maxWidth(maxWidth), maxHeight(maxHeight), maxDepth(maxDepth),
-    context(context),
     genOccupiedKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.genOccupied.time")),
     generateElementsKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.generateElements.time")),
     countUniqueVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.countUniqueVertices.time")),
     compactVerticesKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.compactVertices.time")),
     reindexKernelTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.reindex.time")),
     copySliceTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.copySlice.time")),
+    zeroTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.zero.time")),
+    readbackTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.readback.time")),
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
@@ -352,7 +353,7 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
         &Statistics::timeEventCallback,
         &Statistics::getStatistic<Statistics::Variable>("kernel.marching.sortVertices.time"));
 
-    makeTables();
+    makeTables(context);
     image = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT),
                         imageWidth, imageHeight * (maxSwathe + 1));
     zStride = imageHeight;
@@ -485,11 +486,13 @@ std::size_t Marching::generateCells(
     readback->compacted = 0;
     queue.enqueueWriteBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
                              &readback->compacted, events, &last);
+    Statistics::timeEvent(last, zeroTime);
+
     std::memset(viReadback.get() + swathe.zFirst, 0, viSize);
     queue.enqueueWriteBuffer(viHistogram, CL_FALSE,
                              viOffset, viSize,
                              viReadback.get() + swathe.zFirst, events, &last2);
-    // TODO: account for time
+    Statistics::timeEvent(last, zeroTime);
 
     std::vector<cl::Event> wait(2);
     wait[0] = last;
@@ -513,11 +516,12 @@ std::size_t Marching::generateCells(
     wait[0] = last;
 
     queue.enqueueReadBuffer(viHistogram, CL_FALSE, viOffset, viSize,
-                            viReadback.get() + swathe.zFirst, &wait, NULL);
+                            viReadback.get() + swathe.zFirst, &wait, &last);
+    Statistics::timeEvent(last, readbackTime);
     queue.enqueueReadBuffer(numOccupied, CL_FALSE, 0, sizeof(cl_uint),
                             &readback->compacted,
-                            &wait, NULL);
-    // TODO: account for time for the above
+                            &wait, &last);
+    Statistics::timeEvent(last, readbackTime);
     queue.finish();
 
     return readback->compacted;
@@ -604,8 +608,8 @@ Grid::size_type Marching::addSlices(
     const OutputFunctor &output,
     const Swathe &swathe,
     const cl_uint3 &keyOffset,
-    const cl::NDRange &localSize,
-    cl_uint2 &offsets, cl_uint3 &top,
+    std::size_t localSize,
+    cl_uint2 &offsets, cl_uint &zTop,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
@@ -614,6 +618,7 @@ Grid::size_type Marching::addSlices(
     std::vector<cl::Event> wait;
     cl::Event last;
     Grid::size_type shipOuts = 0;
+    cl_uint3 top = { {2 * (swathe.width - 1), 2 * (swathe.height - 1), 2 * zTop} };
 
     std::size_t compacted = generateCells(queue, swathe, events);
 
@@ -667,7 +672,7 @@ Grid::size_type Marching::addSlices(
                 shipOuts += addSlices(
                     queue, output,
                     subSwathe, keyOffset, localSize,
-                    offsets, top,
+                    offsets, zTop,
                     &wait, &last);
                 wait.resize(1);
                 wait[0] = last;
@@ -689,6 +694,7 @@ Grid::size_type Marching::addSlices(
 
                 offsets.s[0] = 0;
                 offsets.s[1] = 0;
+                zTop = swathe.zFirst;
                 top.s[2] = 2 * swathe.zFirst;
             }
 
@@ -696,14 +702,12 @@ Grid::size_type Marching::addSlices(
             wait.resize(1);
             wait[0] = last;
 
-            generateElementsKernel.setArg(9, swathe.zStride);
-            generateElementsKernel.setArg(10, swathe.zBias);
             generateElementsKernel.setArg(12, top);
             CLH::enqueueNDRangeKernelSplit(queue,
                                            generateElementsKernel,
                                            cl::NullRange,
                                            cl::NDRange(compacted),
-                                           localSize,
+                                           cl::NDRange(localSize),
                                            &wait, &last, &generateElementsKernelTime);
             wait.resize(1);
             wait[0] = last;
@@ -732,8 +736,6 @@ void Marching::generate(
     std::size_t wgsCompacted = 512;
     while (wgsCompacted > 1 && wgsCompacted * NUM_EDGES * sizeof(cl_float3) >= localSize)
         wgsCompacted /= 2;
-    generateElementsKernel.setArg(11, keyOffset);
-    generateElementsKernel.setArg(13, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
 
     Swathe swathe;
     swathe.width = size[0];
@@ -748,10 +750,14 @@ void Marching::generate(
     std::vector<cl::Event> wait;
     cl::Event last, readEvent;
     cl_uint2 offsets = { {0, 0} };
-    cl_uint3 top = { {2 * (swathe.width - 1), 2 * (swathe.height - 1), 0} };
+    cl_uint zTop = 0;
 
     if (events != NULL)
         wait = *events;
+
+    generateElementsKernel.setArg(9, swathe.zStride);
+    generateElementsKernel.setArg(11, keyOffset);
+    generateElementsKernel.setArg(13, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
 
     Grid::size_type shipOuts = 0;
     for (Grid::size_type z = 0; z < depth; z += maxSwathe)
@@ -759,6 +765,7 @@ void Marching::generate(
         swathe.zFirst = z;
         swathe.zLast = std::min(depth, z + maxSwathe) - 1;
         swathe.zBias = (1 - cl_int(z)) * cl_int(swathe.zStride);
+        generateElementsKernel.setArg(10, swathe.zBias);
 
         if (z != 0)
         {
@@ -777,8 +784,8 @@ void Marching::generate(
         shipOuts += addSlices(
             queue, output,
             swathe, keyOffset,
-            cl::NDRange(wgsCompacted),
-            offsets, top,
+            wgsCompacted,
+            offsets, zTop,
             &wait, &last);
         wait.resize(1);
         wait[0] = last;

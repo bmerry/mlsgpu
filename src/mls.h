@@ -62,11 +62,6 @@ private:
     friend class TestMls;
 
     /**
-     * Context used by @ref allocateSlices.
-     */
-    cl::Context context;
-
-    /**
      * Kernel generated from @ref processCorners.
      */
     cl::Kernel kernel;
