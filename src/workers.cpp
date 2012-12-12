@@ -158,7 +158,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
     marching(context, device, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1,
-             input.alignment()[2] * 8, owner.meshMemory, input.alignment()),
+             input.alignment()[2] * std::max(1, int(8192 / input.alignment()[2] / (owner.maxCells + 1))), owner.meshMemory, input.alignment()),
     scaleBias(context)
 {
     input.setBoundaryLimit(boundaryLimit);
