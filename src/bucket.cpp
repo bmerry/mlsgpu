@@ -204,7 +204,7 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t
                 nodeCounts[level][x][y][z] += numSplats;
                 numUpdates += numSplats;
             }
-    while (level < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
+    while (level + 1 < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
         level++;
         for (Node::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
