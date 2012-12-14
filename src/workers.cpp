@@ -157,8 +157,11 @@ DeviceWorkerGroupBase::Worker::Worker(
     queue(context, device, Statistics::isEventTimingEnabled() ? CL_QUEUE_PROFILING_ENABLE : 0),
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
+    // OpenCL requires support for images of height 8192; the complex formula below ensures we
+    // do not exceed this except when maxCells is large
     marching(context, device, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1,
-             input.alignment()[2] * std::max(1, int(8192 / input.alignment()[2] / (owner.maxCells + 1))), owner.meshMemory, input.alignment()),
+             input.alignment()[2] * std::max(1, int(divUp(8192, input.alignment()[2] * roundUp(owner.maxCells + 1, input.alignment()[1]))) - 1),
+             owner.meshMemory, input.alignment()),
     scaleBias(context)
 {
     input.setBoundaryLimit(boundaryLimit);
