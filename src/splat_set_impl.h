@@ -33,17 +33,19 @@
 namespace SplatSet
 {
 
+template<typename Iterator>
 template<typename RangeIterator>
-void VectorSet::MySplatStream<RangeIterator>::refill()
+void IteratorSet<Iterator>::MySplatStream<RangeIterator>::refill()
 {
     if (curRange != lastRange)
     {
         while (true)
         {
             splat_id end = curRange->second;
-            if (owner.size() < end)
-                end = owner.size();
-            while (cur < end && !owner[cur].isFinite())
+            splat_id ownerSize = ownerLast - ownerFirst;
+            if (ownerSize < end)
+                end = ownerSize;
+            while (cur < end && !(ownerFirst + cur)->isFinite())
                 cur++;
             if (cur < end)
                 return;

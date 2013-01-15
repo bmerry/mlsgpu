@@ -331,6 +331,23 @@ public:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFileSet, TestSet::perBuild());
 
+/// Tests for @ref SplatSet::SequenceSet
+class TestSequenceSet : public TestSplatSubsettable<SequenceSet<const Splat *> >
+{
+    CPPUNIT_TEST_SUB_SUITE(TestSequenceSet, TestSplatSubsettable<SequenceSet<const Splat *> >);
+    CPPUNIT_TEST_SUITE_END();
+private:
+    std::vector<Splat> store; ///< Backing data for the returned sets
+protected:
+    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
+                            float spacing, Grid::size_type bucketSize);
+public:
+    /// Adds all splats in @a splatData to the store and creates the set.
+    static void populate(SequenceSet<const Splat *> &set, const std::vector<std::vector<Splat> > &splatData,
+                         std::vector<Splat> &store);
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSequenceSet, TestSet::perBuild());
+
 /// Tests for @ref SplatSet::VectorSet
 class TestVectorSet : public TestSplatSubsettable<VectorSet>
 {
@@ -742,6 +759,28 @@ FileSet *TestFileSet::setFactory(
     std::auto_ptr<Set> set(new Set);
     populate(*set, splatData, store);
     set->setBufferSize(16384);
+    return set.release();
+}
+
+void TestSequenceSet::populate(
+    SequenceSet<const Splat *> &set,
+    const std::vector<std::vector<Splat> > &splatData,
+    std::vector<Splat> &store)
+{
+    for (std::size_t i = 0; i < splatData.size(); i++)
+        store.insert(store.end(), splatData[i].begin(), splatData[i].end());
+    set.reset(&store[0], &store[0] + store.size());
+}
+
+SequenceSet<const Splat *> *TestSequenceSet::setFactory(
+    const std::vector<std::vector<Splat> > &splatData,
+    float spacing, Grid::size_type bucketSize)
+{
+    (void) spacing;
+    (void) bucketSize;
+
+    std::auto_ptr<Set> set(new Set);
+    populate(*set, splatData, store);
     return set.release();
 }
 
