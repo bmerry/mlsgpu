@@ -290,7 +290,7 @@ public:
     void setProgress(ProgressMeter *progress) { this->progress = progress; }
 
     FineBucketGroup(
-        std::size_t numWorkers, std::size_t spare,
+        std::size_t numWorkers,
         DeviceWorkerGroup &outGroup,
         std::size_t maxCoarseSplats,
         std::size_t maxSplats,
@@ -308,6 +308,8 @@ public:
     void start(const Grid &fullGrid);
 
 private:
+    static const std::size_t spare;
+
     DeviceWorkerGroup &outGroup;
     CircularBuffer splatBuffer;
 

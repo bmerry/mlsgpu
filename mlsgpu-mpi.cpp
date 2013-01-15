@@ -258,7 +258,7 @@ void Slave::operator()() const
         levels, subsampling,
         boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(
-        numBucketThreads, 1, deviceWorkerGroup,
+        numBucketThreads, deviceWorkerGroup,
         maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);

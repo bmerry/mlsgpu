@@ -222,8 +222,10 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 }
 
 
+const std::size_t FineBucketGroup::spare = 64;
+
 FineBucketGroup::FineBucketGroup(
-    std::size_t numWorkers, std::size_t spare,
+    std::size_t numWorkers,
     DeviceWorkerGroup &outGroup,
     std::size_t maxCoarseSplats,
     std::size_t maxSplats,

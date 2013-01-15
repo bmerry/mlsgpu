@@ -119,7 +119,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 levels, subsampling,
                 boundaryLimit, shape);
             FineBucketGroup fineBucketGroup(
-                numBucketThreads, 1, deviceWorkerGroup,
+                numBucketThreads, deviceWorkerGroup,
                 maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
