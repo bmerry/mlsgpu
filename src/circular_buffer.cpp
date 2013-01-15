@@ -18,8 +18,9 @@
 #include <boost/noncopyable.hpp>
 #include <boost/thread/locks.hpp>
 #include "allocator.h"
-#include "circular_buffer.h"
 #include "errors.h"
+#include "timeplot.h"
+#include "circular_buffer.h"
 
 std::size_t CircularBufferBase::Allocation::get() const
 {
@@ -37,16 +38,18 @@ CircularBufferBase::Allocation::Allocation()
 {
 }
 
-CircularBufferBase::CircularBufferBase(std::size_t size)
-    : bufferSize(size), firstFree(0)
+CircularBufferBase::CircularBufferBase(const std::string &name, std::size_t size)
+    : bufferSize(size), firstFree(0), allocPoints(name)
 {
     MLSGPU_ASSERT(size > 0, std::invalid_argument);
 }
 
-CircularBufferBase::Allocation CircularBufferBase::allocate(std::size_t n)
+CircularBufferBase::Allocation CircularBufferBase::allocate(Timeplot::Worker &tworker, std::size_t n)
 {
     MLSGPU_ASSERT(n > 0, std::invalid_argument);
     MLSGPU_ASSERT(n <= bufferSize, std::out_of_range);
+
+    Timeplot::Action action("get", tworker);
 
     boost::lock_guard<boost::mutex> allocLock(allocMutex);
     boost::unique_lock<boost::mutex> lock(mutex);
@@ -101,19 +104,19 @@ void *CircularBuffer::Allocation::get() const
     return ptr;
 }
 
-CircularBuffer::Allocation CircularBuffer::allocate(std::size_t bytes)
+CircularBuffer::Allocation CircularBuffer::allocate(Timeplot::Worker &tworker, std::size_t bytes)
 {
     Allocation ans;
-    ans.base = CircularBufferBase::allocate(bytes);
+    ans.base = CircularBufferBase::allocate(tworker, bytes);
     ans.ptr = buffer + ans.base.get();
     return ans;
 }
 
-CircularBuffer::Allocation CircularBuffer::allocate(std::size_t elementSize, std::size_t elements)
+CircularBuffer::Allocation CircularBuffer::allocate(Timeplot::Worker &tworker, std::size_t elementSize, std::size_t elements)
 {
     MLSGPU_ASSERT(elementSize > 0, std::invalid_argument);
     MLSGPU_ASSERT(elements <= size() / elementSize, std::out_of_range);
-    return allocate(elementSize * elements);
+    return allocate(tworker, elementSize * elements);
 }
 
 void CircularBuffer::free(const Allocation &alloc)
@@ -123,7 +126,7 @@ void CircularBuffer::free(const Allocation &alloc)
 
 CircularBuffer::CircularBuffer(const std::string &name, std::size_t size)
     :
-    CircularBufferBase(size),
+    CircularBufferBase(name, size),
     allocator(Statistics::makeAllocator<Statistics::Allocator<std::allocator<char> > >(name)),
     buffer(NULL)
 {

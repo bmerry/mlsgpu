@@ -211,7 +211,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
             ++next;
         }
 
-        CircularBuffer::Allocation alloc = buffer.allocate(vertexSize, end - start);
+        CircularBuffer::Allocation alloc = buffer.allocate(tworker, vertexSize, end - start);
         char *chunk = (char *) alloc.get();
         {
             Timeplot::Action readTimer("load", tworker, readTimeStat);

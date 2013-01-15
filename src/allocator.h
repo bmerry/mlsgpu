@@ -206,6 +206,26 @@ public:
         : BaseType(first, last, makeAllocator<Alloc>(allocName)) {}
 };
 
+/**
+ * Wrapper around @c std::list that uses @ref Statistics::Allocator.
+ * @see @ref Statistics::Container
+ */
+template<
+    typename T,
+    typename Alloc = Allocator<std::allocator<T> > >
+class list : public std::list<T, Alloc>
+{
+private:
+    typedef std::list<T, Alloc> BaseType;
+public:
+    explicit list(const std::string &allocName)
+        : BaseType(makeAllocator<Alloc>(allocName)) {}
+
+    template<typename InputIterator>
+    list(const std::string &allocName, InputIterator first, InputIterator last)
+        : BaseType(first, last, makeAllocator<Alloc>(allocName)) {}
+};
+
 template<typename T, typename Alloc = Allocator<std::allocator<T> > >
 class PODBuffer : public ::PODBuffer<T, Alloc>
 {

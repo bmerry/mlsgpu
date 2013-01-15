@@ -20,9 +20,19 @@
 #include <boost/thread/condition_variable.hpp>
 #include "tr1_cstdint.h"
 #include "allocator.h"
+#include "timeplot.h"
 
 /**
- * @todo Track memory for allocPoints
+ * Thread-safe circular buffer manager. It does not actually handle
+ * storage, but manages allocations and deallocations from an abstract
+ * contiguous pool. For a memory-backed buffer, use @ref CircularBuffer.
+ *
+ * Allocations are made with @ref allocate; these will block until sufficient
+ * memory is available. The memory must later be returned with @ref free. It is
+ * not required to free memory in the same order as allocations, but it should
+ * be done roughly in this order for best performance. The intended use case is
+ * multiple producers allocating memory to pass data to multiple consumers,
+ * which free the memory.
  */
 class CircularBufferBase : public boost::noncopyable
 {
@@ -43,28 +53,28 @@ private:
     boost::condition_variable spaceCondition;
 
     std::size_t bufferSize;
-    std::list<std::size_t> allocPoints;
     std::size_t firstFree;
+    Statistics::Container::list<std::size_t> allocPoints;
 
 public:
     class Allocation
     {
         friend class CircularBufferBase;
     private:
-        std::list<std::size_t>::iterator point;
+        Statistics::Container::list<std::size_t>::iterator point;
 
-        explicit Allocation(std::list<std::size_t>::iterator point);
+        explicit Allocation(Statistics::Container::list<std::size_t>::iterator point);
     public:
         Allocation();
 
         std::size_t get() const;
     };
 
-    explicit CircularBufferBase(std::size_t size);
+    explicit CircularBufferBase(const std::string &name, std::size_t size);
 
     std::size_t size() const;
 
-    Allocation allocate(std::size_t n);
+    Allocation allocate(Timeplot::Worker &tworker, std::size_t n);
     void free(const Allocation &alloc);
 };
 
@@ -106,6 +116,7 @@ public:
      * result is guaranteed to be an allocator-returned pointer plus a multiple
      * of @a elementSize.
      *
+     * @param tworker         Worker to indicate waiting time.
      * @param elementSize     Size of a single element.
      * @param elements        Number of elements to allocate.
      * @return A pointer to the allocated data
@@ -113,18 +124,19 @@ public:
      * @pre
      * - 0 &lt; @a elementSize * @a maxElements &lt; @ref size()
      */
-    Allocation allocate(std::size_t elementSize, std::size_t elements);
+    Allocation allocate(Timeplot::Worker &tworker, std::size_t elementSize, std::size_t elements);
 
     /**
-     * Variant of @ref allocate(std::size_t, std::size_t) that takes just a byte count.
+     * Variant of @ref allocate(Timeplot::Worker &, std::size_t, std::size_t) that takes just a byte count.
      *
+     * @param tworker         Worker to indicate waiting time.
      * @param bytes           Number of bytes to allocate.
      * @return A pointer to the allocated data
      *
      * @pre
      * - 0 &lt; bytes &lt; @ref size()
      */
-    Allocation allocate(std::size_t bytes);
+    Allocation allocate(Timeplot::Worker &tworker, std::size_t bytes);
 
     /**
      * Free memory allocated by @ref allocate. Each call to @ref allocate must be matched with

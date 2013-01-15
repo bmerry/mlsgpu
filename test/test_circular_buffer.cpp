@@ -49,8 +49,10 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBuffer, TestSet::perBuild());
 
 void TestCircularBuffer::testAllocateFree()
 {
+    Timeplot::Worker tworker("test");
+
     CircularBuffer buffer("test", 10);
-    CircularBuffer::Allocation alloc = buffer.allocate(sizeof(short), 2);
+    CircularBuffer::Allocation alloc = buffer.allocate(tworker, sizeof(short), 2);
     void *item = alloc.get();
     CPPUNIT_ASSERT(item != NULL);
 
@@ -82,25 +84,28 @@ void TestCircularBuffer::testStatistics()
 
 void TestCircularBuffer::testTooLarge()
 {
+    Timeplot::Worker tworker("test");
     CircularBuffer buffer("test", 999);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(1000, 1), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(1, 1000), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(100, 100), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(1000), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1000, 1), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1, 1000), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 100, 100), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1000), std::out_of_range);
 }
 
 void TestCircularBuffer::testOverflow()
 {
+    Timeplot::Worker tworker("test");
     CircularBuffer buffer("test", 1000);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(8, std::numeric_limits<std::size_t>::max() / 2 + 2), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 8, std::numeric_limits<std::size_t>::max() / 2 + 2), std::out_of_range);
 }
 
 void TestCircularBuffer::testZero()
 {
+    Timeplot::Worker tworker("test");
     CircularBuffer buffer("test", 16);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(4, 0), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(0, 4), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 4, 0), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 0, 4), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 0), std::invalid_argument);
 }
 
 /// Stress tests for @ref CircularBuffer
@@ -149,6 +154,8 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBufferStress, TestSet::perComm
 
 void TestCircularBufferStress::producerThread(std::tr1::uint64_t start, std::tr1::uint64_t end)
 {
+    Timeplot::Worker tworker("producer");
+
     std::tr1::mt19937 engine;
     std::tr1::uint64_t cur = start;
     std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, buffer.size() / sizeof(cur));
@@ -157,7 +164,7 @@ void TestCircularBufferStress::producerThread(std::tr1::uint64_t start, std::tr1
     {
         std::tr1::uint64_t elements = chunkDist(engine);
         elements = std::min(elements, end - cur);
-        CircularBuffer::Allocation alloc = buffer.allocate(sizeof(cur), elements);
+        CircularBuffer::Allocation alloc = buffer.allocate(tworker, sizeof(cur), elements);
 
         std::tr1::uint64_t *ptr = static_cast<std::tr1::uint64_t *>(alloc.get());
         CPPUNIT_ASSERT(ptr != NULL);
