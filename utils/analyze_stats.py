@@ -26,7 +26,7 @@ def parse_stats(f):
                     try:
                         v = float(m.group(2))
                     except ValueError:
-                        v = None
+                        v = m.group(2)
                 if v is not None:
                     values[m.group(1)] = v
 

@@ -202,9 +202,9 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
                 nodeCounts[level][x][y][z] += numSplats;
-                numUpdates += numSplats;
+                numUpdates++;
             }
-    while (level < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
+    while (level + 1 < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
     {
         level++;
         for (Node::size_type x = lo[0] >> 1; x <= (hi[0] >> 1); x++)
@@ -219,7 +219,7 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
                     nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
-                    numUpdates += numSplats;
+                    numUpdates++;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {
