@@ -112,7 +112,7 @@ CircularBuffer::Allocation CircularBuffer::allocate(std::size_t bytes)
 CircularBuffer::Allocation CircularBuffer::allocate(std::size_t elementSize, std::size_t elements)
 {
     MLSGPU_ASSERT(elementSize > 0, std::invalid_argument);
-    MLSGPU_ASSERT(elements <= (size() - 1) / elementSize, std::out_of_range);
+    MLSGPU_ASSERT(elements <= size() / elementSize, std::out_of_range);
     return allocate(elementSize * elements);
 }
 

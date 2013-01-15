@@ -112,24 +112,32 @@ class TestCircularBufferStress : public CppUnit::TestFixture
 
 public:
     TestCircularBufferStress()
-        : buffer("mem.TestCircularBufferStress", 123), workQueue(10) {}
+        : buffer("mem.TestCircularBufferStress", 123 * sizeof(std::tr1::uint64_t)), workQueue(10) {}
 
 private:
     struct Item
     {
-        std::tr1::uint64_t *ptr;
-        std::size_t elements;
+        std::size_t start, end; // expected start and end values in the buffer
         CircularBuffer::Allocation alloc;
     };
+
+    std::tr1::uint64_t badCount;
+    boost::mutex badMutex;
 
     CircularBuffer buffer;
     WorkQueue<Item> workQueue;   ///< Ranges sent from producer to consumer
 
     /**
-     * Generates the numbers from 0 up to @a total and places them
+     * Generates the numbers from @a start up to @a end and places them
      * in chunks of the buffer. The subranges are enqueued on @ref workQueue.
      */
-    void producerThread(std::tr1::uint64_t total);
+    void producerThread(std::tr1::uint64_t start, std::tr1::uint64_t end);
+
+    /**
+     * Pulls items off the queue, verifies the contents and then returns
+     * the memory to the buffer.
+     */
+    void consumerThread();
 
     /**
      * Pass a lot of numbers from @ref producerThread to the main thread,
@@ -139,16 +147,16 @@ private:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBufferStress, TestSet::perCommit());
 
-void TestCircularBufferStress::producerThread(std::tr1::uint64_t total)
+void TestCircularBufferStress::producerThread(std::tr1::uint64_t start, std::tr1::uint64_t end)
 {
     std::tr1::mt19937 engine;
-    std::tr1::uint64_t cur = 0;
-    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, (buffer.size() - 1) / sizeof(cur));
+    std::tr1::uint64_t cur = start;
+    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, buffer.size() / sizeof(cur));
 
-    while (cur < total)
+    while (cur < end)
     {
         std::tr1::uint64_t elements = chunkDist(engine);
-        elements = std::min(elements, total - cur);
+        elements = std::min(elements, end - cur);
         CircularBuffer::Allocation alloc = buffer.allocate(sizeof(cur), elements);
 
         std::tr1::uint64_t *ptr = static_cast<std::tr1::uint64_t *>(alloc.get());
@@ -159,44 +167,69 @@ void TestCircularBufferStress::producerThread(std::tr1::uint64_t total)
         }
 
         Item item;
-        item.ptr = ptr;
-        item.elements = elements;
+        item.start = cur - elements;
+        item.end = cur;
         item.alloc = alloc;
         workQueue.push(item);
     }
-
-    Item item;
-    item.ptr = NULL;
-    workQueue.push(item);
 }
 
-void TestCircularBufferStress::testStress()
+void TestCircularBufferStress::consumerThread()
 {
-    const std::size_t total = 10000000;
-    boost::thread producer(boost::bind(&TestCircularBufferStress::producerThread, this, total));
-
-    std::tr1::uint64_t expect = 0;
-    Item item;
-
     /* This generator doesn't do anything useful - it's just a way to
      * make sure that the producer and consumer run at about the same
      * rate and hence test both full and empty conditions.
      */
     std::tr1::mt19937 gen;
-    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, (buffer.size() - 1) / sizeof(std::tr1::uint64_t));
+    std::tr1::uniform_int<std::tr1::uint32_t> chunkDist(1, buffer.size() / sizeof(std::tr1::uint64_t));
 
-    while ((item = workQueue.pop()).ptr != NULL)
+    std::tr1::uint64_t bad = 0;
+    while (true)
     {
-        CPPUNIT_ASSERT(item.elements > 0 && item.elements < buffer.size());
-        for (std::size_t i = 0; i < item.elements; i++)
-        {
-            CPPUNIT_ASSERT_EQUAL(expect, item.ptr[i]);
-            expect++;
-        }
-        buffer.free(item.alloc);
-        (void) chunkDist(gen);
-    }
-    CPPUNIT_ASSERT_EQUAL(total, expect);
+        Item item;
+        item = workQueue.pop();
+        if (item.start == item.end)
+            break; // end-of-work marker
 
-    producer.join();
+        const std::tr1::uint64_t *ptr = (const std::tr1::uint64_t *) item.alloc.get();
+        for (std::tr1::uint64_t i = item.start; i != item.end; i++)
+        {
+            if (*ptr != i)
+                bad++;
+            ptr++;
+        }
+
+        (void) chunkDist(gen);
+        buffer.free(item.alloc);
+    }
+
+    boost::lock_guard<boost::mutex> lock(badMutex);
+    badCount += bad;
+}
+
+void TestCircularBufferStress::testStress()
+{
+    const std::size_t perThread = 10000000;
+    const std::size_t numProducers = 4;
+    const std::size_t numConsumers = 3;
+    boost::thread_group producers;
+    boost::thread_group consumers;
+
+    for (std::size_t i = 0; i < numProducers; i++)
+        producers.create_thread(boost::bind(&TestCircularBufferStress::producerThread, this,
+                                            perThread * i, perThread * (i + 1)));
+    for (std::size_t i = 0; i < numConsumers; i++)
+        consumers.create_thread(boost::bind(&TestCircularBufferStress::consumerThread, this));
+
+    producers.join_all();
+    // Shut down the consumers
+    for (std::size_t i = 0; i < numConsumers; i++)
+    {
+        Item item;
+        item.start = item.end = 0;
+        workQueue.push(item);
+    }
+
+    consumers.join_all();
+    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), badCount);
 }
