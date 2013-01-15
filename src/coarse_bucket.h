@@ -69,27 +69,25 @@ void CoarseBucket<Splats, OutGroup>::operator()(
     }
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
-    const std::size_t bytes = splats.numSplats() * sizeof(Splat);
 
-    boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker, bytes);
+    boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker, splats.numSplats());
     item->chunkId = curChunkId;
     item->grid = grid;
     item->recursionState = recursionState;
-    item->splats.clear();
     float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
         Timeplot::Action timer("load", tworker, "bucket.coarse.load");
-        assert(splats.numSplats() <= item->splats.capacity());
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
+        Splat *splatPtr = (Splat *) item->splats.get();
         while (!splatStream->empty())
         {
             Splat splat = **splatStream;
             /* Transform the splats into the grid's coordinate system */
             fullGrid.worldToVertex(splat.position, splat.position);
             splat.radius *= invSpacing;
-            item->splats.push_back(splat);
+            *splatPtr++ = splat;
             ++*splatStream;
         }
 
@@ -99,7 +97,7 @@ void CoarseBucket<Splats, OutGroup>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item, tworker, bytes);
+    outGroup.push(item, tworker, splats.numSplats());
 }
 
 template<typename Splats, typename OutGroup>

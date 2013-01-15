@@ -600,7 +600,7 @@ private:
              */
             boost::optional<CircularBuffer::Allocation> alloc;
 
-            Item() : first(0), last(0)
+            Item() : first(0), last(0), ptr(NULL)
             {
             }
 

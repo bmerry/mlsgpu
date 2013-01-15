@@ -46,6 +46,7 @@
 #include "src/statistics.h"
 #include "src/statistics_cl.h"
 #include "src/work_queue.h"
+#include "src/circular_buffer.h"
 #include "src/workers.h"
 #include "src/progress.h"
 #include "src/progress_mpi.h"
@@ -136,15 +137,30 @@ public:
     ScatterGroup(
         std::size_t numWorkers, std::size_t spare, std::size_t requesters,
         MPI_Comm comm, std::size_t maxCoarseSplats)
-        : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, spare, requesters, comm)
+        : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, spare, requesters, comm),
+        splatBuffer("mem.ScatterGroup.splats", maxCoarseSplats * sizeof(Splat))
     {
         for (std::size_t i = 0; i < numWorkers + spare; i++)
         {
             boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-            item->splats.reserve(maxCoarseSplats);
             addPoolItem(item);
         }
     }
+
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
+    {
+        boost::shared_ptr<WorkItem> item = WorkerGroupScatter<FineBucketGroup::WorkItem, ScatterGroup>::get(tworker, size);
+        item->alloc = splatBuffer.allocate(size * sizeof(Splat));
+        return item;
+    }
+
+    void freeItem(WorkItem &item)
+    {
+        splatBuffer.free(item.splats);
+    }
+
+private:
+    CircularBuffer splatBuffer;
 };
 
 class GatherGroup : public WorkerGroupGather<MesherGroup::WorkItem, GatherGroup>

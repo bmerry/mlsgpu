@@ -234,6 +234,7 @@ FineBucketGroup::FineBucketGroup(
         "bucket.fine",
         numWorkers, spare),
     outGroup(outGroup),
+    splatBuffer("mem.FineBucketGroup.splats", maxCoarseSplats * sizeof(Splat)),
     maxSplats(maxSplats),
     maxCells(maxCells),
     maxSplit(maxSplit),
@@ -246,7 +247,6 @@ FineBucketGroup::FineBucketGroup(
     for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-        item->splats.reserve(maxCoarseSplats);
         addPoolItem(item);
     }
 }
@@ -321,8 +321,12 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
         grid.setExtent(i, low, high);
     }
 
-    work.splats.computeBlobs(grid.getSpacing(), owner.maxCells, NULL, false);
-    Bucket::bucket(work.splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
+    const Splat *splatsPtr = (const Splat *) work.splats.get();
+    Splats splats;
+    splats.reset(splatsPtr, splatsPtr + work.numSplats);
+    splats.computeBlobs(grid.getSpacing(), owner.maxCells, NULL, false);
+    Bucket::bucket(splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
                    boost::bind<void>(boost::ref(*this), work.chunkId, _1, _2, _3),
                    owner.progress, work.recursionState);
+    owner.splatBuffer.free(work.splats);
 }

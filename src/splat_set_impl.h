@@ -228,7 +228,6 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
                 Item item;
                 item.first = range.start + (splat_id(range.fileId) << scanIdShift);
                 item.last = item.first + (range.end - range.start);
-                item.alloc = alloc;
                 item.ptr = chunk + (range.start - start) * vertexSize;
                 ++cur;
                 if (cur != next)

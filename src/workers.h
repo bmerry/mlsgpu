@@ -241,12 +241,13 @@ class FineBucketGroup;
 class FineBucketGroupBase
 {
 public:
-    typedef SplatSet::FastBlobSet<SplatSet::VectorSet, std::vector<SplatSet::BlobData> > Splats;
+    typedef SplatSet::FastBlobSet<SplatSet::SequenceSet<const Splat *>, std::vector<SplatSet::BlobData> > Splats;
 
     struct WorkItem
     {
         ChunkId chunkId;
-        Splats splats;
+        CircularBuffer::Allocation splats;
+        std::size_t numSplats;
         Grid grid;
         Bucket::Recursion recursionState;
     };
@@ -296,10 +297,19 @@ public:
         Grid::size_type maxCells,
         std::size_t maxSplit);
 
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
+    {
+        boost::shared_ptr<WorkItem> item = BaseType::get(tworker, size);
+        item->splats = splatBuffer.allocate(size * sizeof(Splat));
+        item->numSplats = size;
+        return item;
+    }
+
     void start(const Grid &fullGrid);
 
 private:
     DeviceWorkerGroup &outGroup;
+    CircularBuffer splatBuffer;
 
     Grid fullGrid;
     std::size_t maxSplats;
