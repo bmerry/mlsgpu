@@ -50,7 +50,8 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBuffer, TestSet::perBuild());
 void TestCircularBuffer::testAllocateFree()
 {
     CircularBuffer buffer("test", 10);
-    void *item = buffer.allocate(sizeof(short), 2);
+    CircularBuffer::Allocation alloc = buffer.allocate(sizeof(short), 2);
+    void *item = alloc.get();
     CPPUNIT_ASSERT(item != NULL);
 
     // Check that the memory can be safely written
@@ -58,7 +59,7 @@ void TestCircularBuffer::testAllocateFree()
     values[0] = 123;
     values[1] = 456;
 
-    buffer.free(item, sizeof(short), 2);
+    buffer.free(alloc);;
 }
 
 void TestCircularBuffer::testSize()
@@ -81,7 +82,7 @@ void TestCircularBuffer::testStatistics()
 
 void TestCircularBuffer::testTooLarge()
 {
-    CircularBuffer buffer("test", 1000);
+    CircularBuffer buffer("test", 999);
     CPPUNIT_ASSERT_THROW(buffer.allocate(1000, 1), std::out_of_range);
     CPPUNIT_ASSERT_THROW(buffer.allocate(1, 1000), std::out_of_range);
     CPPUNIT_ASSERT_THROW(buffer.allocate(100, 100), std::out_of_range);
@@ -118,6 +119,7 @@ private:
     {
         std::tr1::uint64_t *ptr;
         std::size_t elements;
+        CircularBuffer::Allocation alloc;
     };
 
     CircularBuffer buffer;
@@ -147,10 +149,10 @@ void TestCircularBufferStress::producerThread(std::tr1::uint64_t total)
     {
         std::tr1::uint64_t elements = chunkDist(engine);
         elements = std::min(elements, total - cur);
-        void *chunk = buffer.allocate(sizeof(cur), elements);
-        CPPUNIT_ASSERT(chunk != NULL);
+        CircularBuffer::Allocation alloc = buffer.allocate(sizeof(cur), elements);
 
-        std::tr1::uint64_t *ptr = static_cast<std::tr1::uint64_t *>(chunk);
+        std::tr1::uint64_t *ptr = static_cast<std::tr1::uint64_t *>(alloc.get());
+        CPPUNIT_ASSERT(ptr != NULL);
         for (std::size_t i = 0; i < elements; i++)
         {
             ptr[i] = cur++;
@@ -159,6 +161,7 @@ void TestCircularBufferStress::producerThread(std::tr1::uint64_t total)
         Item item;
         item.ptr = ptr;
         item.elements = elements;
+        item.alloc = alloc;
         workQueue.push(item);
     }
 
@@ -190,7 +193,7 @@ void TestCircularBufferStress::testStress()
             CPPUNIT_ASSERT_EQUAL(expect, item.ptr[i]);
             expect++;
         }
-        buffer.free(item.ptr, sizeof(std::tr1::uint64_t), item.elements);
+        buffer.free(item.alloc);
         (void) chunkDist(gen);
     }
     CPPUNIT_ASSERT_EQUAL(total, expect);

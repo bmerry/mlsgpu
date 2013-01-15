@@ -209,10 +209,11 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
             ++next;
         }
 
-        void *chunk = buffer.allocate(vertexSize, end - start);
+        CircularBuffer::Allocation alloc = buffer.allocate(vertexSize, end - start);
+        char *chunk = (char *) alloc.get();
         {
             Timeplot::Action readTimer("load", tworker, readTimeStat);
-            handle->readRaw(start, end, (char *) chunk);
+            handle->readRaw(start, end, chunk);
         }
         readMergedStat.add(end - start);
 
@@ -225,16 +226,13 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
                 Item item;
                 item.first = range.start + (splat_id(range.fileId) << scanIdShift);
                 item.last = item.first + (range.end - range.start);
-                item.ptr = (char *) chunk + (range.start - start) * vertexSize;
+                item.alloc = alloc;
+                item.ptr = chunk + (range.start - start) * vertexSize;
                 ++cur;
                 if (cur != next)
-                {
-                    FastPly::ReaderBase::size_type oldStart = range.start;
                     range = *cur;
-                    item.bytes = (range.start - oldStart) * vertexSize;
-                }
                 else
-                    item.bytes = (range.end - range.start) * vertexSize;
+                    item.alloc = alloc;
 
                 outQueue.push(item);
             }

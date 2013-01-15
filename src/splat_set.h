@@ -28,6 +28,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/locks.hpp>
+#include <boost/optional.hpp>
 #include "grid.h"
 #include "misc.h"
 #include "splat.h"
@@ -442,7 +443,7 @@ public:
          *
          * @see @ref setBufferSize
          */
-        DEFAULT_BUFFER_SIZE = 32 * 1024 * 1024 + 1
+        DEFAULT_BUFFER_SIZE = 32 * 1024 * 1024
     };
 
     /// Number of bits used to store the within-file splat ID
@@ -524,12 +525,11 @@ private:
             char *ptr;
 
             /**
-             * Total bytes allocated in the buffer (including any padding). This is
-             * not intended to be used externally, just by @ref free.
+             * If non-empty, an allocation to free after processing the data.
              */
-            std::size_t bytes;
+            boost::optional<CircularBuffer::Allocation> alloc;
 
-            Item() : first(0), last(0), ptr(NULL), bytes(0)
+            Item() : first(0), last(0)
             {
             }
 

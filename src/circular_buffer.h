@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <utility>
 #include <string>
+#include <list>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/condition_variable.hpp>
@@ -21,44 +22,78 @@
 #include "allocator.h"
 
 /**
- * Thread-safe circular buffer for pipelining variable-sized data chunks.
- *
- * This buffer is thread-safe when used with one thread that allocates and
- * one thread that frees. It is @em not safe for multi-producer or
- * multi-consumer use, because memory must be freed in the same order it is
- * allocated.
- *
- * It is also @em not safe for use with non-POD types, as memory will be
- * uninitialized.
+ * @todo Track memory for allocPoints
  */
-class CircularBuffer : public boost::noncopyable
+class CircularBufferBase : public boost::noncopyable
 {
 private:
     /**
-     * Mutex that protects @ref bufferHead and @ref bufferTail.
+     * Mutex taken by @ref allocate, to ensure that allocations make progress.
+     * Without this, one thread could be continually making and releasing small
+     * allocations, while starving a thread that needs one big allocation.
+     *
+     * This mutex must be taken @em before taking @ref mutex.
      */
+    boost::mutex allocMutex;
+
+    /// Mutex to protect internal data structures
     boost::mutex mutex;
 
-    /**
-     * Condition signaled whenever space is freed in the buffer.
-     */
+    /// Condition signalled when it may be possible to allocate more memory
     boost::condition_variable spaceCondition;
 
-    /// Allocator used to allocate and free @ref buffer
-    Statistics::Allocator<std::allocator<char> > allocator;
-
-    /**
-     * The range [@ref bufferHead, @ref bufferTail) potentially contains data,
-     * while the rest is empty. The occupied range may wrap around. If @ref
-     * bufferHead == @ref bufferTail then the buffer is empty; thus it can
-     * never be completely full.
-     */
-    char *buffer;
-    std::size_t bufferHead;    ///< First data element in @ref buffer
-    std::size_t bufferTail;    ///< First empty element in @ref buffer
-    std::size_t bufferSize;    ///< Bytes allocated for @ref buffer
+    std::size_t bufferSize;
+    std::list<std::size_t> allocPoints;
+    std::size_t firstFree;
 
 public:
+    class Allocation
+    {
+        friend class CircularBufferBase;
+    private:
+        std::list<std::size_t>::iterator point;
+
+        explicit Allocation(std::list<std::size_t>::iterator point);
+    public:
+        Allocation();
+
+        std::size_t get() const;
+    };
+
+    explicit CircularBufferBase(std::size_t size);
+
+    std::size_t size() const;
+
+    Allocation allocate(std::size_t n);
+    void free(const Allocation &alloc);
+};
+
+/**
+ * Thread-safe circular buffer for pipelining variable-sized data chunks.
+ *
+ * It is @em not safe for use with non-POD types, as memory will be
+ * uninitialized.
+ */
+class CircularBuffer : protected CircularBufferBase
+{
+private:
+    /// Allocator used to allocate and free @ref buffer
+    Statistics::Allocator<std::allocator<char> > allocator;
+    char *buffer;
+public:
+    class Allocation
+    {
+        friend class CircularBuffer;
+    private:
+        CircularBufferBase::Allocation base;
+        char *ptr;
+
+    public:
+        void *get() const;
+    };
+
+    using CircularBufferBase::size;
+
     /**
      * Allocate some memory from the buffer. If the memory is not yet
      * available, this will block until it is.
@@ -78,7 +113,7 @@ public:
      * @pre
      * - 0 &lt; @a elementSize * @a maxElements &lt; @ref size()
      */
-    void *allocate(std::size_t elementSize, std::size_t elements);
+    Allocation allocate(std::size_t elementSize, std::size_t elements);
 
     /**
      * Variant of @ref allocate(std::size_t, std::size_t) that takes just a byte count.
@@ -89,24 +124,13 @@ public:
      * @pre
      * - 0 &lt; bytes &lt; @ref size()
      */
-    void *allocate(std::size_t bytes);
+    Allocation allocate(std::size_t bytes);
 
     /**
      * Free memory allocated by @ref allocate. Each call to @ref allocate must be matched with
-     * one to this function, and frees must be performed in the same order they are returned
-     * from allocate.
+     * one to this function.
      */
-    void free(void *ptr, std::size_t elementSize, std::size_t numElements);
-
-    /**
-     * Free memory allocated by @ref allocate. This is an overload that takes
-     * the size to free as a single byte count instead of element size and
-     * element count.
-     */
-    void free(void *ptr, std::size_t bytes);
-
-    /// Returns the number of bytes allocated to the buffer.
-    std::size_t size() const { return bufferSize; }
+    void free(const Allocation &alloc);
 
     /**
      * Constructor.

@@ -14,84 +14,124 @@
 #include <cassert>
 #include <limits>
 #include <string>
+#include <list>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/locks.hpp>
 #include "allocator.h"
 #include "circular_buffer.h"
 #include "errors.h"
 
-void *CircularBuffer::allocate(std::size_t bytes)
+std::size_t CircularBufferBase::Allocation::get() const
 {
-    MLSGPU_ASSERT(bytes > 0, std::invalid_argument);
-    MLSGPU_ASSERT(bytes < bufferSize, std::out_of_range);
+    return *point;
+}
 
+CircularBufferBase::Allocation::Allocation(
+    std::list<std::size_t>::iterator point)
+    : point(point)
+{
+}
+
+CircularBufferBase::Allocation::Allocation()
+    : point(0)
+{
+}
+
+CircularBufferBase::CircularBufferBase(std::size_t size)
+    : bufferSize(size), firstFree(0)
+{
+    MLSGPU_ASSERT(size > 0, std::invalid_argument);
+}
+
+CircularBufferBase::Allocation CircularBufferBase::allocate(std::size_t n)
+{
+    MLSGPU_ASSERT(n > 0, std::invalid_argument);
+    MLSGPU_ASSERT(n <= bufferSize, std::out_of_range);
+
+    boost::lock_guard<boost::mutex> allocLock(allocMutex);
     boost::unique_lock<boost::mutex> lock(mutex);
+    std::size_t pos = bufferSize; // sentinel invalid value
 
-    /* This condition is slightly stronger than necessary: in the wraparound
-     * case, it's sufficient if there are exactly enough bytes at either the
-     * front or the back, but I think this is sufficient to guarantee forward
-     * progress.
-     */
-    while ((bufferHead > bufferTail && bufferHead - bufferTail <= bytes)
-           || (bufferHead <= bufferTail && bufferSize - bufferTail <= bytes && bufferHead <= bytes))
-        spaceCondition.wait(lock);
-    if (bufferHead <= bufferTail && bufferSize - bufferTail <= bytes)
+retry:
+    if (allocPoints.empty())
+        pos = 0;
+    else
     {
-        // no room at the end, so waste that space and start at the front
-        bufferTail = 0;
+        std::size_t end = allocPoints.front();
+        if (firstFree <= end)
+        {
+            if (end - firstFree >= n)
+                pos = firstFree;
+        }
+        else
+        {
+            if (bufferSize - firstFree >= n)
+                pos = firstFree;
+            else if (end >= n)
+                pos = 0;
+        }
     }
 
-    void *ans = buffer + bufferTail;
-    bufferTail += bytes;
-    if (bufferTail == bufferSize)
-        bufferTail = 0;
-    assert(bufferTail < bufferSize);
+    if (pos == bufferSize)
+    {
+        spaceCondition.wait(lock);
+        goto retry;
+    }
+
+    firstFree = pos + n;
+    return Allocation(allocPoints.insert(allocPoints.end(), pos));
+}
+
+void CircularBufferBase::free(const Allocation &alloc)
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    bool first = allocPoints.begin() == alloc.point;
+    allocPoints.erase(alloc.point);
+    if (first)
+        spaceCondition.notify_one();
+}
+
+std::size_t CircularBufferBase::size() const
+{
+    return bufferSize;
+}
+
+void *CircularBuffer::Allocation::get() const
+{
+    return ptr;
+}
+
+CircularBuffer::Allocation CircularBuffer::allocate(std::size_t bytes)
+{
+    Allocation ans;
+    ans.base = CircularBufferBase::allocate(bytes);
+    ans.ptr = buffer + ans.base.get();
     return ans;
 }
 
-void *CircularBuffer::allocate(std::size_t elementSize, std::size_t elements)
+CircularBuffer::Allocation CircularBuffer::allocate(std::size_t elementSize, std::size_t elements)
 {
     MLSGPU_ASSERT(elementSize > 0, std::invalid_argument);
-    MLSGPU_ASSERT(elements <= (bufferSize - 1) / elementSize, std::out_of_range);
+    MLSGPU_ASSERT(elements <= (size() - 1) / elementSize, std::out_of_range);
     return allocate(elementSize * elements);
 }
 
-void CircularBuffer::free(void *ptr, std::size_t elementSize, std::size_t elements)
+void CircularBuffer::free(const Allocation &alloc)
 {
-    MLSGPU_ASSERT(elements <= std::numeric_limits<std::size_t>::max() / elementSize, std::out_of_range);
-    free(ptr, elementSize * elements);
-}
-
-void CircularBuffer::free(void *ptr, std::size_t bytes)
-{
-    MLSGPU_ASSERT(ptr != NULL, std::invalid_argument);
-    MLSGPU_ASSERT(bytes > 0, std::invalid_argument);
-
-    boost::lock_guard<boost::mutex> lock(mutex);
-    bufferHead = ((char *) ptr - buffer) + bytes;
-    if (bufferHead == bufferSize)
-        bufferHead = 0;
-    /* If the buffer is empty, we can continue wherever we like, and
-     * going back to the beginning will minimize fragmentation and hopefully
-     * also cache pollution. More importantly, it guarantees that allocate
-     * can make forward progress when asked for a chunk bigger than half
-     * the buffer which is guaranteed to overlap the current tail.
-     */
-    if (bufferHead == bufferTail)
-        bufferHead = bufferTail = 0;
-    spaceCondition.notify_one();
-    assert(bufferHead < bufferSize);
+    CircularBufferBase::free(alloc.base);
 }
 
 CircularBuffer::CircularBuffer(const std::string &name, std::size_t size)
-    : allocator(Statistics::makeAllocator<Statistics::Allocator<std::allocator<char> > >(name)),
-    buffer(NULL), bufferHead(0), bufferTail(0), bufferSize(size)
+    :
+    CircularBufferBase(size),
+    allocator(Statistics::makeAllocator<Statistics::Allocator<std::allocator<char> > >(name)),
+    buffer(NULL)
 {
-    MLSGPU_ASSERT(size >= 2, std::length_error);
+    MLSGPU_ASSERT(size >= 1, std::length_error);
     buffer = allocator.allocate(size);
 }
 
 CircularBuffer::~CircularBuffer()
 {
-    allocator.deallocate(buffer, bufferSize);
+    allocator.deallocate(buffer, size());
 }

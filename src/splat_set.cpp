@@ -114,7 +114,8 @@ FileSet::ReaderThreadBase::ReaderThreadBase(const FileSet &owner) :
 
 void FileSet::ReaderThreadBase::free(const Item &item)
 {
-    buffer.free(item.ptr, item.bytes);
+    if (item.alloc)
+        buffer.free(*item.alloc);
 }
 
 void FileSet::ReaderThreadBase::drain()
