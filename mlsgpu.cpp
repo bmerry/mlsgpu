@@ -74,6 +74,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const MesherType mesherType = OOC_MESHER;
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+    const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
@@ -120,7 +121,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 boundaryLimit, shape);
             FineBucketGroup fineBucketGroup(
                 numBucketThreads, deviceWorkerGroup,
-                maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+                memHostSplats, maxDeviceSplats, blockCells, maxSplit);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
             Splats splats("mem.blobData");

@@ -88,6 +88,7 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::subsampling,  po::value<int>()->default_value(3), "Subsampling of octree")
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(10000000), "Maximum splats per block on the CPU")
+        (Option::memHostSplats, po::value<std::size_t>(),          "Total splats kept on the CPU")
         (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(2), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
@@ -295,6 +296,7 @@ void validateOptions(const po::variables_map &vm)
     const int subsampling = vm[Option::subsampling].as<int>();
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+    const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
@@ -319,6 +321,8 @@ void validateOptions(const po::variables_map &vm)
         throw invalid_option("Value of --max-device-splats must be positive");
     if (maxHostSplats < maxDeviceSplats)
         throw invalid_option("Value of --max-host-splats must be at least that of --max-device-splats");
+    if (memHostSplats < maxHostSplats)
+        throw invalid_option("Value of --mem-host-splats must be at least that of --max-host-splats");
     if (maxSplit < 8)
         throw invalid_option("Value of --max-split must be at least 8");
     if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
@@ -349,6 +353,14 @@ int deviceWorkerSpare(const po::variables_map &vm)
 {
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     return std::max(bucketThreads, 6);
+}
+
+std::size_t getMemHostSplats(const po::variables_map &vm)
+{
+    if (vm.count(Option::memHostSplats))
+        return vm[Option::memHostSplats].as<std::size_t>();
+    else
+        return vm[Option::maxHostSplats].as<std::size_t>() * 4;
 }
 
 std::size_t meshMemory(const po::variables_map &vm)

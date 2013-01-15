@@ -5,6 +5,7 @@ import sys
 import timeplot
 
 _color_map = {
+    'init': 'white',
     'compute': 'green',
     'bbox': 'gray',
     'push' : 'purple',

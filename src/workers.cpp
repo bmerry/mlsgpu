@@ -227,7 +227,7 @@ const std::size_t FineBucketGroup::spare = 64;
 FineBucketGroup::FineBucketGroup(
     std::size_t numWorkers,
     DeviceWorkerGroup &outGroup,
-    std::size_t maxCoarseSplats,
+    std::size_t memCoarseSplats,
     std::size_t maxSplats,
     Grid::size_type maxCells,
     std::size_t maxSplit)
@@ -236,7 +236,7 @@ FineBucketGroup::FineBucketGroup(
         "bucket.fine",
         numWorkers, spare),
     outGroup(outGroup),
-    splatBuffer("mem.FineBucketGroup.splats", maxCoarseSplats * sizeof(Splat)),
+    splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats * sizeof(Splat)),
     maxSplats(maxSplats),
     maxCells(maxCells),
     maxSplit(maxSplit),

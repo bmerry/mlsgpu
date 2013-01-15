@@ -241,6 +241,7 @@ void Slave::operator()() const
     const int levels = vm[Option::levels].as<int>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+    const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
@@ -259,7 +260,7 @@ void Slave::operator()() const
         boundaryLimit, shape);
     FineBucketGroup fineBucketGroup(
         numBucketThreads, deviceWorkerGroup,
-        maxHostSplats, maxDeviceSplats, blockCells, maxSplit);
+        memHostSplats, maxDeviceSplats, blockCells, maxSplit);
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);
 

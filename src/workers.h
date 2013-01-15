@@ -292,7 +292,7 @@ public:
     FineBucketGroup(
         std::size_t numWorkers,
         DeviceWorkerGroup &outGroup,
-        std::size_t maxCoarseSplats,
+        std::size_t memCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
         std::size_t maxSplit);
