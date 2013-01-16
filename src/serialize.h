@@ -16,8 +16,8 @@
 class Grid;
 struct ChunkId;
 struct MesherWork;
+struct Splat;
 namespace Bucket { struct Recursion; }
-namespace SplatSet { class VectorSet; }
 
 /**
  * Transmission of assorted data structures through MPI.
@@ -42,8 +42,8 @@ void recv(Bucket::Recursion &recursion, MPI_Comm comm, int source);
 void send(const ChunkId &chunkId, MPI_Comm comm, int dest);
 void recv(ChunkId &chunkId, MPI_Comm comm, int source);
 
-void send(const SplatSet::VectorSet &splats, MPI_Comm comm, int dest);
-void recv(SplatSet::VectorSet &splats, MPI_Comm comm, int source);
+void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest);
+void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source);
 
 void send(const MesherWork &work, MPI_Comm comm, int dest);
 void recv(MesherWork &work, MPI_Comm comm, int source);

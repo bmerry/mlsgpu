@@ -254,19 +254,14 @@ void recv(ChunkId &chunkId, MPI_Comm comm, int source)
     MPI_Recv(&chunkId, 1, chunkIdType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
 
-void send(const SplatSet::VectorSet &splats, MPI_Comm comm, int dest)
+void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest)
 {
-    unsigned long long size = splats.size();
-    MPI_Send(&size, 1, MPI_UNSIGNED_LONG_LONG, dest, MLSGPU_TAG_WORK, comm);
-    MPI_Send(const_cast<Splat *>(&splats[0]), size, splatType, dest, MLSGPU_TAG_WORK, comm);
+    MPI_Send(const_cast<Splat *>(splats), numSplats, splatType, dest, MLSGPU_TAG_WORK, comm);
 }
 
-void recv(SplatSet::VectorSet &splats, MPI_Comm comm, int source)
+void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source)
 {
-    unsigned long long size;
-    MPI_Recv(&size, 1, MPI_UNSIGNED_LONG_LONG, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-    splats.resize(size);
-    MPI_Recv(&splats[0], size, splatType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+    MPI_Recv(splats, numSplats, splatType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
 
 void send(const MesherWork &work, MPI_Comm comm, int dest)

@@ -66,7 +66,8 @@ void sendItem(const FineBucketGroup::WorkItem &item, MPI_Comm comm, int dest)
     Serialize::send(item.chunkId, comm, dest);
     Serialize::send(item.grid, comm, dest);
     Serialize::send(item.recursionState, comm, dest);
-    Serialize::send(item.splats, comm, dest);
+    const Splat *splatPtr = (const Splat *) item.splats.get();
+    Serialize::send(splatPtr, item.numSplats, comm, dest);
 }
 
 template<>
@@ -75,7 +76,14 @@ void recvItem(FineBucketGroup::WorkItem &item, MPI_Comm comm, int source)
     Serialize::recv(item.chunkId, comm, source);
     Serialize::recv(item.grid, comm, source);
     Serialize::recv(item.recursionState, comm, source);
-    Serialize::recv(item.splats, comm, source);
+    Splat *splatPtr = (Splat *) item.splats.get();
+    Serialize::recv(splatPtr, item.numSplats, comm, source);
+}
+
+template<>
+std::size_t sizeItem(const FineBucketGroup::WorkItem &item)
+{
+    return item.numSplats;
 }
 
 template<>
@@ -88,6 +96,13 @@ template<>
 void recvItem(MesherGroup::WorkItem &item, MPI_Comm comm, int dest)
 {
     Serialize::recv(item, comm, dest);
+}
+
+template<>
+std::size_t sizeItem(const MesherGroup::WorkItem &item)
+{
+    (void) item;
+    return 1;
 }
 
 namespace
@@ -150,7 +165,8 @@ public:
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
         boost::shared_ptr<WorkItem> item = WorkerGroupScatter<FineBucketGroup::WorkItem, ScatterGroup>::get(tworker, size);
-        item->alloc = splatBuffer.allocate(size * sizeof(Splat));
+        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat));
+        item->numSplats = size;
         return item;
     }
 
@@ -240,7 +256,6 @@ void Slave::operator()() const
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
     const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();

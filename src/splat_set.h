@@ -390,6 +390,9 @@ public:
         this->last = last;
     }
 
+    Iterator begin() const { return first; }
+    Iterator end() const { return last; }
+
 private:
     Iterator first;
     Iterator last;

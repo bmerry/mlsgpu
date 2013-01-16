@@ -35,6 +35,7 @@ public:
 
     void send(MPI_Comm comm, int dest) const;
     void recv(MPI_Comm comm, int source);
+    std::size_t size() const;
 };
 
 void Item::send(MPI_Comm comm, int dest) const
@@ -45,6 +46,11 @@ void Item::send(MPI_Comm comm, int dest) const
 void Item::recv(MPI_Comm comm, int source)
 {
     MPI_Recv(&value, 1, MPI_INT, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+}
+
+std::size_t Item::size() const
+{
+    return 1;
 }
 
 class ScatterGroup : public WorkerGroupScatter<Item, ScatterGroup>

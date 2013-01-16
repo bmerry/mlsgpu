@@ -11,6 +11,7 @@
 # include <config.h>
 #endif
 #include <mpi.h>
+#include <cassert>
 #include "worker_group.h"
 #include "tags.h"
 
@@ -32,6 +33,18 @@ template<typename Item>
 void recvItem(Item &item, MPI_Comm comm, int source)
 {
     item.recv(comm, source);
+}
+
+/**
+ * Determines a size for an item, that is passed to @ref WorkerGroup::get on the
+ * receiver to allocate storage for the item. The default implementation is to
+ * call a @a size member. For items that do not have this member, this template
+ * can be specialized.
+ */
+template<typename Item>
+std::size_t sizeItem(const Item &item)
+{
+    return item.size();
 }
 
 /**
@@ -65,8 +78,9 @@ public:
         {
             Timeplot::Action action("send", getTimeplotWorker());
             // Tell it there is a work item coming
-            int hasWork = 1;
-            MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+            unsigned long workSize = sizeItem(item);
+            assert(workSize > 0);
+            MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
             // Send it the work item
             sendItem(item, comm, status.MPI_SOURCE);
         }
@@ -103,13 +117,7 @@ public:
         Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("RequesterScatter.recv");
         while (true)
         {
-            /**
-             * Don't try to receive work until we have a slot in the queue, as otherwise
-             * we may starve some other process or hold up the scatter worker on the master.
-             */
-            boost::shared_ptr<WorkItem> item = outGroup.get(tworker, 1);
-
-            int hasWork;
+            int workSize;
             MPI_Status status;
             {
                 Timeplot::Action action("send", tworker, sendStat);
@@ -118,20 +126,18 @@ public:
             {
                 Timeplot::Action action("wait", tworker, waitStat);
                 /* We will either get some work or a request to shut down */
-                MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
+                MPI_Recv(&workSize, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
             }
-            if (!hasWork)
-            {
-                outGroup.unget(item);
+            if (workSize == 0)
                 break;
-            }
             else
             {
+                boost::shared_ptr<WorkItem> item = outGroup.get(tworker, workSize);
                 {
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
                 }
-                outGroup.push(item, tworker, 1);
+                outGroup.push(item, tworker, workSize);
             }
         }
     }
@@ -185,9 +191,9 @@ public:
         for (std::size_t i = 0; i < requesters; i++)
         {
             MPI_Status status;
-            int hasWork = 0;
+            unsigned long workSize = 0;
             MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
-            MPI_Send(&hasWork, 1, MPI_INT, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+            MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
         }
     }
 };
@@ -221,15 +227,15 @@ public:
     void operator()(WorkItem &item)
     {
         Timeplot::Action action("send", getTimeplotWorker());
-        int hasWork = 1;
-        MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
+        unsigned long workSize = sizeItem(item);
+        MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
         sendItem(item, comm, root);
     }
 
     void stop()
     {
-        int hasWork = 0;
-        MPI_Send(&hasWork, 1, MPI_INT, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
+        unsigned long workSize = 0;
+        MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
     }
 };
 
@@ -262,22 +268,22 @@ public:
         Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("ReceiverGather.recv");
         while (rem > 0)
         {
-            int hasWork;
+            unsigned long workSize;
             MPI_Status status;
             {
                 Timeplot::Action action("wait", tworker, waitStat);
-                MPI_Recv(&hasWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
+                MPI_Recv(&workSize, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
             }
-            if (!hasWork)
+            if (workSize == 0)
                 rem--;
             else
             {
-                boost::shared_ptr<WorkItem> item = outGroup.get(tworker, 1);
+                boost::shared_ptr<WorkItem> item = outGroup.get(tworker, workSize);
                 {
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
                 }
-                outGroup.push(item, tworker, 1);
+                outGroup.push(item, tworker, workSize);
             }
         }
     }
