@@ -352,8 +352,15 @@ cl_int enqueueMarkerWithWaitList(const cl::CommandQueue &queue,
          * something), or to create a separate thread to wait for completion of
          * the events and signal a user event when done (which would force
          * scheduling to round trip via multiple CPU threads).
+         *
+         * The implementation in cl.hpp (version 1.2.1) leaks any previous
+         * reference, so we use a temporary event.
          */
-        return queue.enqueueMarker(event);
+        cl::Event tmp;
+        int status = queue.enqueueMarker(&tmp);
+        if (status == CL_SUCCESS)
+            *event = tmp;
+        return status;
     }
     else if (events == NULL)
     {
