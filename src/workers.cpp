@@ -89,34 +89,27 @@ void MesherGroup::outputFunc(
 DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers, std::size_t spare,
     OutputGenerator outputGenerator,
-    const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+    const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
     int levels, int subsampling, float boundaryLimit,
     MlsShape shape)
 :
-    Base(
-        "device",
-        devices.size(), numWorkers, spare),
+    Base("device", numWorkers, spare),
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling)
 {
-    for (std::size_t i = 0; i < (numWorkers + spare) * devices.size(); i++)
+    for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
-        const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
-        const cl::Context &context = cd.first;
-        const cl::Device &device = cd.second;
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-        item->key = device();
         item->mapQueue = cl::CommandQueue(context, device);
         item->splats = cl::Buffer(context, CL_MEM_READ_ONLY, maxSplats * sizeof(Splat));
         item->numSplats = 0;
         addPoolItem(item);
     }
-    for (std::size_t i = 0; i < numWorkers * devices.size(); i++)
+    for (std::size_t i = 0; i < numWorkers; i++)
     {
-        const std::pair<cl::Context, cl::Device> &cd = devices[i % devices.size()];
-        addWorker(new Worker(*this, cd.first, cd.second, levels, boundaryLimit, shape, i));
+        addWorker(new Worker(*this, context, device, levels, boundaryLimit, shape, i));
     }
 }
 
@@ -153,7 +146,6 @@ DeviceWorkerGroupBase::Worker::Worker(
 :
     WorkerBase("device", idx),
     owner(owner),
-    key(device()),
     queue(context, device, Statistics::isEventTimingEnabled() ? CL_QUEUE_PROFILING_ENABLE : 0),
     tree(context, device, levels, owner.maxSplats),
     input(context, shape),
@@ -226,7 +218,7 @@ const std::size_t FineBucketGroup::spare = 64;
 
 FineBucketGroup::FineBucketGroup(
     std::size_t numWorkers,
-    DeviceWorkerGroup &outGroup,
+    const std::vector<DeviceWorkerGroup *> &outGroups,
     std::size_t memCoarseSplats,
     std::size_t maxSplats,
     Grid::size_type maxCells,
@@ -235,7 +227,7 @@ FineBucketGroup::FineBucketGroup(
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
         "bucket.fine",
         numWorkers, spare),
-    outGroup(outGroup),
+    outGroups(outGroups),
     splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats * sizeof(Splat)),
     maxSplats(maxSplats),
     maxCells(maxCells),
@@ -274,7 +266,21 @@ void FineBucketGroupBase::Worker::operator()(
 
     const std::size_t bytes = splatSet.numSplats() * sizeof(Splat);
 
-    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = owner.outGroup.get(getTimeplotWorker(), bytes);
+    /* Select the least-busy device to target */
+    DeviceWorkerGroup *outGroup = NULL;
+    std::size_t bestSpare = 0;
+    BOOST_FOREACH(DeviceWorkerGroup *w, owner.outGroups)
+    {
+        std::size_t spare = w->spare();
+        if (spare >= bestSpare)
+        {
+            // Note: <= above so that we always get a non-NULL result
+            outGroup = w;
+            bestSpare = spare;
+        }
+    }
+
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = outGroup->get(getTimeplotWorker(), bytes);
     outItem->numSplats = splatSet.numSplats();
     outItem->grid = grid;
     outItem->recursionState = recursionState;
@@ -303,7 +309,7 @@ void FineBucketGroupBase::Worker::operator()(
         outItem->mapQueue.flush();
     }
 
-    owner.outGroup.push(outItem, getTimeplotWorker(), bytes);
+    outGroup->push(outItem, getTimeplotWorker(), bytes);
 }
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)

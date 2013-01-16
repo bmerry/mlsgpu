@@ -112,15 +112,22 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
             Log::log[Log::info] << "Initializing...\n";
             MesherGroup mesherGroup(devices.size() * numDeviceThreads * 8);
-            DeviceWorkerGroup deviceWorkerGroup(
-                numDeviceThreads, deviceWorkerSpare(vm),
-                boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
-                devices,
-                maxDeviceSplats, blockCells, meshMemory(vm),
-                levels, subsampling,
-                boundaryLimit, shape);
+            boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
+            std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
+            for (std::size_t i = 0; i < devices.size(); i++)
+            {
+                DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
+                    numDeviceThreads, deviceWorkerSpare(vm),
+                    boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
+                    devices[i].first, devices[i].second,
+                    maxDeviceSplats, blockCells, meshMemory(vm),
+                    levels, subsampling,
+                    boundaryLimit, shape);
+                deviceWorkerGroups.push_back(dwg);
+                deviceWorkerGroupPtrs.push_back(dwg);
+            }
             FineBucketGroup fineBucketGroup(
-                numBucketThreads, deviceWorkerGroup,
+                numBucketThreads, deviceWorkerGroupPtrs,
                 memHostSplats, maxDeviceSplats, blockCells, maxSplit);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
@@ -179,13 +186,15 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
 
                 mesherGroup.setInputFunctor(mesher->functor(pass));
-                deviceWorkerGroup.setProgress(&progress);
+                for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+                    deviceWorkerGroups[i].setProgress(&progress);
                 fineBucketGroup.setProgress(&progress);
 
                 // Start threads
                 coarseBucket.start(grid);
                 fineBucketGroup.start(grid);
-                deviceWorkerGroup.start(grid);
+                for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+                    deviceWorkerGroups[i].start(grid);
                 mesherGroup.start();
 
                 try
@@ -200,7 +209,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     // the wrong order
                     coarseBucket.stop();
                     fineBucketGroup.stop();
-                    deviceWorkerGroup.stop();
+                    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+                        deviceWorkerGroups[i].stop();
                     mesherGroup.stop();
                     throw;
                 }
@@ -211,7 +221,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  */
                 coarseBucket.stop();
                 fineBucketGroup.stop();
-                deviceWorkerGroup.stop();
+                for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+                    deviceWorkerGroups[i].stop();
                 mesherGroup.stop();
             }
         }

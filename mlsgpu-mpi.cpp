@@ -267,14 +267,21 @@ void Slave::operator()() const
     const unsigned int blockCells = block - 1;
 
     GatherGroup gatherGroup(devices.size() * numDeviceThreads * 8, gatherComm, gatherRoot);
-    DeviceWorkerGroup deviceWorkerGroup(
-        numDeviceThreads, deviceWorkerSpare(vm), GetOutputFunctor(gatherGroup),
-        devices,
-        maxDeviceSplats, blockCells, meshMemory(vm),
-        levels, subsampling,
-        boundaryLimit, shape);
+    boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
+    std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
+    for (std::size_t i = 0; i < devices.size(); i++)
+    {
+        DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
+            numDeviceThreads, deviceWorkerSpare(vm), GetOutputFunctor(gatherGroup),
+            devices[i].first, devices[i].second,
+            maxDeviceSplats, blockCells, meshMemory(vm),
+            levels, subsampling,
+            boundaryLimit, shape);
+        deviceWorkerGroups.push_back(dwg);
+        deviceWorkerGroupPtrs.push_back(dwg);
+    }
     FineBucketGroup fineBucketGroup(
-        numBucketThreads, deviceWorkerGroup,
+        numBucketThreads, deviceWorkerGroupPtrs,
         memHostSplats, maxDeviceSplats, blockCells, maxSplit);
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);
@@ -299,17 +306,20 @@ void Slave::operator()() const
      */
 
     ProgressMPI progress(NULL, grid.numCells(), progressComm, progressRoot);
-    deviceWorkerGroup.setProgress(&progress);
+    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+        deviceWorkerGroups[i].setProgress(&progress);
     fineBucketGroup.setProgress(&progress);
 
     fineBucketGroup.start(grid);
-    deviceWorkerGroup.start(grid);
+    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+        deviceWorkerGroups[i].start(grid);
     gatherGroup.start();
 
     requester();
 
     fineBucketGroup.stop();
-    deviceWorkerGroup.stop();
+    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+        deviceWorkerGroups[i].stop();
     gatherGroup.stop();
     progress.sync();
 

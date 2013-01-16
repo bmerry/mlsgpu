@@ -114,7 +114,6 @@ public:
      */
     struct WorkItem
     {
-        cl_device_id key;
         ChunkId chunkId;               ///< Chunk owning this item
         cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
         cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use
@@ -123,8 +122,6 @@ public:
         std::size_t numSplats;
         Grid grid;
         Bucket::Recursion recursionState;
-
-        cl_device_id getKey() const { return key; }
     };
 
     class Worker : public WorkerBase
@@ -132,7 +129,6 @@ public:
     private:
         DeviceWorkerGroup &owner;
 
-        cl_device_id key;
         const cl::CommandQueue queue;
         SplatTreeCL tree;
         MlsFunctor input;
@@ -142,8 +138,6 @@ public:
 
     public:
         typedef void result_type;
-
-        cl_device_id getKey() const { return key; }
 
         Worker(
             DeviceWorkerGroup &owner,
@@ -163,7 +157,7 @@ public:
  */
 class DeviceWorkerGroup :
     protected DeviceWorkerGroupBase,
-    public WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id>
+    public WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup>
 {
 public:
     /**
@@ -175,7 +169,7 @@ public:
     typedef boost::function<Marching::OutputFunctor(const ChunkId &, Timeplot::Worker &)> OutputGenerator;
 
 private:
-    typedef WorkerGroupMulti<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup, cl_device_id> Base;
+    typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup> Base;
     ProgressMeter *progress;
     OutputGenerator outputGenerator;
 
@@ -198,7 +192,8 @@ public:
      * @param outputGenerator    Output handler generator. The generator is passed a chunk
      *                           ID and @ref Timeplot::Worker, and returns a @ref Marching::OutputFunctor which
      *                           which will receive the output blocks for the corresponding chunk.
-     * @param devices            OpenCL context and device to run on, with associated contexts.
+     * @param context            OpenCL context to run on.
+     * @param device             OpenCL device to run on.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
      * @param meshMemory         Maximum device bytes to use for mesh-related data.
@@ -210,7 +205,7 @@ public:
     DeviceWorkerGroup(
         std::size_t numWorkers, std::size_t spare,
         OutputGenerator outputGenerator,
-        const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+        const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
         int levels, int subsampling, float boundaryLimit,
         MlsShape shape);
@@ -234,6 +229,11 @@ public:
      * processed.
      */
     void setProgress(ProgressMeter *progress) { this->progress = progress; }
+
+    /**
+     * Estimate spare queue capacity.
+     */
+    std::size_t spare() { return 1; }
 };
 
 class FineBucketGroup;
@@ -291,7 +291,7 @@ public:
 
     FineBucketGroup(
         std::size_t numWorkers,
-        DeviceWorkerGroup &outGroup,
+        const std::vector<DeviceWorkerGroup *> &outGroups,
         std::size_t memCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
@@ -310,7 +310,7 @@ public:
 private:
     static const std::size_t spare;
 
-    DeviceWorkerGroup &outGroup;
+    const std::vector<DeviceWorkerGroup *> outGroups;
     CircularBuffer splatBuffer;
 
     Grid fullGrid;
