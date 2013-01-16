@@ -152,22 +152,24 @@ public:
 
 /**
  * RAII wrapper around mapping and unmapping a buffer.
- * It only handles synchronous mapping and unmapping.
+ * If a non-NULL event pointer is provided, the mapping is asynchronous and
+ * the event is used to signal completion. Otherwise, the mapping is
+ * synchronous.
  */
 template<typename T>
 class BufferMapping : public detail::TypedMemoryMapping<T>
 {
 public:
-    BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size)
+    BufferMapping(const cl::Buffer &buffer, const cl::Device &device, cl_map_flags flags, ::size_t offset, ::size_t size, cl::Event *event = NULL)
         : detail::TypedMemoryMapping<T>(buffer, device)
     {
-        this->setPointer(this->getQueue.enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size));
+        this->setPointer(this->getQueue.enqueueMapBuffer(buffer, event == NULL, flags, offset, size, NULL, event));
     }
 
-    BufferMapping(const cl::Buffer &buffer, const cl::CommandQueue &queue, cl_map_flags flags, ::size_t offset, ::size_t size)
+    BufferMapping(const cl::Buffer &buffer, const cl::CommandQueue &queue, cl_map_flags flags, ::size_t offset, ::size_t size, cl::Event *event = NULL)
         : detail::TypedMemoryMapping<T>(buffer, queue)
     {
-        this->setPointer(queue.enqueueMapBuffer(buffer, CL_TRUE, flags, offset, size));
+        this->setPointer(queue.enqueueMapBuffer(buffer, event == NULL, flags, offset, size, NULL, event));
     }
 
     const cl::Buffer &getBuffer() const { return static_cast<const cl::Buffer &>(this->getMemory()); }

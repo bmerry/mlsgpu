@@ -18,6 +18,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/thread/locks.hpp>
 #include <boost/noncopyable.hpp>
 #include <boost/foreach.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
@@ -118,6 +119,11 @@ public:
         cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
         cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use
 
+        /**
+         * Mutex to be held while mapping the splats.
+         * @see @ref DeviceWorkerGroup::splatMutex.
+         */
+        boost::mutex *splatMutex;
         cl::Buffer splats;
         std::size_t numSplats;
         CircularBufferBase::Allocation alloc;
@@ -180,6 +186,12 @@ private:
     const std::size_t meshMemory;
     const int subsampling;
 
+    /**
+     * Mutex to be held while doing subbuffer operations. This shouldn't be
+     * necessary, but NVIDIA drivers (up to at least 313.09) aren't thread-safe
+     * when it comes to manipulations on sub-buffers.
+     */
+    boost::mutex splatMutex;
     std::size_t splatAlign;
     CircularBufferBase splatAllocator;
     cl::Buffer splatStore;
