@@ -97,13 +97,16 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     Base("device", numWorkers, spare),
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
-    subsampling(subsampling)
+    subsampling(subsampling),
+    // TODO: rename the parameter and recalculate it
+    splatAlign(device.getInfo<CL_DEVICE_MEM_BASE_ADDR_ALIGN>() / 8),
+    splatAllocator("mem.device.splats", roundUp(maxSplats * sizeof(Splat), splatAlign)),
+    splatStore(context, CL_MEM_READ_WRITE, splatAllocator.size())
 {
     for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
         item->mapQueue = cl::CommandQueue(context, device);
-        item->splats = cl::Buffer(context, CL_MEM_READ_ONLY, maxSplats * sizeof(Splat));
         item->numSplats = 0;
         addPoolItem(item);
     }
@@ -117,6 +120,21 @@ void DeviceWorkerGroup::start(const Grid &fullGrid)
 {
     this->fullGrid = fullGrid;
     this->Base::start();
+}
+
+boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
+    Timeplot::Worker &tworker, std::size_t size)
+{
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> item = Base::get(tworker, size);
+    std::size_t bytes = roundUp(size * sizeof(Splat), splatAlign);
+    item->alloc = splatAllocator.allocate(tworker, bytes);
+
+    cl_buffer_region region;
+    region.origin = item->alloc.get();
+    region.size = size * sizeof(Splat);
+    item->splats = splatStore.createSubBuffer(CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region);
+    item->numSplats = size;
+    return item;
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
@@ -207,6 +225,10 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 
         input.set(offset, tree, owner.subsampling);
         marching.generate(queue, input, filterChain, size, keyOffset, &wait);
+
+        tree.clearSplats();
+        work.splats = cl::Buffer(); // free the reference to the sub-buffer
+        owner.splatAllocator.free(work.alloc);
     }
 
     if (owner.progress != NULL)
@@ -280,8 +302,8 @@ void FineBucketGroupBase::Worker::operator()(
         }
     }
 
-    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem = outGroup->get(getTimeplotWorker(), bytes);
-    outItem->numSplats = splatSet.numSplats();
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> outItem =
+        outGroup->get(getTimeplotWorker(), splatSet.numSplats());
     outItem->grid = grid;
     outItem->recursionState = recursionState;
     outItem->chunkId = chunkId;
@@ -309,7 +331,7 @@ void FineBucketGroupBase::Worker::operator()(
         outItem->mapQueue.flush();
     }
 
-    outGroup->push(outItem, getTimeplotWorker(), bytes);
+    outGroup->push(outItem, getTimeplotWorker(), splatSet.numSplats());
 }
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)

@@ -120,6 +120,7 @@ public:
 
         cl::Buffer splats;
         std::size_t numSplats;
+        CircularBufferBase::Allocation alloc;
         Grid grid;
         Bucket::Recursion recursionState;
     };
@@ -179,6 +180,10 @@ private:
     const std::size_t meshMemory;
     const int subsampling;
 
+    std::size_t splatAlign;
+    CircularBufferBase splatAllocator;
+    cl::Buffer splatStore;
+
     friend class DeviceWorkerGroupBase::Worker;
 
 public:
@@ -229,6 +234,8 @@ public:
      * processed.
      */
     void setProgress(ProgressMeter *progress) { this->progress = progress; }
+
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
 
     /**
      * Estimate spare queue capacity.

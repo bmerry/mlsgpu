@@ -310,3 +310,8 @@ void SplatTreeCL::enqueueBuild(
     if (event != NULL)
         *event = wait[0];
 }
+
+void SplatTreeCL::clearSplats()
+{
+    splats = cl::Buffer();
+}

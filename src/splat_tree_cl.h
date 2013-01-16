@@ -264,6 +264,12 @@ public:
      * @}
      */
 
+    /**
+     * Drop the reference to the splats buffer. After calling this,
+     * the tree must not be used until @ref enqueueBuild is called again.
+     */
+    void clearSplats();
+
     /// Get the number of levels currently in the octree.
     std::size_t getNumLevels() const { return levelOffsets.size(); }
 };
