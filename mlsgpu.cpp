@@ -117,7 +117,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             for (std::size_t i = 0; i < devices.size(); i++)
             {
                 DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
-                    numDeviceThreads, deviceWorkerSpare(vm),
+                    numDeviceThreads,
                     boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
                     devices[i].first, devices[i].second,
                     maxDeviceSplats, blockCells, meshMemory(vm),

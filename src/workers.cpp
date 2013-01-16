@@ -35,6 +35,10 @@
 #include "errors.h"
 #include "thread_name.h"
 
+const std::size_t DeviceWorkerGroup::spare = 64;
+const std::size_t FineBucketGroup::spare = 64;
+
+
 MesherGroupBase::Worker::Worker(MesherGroup &owner)
     : WorkerBase("mesher", 0), owner(owner) {}
 
@@ -88,7 +92,7 @@ void MesherGroup::outputFunc(
 
 
 DeviceWorkerGroup::DeviceWorkerGroup(
-    std::size_t numWorkers, std::size_t spare,
+    std::size_t numWorkers,
     OutputGenerator outputGenerator,
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
@@ -243,9 +247,6 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
         *owner.progress += work.grid.numCells();
 }
 
-
-const std::size_t FineBucketGroup::spare = 64;
-
 FineBucketGroup::FineBucketGroup(
     std::size_t numWorkers,
     const std::vector<DeviceWorkerGroup *> &outGroups,
@@ -301,7 +302,7 @@ void FineBucketGroupBase::Worker::operator()(
     std::size_t bestSpare = 0;
     BOOST_FOREACH(DeviceWorkerGroup *w, owner.outGroups)
     {
-        std::size_t spare = w->spare();
+        std::size_t spare = w->queueSpare();
         if (spare >= bestSpare)
         {
             // Note: <= above so that we always get a non-NULL result

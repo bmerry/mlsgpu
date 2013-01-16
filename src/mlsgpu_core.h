@@ -97,11 +97,6 @@ void validateOptions(const boost::program_options::variables_map &vm);
 void setLogLevel(const boost::program_options::variables_map &vm);
 
 /**
- * Number of spare slots to use when creating a device worker.
- */
-int deviceWorkerSpare(const boost::program_options::variables_map &vm);
-
-/**
  * Number of splats for which to allocate memory on the host.
  */
 std::size_t getMemHostSplats(const boost::program_options::variables_map &vm);

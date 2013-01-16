@@ -349,12 +349,6 @@ void setLogLevel(const po::variables_map &vm)
         Log::log.setLevel(Log::info);
 }
 
-int deviceWorkerSpare(const po::variables_map &vm)
-{
-    const int bucketThreads = vm[Option::bucketThreads].as<int>();
-    return std::max(bucketThreads, 6);
-}
-
 std::size_t getMemHostSplats(const po::variables_map &vm)
 {
     if (vm.count(Option::memHostSplats))
@@ -377,7 +371,7 @@ CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
     const int subsampling = vm[Option::subsampling].as<int>();
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
-    const int deviceSpare = deviceWorkerSpare(vm);
+    const int deviceSpare = 1; // TODO eliminate, it's no longer needed
 
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
     // TODO: get rid of device parameter

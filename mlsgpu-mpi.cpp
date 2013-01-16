@@ -272,7 +272,7 @@ void Slave::operator()() const
     for (std::size_t i = 0; i < devices.size(); i++)
     {
         DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
-            numDeviceThreads, deviceWorkerSpare(vm), GetOutputFunctor(gatherGroup),
+            numDeviceThreads, GetOutputFunctor(gatherGroup),
             devices[i].first, devices[i].second,
             maxDeviceSplats, blockCells, meshMemory(vm),
             levels, subsampling,

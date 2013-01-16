@@ -176,6 +176,8 @@ public:
     typedef boost::function<Marching::OutputFunctor(const ChunkId &, Timeplot::Worker &)> OutputGenerator;
 
 private:
+    static const std::size_t spare;
+
     typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup> Base;
     ProgressMeter *progress;
     OutputGenerator outputGenerator;
@@ -205,7 +207,6 @@ public:
      * Constructor.
      *
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
-     * @param spare              Number of work items to have available in the pool when all workers are busy.
      * @param outputGenerator    Output handler generator. The generator is passed a chunk
      *                           ID and @ref Timeplot::Worker, and returns a @ref Marching::OutputFunctor which
      *                           which will receive the output blocks for the corresponding chunk.
@@ -220,7 +221,7 @@ public:
      * @param shape              The shape to fit to the data
      */
     DeviceWorkerGroup(
-        std::size_t numWorkers, std::size_t spare,
+        std::size_t numWorkers,
         OutputGenerator outputGenerator,
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
@@ -252,7 +253,7 @@ public:
     /**
      * Estimate spare queue capacity.
      */
-    std::size_t spare() { return 1; }
+    std::size_t queueSpare() { return 1; }
 };
 
 class FineBucketGroup;
