@@ -348,20 +348,6 @@ public:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSequenceSet, TestSet::perBuild());
 
-/// Tests for @ref SplatSet::VectorSet
-class TestVectorSet : public TestSplatSubsettable<VectorSet>
-{
-    CPPUNIT_TEST_SUB_SUITE(TestVectorSet, TestSplatSubsettable<VectorSet>);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
-                            float spacing, Grid::size_type bucketSize);
-public:
-    /// Adds all splats in @a splatData to the vector
-    static void populate(VectorSet &set, const std::vector<std::vector<Splat> > &splatData);
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestVectorSet, TestSet::perBuild());
-
 /// Tests for @ref SplatSet::FastBlobSet.
 template<typename BaseType>
 class TestFastBlobSet : public TestSplatSubsettable<FastBlobSet<BaseType, Statistics::Container::vector<BlobData> > >
@@ -399,27 +385,30 @@ public:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastFileSet, TestSet::perBuild());
 
-/// Tests for @ref SplatSet::FastBlobSet<SplatSet::VectorSet>.
-class TestFastVectorSet : public TestFastBlobSet<VectorSet>
+/// Tests for @ref SplatSet::FastBlobSet<SplatSet::SequenceSet<const Splat *> >.
+class TestFastSequenceSet : public TestFastBlobSet<SequenceSet<const Splat *> >
 {
-    typedef TestFastBlobSet<VectorSet> BaseFixture;
-    CPPUNIT_TEST_SUB_SUITE(TestFastVectorSet, BaseFixture);
+    typedef TestFastBlobSet<SequenceSet<const Splat *> > BaseFixture;
+    CPPUNIT_TEST_SUB_SUITE(TestFastSequenceSet, BaseFixture);
     CPPUNIT_TEST_SUITE_END();
+private:
+    std::vector<Splat> store; ///< Backing data for the returned sets
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastVectorSet, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastSequenceSet, TestSet::perBuild());
 
 /// Tests for @ref SplatSet::Subset
-class TestSubset : public TestSplatSet<Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > >
+class TestSubset : public TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > >
 {
-    typedef FastBlobSet<VectorSet, std::vector<BlobData> > Super;
-    typedef TestSplatSet<Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > > BaseFixture;
+    typedef FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > Super;
+    typedef TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > > BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestSubset, BaseFixture);
     CPPUNIT_TEST_SUITE_END();
 private:
     Super super;
+    std::vector<Splat> store; ///< Backing data for the returned sets
 protected:
     virtual Set *setFactory(const std::vector<std::vector<Splat> > &splatData,
                             float spacing, Grid::size_type bucketSize);
@@ -784,28 +773,6 @@ SequenceSet<const Splat *> *TestSequenceSet::setFactory(
     return set.release();
 }
 
-void TestVectorSet::populate(
-    VectorSet &set,
-    const std::vector<std::vector<Splat> > &splatData)
-{
-    for (std::size_t i = 0; i < splatData.size(); i++)
-    {
-        set.insert(set.end(), splatData[i].begin(), splatData[i].end());
-    }
-}
-
-VectorSet *TestVectorSet::setFactory(
-    const std::vector<std::vector<Splat> > &splatData,
-    float spacing, Grid::size_type bucketSize)
-{
-    (void) spacing;
-    (void) bucketSize;
-
-    std::auto_ptr<Set> set(new Set);
-    populate(*set, splatData);
-    return set.release();
-}
-
 template<typename BaseType>
 void TestFastBlobSet<BaseType>::testBoundingGrid()
 {
@@ -917,19 +884,19 @@ void TestFastFileSet::testProgress()
     set->computeBlobs(2.5f, 5, &nullStream, false);
 }
 
-FastBlobSet<VectorSet, Statistics::Container::vector<BlobData> > *TestFastVectorSet::setFactory(
+FastBlobSet<SequenceSet<const Splat *>, Statistics::Container::vector<BlobData> > *TestFastSequenceSet::setFactory(
     const std::vector<std::vector<Splat> > &splatData,
     float spacing, Grid::size_type bucketSize)
 {
     if (splatData.empty())
         return NULL;
     std::auto_ptr<Set> set(new Set("mem.test.blobData"));
-    TestVectorSet::populate(*set, splatData);
+    TestSequenceSet::populate(*set, splatData, store);
     set->computeBlobs(spacing, bucketSize, NULL, false);
     return set.release();
 }
 
-Subset<FastBlobSet<VectorSet, std::vector<BlobData> > > *
+Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > *
 TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
                        float spacing, Grid::size_type bucketSize)
 {
@@ -940,7 +907,7 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
     std::tr1::bernoulli_distribution dist(0.75);
     std::tr1::variate_generator<std::tr1::mt19937 &, std::tr1::bernoulli_distribution> gen(engine, dist);
 
-    TestVectorSet::populate(super, splatData);
+    TestSequenceSet::populate(super, splatData, store);
     super.computeBlobs(spacing, bucketSize, NULL, false);
     std::auto_ptr<Set> set(new Set(super));
 

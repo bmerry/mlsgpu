@@ -280,7 +280,7 @@ private:
 };
 
 /**
- * Base class for @ref SequenceSet and @ref VectorSet. It should be inherited
+ * Base class for @ref SequenceSet. It should be inherited
  * privately to get access to the MySplatStream class.
  *
  * @param Iterator A random access iterator to splats
@@ -396,41 +396,6 @@ public:
 private:
     Iterator first;
     Iterator last;
-};
-
-/**
- * Splat set interface for a simple vector of splats. The splat IDs are
- * simply the positions in the vector. It is legal to store non-finite splats;
- * they will be skipped over by the stream. Blobs just contain one splat each.
- *
- * All the public methods of @ref Statistics::Container::vector&lt;Splat&gt;
- * are available, but modifying the data while a stream exists yields undefined
- * behavior.
- */
-class VectorSet : public Statistics::Container::vector<Splat>, private IteratorSet<Statistics::Container::vector<Splat>::const_iterator>
-{
-private:
-    typedef IteratorSet<Statistics::Container::vector<Splat>::const_iterator> Base;
-public:
-    splat_id maxSplats() const { return size(); }
-
-    SplatStream *makeSplatStream() const
-    {
-        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
-    }
-
-    template<typename RangeIterator>
-    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
-    {
-        return new Base::MySplatStream<RangeIterator>(begin(), end(), firstRange, lastRange);
-    }
-
-    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
-    }
-
-    VectorSet() : Statistics::Container::vector<Splat>("mem.VectorSet") {}
 };
 
 /**
