@@ -35,7 +35,7 @@ namespace SplatSet
 
 template<typename Iterator>
 template<typename RangeIterator>
-void IteratorSet<Iterator>::MySplatStream<RangeIterator>::refill()
+void SequenceSet<Iterator>::MySplatStream<RangeIterator>::refill()
 {
     if (curRange != lastRange)
     {

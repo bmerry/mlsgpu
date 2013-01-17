@@ -280,15 +280,63 @@ private:
 };
 
 /**
- * Base class for @ref SequenceSet. It should be inherited
- * privately to get access to the MySplatStream class.
+ * Splat set interface for an existing container of splats (including just a
+ * plain old array). The splat IDs are the position within the sequence. It is
+ * legal to store non-finite splats; they will be skipped over by the stream.
+ * Blobs just contain one splat each. The splats should not be modified while a
+ * stream exists, although it will probably work okay as long as splats are not
+ * switched from finite to non-finite or vice versa.
  *
  * @param Iterator A random access iterator to splats
  */
 template<typename Iterator>
-class IteratorSet
+class SequenceSet
 {
-protected:
+public:
+    splat_id maxSplats() const { return last - first; }
+
+    SplatStream *makeSplatStream() const
+    {
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+    }
+
+    template<typename RangeIterator>
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    {
+        return new MySplatStream<RangeIterator>(first, last, firstRange, lastRange);
+    }
+
+    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
+    {
+        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
+    }
+
+    SequenceSet()
+    {
+    }
+
+    SequenceSet(Iterator first, Iterator last)
+        : first(first), last(last)
+    {
+    }
+
+    /**
+     * Change the range to index. This must only be called when no streams
+     * are in progress.
+     */
+    void reset(Iterator first, Iterator last)
+    {
+        this->first = first;
+        this->last = last;
+    }
+
+    Iterator begin() const { return first; }
+    Iterator end() const { return last; }
+
+private:
+    Iterator first;
+    Iterator last;
+
     /// Splat stream implementation
     template<typename RangeIterator>
     class MySplatStream : public SplatStream
@@ -336,66 +384,6 @@ protected:
         ///< Advances until reading a finite splat or the end of the stream
         void refill();
     };
-};
-
-/**
- * Splat set interface for an existing container of splats (including just a
- * plain old array). The splat IDs are the position within the sequence. It is
- * legal to store non-finite splats; they will be skipped over by the stream.
- * Blobs just contain one splat each. The splats should not be modified while a
- * stream exists, although it will probably work okay as long as splats are not
- * switched from finite to non-finite or vice versa.
- *
- * @param Iterator A random access iterator to splats
- */
-template<typename Iterator>
-class SequenceSet : private IteratorSet<Iterator>
-{
-public:
-    splat_id maxSplats() const { return last - first; }
-
-    SplatStream *makeSplatStream() const
-    {
-        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
-    }
-
-    template<typename RangeIterator>
-    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
-    {
-        typedef typename IteratorSet<Iterator>::template MySplatStream<RangeIterator> T;
-        return new T(first, last, firstRange, lastRange);
-    }
-
-    BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
-    {
-        return new SimpleBlobStream(makeSplatStream(), grid, bucketSize);
-    }
-
-    SequenceSet()
-    {
-    }
-
-    SequenceSet(Iterator first, Iterator last)
-        : first(first), last(last)
-    {
-    }
-
-    /**
-     * Change the range to index. This must only be called when no streams
-     * are in progress.
-     */
-    void reset(Iterator first, Iterator last)
-    {
-        this->first = first;
-        this->last = last;
-    }
-
-    Iterator begin() const { return first; }
-    Iterator end() const { return last; }
-
-private:
-    Iterator first;
-    Iterator last;
 };
 
 /**
