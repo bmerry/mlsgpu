@@ -410,7 +410,7 @@ void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsa
         std::ostringstream msg;
         msg << "Arguments require an allocation of " << totalUsage.getMaxMemory() << ",\n"
             << "but only " << deviceMaxMemory << " is supported.\n"
-            << "Try reducing --levels or increasing --subsampling.";
+            << "Try reducing --levels or --mem-device-splats, or increasing --subsampling.";
         throw CLH::invalid_device(device, msg.str());
     }
     if (totalUsage.getTotalMemory() > deviceTotalMemory)
@@ -418,7 +418,7 @@ void validateDevice(const cl::Device &device, const CLH::ResourceUsage &totalUsa
         std::ostringstream msg;
         msg << "Arguments require device memory of " << totalUsage.getTotalMemory() << ",\n"
             << "but only " << deviceTotalMemory << " available.\n"
-            << "Try reducing --levels or --max-device-splats, or increasing --subsampling.";
+            << "Try reducing --levels or --mem-device-splats, or increasing --subsampling.";
         throw CLH::invalid_device(device, msg.str());
     }
 
