@@ -53,7 +53,11 @@ class MesherGroup;
 class MesherGroupBase
 {
 public:
-    typedef MesherWork WorkItem;
+    struct WorkItem
+    {
+        MesherWork work;
+        CircularBuffer::Allocation alloc; ///< Allocation backing the mesh data
+    };
 
     class Worker : public WorkerBase
     {
@@ -88,9 +92,13 @@ public:
      */
     Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId, Timeplot::Worker &tworker);
 
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
+
     MesherGroup(std::size_t spare);
 private:
     MesherBase::InputFunctor input;
+    CircularBuffer meshBuffer;
+
     friend class MesherGroupBase::Worker;
 
     void outputFunc(

@@ -29,6 +29,8 @@
 #include <cstddef>
 #include <boost/array.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
+#include <boost/smart_ptr/shared_array.hpp>
 #include <boost/foreach.hpp>
 #include <boost/array.hpp>
 #include <boost/filesystem.hpp>
@@ -196,6 +198,7 @@ protected:
     {
         std::tr1::unordered_set<cl_ulong> vertices;
         std::vector<boost::array<cl_ulong, 3> > triangles;
+        boost::shared_array<char> buffer; // storage for work
         MesherWork work;
     };
 
@@ -346,22 +349,22 @@ void TestMesherBase::add(
     const size_t numVertices = numInternalVertices + numExternalVertices;
     assert(numIndices % 3 == 0);
 
+    MeshSizes sizes(numVertices, numTriangles, numInternalVertices);
+    boost::scoped_array<char> buffer(new char[sizes.getHostBytes()]);
     MesherWork work;
-    work.mesh.vertices.reserve(numVertices);
-    work.mesh.vertexKeys.reserve(numExternalVertices);
-    work.mesh.triangles.reserve(numTriangles);
+    work.mesh = HostKeyMesh(buffer.get(), sizes);
     std::copy(internalVertices, internalVertices + numInternalVertices,
-              std::back_inserter(work.mesh.vertices));
+              work.mesh.vertices);
     std::copy(externalVertices, externalVertices + numExternalVertices,
-              std::back_inserter(work.mesh.vertices));
+              work.mesh.vertices + numInternalVertices);
     std::copy(externalKeys, externalKeys + numExternalVertices,
-              std::back_inserter(work.mesh.vertexKeys));
+              work.mesh.vertexKeys);
     for (std::size_t i = 0; i < numTriangles; i++)
     {
         boost::array<cl_uint, 3> triangle;
         for (unsigned int j = 0; j < 3; j++)
             triangle[j] = indices[i * 3 + j];
-        work.mesh.triangles.push_back(triangle);
+        work.mesh.triangles[i] = triangle;
     }
 
     // Create already-signaled events
@@ -1091,19 +1094,31 @@ void TestMesherBase::testRandom()
         for (unsigned int j = 0; j < numBlocksPerChunk; j++)
         {
             Block &block = chunks[i].blocks[j];
-            block.work.mesh.vertices.resize(block.vertices.size());
+
+            // count internal vertices
             unsigned int internal = 0;
-            unsigned int external = block.vertices.size();
+            unsigned int external = 0;
+            BOOST_FOREACH(cl_ulong key, block.vertices)
+            {
+                const Vertex &v = allVertices[key];
+                if (v.owners <= 1)
+                    internal++;
+            }
+            MeshSizes sizes(block.vertices.size(), block.triangles.size(), internal);
+            block.buffer.reset(new char[sizes.getHostBytes()]);
+            block.work.mesh = HostKeyMesh(block.buffer.get(), sizes);
+
             std::tr1::unordered_map<cl_ulong, std::size_t> indices;
+            internal = 0;
             BOOST_FOREACH(cl_ulong key, block.vertices)
             {
                 const Vertex &v = allVertices[key];
                 if (v.owners > 1)
                 {
-                    --external;
-                    block.work.mesh.vertices[external] = v.coords;
-                    block.work.mesh.vertexKeys.push_back(key);
-                    indices[key] = external;
+                    block.work.mesh.vertices[sizes.numInternalVertices() + external] = v.coords;
+                    block.work.mesh.vertexKeys[external] = key;
+                    indices[key] = sizes.numInternalVertices() + external;
+                    external++;
                 }
                 else
                 {
@@ -1112,11 +1127,7 @@ void TestMesherBase::testRandom()
                     internal++;
                 }
             }
-            // The external vertices are written in reverse order, so the keys
-            // need to be in reverse order too.
-            std::reverse(block.work.mesh.vertexKeys.begin(), block.work.mesh.vertexKeys.end());
 
-            block.work.mesh.triangles.resize(block.triangles.size());
             for (std::size_t k = 0; k < block.triangles.size(); k++)
                 for (unsigned int l = 0; l < 3; l++)
                     block.work.mesh.triangles[k][l] = indices[block.triangles[k][l]];

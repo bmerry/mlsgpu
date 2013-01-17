@@ -268,9 +268,9 @@ void send(const MesherWork &work, MPI_Comm comm, int dest)
 {
     std::size_t sizes[3] =
     {
-        work.mesh.vertices.size(),
-        work.mesh.triangles.size(),
-        work.mesh.vertexKeys.size()
+        work.mesh.numVertices(),
+        work.mesh.numTriangles(),
+        work.mesh.numInternalVertices()
     };
 
     send(work.chunkId, comm, dest);
@@ -278,21 +278,21 @@ void send(const MesherWork &work, MPI_Comm comm, int dest)
 
     if (work.hasEvents)
         work.trianglesEvent.wait();
-    MPI_Send(const_cast<cl_uint *>(&work.mesh.triangles[0][0]), 3 * work.mesh.triangles.size(),
+    MPI_Send(const_cast<cl_uint *>(&work.mesh.triangles[0][0]), 3 * work.mesh.numTriangles(),
              mpi_type_traits<cl_uint>::type(), dest, MLSGPU_TAG_WORK, comm);
 
     if (work.hasEvents)
         work.vertexKeysEvent.wait();
-    MPI_Send(const_cast<cl_ulong *>(&work.mesh.vertexKeys[0]), work.mesh.vertexKeys.size(),
+    MPI_Send(const_cast<cl_ulong *>(&work.mesh.vertexKeys[0]), work.mesh.numExternalVertices(),
              mpi_type_traits<cl_ulong>::type(), dest, MLSGPU_TAG_WORK, comm);
 
     if (work.hasEvents)
         work.verticesEvent.wait();
-    MPI_Send(const_cast<cl_float *>(&work.mesh.vertices[0][0]), 3 * work.mesh.vertices.size(),
+    MPI_Send(const_cast<cl_float *>(&work.mesh.vertices[0][0]), 3 * work.mesh.numVertices(),
              mpi_type_traits<cl_float>::type(), dest, MLSGPU_TAG_WORK, comm);
 }
 
-void recv(MesherWork &work, MPI_Comm comm, int source)
+void recv(MesherWork &work, void *ptr, MPI_Comm comm, int source)
 {
     work.hasEvents = false;
     // Make sure any old references get dropped
@@ -304,14 +304,13 @@ void recv(MesherWork &work, MPI_Comm comm, int source)
     std::size_t sizes[3];
     MPI_Recv(&sizes, 3, mpi_type_traits<std::size_t>::type(),
              source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-    work.mesh.vertices.resize(sizes[0]);
-    work.mesh.triangles.resize(sizes[1]);
-    work.mesh.vertexKeys.resize(sizes[2]);
-    MPI_Recv(&work.mesh.triangles[0][0], 3 * work.mesh.triangles.size(),
+
+    work.mesh = HostKeyMesh(ptr, MeshSizes(sizes[0], sizes[1], sizes[2]));
+    MPI_Recv(&work.mesh.triangles[0][0], 3 * work.mesh.numTriangles(),
              mpi_type_traits<cl_uint>::type(), source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-    MPI_Recv(&work.mesh.vertexKeys[0], work.mesh.vertexKeys.size(),
+    MPI_Recv(&work.mesh.vertexKeys[0], work.mesh.numExternalVertices(),
              mpi_type_traits<cl_ulong>::type(), source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-    MPI_Recv(&work.mesh.vertices[0][0], 3 * work.mesh.vertices.size(),
+    MPI_Recv(&work.mesh.vertices[0][0], 3 * work.mesh.numVertices(),
              mpi_type_traits<cl_float>::type(), source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
 

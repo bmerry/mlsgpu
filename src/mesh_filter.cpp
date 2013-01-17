@@ -81,12 +81,12 @@ void ScaleBiasFilter::operator()(
      * try to move the enqueue inside the if test. Even though no CL work will
      * be generated, the enqueue will still populate the event.
      */
-    if (inMesh.numVertices > 0)
+    if (inMesh.numVertices() > 0)
         kernel.setArg(0, inMesh.vertices);
     CLH::enqueueNDRangeKernelSplit(queue,
                                    kernel,
                                    cl::NullRange,
-                                   cl::NDRange(inMesh.numVertices),
+                                   cl::NDRange(inMesh.numVertices()),
                                    cl::NullRange,
                                    events, event, &kernelTime);
     outMesh = inMesh;

@@ -16,6 +16,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <vector>
 #include <boost/array.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <CL/cl.hpp>
 #include "testutil.h"
 #include "test_clh.h"
@@ -36,13 +37,13 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestDeviceKeyMesh, TestSet::perBuild());
 
 void TestDeviceKeyMesh::testConstructor()
 {
-    DeviceKeyMesh mesh(context, CL_MEM_READ_WRITE, 10, 5, 20);
+    DeviceKeyMesh mesh(context, CL_MEM_READ_WRITE, MeshSizes(10, 20, 5));
     CPPUNIT_ASSERT(mesh.vertices());
     CPPUNIT_ASSERT(mesh.vertexKeys());
     CPPUNIT_ASSERT(mesh.triangles());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(10), mesh.numVertices);
-    CPPUNIT_ASSERT_EQUAL(std::size_t(5), mesh.numInternalVertices);
-    CPPUNIT_ASSERT_EQUAL(std::size_t(20), mesh.numTriangles);
+    CPPUNIT_ASSERT_EQUAL(std::size_t(10), mesh.numVertices());
+    CPPUNIT_ASSERT_EQUAL(std::size_t(5), mesh.numInternalVertices());
+    CPPUNIT_ASSERT_EQUAL(std::size_t(20), mesh.numTriangles());
     CPPUNIT_ASSERT_EQUAL(10 * 3 * sizeof(cl_float), mesh.vertices.getInfo<CL_MEM_SIZE>());
     CPPUNIT_ASSERT_EQUAL(10 * sizeof(cl_ulong), mesh.vertexKeys.getInfo<CL_MEM_SIZE>());
     CPPUNIT_ASSERT_EQUAL(20 * 3 * sizeof(cl_uint), mesh.triangles.getInfo<CL_MEM_SIZE>());
@@ -71,6 +72,11 @@ private:
      * overwritten correctly.
      */
     HostKeyMesh hMesh;
+
+    /**
+     * Backing store for @ref hMesh.
+     */
+    boost::scoped_array<char> hMeshBuffer;
 
     std::vector<boost::array<cl_float, 3> > expectedVertices;
     std::vector<cl_ulong> expectedVertexKeys;
@@ -114,28 +120,25 @@ void TestEnqueueReadMesh::setUp()
         expectedTriangles[i][2] = (3 * i * i + 2) % 5;
     }
 
-    dMesh.numVertices = expectedVertices.size();
-    dMesh.numInternalVertices = 2;
-    dMesh.numTriangles = expectedTriangles.size();
+    dMesh.assign(expectedVertices.size(), expectedTriangles.size(), 2);
 
     dMesh.vertices = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                dMesh.numVertices * (3 * sizeof(cl_float)),
+                                dMesh.numVertices() * (3 * sizeof(cl_float)),
                                 &expectedVertices[0][0]);
     dMesh.vertexKeys = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                  dMesh.numVertices * sizeof(cl_ulong),
+                                  dMesh.numVertices() * sizeof(cl_ulong),
                                   &expectedVertexKeys[0]);
     dMesh.triangles = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                 dMesh.numTriangles * (3 * sizeof(cl_uint)),
+                                 dMesh.numTriangles() * (3 * sizeof(cl_uint)),
                                  &expectedTriangles[0][0]);
 
-    hMesh.vertices.resize(2);
-    hMesh.vertexKeys.resize(1);
-    hMesh.triangles.resize(100);
+    hMeshBuffer.reset(new char[dMesh.getHostBytes()]);
+    hMesh = HostKeyMesh(hMeshBuffer.get(), dMesh);
 }
 
 void TestEnqueueReadMesh::validateVertices(const HostKeyMesh &hMesh)
 {
-    CPPUNIT_ASSERT_EQUAL(expectedVertices.size(), hMesh.vertices.size());
+    CPPUNIT_ASSERT_EQUAL(expectedVertices.size(), hMesh.numVertices());
     for (std::size_t i = 0; i < expectedVertices.size(); i++)
     {
         CPPUNIT_ASSERT_EQUAL(expectedVertices[i][0], hMesh.vertices[i][0]);
@@ -146,16 +149,16 @@ void TestEnqueueReadMesh::validateVertices(const HostKeyMesh &hMesh)
 
 void TestEnqueueReadMesh::validateVertexKeys(const HostKeyMesh &hMesh, std::size_t numInternalVertices)
 {
-    CPPUNIT_ASSERT_EQUAL(expectedVertexKeys.size() - numInternalVertices, hMesh.vertexKeys.size());
+    CPPUNIT_ASSERT_EQUAL(numInternalVertices, hMesh.numInternalVertices());
     for (std::size_t i = numInternalVertices; i < expectedVertexKeys.size(); i++)
     {
-        CPPUNIT_ASSERT_EQUAL(expectedVertexKeys[i], hMesh.vertexKeys[i - dMesh.numInternalVertices]);
+        CPPUNIT_ASSERT_EQUAL(expectedVertexKeys[i], hMesh.vertexKeys[i - dMesh.numInternalVertices()]);
     }
 }
 
 void TestEnqueueReadMesh::validateTriangles(const HostKeyMesh &hMesh)
 {
-    CPPUNIT_ASSERT_EQUAL(expectedTriangles.size(), hMesh.triangles.size());
+    CPPUNIT_ASSERT_EQUAL(expectedTriangles.size(), hMesh.numTriangles());
     for (std::size_t i = 0; i < expectedTriangles.size(); i++)
     {
         CPPUNIT_ASSERT_EQUAL(expectedTriangles[i][0], hMesh.triangles[i][0]);
@@ -172,7 +175,7 @@ void TestEnqueueReadMesh::testSimple()
     verticesEvent.wait();
     validateVertices(hMesh);
     vertexKeysEvent.wait();
-    validateVertexKeys(hMesh, dMesh.numInternalVertices);
+    validateVertexKeys(hMesh, dMesh.numInternalVertices());
     trianglesEvent.wait();
     validateTriangles(hMesh);
 }
@@ -180,13 +183,18 @@ void TestEnqueueReadMesh::testSimple()
 void TestEnqueueReadMesh::testZeroInternal()
 {
     cl::Event verticesEvent, vertexKeysEvent, trianglesEvent;
-    dMesh.numInternalVertices = 0;
+    dMesh.assign(dMesh.numVertices(), dMesh.numTriangles(), 0); // set internal vertices to 0
+
+    // Need more memory to back this up
+    hMeshBuffer.reset(new char[dMesh.getHostBytes()]);
+    hMesh = HostKeyMesh(hMeshBuffer.get(), dMesh);
+
     enqueueReadMesh(queue, dMesh, hMesh, NULL, &verticesEvent, &vertexKeysEvent, &trianglesEvent);
 
     verticesEvent.wait();
     validateVertices(hMesh);
     vertexKeysEvent.wait();
-    validateVertexKeys(hMesh, dMesh.numInternalVertices);
+    validateVertexKeys(hMesh, dMesh.numInternalVertices());
     trianglesEvent.wait();
     validateTriangles(hMesh);
 }
@@ -196,9 +204,8 @@ void TestEnqueueReadMesh::testSkipVertices()
     cl::Event vertexKeysEvent, trianglesEvent;
     enqueueReadMesh(queue, dMesh, hMesh, NULL, NULL, &vertexKeysEvent, &trianglesEvent);
 
-    CPPUNIT_ASSERT_EQUAL(2, int(hMesh.vertices.size()));
     vertexKeysEvent.wait();
-    validateVertexKeys(hMesh, dMesh.numInternalVertices);
+    validateVertexKeys(hMesh, dMesh.numInternalVertices());
     trianglesEvent.wait();
     validateTriangles(hMesh);
 }
@@ -210,7 +217,6 @@ void TestEnqueueReadMesh::testSkipVertexKeys()
 
     verticesEvent.wait();
     validateVertices(hMesh);
-    CPPUNIT_ASSERT_EQUAL(1, int(hMesh.vertexKeys.size()));
     trianglesEvent.wait();
     validateTriangles(hMesh);
 }
@@ -223,6 +229,5 @@ void TestEnqueueReadMesh::testSkipTriangles()
     verticesEvent.wait();
     validateVertices(hMesh);
     vertexKeysEvent.wait();
-    validateVertexKeys(hMesh, dMesh.numInternalVertices);
-    CPPUNIT_ASSERT_EQUAL(100, int(hMesh.triangles.size()));
+    validateVertexKeys(hMesh, dMesh.numInternalVertices());
 }

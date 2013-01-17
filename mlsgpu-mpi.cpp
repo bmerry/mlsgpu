@@ -89,20 +89,19 @@ std::size_t sizeItem(const FineBucketGroup::WorkItem &item)
 template<>
 void sendItem(const MesherGroup::WorkItem &item, MPI_Comm comm, int dest)
 {
-    Serialize::send(item, comm, dest);
+    Serialize::send(item.work, comm, dest);
 }
 
 template<>
 void recvItem(MesherGroup::WorkItem &item, MPI_Comm comm, int dest)
 {
-    Serialize::recv(item, comm, dest);
+    Serialize::recv(item.work, item.alloc.get(), comm, dest);
 }
 
 template<>
 std::size_t sizeItem(const MesherGroup::WorkItem &item)
 {
-    (void) item;
-    return 1;
+    return item.work.mesh.getHostBytes();
 }
 
 namespace
@@ -184,14 +183,32 @@ class GatherGroup : public WorkerGroupGather<MesherGroup::WorkItem, GatherGroup>
 public:
     typedef MesherGroup::WorkItem WorkItem;
 
+    // TODO: figure out right size for buffer
     GatherGroup(std::size_t spare, MPI_Comm comm, int root)
-        : WorkerGroupGather<WorkItem, GatherGroup>("gather", spare, comm, root)
+        : WorkerGroupGather<WorkItem, GatherGroup>("gather", spare, comm, root),
+        meshBuffer("mem.GatherGroup.mesh", 256 * 1024 * 1024)
     {
         for (std::size_t i = 0; i < 1 + spare; i++)
         {
             addPoolItem(boost::make_shared<WorkItem>());
         }
     }
+
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
+    {
+        boost::shared_ptr<WorkItem> item = WorkerGroupGather<WorkItem, GatherGroup>::get(tworker, size);
+        std::size_t rounded = roundUp(size, sizeof(cl_ulong)); // to ensure alignment
+        item->alloc = meshBuffer.allocate(tworker, rounded);
+        return item;
+    }
+
+    void freeItem(WorkItem &item)
+    {
+        meshBuffer.free(item.alloc);
+    }
+
+private:
+    CircularBuffer meshBuffer;
 };
 
 class OutputFunctor
@@ -215,21 +232,20 @@ public:
         const std::vector<cl::Event> *events,
         cl::Event *event)
     {
-        std::size_t bytes = mesh.numVertices * 3 * sizeof(cl_float)
-            + mesh.numTriangles * 3 * sizeof(cl_uint)
-            + (mesh.numVertices - mesh.numInternalVertices) * sizeof(cl_ulong);
+        std::size_t bytes = mesh.getHostBytes();
 
-        boost::shared_ptr<MesherWork> work = outGroup.get(tworker, bytes);
+        boost::shared_ptr<GatherGroup::WorkItem> item = outGroup.get(tworker, bytes);
+        item->work.mesh = HostKeyMesh(item->alloc.get(), mesh);
         std::vector<cl::Event> wait(3);
-        enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
+        enqueueReadMesh(queue, mesh, item->work.mesh, events, &wait[0], &wait[1], &wait[2]);
         CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 
-        work->chunkId = chunkId;
-        work->hasEvents = true;
-        work->verticesEvent = wait[0];
-        work->vertexKeysEvent = wait[1];
-        work->trianglesEvent = wait[2];
-        outGroup.push(work, tworker, bytes);
+        item->work.chunkId = chunkId;
+        item->work.hasEvents = true;
+        item->work.verticesEvent = wait[0];
+        item->work.vertexKeysEvent = wait[1];
+        item->work.trianglesEvent = wait[2];
+        outGroup.push(item, tworker, bytes);
     }
 };
 

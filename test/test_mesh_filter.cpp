@@ -12,6 +12,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <vector>
 #include <boost/ref.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <CL/cl.hpp>
 #include "testutil.h"
 #include "test_clh.h"
@@ -38,7 +39,7 @@ public:
 };
 
 TruncateFilter::TruncateFilter(const cl::Context &context, std::size_t maxVertices, std::size_t maxTriangles)
-    : out(context, CL_MEM_READ_WRITE, maxVertices, 0, maxTriangles)
+    : out(context, CL_MEM_READ_WRITE, MeshSizes(maxVertices, maxTriangles, 0))
 {
 }
 
@@ -56,8 +57,8 @@ void TruncateFilter::operator()(
     CPPUNIT_ASSERT(inMesh.vertices() != out.vertices());
     CPPUNIT_ASSERT(inMesh.vertexKeys() != out.vertexKeys());
     CPPUNIT_ASSERT(inMesh.triangles() != out.triangles());
-    CPPUNIT_ASSERT(inMesh.numVertices * 3 * sizeof(cl_float) <= out.vertices.getInfo<CL_MEM_SIZE>());
-    CPPUNIT_ASSERT(inMesh.numTriangles * 3 * sizeof(cl_uint) <= out.triangles.getInfo<CL_MEM_SIZE>());
+    CPPUNIT_ASSERT(inMesh.numVertices() * 3 * sizeof(cl_float) <= out.vertices.getInfo<CL_MEM_SIZE>());
+    CPPUNIT_ASSERT(inMesh.numTriangles() * 3 * sizeof(cl_uint) <= out.triangles.getInfo<CL_MEM_SIZE>());
 
     outMesh = out;
     cl::Event verticesEvent, vertexKeysEvent, trianglesEvent;
@@ -65,29 +66,30 @@ void TruncateFilter::operator()(
 
     CLH::enqueueCopyBuffer(queue,
                            inMesh.vertices, outMesh.vertices, 0, 0,
-                           inMesh.numVertices * (3 * sizeof(cl_float)),
+                           inMesh.numVertices() * (3 * sizeof(cl_float)),
                            events, &verticesEvent);
     wait.push_back(verticesEvent);
 
     CLH::enqueueCopyBuffer(queue,
                            inMesh.vertexKeys, outMesh.vertexKeys, 0, 0,
-                           inMesh.numVertices * sizeof(cl_ulong),
+                           inMesh.numVertices() * sizeof(cl_ulong),
                            events, &vertexKeysEvent);
     wait.push_back(vertexKeysEvent);
 
-    if (inMesh.numTriangles > 0)
+    if (inMesh.numTriangles() > 0)
     {
         CLH::enqueueCopyBuffer(queue,
                                inMesh.triangles, outMesh.triangles,
                                3 * sizeof(cl_uint), 0,
-                               (inMesh.numTriangles - 1) * (3 * sizeof(cl_uint)),
+                               (inMesh.numTriangles() - 1) * (3 * sizeof(cl_uint)),
                                events, &trianglesEvent);
         wait.push_back(trianglesEvent);
     }
 
-    outMesh.numVertices = inMesh.numVertices;
-    outMesh.numInternalVertices = inMesh.numInternalVertices;
-    outMesh.numTriangles = inMesh.numTriangles ? inMesh.numTriangles - 1 : 0;
+    outMesh.assign(
+        inMesh.numVertices(),
+        inMesh.numTriangles() ? inMesh.numTriangles() - 1 : 0,
+        inMesh.numInternalVertices());
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 }
 
@@ -119,6 +121,9 @@ void CollectOutput::operator()(
         cl::Event *event)
 {
     CPPUNIT_ASSERT(hMesh != NULL);
+    // Resize the mesh. The truncate filter only removes data, so there is no
+    // need to worry about reallocating the backing storage
+    hMesh->assign(dMesh.numVertices(), dMesh.numTriangles(), dMesh.numInternalVertices());
     std::vector<cl::Event> wait(3);
     enqueueReadMesh(queue, dMesh, *hMesh, events, &wait[0], &wait[1], &wait[2]);
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
@@ -138,9 +143,11 @@ private:
     HostKeyMesh hMesh;
     MeshFilterChain filterChain;
 
+    boost::scoped_array<char> hMeshBuffer; ///< backing store for @c hMesh
+
 public:
     virtual void setUp();     ///< Creates a device mesh with some data
-    virtual void tearDown();  ///< Destroy the device mesh
+    virtual void tearDown();  ///< Destroy the meshes
 
     void testNoFilters();     ///< Test basic operation with no filters in the chain
     void testFilters();       ///< Test normal operation with filters in the chain
@@ -153,17 +160,20 @@ void TestMeshFilterChain::setUp()
 {
     CLH::Test::TestFixture::setUp();
 
-    dMesh.numVertices = 5;
-    dMesh.numInternalVertices = 4;
-    dMesh.numTriangles = 3;
-    dMesh.vertices = createBuffer(CL_MEM_READ_WRITE, dMesh.numVertices * 3 * sizeof(cl_float));
-    dMesh.vertexKeys = createBuffer(CL_MEM_READ_WRITE, dMesh.numVertices * sizeof(cl_ulong));
-    dMesh.triangles = createBuffer(CL_MEM_READ_WRITE, dMesh.numTriangles * 3 * sizeof(cl_uint));
+    dMesh.assign(5, 3, 4);
+    dMesh.vertices = createBuffer(CL_MEM_READ_WRITE, dMesh.numVertices() * 3 * sizeof(cl_float));
+    dMesh.vertexKeys = createBuffer(CL_MEM_READ_WRITE, dMesh.numVertices() * sizeof(cl_ulong));
+    dMesh.triangles = createBuffer(CL_MEM_READ_WRITE, dMesh.numTriangles() * 3 * sizeof(cl_uint));
+
+    hMeshBuffer.reset(new char[dMesh.getHostBytes()]);
+    hMesh = HostKeyMesh(hMeshBuffer.get(), dMesh);
+
     filterChain.setOutput(CollectOutput(&hMesh));
 }
 
 void TestMeshFilterChain::tearDown()
 {
+    hMeshBuffer.reset();
     dMesh.vertices = NULL;
     dMesh.vertexKeys = NULL;
     dMesh.triangles = NULL;
@@ -178,9 +188,9 @@ void TestMeshFilterChain::testNoFilters()
     queue.flush();
     event.wait();
 
-    CPPUNIT_ASSERT(hMesh.vertices.size() == 5);
-    CPPUNIT_ASSERT(hMesh.vertexKeys.size() == 1);
-    CPPUNIT_ASSERT(hMesh.triangles.size() == 3);
+    MLSGPU_ASSERT_EQUAL(5, hMesh.numVertices());
+    MLSGPU_ASSERT_EQUAL(4, hMesh.numInternalVertices());
+    MLSGPU_ASSERT_EQUAL(3, hMesh.numTriangles());
 }
 
 void TestMeshFilterChain::testFilters()
@@ -195,9 +205,9 @@ void TestMeshFilterChain::testFilters()
     queue.flush();
     event.wait();
 
-    CPPUNIT_ASSERT(hMesh.vertices.size() == 5);
-    CPPUNIT_ASSERT(hMesh.vertexKeys.size() == 1);
-    CPPUNIT_ASSERT(hMesh.triangles.size() == 1);
+    MLSGPU_ASSERT_EQUAL(5, hMesh.numVertices());
+    MLSGPU_ASSERT_EQUAL(4, hMesh.numInternalVertices());
+    MLSGPU_ASSERT_EQUAL(1, hMesh.numTriangles());
 }
 
 void TestMeshFilterChain::testCull()
@@ -213,9 +223,9 @@ void TestMeshFilterChain::testCull()
     queue.flush();
     event.wait();
 
-    CPPUNIT_ASSERT(hMesh.vertices.size() == 5);
-    CPPUNIT_ASSERT(hMesh.vertexKeys.size() == 1);
-    CPPUNIT_ASSERT(hMesh.triangles.size() == 0);
+    MLSGPU_ASSERT_EQUAL(5, hMesh.numVertices());
+    MLSGPU_ASSERT_EQUAL(1, hMesh.numExternalVertices());
+    MLSGPU_ASSERT_EQUAL(0, hMesh.numTriangles());
 }
 
 void TestMeshFilterChain::testEmpty()
@@ -226,18 +236,16 @@ void TestMeshFilterChain::testEmpty()
     filterChain.addFilter(boost::ref(filter2));
     filterChain.addFilter(boost::ref(filter1));
 
-    dMesh.numTriangles = 0;
-    dMesh.numVertices = 0;
-    dMesh.numInternalVertices = 0;
+    dMesh.assign(0, 0, 0);
 
     cl::Event event;
     filterChain(queue, dMesh, NULL, &event);
     queue.flush();
     event.wait();
 
-    CPPUNIT_ASSERT(hMesh.vertices.size() == 0);
-    CPPUNIT_ASSERT(hMesh.vertexKeys.size() == 0);
-    CPPUNIT_ASSERT(hMesh.triangles.size() == 0);
+    MLSGPU_ASSERT_EQUAL(0, hMesh.numVertices());
+    MLSGPU_ASSERT_EQUAL(0, hMesh.numInternalVertices());
+    MLSGPU_ASSERT_EQUAL(0, hMesh.numTriangles());
 }
 
 class TestScaleBiasFilter : public CLH::Test::TestFixture
@@ -280,9 +288,7 @@ void TestScaleBiasFilter::testSimple()
     inVertexKeys[4] = 0xABCDEF01;
 
     DeviceKeyMesh inMesh;
-    inMesh.numVertices = N;
-    inMesh.numInternalVertices = 0;
-    inMesh.numTriangles = T;
+    inMesh.assign(N, T, 0);
     inMesh.vertices = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, N * 3 * sizeof(cl_float),
                                  &inVertices[0][0]);
     inMesh.triangles = cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, T * 3 * sizeof(cl_uint),
@@ -291,16 +297,18 @@ void TestScaleBiasFilter::testSimple()
                                    &inVertexKeys[0]);
 
     DeviceKeyMesh outMesh;
-    HostKeyMesh result;
     std::vector<cl::Event> wait(1);
     std::vector<cl::Event> readWait(3);
     filter(queue, inMesh, NULL, &wait[0], outMesh);
+
+    boost::scoped_array<char> buffer(new char[outMesh.getHostBytes()]);
+    HostKeyMesh result(buffer.get(), outMesh);
     enqueueReadMesh(queue, outMesh, result, &wait, &readWait[0], &readWait[1], &readWait[2]);
     cl::Event::waitForEvents(readWait);
 
-    CPPUNIT_ASSERT_EQUAL(N, (unsigned int) result.vertices.size());
-    CPPUNIT_ASSERT_EQUAL(N, (unsigned int) result.vertexKeys.size());
-    CPPUNIT_ASSERT_EQUAL(T, (unsigned int) result.triangles.size());
+    MLSGPU_ASSERT_EQUAL(N, result.numVertices());
+    MLSGPU_ASSERT_EQUAL(N, result.numExternalVertices());
+    MLSGPU_ASSERT_EQUAL(T, result.numTriangles());
     for (unsigned int i = 0; i < N; i++)
     {
         CPPUNIT_ASSERT_DOUBLES_EQUAL(inVertices[i][0] * 3.0f + 10.0f, result.vertices[i][0], 1e-2);
@@ -321,15 +329,13 @@ void TestScaleBiasFilter::testEmpty()
     ScaleBiasFilter filter(context);
     DeviceKeyMesh inMesh, outMesh;
 
-    inMesh.numVertices = 0;
-    inMesh.numInternalVertices = 0;
-    inMesh.numTriangles = 0;
+    inMesh.assign(0, 0, 0);
 
     HostKeyMesh result;
     cl::Event done;
     filter(queue, inMesh, NULL, &done, outMesh);
     done.wait();
-    CPPUNIT_ASSERT_EQUAL(0, (int) outMesh.numVertices);
-    CPPUNIT_ASSERT_EQUAL(0, (int) outMesh.numInternalVertices);
-    CPPUNIT_ASSERT_EQUAL(0, (int) outMesh.numTriangles);
+    MLSGPU_ASSERT_EQUAL(0, outMesh.numVertices());
+    MLSGPU_ASSERT_EQUAL(0, outMesh.numInternalVertices());
+    MLSGPU_ASSERT_EQUAL(0, outMesh.numTriangles());
 }

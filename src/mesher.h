@@ -564,12 +564,14 @@ private:
      *
      * @param numVertices    Number of vertices indexed by @a triangles.
      *                       Also the size of the returned union-find tree.
+     * @param numTriangles   Number of triangles in @a triangles.
      * @param triangles      The vertex indices of the triangles.
      * @param[out] nodes     A union-find tree over the vertices.
      */
     static void computeLocalComponents(
         std::size_t numVertices,
-        const Statistics::Container::vector<triangle_type> &triangles,
+        std::size_t numTriangles,
+        const triangle_type *triangles,
         Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes);
 
     /**
@@ -577,19 +579,22 @@ private:
      * with the appropriate vertex and triangle counts, but are not merged together
      * using shared external vertices.
      *
+     * @param numTriangles   Number of triangles in @a triangles.
      * @param nodes          Union-find tree over the block vertices (see @ref computeLocalComponents).
      * @param triangles      Triangles in the block.
      * @param[out] clumpId   Clump IDs, one per vertex passed in.
      */
     void updateGlobalClumps(
+        std::size_t numTriangles,
         const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
-        const Statistics::Container::vector<triangle_type> &triangles,
+        const triangle_type *triangles,
         Statistics::Container::PODBuffer<clump_id> &clumpId);
 
     /**
      * Update @ref clumpIdMap and merge global clumps that share external vertices.
      *
      * @param numVertices    Total number of vertices in @a clumpId
+     * @param numExternalVertices Number of external vertices in @a keys
      * @param keys           Vertex keys in the mesh.
      * @param clumpId        Vertex clump IDs computed by @ref updateGlobalClumps.
      *
@@ -597,7 +602,8 @@ private:
      */
     void updateClumpKeyMap(
         std::size_t numVertices,
-        const Statistics::Container::vector<cl_ulong> &keys,
+        std::size_t numExternalVertices,
+        const cl_ulong *keys,
         const Statistics::Container::PODBuffer<clump_id> &clumpId);
 
     /**

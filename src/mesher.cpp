@@ -157,23 +157,25 @@ OOCMesher::~OOCMesher()
 
 void OOCMesher::computeLocalComponents(
     std::size_t numVertices,
-    const Statistics::Container::vector<triangle_type> &triangles,
+    std::size_t numTriangles,
+    const triangle_type *triangles,
     Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes)
 {
     nodes.clear();
     nodes.resize(numVertices);
-    BOOST_FOREACH(const triangle_type &triangle, triangles)
+    for (std::size_t i = 0; i < numTriangles; i++)
     {
         // Only need to use two edges in the union-find tree, since the
         // third will be redundant.
         for (unsigned int j = 0; j < 2; j++)
-            UnionFind::merge(nodes, triangle[j], triangle[j + 1]);
+            UnionFind::merge(nodes, triangles[i][j], triangles[i][j + 1]);
     }
 }
 
 void OOCMesher::updateGlobalClumps(
+    std::size_t numTriangles,
     const Statistics::Container::vector<UnionFind::Node<std::tr1::int32_t> > &nodes,
-    const Statistics::Container::vector<triangle_type> &triangles,
+    const triangle_type *triangles,
     Statistics::Container::PODBuffer<clump_id> &clumpId)
 {
     std::size_t numVertices = nodes.size();
@@ -206,19 +208,19 @@ void OOCMesher::updateGlobalClumps(
     }
 
     // Compute triangle counts for the clumps
-    BOOST_FOREACH(const triangle_type &triangle, triangles)
+    for (std::size_t i = 0; i < numTriangles; i++)
     {
-        Clump &clump = clumps[clumpId[triangle[0]]];
+        Clump &clump = clumps[clumpId[triangles[i][0]]];
         clump.triangles++;
     }
 }
 
 void OOCMesher::updateClumpKeyMap(
     std::size_t numVertices,
-    const Statistics::Container::vector<cl_ulong> &keys,
+    std::size_t numExternalVertices,
+    const cl_ulong *keys,
     const Statistics::Container::PODBuffer<clump_id> &clumpId)
 {
-    const std::size_t numExternalVertices = keys.size();
     const std::size_t numInternalVertices = numVertices - numExternalVertices;
 
     for (std::size_t i = 0; i < numExternalVertices; i++)
@@ -284,8 +286,8 @@ void OOCMesher::updateLocalClumps(
     HostKeyMesh &mesh,
     Timeplot::Worker &tworker)
 {
-    const std::size_t numVertices = mesh.vertices.size();
-    const std::size_t numInternalVertices = numVertices - mesh.vertexKeys.size();
+    const std::size_t numVertices = mesh.numVertices();
+    const std::size_t numInternalVertices = mesh.numInternalVertices();
     const clump_id numClumps = clumpIdLast - clumpIdFirst;
 
     tmpFirstVertex.reserve(numClumps, false);
@@ -293,7 +295,7 @@ void OOCMesher::updateLocalClumps(
     tmpFirstTriangle.reserve(numClumps, false);
     std::fill(tmpFirstTriangle.data(), tmpFirstTriangle.data() + numClumps, -1);
     tmpNextVertex.reserve(numVertices, false);
-    tmpNextTriangle.reserve(mesh.triangles.size(), false);
+    tmpNextTriangle.reserve(mesh.numTriangles(), false);
 
     for (std::tr1::int32_t i = (std::tr1::int32_t) numVertices - 1; i >= 0; i--)
     {
@@ -302,7 +304,7 @@ void OOCMesher::updateLocalClumps(
         tmpFirstVertex[cid] = i;
     }
 
-    for (std::tr1::int32_t i = (std::tr1::int32_t) mesh.triangles.size() - 1; i >= 0; i--)
+    for (std::tr1::int32_t i = (std::tr1::int32_t) mesh.numTriangles() - 1; i >= 0; i--)
     {
         clump_id cid = globalClumpId[mesh.triangles[i][0]] - clumpIdFirst;
         tmpNextTriangle[i] = tmpFirstTriangle[cid];
@@ -314,7 +316,7 @@ void OOCMesher::updateLocalClumps(
     if (reorderBuffer)
     {
         if ((numVertices + reorderBuffer->vertices.size()) * sizeof(vertex_type)
-            + (mesh.triangles.size() + reorderBuffer->triangles.size()) * sizeof(triangle_type)
+            + (mesh.numTriangles() + reorderBuffer->triangles.size()) * sizeof(triangle_type)
             > getReorderCapacity())
             flushBuffer(tworker);
     }
@@ -392,12 +394,12 @@ void OOCMesher::add(MesherWork &work, Timeplot::Worker &tworker)
     if (work.hasEvents)
         work.trianglesEvent.wait();
     clump_id oldClumps = clumps.size();
-    computeLocalComponents(mesh.vertices.size(), mesh.triangles, tmpNodes);
-    updateGlobalClumps(tmpNodes, mesh.triangles, tmpClumpId);
+    computeLocalComponents(mesh.numVertices(), mesh.numTriangles(), mesh.triangles, tmpNodes);
+    updateGlobalClumps(mesh.numTriangles(), tmpNodes, mesh.triangles, tmpClumpId);
 
     if (work.hasEvents)
         work.vertexKeysEvent.wait();
-    updateClumpKeyMap(mesh.vertices.size(), mesh.vertexKeys, tmpClumpId);
+    updateClumpKeyMap(mesh.numVertices(), mesh.numExternalVertices(), mesh.vertexKeys, tmpClumpId);
 
     if (work.hasEvents)
         work.verticesEvent.wait();

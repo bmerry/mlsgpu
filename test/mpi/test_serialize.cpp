@@ -14,6 +14,7 @@
 #include <cppunit/extensions/TestFactoryRegistry.h>
 #include <cppunit/extensions/HelperMacros.h>
 #include <boost/thread.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <limits>
 #include <mpi.h>
 #include "../testutil.h"
@@ -204,18 +205,26 @@ void TestSerialize::testMesherWorkSend(MPI_Comm comm, int dest)
     // TODO: also need to test the interaction with events. But I'm not sure
     // the test framework will handle CL very well yet.
     MesherWork work;
+    MeshSizes sizes(3, 2, 1);
+    boost::scoped_array<char> buffer(new char[sizes.getHostBytes()]);
 
     work.chunkId.gen = 12345;
     work.chunkId.coords[0] = 567;
     work.chunkId.coords[1] = 678;
     work.chunkId.coords[2] = 789;
 
-    work.mesh.vertices.resize(1);
+    work.mesh = HostKeyMesh(buffer.get(), sizes);
+
     work.mesh.vertices[0][0] = 0.1f;
     work.mesh.vertices[0][1] = -0.2f;
     work.mesh.vertices[0][2] = 0.3f;
+    work.mesh.vertices[1][0] = 1.1f;
+    work.mesh.vertices[1][1] = -1.2f;
+    work.mesh.vertices[1][2] = 1.3f;
+    work.mesh.vertices[2][0] = 2.1f;
+    work.mesh.vertices[2][1] = -2.2f;
+    work.mesh.vertices[2][2] = 2.3f;
 
-    work.mesh.triangles.resize(2);
     work.mesh.triangles[0][0] = 123;
     work.mesh.triangles[0][1] = 234;
     work.mesh.triangles[0][2] = 345;
@@ -223,10 +232,8 @@ void TestSerialize::testMesherWorkSend(MPI_Comm comm, int dest)
     work.mesh.triangles[1][1] = 0xFFFFFFFFu;
     work.mesh.triangles[1][2] = 0xFEDCBA98u;
 
-    work.mesh.vertexKeys.resize(3);
     work.mesh.vertexKeys[0] = UINT64_C(0x1234567823456789);
-    work.mesh.vertexKeys[1] = 0;
-    work.mesh.vertexKeys[2] = UINT64_C(0xFFFFFFFF11111111);
+    work.mesh.vertexKeys[1] = UINT64_C(0xFFFFFFFF11111111);
 
     work.hasEvents = false;
 
@@ -237,19 +244,28 @@ void TestSerialize::testMesherWorkRecv(MPI_Comm comm, int source)
 {
     MesherWork work;
 
-    Serialize::recv(work, comm, source);
+    MeshSizes expectedSizes(3, 2, 1);
+    boost::scoped_array<char> buffer(new char[expectedSizes.getHostBytes()]);
+
+    Serialize::recv(work, buffer.get(), comm, source);
 
     MLSGPU_ASSERT_EQUAL(12345, work.chunkId.gen);
     MLSGPU_ASSERT_EQUAL(567, work.chunkId.coords[0]);
     MLSGPU_ASSERT_EQUAL(678, work.chunkId.coords[1]);
     MLSGPU_ASSERT_EQUAL(789, work.chunkId.coords[2]);
 
-    MLSGPU_ASSERT_EQUAL(1, work.mesh.vertices.size());
+    MLSGPU_ASSERT_EQUAL(3, work.mesh.numVertices());
     MLSGPU_ASSERT_EQUAL(0.1f, work.mesh.vertices[0][0]);
     MLSGPU_ASSERT_EQUAL(-0.2f, work.mesh.vertices[0][1]);
     MLSGPU_ASSERT_EQUAL(0.3f, work.mesh.vertices[0][2]);
+    MLSGPU_ASSERT_EQUAL(1.1f, work.mesh.vertices[1][0]);
+    MLSGPU_ASSERT_EQUAL(-1.2f, work.mesh.vertices[1][1]);
+    MLSGPU_ASSERT_EQUAL(1.3f, work.mesh.vertices[1][2]);
+    MLSGPU_ASSERT_EQUAL(2.1f, work.mesh.vertices[2][0]);
+    MLSGPU_ASSERT_EQUAL(-2.2f, work.mesh.vertices[2][1]);
+    MLSGPU_ASSERT_EQUAL(2.3f, work.mesh.vertices[2][2]);
 
-    MLSGPU_ASSERT_EQUAL(2, work.mesh.triangles.size());
+    MLSGPU_ASSERT_EQUAL(2, work.mesh.numTriangles());
     MLSGPU_ASSERT_EQUAL(123, work.mesh.triangles[0][0]);
     MLSGPU_ASSERT_EQUAL(234, work.mesh.triangles[0][1]);
     MLSGPU_ASSERT_EQUAL(345, work.mesh.triangles[0][2]);
@@ -257,10 +273,9 @@ void TestSerialize::testMesherWorkRecv(MPI_Comm comm, int source)
     MLSGPU_ASSERT_EQUAL(0xFFFFFFFFu, work.mesh.triangles[1][1]);
     MLSGPU_ASSERT_EQUAL(0xFEDCBA98u, work.mesh.triangles[1][2]);
 
-    MLSGPU_ASSERT_EQUAL(3, work.mesh.vertexKeys.size());
+    MLSGPU_ASSERT_EQUAL(2, work.mesh.numExternalVertices());
     MLSGPU_ASSERT_EQUAL(UINT64_C(0x1234567823456789), work.mesh.vertexKeys[0]);
-    MLSGPU_ASSERT_EQUAL(0, work.mesh.vertexKeys[1]);
-    MLSGPU_ASSERT_EQUAL(UINT64_C(0xFFFFFFFF11111111), work.mesh.vertexKeys[2]);
+    MLSGPU_ASSERT_EQUAL(UINT64_C(0xFFFFFFFF11111111), work.mesh.vertexKeys[1]);
 
     MLSGPU_ASSERT_EQUAL(false, work.hasEvents);
 }

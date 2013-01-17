@@ -46,7 +46,12 @@ void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest);
 void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source);
 
 void send(const MesherWork &work, MPI_Comm comm, int dest);
-void recv(MesherWork &work, MPI_Comm comm, int source);
+/**
+ * Receive @ref MesherWork. The number of bytes required must have already
+ * been communicated and used to allocate a suitable large buffer to hold
+ * the mesh data.
+ */
+void recv(MesherWork &work, void *ptr, MPI_Comm comm, int source);
 
 /**
  * Registers MPI data types. This must be called before any of the send or

@@ -17,26 +17,26 @@
 #include "mesh.h"
 #include "clh.h"
 #include "errors.h"
+#include "tr1_cstdint.h"
 
-DeviceMesh::DeviceMesh(
-    const cl::Context &context, cl_mem_flags flags,
-    std::size_t numVertices, std::size_t numTriangles)
-:
-    vertices(context, flags, numVertices ? numVertices * (3 * sizeof(cl_float)) : 1),
-    triangles(context, flags, numTriangles ? numTriangles * (3 * sizeof(cl_uint)) : 1),
-    numVertices(numVertices),
-    numTriangles(numTriangles)
+DeviceKeyMesh::DeviceKeyMesh(
+    const cl::Context &context, cl_mem_flags flags, const MeshSizes &sizes)
+    : MeshSizes(sizes),
+    vertices(context, flags, sizes.numVertices() ? sizes.numVertices() * (3 * sizeof(cl_float)) : 1),
+    triangles(context, flags, sizes.numTriangles() ? sizes.numTriangles() * (3 * sizeof(cl_uint)) : 1),
+    vertexKeys(context, flags, sizes.numVertices() ? sizes.numVertices() * sizeof(cl_ulong) : 1)
 {
 }
 
-DeviceKeyMesh::DeviceKeyMesh(
-    const cl::Context &context, cl_mem_flags flags,
-    std::size_t numVertices, std::size_t numInternalVertices, std::size_t numTriangles)
-:
-    DeviceMesh(context, flags, numVertices, numTriangles),
-    vertexKeys(context, flags, numVertices ? numVertices * sizeof(cl_ulong) : 1),
-    numInternalVertices(numInternalVertices)
+HostKeyMesh::HostKeyMesh(void *ptr, const MeshSizes &sizes)
+    : MeshSizes(sizes)
 {
+    std::tr1::uintptr_t ptrInt = reinterpret_cast<std::tr1::uintptr_t>(ptr);
+    MLSGPU_ASSERT(ptrInt % sizeof(cl_ulong) == 0, std::invalid_argument);
+
+    vertexKeys = reinterpret_cast<cl_ulong *>(ptr);
+    vertices = reinterpret_cast<boost::array<cl_float, 3> *>(vertexKeys + numExternalVertices());
+    triangles = reinterpret_cast<boost::array<cl_uint, 3> *>(vertices + numVertices());
 }
 
 void enqueueReadMesh(const cl::CommandQueue &queue,
@@ -46,39 +46,36 @@ void enqueueReadMesh(const cl::CommandQueue &queue,
                      cl::Event *vertexKeysEvent,
                      cl::Event *trianglesEvent)
 {
-    MLSGPU_ASSERT(dMesh.numInternalVertices <= dMesh.numVertices, std::invalid_argument);
+    MLSGPU_ASSERT(dMesh.numInternalVertices() <= dMesh.numVertices(), std::invalid_argument);
+    MLSGPU_ASSERT(static_cast<const MeshSizes &>(dMesh) == hMesh, std::invalid_argument);
 
     if (trianglesEvent != NULL)
     {
-        hMesh.triangles.resize(dMesh.numTriangles);
         CLH::enqueueReadBuffer(queue,
                                dMesh.triangles, CL_FALSE,
-                               0, dMesh.numTriangles * (3 * sizeof(cl_uint)),
-                               &hMesh.triangles[0][0],
+                               0, dMesh.numTriangles() * (3 * sizeof(cl_uint)),
+                               hMesh.triangles,
                                events, trianglesEvent);
         queue.flush();
     }
 
     if (vertexKeysEvent != NULL)
     {
-        const std::size_t numExternalVertices = dMesh.numVertices - dMesh.numInternalVertices;
-        hMesh.vertexKeys.resize(numExternalVertices);
         CLH::enqueueReadBuffer(queue,
                                dMesh.vertexKeys, CL_FALSE,
-                               dMesh.numInternalVertices * sizeof(cl_ulong),
-                               numExternalVertices * sizeof(cl_ulong),
-                               &hMesh.vertexKeys[0],
+                               dMesh.numInternalVertices() * sizeof(cl_ulong),
+                               dMesh.numExternalVertices() * sizeof(cl_ulong),
+                               hMesh.vertexKeys,
                                events, vertexKeysEvent);
         queue.flush();
     }
 
     if (verticesEvent != NULL)
     {
-        hMesh.vertices.resize(dMesh.numVertices);
         CLH::enqueueReadBuffer(queue,
                                dMesh.vertices, CL_FALSE,
-                               0, dMesh.numVertices * (3 * sizeof(cl_float)),
-                               &hMesh.vertices[0][0],
+                               0, dMesh.numVertices() * (3 * sizeof(cl_float)),
+                               hMesh.vertices,
                                events, verticesEvent);
         queue.flush();
     }

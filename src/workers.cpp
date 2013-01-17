@@ -34,6 +34,7 @@
 #include "statistics_cl.h"
 #include "errors.h"
 #include "thread_name.h"
+#include "misc.h"
 
 const std::size_t DeviceWorkerGroup::spare = 64;
 const std::size_t FineBucketGroup::spare = 64;
@@ -42,20 +43,30 @@ const std::size_t FineBucketGroup::spare = 64;
 MesherGroupBase::Worker::Worker(MesherGroup &owner)
     : WorkerBase("mesher", 0), owner(owner) {}
 
-void MesherGroupBase::Worker::operator()(WorkItem &work)
+void MesherGroupBase::Worker::operator()(WorkItem &item)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
-    owner.input(work, getTimeplotWorker());
+    owner.input(item.work, getTimeplotWorker());
+    owner.meshBuffer.free(item.alloc);
 }
 
 MesherGroup::MesherGroup(std::size_t spare)
     : WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>(
-        "mesher",
-        1, spare)
+        "mesher", 1, spare),
+    // TODO: compute minimum size, take actual size from cmd line
+    meshBuffer("mem.MesherGroup.mesh", 512 * 1024 * 1024)
 {
     for (std::size_t i = 0; i < 1 + spare; i++)
         addPoolItem(boost::make_shared<WorkItem>());
     addWorker(new Worker(*this));
+}
+
+boost::shared_ptr<MesherGroup::WorkItem> MesherGroup::get(Timeplot::Worker &tworker, std::size_t size)
+{
+    boost::shared_ptr<WorkItem> item = WorkerGroup<WorkItem, Worker, MesherGroup>::get(tworker, size);
+    std::size_t rounded = roundUp(size, sizeof(cl_ulong)); // to ensure alignment
+    item->alloc = meshBuffer.allocate(tworker, rounded);
+    return item;
 }
 
 Marching::OutputFunctor MesherGroup::getOutputFunctor(const ChunkId &chunkId, Timeplot::Worker &tworker)
@@ -73,21 +84,21 @@ void MesherGroup::outputFunc(
 {
     MLSGPU_ASSERT(input, std::logic_error);
 
-    std::size_t bytes = mesh.numVertices * 3 * sizeof(cl_float)
-        + mesh.numTriangles * 3 * sizeof(cl_uint)
-        + (mesh.numVertices - mesh.numInternalVertices) * sizeof(cl_ulong);
+    std::size_t bytes = mesh.getHostBytes();
 
-    boost::shared_ptr<MesherWork> work = get(tworker, bytes);
+    boost::shared_ptr<WorkItem> item = get(tworker, bytes);
+    item->work.mesh = HostKeyMesh(item->alloc.get(), mesh);
+
     std::vector<cl::Event> wait(3);
-    enqueueReadMesh(queue, mesh, work->mesh, events, &wait[0], &wait[1], &wait[2]);
+    enqueueReadMesh(queue, mesh, item->work.mesh, events, &wait[0], &wait[1], &wait[2]);
     CLH::enqueueMarkerWithWaitList(queue, &wait, event);
 
-    work->chunkId = chunkId;
-    work->hasEvents = true;
-    work->verticesEvent = wait[0];
-    work->vertexKeysEvent = wait[1];
-    work->trianglesEvent = wait[2];
-    push(work, tworker, bytes);
+    item->work.chunkId = chunkId;
+    item->work.hasEvents = true;
+    item->work.verticesEvent = wait[0];
+    item->work.vertexKeysEvent = wait[1];
+    item->work.trianglesEvent = wait[2];
+    push(item, tworker, bytes);
 }
 
 

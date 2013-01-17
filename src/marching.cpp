@@ -597,9 +597,7 @@ void Marching::shipOut(const cl::CommandQueue &queue,
     outputMesh.vertices = weldedVertices;
     outputMesh.vertexKeys = weldedVertexKeys;
     outputMesh.triangles = indices;
-    outputMesh.numVertices = readback->numWelded;
-    outputMesh.numInternalVertices = readback->firstExternal;
-    outputMesh.numTriangles = sizes.s[1] / 3;
+    outputMesh.assign(readback->numWelded, sizes.s[1] / 3, readback->firstExternal);
     output(queue, outputMesh, NULL, event);
 }
 

@@ -17,8 +17,59 @@
 #include <boost/array.hpp>
 #include "allocator.h"
 
+class MeshSizes
+{
+private:
+    std::size_t numVertices_;
+    std::size_t numTriangles_;
+    std::size_t numInternalVertices_;
+
+public:
+    MeshSizes() : numVertices_(0), numTriangles_(0), numInternalVertices_(0) {}
+
+    MeshSizes(std::size_t numVertices, std::size_t numTriangles, std::size_t numInternalVertices)
+        : numVertices_(numVertices),
+        numTriangles_(numTriangles),
+        numInternalVertices_(numInternalVertices)
+    {
+    }
+
+    bool operator==(const MeshSizes &b) const
+    {
+        return numVertices_ == b.numVertices_
+            && numTriangles_ == b.numTriangles_
+            && numInternalVertices_ == b.numInternalVertices_;
+    }
+
+    void assign(std::size_t numVertices, std::size_t numTriangles, std::size_t numInternalVertices)
+    {
+        numVertices_ = numVertices;
+        numTriangles_ = numTriangles;
+        numInternalVertices_ = numInternalVertices;
+    }
+
+    std::size_t numVertices() const { return numVertices_; }
+    std::size_t numTriangles() const { return numTriangles_; }
+    std::size_t numInternalVertices() const { return numInternalVertices_; }
+    std::size_t numExternalVertices() const { return numVertices_ - numInternalVertices_; }
+
+    /**
+     * Number of bytes that need to be allocated for @ref HostKeyMesh::HostKeyMesh.
+     */
+    std::size_t getHostBytes() const
+    {
+        return 3 * sizeof(cl_float) * numVertices_
+            +  3 * sizeof(cl_uint) * numTriangles_
+            +  sizeof(cl_ulong) * numExternalVertices();
+    }
+};
+
 /**
- * Encapsulates a mesh consisting of vertices and triangles in OpenCL buffers.
+ * Encapsulates a mesh consisting of vertices, triangles and vertex keys in
+ * OpenCL buffers. Every vertex has an associated key and the vertices are
+ * partitioned in @em internal (at the front) and @em external (at the back).
+ * Vertex keys are present for all vertices but only meaningful for the
+ * external vertices.
  *
  * The buffers are not required to be fully utilized; separate counts indicate
  * how much is allocated. It is also valid for @a numTriangles or @a numVertices
@@ -27,7 +78,7 @@
  * It is unspecified whether a @c DeviceMesh is the unique owner of its memory
  * or whether it is shared via OpenCL's reference-counting mechanism.
  */
-struct DeviceMesh
+struct DeviceKeyMesh : public MeshSizes
 {
     /**
      * Buffer containing the vertices, which are tightly-packed @c cl_float
@@ -38,70 +89,42 @@ struct DeviceMesh
      * Buffer containing the triangle indices, which are triplets of @c cl_uint.
      */
     cl::Buffer triangles;
-
-    std::size_t numVertices;   ///< Number of vertices.
-    std::size_t numTriangles;  ///< Number of triangles.
-
     /**
-     * Default constructor. In this state the buffers are unallocated.
+     * Buffer containing vertex keys, which are @c cl_ulong values.
      */
-    DeviceMesh() : vertices(), triangles(), numVertices(0), numTriangles(0) {}
-
-    /**
-     * Constructor. The buffers are allocated with just enough space to hold
-     * the specified number of vertices and triangles. It is legal for
-     * @a numVertices or @a numTriangles to be zero.
-     *
-     * @param context       Context used to allocate buffers.
-     * @param flags         Memory flags passed to create the buffer.
-     * @param numVertices   The number of vertices to allocate.
-     * @param numTriangles  The number of triangles to allocate.
-     */
-    DeviceMesh(const cl::Context &context, cl_mem_flags flags, std::size_t numVertices, std::size_t numTriangles);
-};
-
-/**
- * Refinement of @ref DeviceMesh in which every vertex has an associated key
- * and the vertices are partitioned in @em internal (at the front) and @em
- * external (at the back).
- */
-struct DeviceKeyMesh : public DeviceMesh
-{
     cl::Buffer vertexKeys;                 ///< Vertex keys
-    std::size_t numInternalVertices;       ///< Number of internal vertices
 
-    /**
-     * Default constructor. In this state the buffers are unallocated.
-     */
-    DeviceKeyMesh() : DeviceMesh(), vertexKeys(), numInternalVertices(0) {}
+    DeviceKeyMesh() {}
 
     /**
      * Constructor. The buffers are allocated with just enough space to hold
      * the specified number of vertices and triangles. It is legal for
-     * @a numVertices or @a numTriangles to be zero.
+     * any of the sizes to be zero.
      */
-    DeviceKeyMesh(const cl::Context &context, cl_mem_flags flags,
-                  std::size_t numVertices, std::size_t numInternalVertices, std::size_t numTriangles);
+    DeviceKeyMesh(const cl::Context &context, cl_mem_flags flags, const MeshSizes &sizes);
 };
 
 /**
  * A host-memory counterpart to @ref DeviceKeyMesh. However, unlike a @ref
  * DeviceKeyMesh, the host holds keys @em only for external vertices. Thus,
- * the number of internal vertices can be determined as
- * <code>vertices.size() - vertexKeys.size()</code>, and
  * <code>vertexKeys[i]</code> corresponds to <code>vertices[i +
  * numInternalVertices]</code>.
  */
-struct HostKeyMesh
+struct HostKeyMesh : public MeshSizes
 {
-    Statistics::Container::vector<boost::array<cl_float, 3> > vertices;
-    Statistics::Container::vector<boost::array<cl_uint, 3> > triangles;
-    Statistics::Container::vector<cl_ulong> vertexKeys;
+    boost::array<cl_float, 3> *vertices;
+    boost::array<cl_uint, 3> *triangles;
+    cl_ulong *vertexKeys;
 
     HostKeyMesh() :
-        vertices("mem.HostMesh::vertices"),
-        triangles("mem.HostMesh::triangles"),
-        vertexKeys("mem.HostKeyMesh::vertexKeys") {}
+        vertices(NULL), triangles(NULL), vertexKeys(NULL) {}
+
+    /**
+     * Construct from an existing pool of memory.
+     *
+     * @pre @a ptr is @c cl_ulong aligned.
+     */
+    HostKeyMesh(void *ptr, const MeshSizes &sizes);
 };
 
 /**
