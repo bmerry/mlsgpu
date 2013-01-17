@@ -302,10 +302,10 @@ void FineBucketGroupBase::Worker::operator()(
     std::size_t bestSpare = 0;
     BOOST_FOREACH(DeviceWorkerGroup *w, owner.outGroups)
     {
-        std::size_t spare = w->queueSpare();
+        std::size_t spare = w->unallocated();
         if (spare >= bestSpare)
         {
-            // Note: <= above so that we always get a non-NULL result
+            // Note: >= above so that we always get a non-NULL result
             outGroup = w;
             bestSpare = spare;
         }

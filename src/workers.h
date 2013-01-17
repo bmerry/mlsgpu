@@ -253,7 +253,7 @@ public:
     /**
      * Estimate spare queue capacity.
      */
-    std::size_t queueSpare() { return 1; }
+    std::size_t unallocated() { return splatAllocator.unallocated() / sizeof(Splat); }
 };
 
 class FineBucketGroup;

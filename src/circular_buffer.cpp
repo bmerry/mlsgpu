@@ -99,6 +99,16 @@ std::size_t CircularBufferBase::size() const
     return bufferSize;
 }
 
+std::size_t CircularBufferBase::unallocated()
+{
+    if (allocPoints.empty())
+        return bufferSize;
+    else if (allocPoints.front() >= firstFree)
+        return allocPoints.front() - firstFree;
+    else
+        return bufferSize - firstFree + allocPoints.front();
+}
+
 void *CircularBuffer::Allocation::get() const
 {
     return ptr;
