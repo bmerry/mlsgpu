@@ -13,6 +13,7 @@
 
 #include <boost/noncopyable.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/thread/locks.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
@@ -113,28 +114,25 @@ public:
     }
 
     /**
-     * Retrieve an unused item from the pool to be populated with work. This
-     * may block if all the items are currently in use.
+     * Retrieve an unused item to be populated with work.
      *
-     * @warning The returned item @em must be enqueued with @ref push. Failure
-     * to do so will lead to the item being lost to the pool, and possibly deadlock.
+     * @todo Eliminate this entirely: callers can just create the item themselves, or
+     * the subclass can create it for them.
      */
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
-        Timeplot::Action timer("get", tworker, getStat);
-        timer.setValue(size);
-        return itemPool.pop();
+        return boost::make_shared<WorkItem>();
     }
 
     /**
      * Enqueue an item of work.
      *
      * @pre @a item was obtained by @ref get.
+     *
+     * @todo Eliminate tworker and size - it can no longer block.
      */
     void push(boost::shared_ptr<WorkItem> item, Timeplot::Worker &tworker, std::size_t size)
     {
-        Timeplot::Action timer("push", tworker, pushStat);
-        timer.setValue(size);
         workQueue.push(item);
     }
 
@@ -148,6 +146,7 @@ public:
     void start()
     {
         MLSGPU_ASSERT(!running(), state_error);
+        workQueue.start();
         threads.reserve(workers.size());
         for (std::size_t i = 0; i < workers.size(); i++)
             workers[i].start();
@@ -167,8 +166,8 @@ public:
     void stop()
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), state_error);
-        for (std::size_t i = 0; i < this->numWorkers(); i++)
-            workQueue.push(boost::shared_ptr<WorkItem>());
+
+        workQueue.stop();
         static_cast<Derived *>(this)->stopPreJoin();
         for (std::size_t i = 0; i < threads.size(); i++)
             threads[i].join();
@@ -218,8 +217,8 @@ protected:
      */
     WorkerGroup(const std::string &name,
                 std::size_t numWorkers, std::size_t spare)
-        : threadName(name), itemPool(numWorkers + spare),
-        workQueue(numWorkers + spare),
+        : threadName(name),
+        workQueue(),
         pushStat(Statistics::getStatistic<Statistics::Variable>(name + ".push")),
         firstPopStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop.first")),
         popStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop")),
@@ -228,8 +227,6 @@ protected:
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         workers.reserve(numWorkers);
-        for (std::size_t i = 0; i < numWorkers + spare; i++)
-            itemPool.push(boost::make_shared<WorkItem>());
     }
 
 private:
@@ -257,14 +254,13 @@ private:
                         Timeplot::Action timer("pop", tworker, firstPop ? owner.firstPopStat : owner.popStat);
                         item = owner.workQueue.pop();
                     }
-                    if (!item.get())
+                    if (!item)
                         break; // we have been asked to shut down
                     firstPop = false;
 
                     worker(*item);
 
                     owner.freeItem(*item);
-                    owner.itemPool.push(item);
                 }
                 worker.stop();
             }
@@ -279,9 +275,6 @@ private:
     /// Name to assign to threads
     const std::string threadName;
 
-    /// Pool of unallocated items
-    Pool<WorkItem> itemPool;
-
     /**
      * Threads. This is empty when no threads are running and contains the
      * thread objects when it is running.
@@ -294,7 +287,9 @@ private:
      */
     boost::ptr_vector<Worker> workers;
 
-    /// Work queue
+    /**
+     * Queue of items waiting to be processed.
+     */
     WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
 
     Statistics::Variable &pushStat;

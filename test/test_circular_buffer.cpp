@@ -117,13 +117,16 @@ class TestCircularBufferStress : public CppUnit::TestFixture
 
 public:
     TestCircularBufferStress()
-        : buffer("mem.TestCircularBufferStress", 123 * sizeof(std::tr1::uint64_t)), workQueue(10) {}
+        : buffer("mem.TestCircularBufferStress", 123 * sizeof(std::tr1::uint64_t)), workQueue() {}
 
 private:
     struct Item
     {
         std::size_t start, end; // expected start and end values in the buffer
         CircularBuffer::Allocation alloc;
+
+        // Default-constructed item is an end-of-work sentinel
+        Item() : start(0), end(0) {}
     };
 
     std::tr1::uint64_t badCount;
@@ -229,14 +232,7 @@ void TestCircularBufferStress::testStress()
         consumers.create_thread(boost::bind(&TestCircularBufferStress::consumerThread, this));
 
     producers.join_all();
-    // Shut down the consumers
-    for (std::size_t i = 0; i < numConsumers; i++)
-    {
-        Item item;
-        item.start = item.end = 0;
-        workQueue.push(item);
-    }
-
+    workQueue.stop();
     consumers.join_all();
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), badCount);
 }

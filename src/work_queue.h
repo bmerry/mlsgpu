@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <stdexcept>
 #include <map>
+#include <queue>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/condition_variable.hpp>
@@ -22,8 +23,11 @@
 #include "errors.h"
 
 /**
- * Thread-safe bounded queue, supporting multiple producers and
- * multiple consumers.
+ * Thread-safe queue, supporting multiple producers and multiple consumers. The
+ * capacity is unbounded. It can additionally be "stopped", which will cause any
+ * requests after the queue drains to return immediately with a
+ * default-constructed value. It is the user's responsibility to use a type for
+ * which this can be distinguished from real data.
  *
  * It is a requirement that the assignment operator for the value type does
  * not throw. In particular, containers should not be used, or should be
@@ -38,21 +42,10 @@ public:
     typedef ValueType value_type;
     typedef std::size_t size_type;
 
-    /// Returns the maximum capacity of the queue.
-    size_type capacity() const;
-
     /**
-     * Returns the number of elements in the queue. This should only be
-     * used when debugging or when there are known to be no other threads
-     * modifying the queue, as otherwise the result may be out-of-date
-     * as soon as it returns.
+     * Add an item to the queue. This will never block.
      *
-     * It is non-const because it requires the mutex to function.
-     */
-    size_type size();
-
-    /**
-     * Add an item to the queue. This will block if the queue is full.
+     * @pre The queue is not stopped.
      */
     void push(const value_type &item);
 
@@ -61,92 +54,51 @@ public:
      * Note that the item is returned by value. This is necessary since the
      * storage for the slot in the queue is immediately made available to be
      * overwritten.
+     *
+     * If the queue has been marked stopped and there is no more data in the
+     * queue, it will return a default-constructed value.
      */
     value_type pop();
 
     /**
-     * Constructor.
-     *
-     * @param capacity Maximum capacity of the queue.
-     *
-     * @pre @a capacity > 0.
+     * Indicate that there will be no more data added. It is not safe to call
+     * this simultaneously with @ref push.
      */
-    explicit WorkQueue(size_type capacity);
+    void stop();
 
-protected:
-    boost::mutex mutex;
+    /**
+     * Indicate that there will be new data added. This should only be called
+     * when there is only a single thread active. It is not necessary to call
+     * it initially, as this is the initial state.
+     */
+    void start();
 
-    /// Implementation of @ref push where the caller holds the mutex
-    void pushUnlocked(boost::unique_lock<boost::mutex> &lock, const value_type &item);
-
-    /// Implementation of @ref pop where the caller holds the mutex
-    value_type popUnlocked(boost::unique_lock<boost::mutex> &lock);
+    /**
+     * Constructor.
+     */
+    WorkQueue();
 
 private:
-    size_type capacity_;
-    size_type head_;
-    size_type tail_;
-    size_type size_;
-    boost::condition_variable spaceCondition, dataCondition;
-    boost::scoped_array<value_type> values;
-};
-
-/**
- * A pool of items which can be added to and removed from, with thread safety.
- * Currently this is just an alias to a WorkQueue, but in future it may be
- * extended to use something like a stack which is more cache-friendly.
- */
-template<typename T>
-class Pool : public WorkQueue<boost::shared_ptr<T> >
-{
-public:
-    Pool(typename WorkQueue<boost::shared_ptr<T> >::size_type capacity)
-        : WorkQueue<boost::shared_ptr<T> >(capacity) {}
+    std::queue<value_type> queue;
+    bool stopped;
+    boost::mutex mutex;
+    boost::condition_variable dataCondition;
+    // TODO account for the memory
 };
 
 
 template<typename ValueType>
-WorkQueue<ValueType>::WorkQueue(size_type capacity)
-    : capacity_(capacity), head_(0), tail_(0), size_(0)
+WorkQueue<ValueType>::WorkQueue()
+    : stopped(false)
 {
-    MLSGPU_ASSERT(capacity > 0, std::length_error);
-    values.reset(new ValueType[capacity]);
-}
-
-template<typename ValueType>
-typename WorkQueue<ValueType>::size_type WorkQueue<ValueType>::size()
-{
-    boost::lock_guard<boost::mutex> lock(mutex);
-    return size_;
-}
-
-template<typename ValueType>
-typename WorkQueue<ValueType>::size_type WorkQueue<ValueType>::capacity() const
-{
-    return capacity_;
 }
 
 template<typename ValueType>
 void WorkQueue<ValueType>::push(const ValueType &value)
 {
-    boost::unique_lock<boost::mutex> lock(mutex);
-    pushUnlocked(lock, value);
-}
-
-template<typename ValueType>
-void WorkQueue<ValueType>::pushUnlocked(
-    boost::unique_lock<boost::mutex> &lock,
-    const ValueType &value)
-{
-    while (size_ == capacity_)
-    {
-        spaceCondition.wait(lock);
-    }
-    values[tail_] = value;
-    tail_++;
-    if (tail_ == capacity_)
-        tail_ = 0;
-    size_++;
+    boost::lock_guard<boost::mutex> lock(mutex);
+    MLSGPU_ASSERT(!stopped, state_error);
+    queue.push(value);
     dataCondition.notify_one();
 }
 
@@ -154,23 +106,31 @@ template<typename ValueType>
 ValueType WorkQueue<ValueType>::pop()
 {
     boost::unique_lock<boost::mutex> lock(mutex);
-    return popUnlocked(lock);
+    while (!stopped && queue.empty())
+        dataCondition.wait(lock);
+    if (queue.empty())
+        return value_type();
+    else
+    {
+        value_type ans = queue.front();
+        queue.pop();
+        return ans;
+    }
 }
 
 template<typename ValueType>
-ValueType WorkQueue<ValueType>::popUnlocked(boost::unique_lock<boost::mutex> &lock)
+void WorkQueue<ValueType>::start()
 {
-    while (size_ == 0)
-    {
-        dataCondition.wait(lock);
-    }
-    ValueType ans = values[head_];
-    head_++;
-    if (head_ == capacity_)
-        head_ = 0;
-    size_--;
-    spaceCondition.notify_one();
-    return ans;
+    boost::lock_guard<boost::mutex> lock(mutex);
+    stopped = false;
+}
+
+template<typename ValueType>
+void WorkQueue<ValueType>::stop()
+{
+    boost::lock_guard<boost::mutex> lock(mutex);
+    stopped = true;
+    dataCondition.notify_all(); // wake up any consumers waiting on an empty queue
 }
 
 #endif /* !WORK_QUEUE_H */

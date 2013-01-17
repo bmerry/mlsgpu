@@ -566,8 +566,7 @@ private:
         const FileSet &owner;   ///< Owning splat stream
         /**
          * Queue of splat ranges as they're read. This will produce a stream of
-         * real ranges (non-NULL pointer), followed by exactly one default-constructed
-         * item.
+         * real ranges (non-NULL pointer), after which it is stopped.
          */
         WorkQueue<Item> outQueue;
 
@@ -584,16 +583,15 @@ private:
         virtual void operator()() = 0;
 
         /**
-         * Remove all remaining items from the out queue, immediately
-         * restoring them to the pool. This is called by the stream thread.
-         *
-         * @pre The end-of-stream marker has not yet been seen (otherwise this will deadlock)
+         * Remove all remaining items from the out queue. This is called by the
+         * stream thread.
          */
         void drain();
 
         /**
-         * Retrieve the next range of splats from the reader.
-         * This is called by the stream thread, and is thread-safe.
+         * Retrieve the next range of splats from the reader, or a sentinel value if
+         * there will be no more.  This is called by the stream thread, and is
+         * thread-safe.
          */
         Item pop() { return outQueue.pop(); }
 

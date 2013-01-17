@@ -241,7 +241,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     }
 
     // Signal completion
-    outQueue.push(Item());
+    outQueue.stop();
 }
 
 static inline std::tr1::int32_t extractUnsigned(std::tr1::uint32_t value, int lbit, int hbit)
