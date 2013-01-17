@@ -108,7 +108,7 @@ public:
      * considered immediately stale in a multithreaded environment, but may
      * be useful for load-balancing heuristics.
      *
-     * It is not declared @ref const because it needs to hold the mutex.
+     * It is not declared @c const because it needs to hold the mutex.
      */
     std::size_t unallocated();
 

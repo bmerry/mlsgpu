@@ -254,7 +254,7 @@ public:
         int levels);
 
     /**
-     * @copydoc WorkerGroupMulti::start
+     * @copydoc WorkerGroup::start
      *
      * @param fullGrid  The bounding box grid.
      */
@@ -266,6 +266,9 @@ public:
      */
     void setProgress(ProgressMeter *progress) { this->progress = progress; }
 
+    /**
+     * @copydoc WorkerGroup::get
+     */
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
 
     /**

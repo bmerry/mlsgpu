@@ -28,7 +28,7 @@ std::size_t CircularBufferBase::Allocation::get() const
 }
 
 CircularBufferBase::Allocation::Allocation(
-    std::list<std::size_t>::iterator point)
+    Statistics::Container::list<std::size_t>::iterator point)
     : point(point)
 {
 }

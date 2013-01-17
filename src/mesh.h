@@ -54,7 +54,7 @@ public:
     std::size_t numExternalVertices() const { return numVertices_ - numInternalVertices_; }
 
     /**
-     * Number of bytes that need to be allocated for @ref HostKeyMesh::HostKeyMesh.
+     * Number of bytes that need to be allocated for @ref HostKeyMesh::HostKeyMesh(void *, const MeshSizes &).
      */
     std::size_t getHostBytes() const
     {
