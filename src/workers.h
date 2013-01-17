@@ -247,9 +247,10 @@ public:
 
     /// Returns total resources that would be used by all workers and workitems
     static CLH::ResourceUsage resourceUsage(
-        std::size_t numWorkers, std::size_t spare,
+        std::size_t numWorkers,
         const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
+        std::size_t maxSplats, Grid::size_type maxCells,
+        std::size_t memSplats, std::size_t meshMemory,
         int levels);
 
     /**

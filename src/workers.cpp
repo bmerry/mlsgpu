@@ -157,9 +157,10 @@ boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
-    std::size_t numWorkers, std::size_t spare,
+    std::size_t numWorkers,
     const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
+    std::size_t maxSplats, Grid::size_type maxCells,
+    std::size_t memSplats, std::size_t meshMemory,
     int levels)
 {
     Grid::size_type block = maxCells + 1;
@@ -170,9 +171,9 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
         MlsFunctor::wgs[2], meshMemory, MlsFunctor::wgs);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
 
-    CLH::ResourceUsage itemUsage;
-    itemUsage.addBuffer(maxSplats * sizeof(Splat));
-    return workerUsage * numWorkers + itemUsage * (numWorkers + spare);
+    CLH::ResourceUsage globalUsage;
+    globalUsage.addBuffer(memSplats);
+    return workerUsage * numWorkers + globalUsage;
 }
 
 DeviceWorkerGroupBase::Worker::Worker(
