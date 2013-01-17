@@ -275,12 +275,14 @@ void Slave::operator()() const
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
+
+    const std::size_t memSplats = vm[Option::memSplats].as<Capacity>();
+    const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
@@ -293,7 +295,8 @@ void Slave::operator()() const
         DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
             numDeviceThreads, GetOutputFunctor(gatherGroup),
             devices[i].first, devices[i].second,
-            maxDeviceSplats, blockCells, meshMemory(vm),
+            maxDeviceSplats, blockCells,
+            memDeviceSplats, meshMemory(vm),
             levels, subsampling,
             boundaryLimit, shape);
         deviceWorkerGroups.push_back(dwg);
@@ -301,7 +304,7 @@ void Slave::operator()() const
     }
     FineBucketGroup fineBucketGroup(
         numBucketThreads, deviceWorkerGroupPtrs,
-        memHostSplats, maxDeviceSplats, blockCells, maxSplit);
+        memSplats, maxDeviceSplats, blockCells, maxSplit);
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);
 
@@ -409,6 +412,7 @@ static void run(
         const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
         const int subsampling = vm[Option::subsampling].as<int>();
         const int levels = vm[Option::levels].as<int>();
+        const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
 
         Timeplot::Worker mainWorker("main");
 
@@ -433,7 +437,7 @@ static void run(
             mesher->setReorderCapacity(1024 * 1024 * 1024); // TODO: make tunable
 
             Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup;
+            MesherGroup mesherGroup(memMesh);
             ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
             // TODO: tune number of scatter senders
             ScatterGroup scatterGroup(1, numSlaves, scatterComm, maxHostSplats);

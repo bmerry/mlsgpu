@@ -74,13 +74,17 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const MesherType mesherType = OOC_MESHER;
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
-    const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const bool split = vm.count(Option::split);
     const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+
+    const std::size_t memSplats = vm[Option::memSplats].as<Capacity>();
+    const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
+    const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
+
     Timeplot::Worker mainWorker("main");
 
     const unsigned int block = 1U << (levels + subsampling - 1);
@@ -111,7 +115,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
 
             Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup;
+            MesherGroup mesherGroup(memMesh);
             boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
             std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
             for (std::size_t i = 0; i < devices.size(); i++)
@@ -120,7 +124,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     numDeviceThreads,
                     boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
                     devices[i].first, devices[i].second,
-                    maxDeviceSplats, blockCells, meshMemory(vm),
+                    maxDeviceSplats, blockCells,
+                    memDeviceSplats, meshMemory(vm),
                     levels, subsampling,
                     boundaryLimit, shape);
                 deviceWorkerGroups.push_back(dwg);
@@ -128,7 +133,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             }
             FineBucketGroup fineBucketGroup(
                 numBucketThreads, deviceWorkerGroupPtrs,
-                memHostSplats, maxDeviceSplats, blockCells, maxSplit);
+                memSplats, maxDeviceSplats, blockCells, maxSplit);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
             Splats splats("mem.blobData");

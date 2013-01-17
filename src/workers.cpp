@@ -50,11 +50,10 @@ void MesherGroupBase::Worker::operator()(WorkItem &item)
     owner.meshBuffer.free(item.alloc);
 }
 
-MesherGroup::MesherGroup()
+MesherGroup::MesherGroup(std::size_t memMesh)
     : WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>(
         "mesher", 1, spare),
-    // TODO: compute minimum size, take actual size from cmd line
-    meshBuffer("mem.MesherGroup.mesh", 512 * 1024 * 1024)
+    meshBuffer("mem.MesherGroup.mesh", memMesh)
 {
     for (std::size_t i = 0; i < 1 + spare; i++)
         addPoolItem(boost::make_shared<WorkItem>());
@@ -106,7 +105,8 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers,
     OutputGenerator outputGenerator,
     const cl::Context &context, const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
+    std::size_t maxSplats, Grid::size_type maxCells,
+    std::size_t memSplats, std::size_t meshMemory,
     int levels, int subsampling, float boundaryLimit,
     MlsShape shape)
 :
@@ -114,9 +114,8 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
-    // TODO: rename the parameter and recalculate it
     splatAlign(device.getInfo<CL_DEVICE_MEM_BASE_ADDR_ALIGN>() / 8),
-    splatAllocator("mem.device.splats", roundUp(maxSplats * sizeof(Splat), splatAlign)),
+    splatAllocator("mem.device.splats", roundUp(memSplats, splatAlign)),
     splatStore(context, CL_MEM_READ_WRITE, splatAllocator.size())
 {
     for (std::size_t i = 0; i < numWorkers + spare; i++)
@@ -270,7 +269,7 @@ FineBucketGroup::FineBucketGroup(
         "bucket.fine",
         numWorkers, spare),
     outGroups(outGroups),
-    splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats * sizeof(Splat)),
+    splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats),
     maxSplats(maxSplats),
     maxCells(maxCells),
     maxSplit(maxSplit),

@@ -94,7 +94,12 @@ public:
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
 
-    MesherGroup();
+    /**
+     * Constructor.
+     *
+     * @param memMesh Memory (in bytes) to allocate for holding queued mesh data.
+     */
+    explicit MesherGroup(const std::size_t memMesh);
 private:
     static const std::size_t spare;
 
@@ -224,6 +229,7 @@ public:
      * @param device             OpenCL device to run on.
      * @param maxSplats          Space to allocate for holding splats.
      * @param maxCells           Space to allocate for the octree.
+     * @param memSplats          Device bytes to use for queued splats.
      * @param meshMemory         Maximum device bytes to use for mesh-related data.
      * @param levels             Levels to allocate for the octree.
      * @param subsampling        Octree subsampling level.
@@ -234,7 +240,8 @@ public:
         std::size_t numWorkers,
         OutputGenerator outputGenerator,
         const cl::Context &context, const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells, std::size_t meshMemory,
+        std::size_t maxSplats, Grid::size_type maxCells,
+        std::size_t memSplats, std::size_t meshMemory,
         int levels, int subsampling, float boundaryLimit,
         MlsShape shape);
 

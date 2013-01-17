@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cstddef>
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
 
@@ -41,6 +42,26 @@ public:
 private:
     type value;
 };
+
+/**
+ * Wraps a @c size_t to allow it to be specified with a B/K/M/G suffix
+ * to compactly write the value.
+ */
+class Capacity
+{
+public:
+    Capacity() : value(0) {}
+    Capacity(std::size_t value) : value(value) {}
+    operator std::size_t() const { return value; }
+private:
+    std::size_t value;
+};
+
+/**
+ * Output function for @ref Capacity. It pretty-prints the result
+ * using a suitable multiplier suffix.
+ */
+std::ostream &operator<<(std::ostream &o, const Capacity &c);
 
 /**
  * Output function for @ref Choice. This is mainly useful so that
@@ -90,5 +111,7 @@ void validate(boost::any &v, const std::vector<std::string> &values,
     else
         v = boost::any(Choice<EnumWrapper>(pos->second));
 }
+
+void validate(boost::any &v, const std::vector<std::string> &values, Capacity *, int);
 
 #endif /* !OPTIONS_H */

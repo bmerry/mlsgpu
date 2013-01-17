@@ -88,14 +88,23 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::subsampling,  po::value<int>()->default_value(3), "Subsampling of octree")
         (Option::maxDeviceSplats, po::value<int>()->default_value(1000000), "Maximum splats per block on the device")
         (Option::maxHostSplats, po::value<std::size_t>()->default_value(10000000), "Maximum splats per block on the CPU")
-        (Option::memHostSplats, po::value<std::size_t>(),          "Total splats kept on the CPU")
-        (Option::maxSplit,     po::value<int>()->default_value(2097152), "Maximum fan-out in partitioning")
+        (Option::maxSplit,     po::value<int>()->default_value(1024 * 1024 * 1024), "Maximum fan-out in partitioning")
         (Option::bucketThreads, po::value<int>()->default_value(2), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)")
         (Option::decache,      "Try to evict input files from OS cache for benchmarking");
     opts.add(advanced);
+}
+
+static void addMemoryOptions(po::options_description &opts)
+{
+    po::options_description memory("Advanced memory options");
+    memory.add_options()
+        (Option::memSplats,       po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for splats on the CPU (MiB)")
+        (Option::memDeviceSplats, po::value<Capacity>()->default_value(256 * 1024 * 1024),  "Memory for splats on the device (MiB)")
+        (Option::memMesh,         po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for mesh data on the CPU (MiB)");
+    opts.add(memory);
 }
 
 void usage(std::ostream &o, const po::options_description desc)
@@ -115,6 +124,7 @@ po::variables_map processOptions(int argc, char **argv)
     addFitOptions(desc);
     addStatisticsOptions(desc);
     addAdvancedOptions(desc);
+    addMemoryOptions(desc);
     desc.add_options()
         ("output-file,o",   po::value<std::string>()->required(), "output file")
         (Option::split,     "split output across multiple files")
@@ -242,6 +252,8 @@ std::string makeOptions(const po::variables_map &vm)
                 opts << param.as<Choice<FastPly::ReaderTypeWrapper> >();
             else if (value.type() == typeid(Choice<MlsShapeWrapper>))
                 opts << param.as<Choice<MlsShapeWrapper> >();
+            else if (value.type() == typeid(Capacity))
+                opts << param.as<Capacity>();
             else
                 assert(!"Unhandled parameter type");
         }
@@ -296,11 +308,14 @@ void validateOptions(const po::variables_map &vm)
     const int subsampling = vm[Option::subsampling].as<int>();
     const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
     const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
-    const std::size_t memHostSplats = getMemHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
+
+    const std::size_t memSplats = vm[Option::memSplats].as<Capacity>();
+    const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
+    const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
 
     int maxLevels = std::min(
             std::size_t(Marching::MAX_DIMENSION_LOG2 + 1),
@@ -321,8 +336,6 @@ void validateOptions(const po::variables_map &vm)
         throw invalid_option("Value of --max-device-splats must be positive");
     if (maxHostSplats < maxDeviceSplats)
         throw invalid_option("Value of --max-host-splats must be at least that of --max-device-splats");
-    if (memHostSplats < maxHostSplats)
-        throw invalid_option("Value of --mem-host-splats must be at least that of --max-host-splats");
     if (maxSplit < 8)
         throw invalid_option("Value of --max-split must be at least 8");
     if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
@@ -337,6 +350,13 @@ void validateOptions(const po::variables_map &vm)
         throw invalid_option("Value of --device-threads must be at least 1");
     if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
         throw invalid_option("Value of --fit-prune must be in [0, 1]");
+
+    if (memSplats < maxHostSplats * sizeof(Splat))
+        throw invalid_option("Value of --mem-splats is too small for --max-host-splats");
+    if (memDeviceSplats < maxDeviceSplats * sizeof(Splat))
+        throw invalid_option("Value of --mem-device-splats is too small for --max-device-splats");
+    if (memMesh < meshMemory(vm))
+        throw invalid_option("Value of --mem-mesh is too small");
 }
 
 void setLogLevel(const po::variables_map &vm)
@@ -347,14 +367,6 @@ void setLogLevel(const po::variables_map &vm)
         Log::log.setLevel(Log::debug);
     else
         Log::log.setLevel(Log::info);
-}
-
-std::size_t getMemHostSplats(const po::variables_map &vm)
-{
-    if (vm.count(Option::memHostSplats))
-        return vm[Option::memHostSplats].as<std::size_t>();
-    else
-        return vm[Option::maxHostSplats].as<std::size_t>() * 4;
 }
 
 std::size_t meshMemory(const po::variables_map &vm)

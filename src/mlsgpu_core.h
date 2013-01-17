@@ -46,7 +46,6 @@ namespace Option
     const char * const statisticsCL = "statistics-cl";
     const char * const timeplot = "timeplot";
 
-    const char * const memHostSplats = "mem-host-splats";
     const char * const maxHostSplats = "max-host-splats";
     const char * const maxDeviceSplats = "max-device-splats";
     const char * const maxSplit = "max-split";
@@ -57,6 +56,10 @@ namespace Option
     const char * const reader = "reader";
     const char * const writer = "writer";
     const char * const decache = "decache";
+
+    const char * const memSplats = "mem-splats";
+    const char * const memDeviceSplats = "mem-device-splats";
+    const char * const memMesh = "mem-mesh";
 };
 
 /**
@@ -95,11 +98,6 @@ void validateOptions(const boost::program_options::variables_map &vm);
  * Set the logging level based on the command-line options.
  */
 void setLogLevel(const boost::program_options::variables_map &vm);
-
-/**
- * Number of splats for which to allocate memory on the host.
- */
-std::size_t getMemHostSplats(const boost::program_options::variables_map &vm);
 
 /**
  * Amount of GPU memory to reserve for mesh output.

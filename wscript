@@ -360,6 +360,7 @@ def build(bld):
             'src/grid.cpp',
             'src/logging.cpp',
             'src/misc.cpp',
+            'src/options.cpp',
             'src/progress.cpp',
             'src/statistics.cpp',
             'src/splat.cpp',
