@@ -70,11 +70,41 @@ public:
 };
 
 /**
- * Base class for @ref WorkerGroup that handles only the threads, workers and pool,
- * but not a work queue. See @ref WorkerGroup for details.
+ * A collection of threads operating on work-items, fed by a queue.
+ *
+ * @param WorkItem     A POD type describing an item of work.
+ * @param Worker       Function object class that is called to process elements.
+ * @param Derived      The class that is being derived from the template.
+ *
+ * The @a Worker class must have an @c operator() that accepts a reference to a
+ * @a WorkItem. The operator does not need to be @c const.  The worker class
+ * does not need to be copyable or default-constructable and may contain
+ * significant state.
+ *
+ * The @a Worker class must also have @c start() and @c stop() methods, which will
+ * be called when the whole workgroup is started or stopped. These may be empty,
+ * but are provided to allow for additional setup for cleanup, particularly when
+ * the whole group is reused in multiple passes.
+ *
+ * The workitems may also be large objects, and the design is based on
+ * recycling a fixed pool rather than having the caller construct them. Users
+ * of the class will call @ref get to retrieve an item from the pool, populate
+ * it, then call @ref push to enqueue the item for processing.
+ *
+ * At construction, the worker group is given both a number of threads and a
+ * capacity. The capacity determines the number of workitems that will be
+ * live. If capacity equals the number of workers, then it will only be
+ * possible to populate a new work item while one of the workers is idle. If
+ * capacity exceeds the number of threads, then it will be possible to
+ * populate spare work items while all worker threads are busy. The capacity
+ * is specified as a delta to the number of workers.
+ *
+ * The @ref start and @ref stop functions are not thread-safe: they should
+ * only be called by a single manager thread. The other functions are
+ * thread-safe, allowing for multiple producers.
  */
 template<typename WorkItem, typename Worker, typename Derived>
-class WorkerGroupPool : public boost::noncopyable
+class WorkerGroup
 {
 public:
     bool running() const
@@ -105,7 +135,7 @@ public:
     {
         Timeplot::Action timer("push", tworker, pushStat);
         timer.setValue(size);
-        static_cast<Derived *>(this)->pushImpl(item);
+        workQueue.push(item);
     }
 
     /**
@@ -137,36 +167,13 @@ public:
     void stop()
     {
         MLSGPU_ASSERT(threads.size() == workers.size(), state_error);
+        for (std::size_t i = 0; i < this->numWorkers(); i++)
+            workQueue.push(boost::shared_ptr<WorkItem>());
         static_cast<Derived *>(this)->stopPreJoin();
         for (std::size_t i = 0; i < threads.size(); i++)
             threads[i].join();
         threads.clear();
         static_cast<Derived *>(this)->stopPostJoin();
-    }
-
-    /**
-     * Take shutdown actions prior to joining the worker threads. This is a hook
-     * that subclasses may override.
-     */
-    void stopPreJoin()
-    {
-    }
-
-    /**
-     * Take shutdown actions after the worker threads have been joined. This is
-     * a hook that subclasses may override.
-     */
-    void stopPostJoin()
-    {
-    }
-
-    /**
-     * Release transient resources stored in an item. This is a hook that
-     * subclasses my override.
-     */
-    void freeItem(WorkItem &item)
-    {
-        (void) item;
     }
 
     /// Returns the number of workers.
@@ -209,9 +216,10 @@ protected:
      *
      * @pre @a numWorkers &gt; 0.
      */
-    WorkerGroupPool(const std::string &name,
-                    std::size_t numWorkers, std::size_t spare)
+    WorkerGroup(const std::string &name,
+                std::size_t numWorkers, std::size_t spare)
         : threadName(name), itemPool(numWorkers + spare),
+        workQueue(numWorkers + spare),
         pushStat(Statistics::getStatistic<Statistics::Variable>(name + ".push")),
         firstPopStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop.first")),
         popStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop")),
@@ -247,7 +255,7 @@ private:
                     boost::shared_ptr<WorkItem> item;
                     {
                         Timeplot::Action timer("pop", tworker, firstPop ? owner.firstPopStat : owner.popStat);
-                        item = owner.popImpl(worker);
+                        item = owner.workQueue.pop();
                     }
                     if (!item.get())
                         break; // we have been asked to shut down
@@ -271,6 +279,7 @@ private:
     /// Name to assign to threads
     const std::string threadName;
 
+    /// Pool of unallocated items
     Pool<WorkItem> itemPool;
 
     /**
@@ -285,103 +294,39 @@ private:
      */
     boost::ptr_vector<Worker> workers;
 
+    /// Work queue
+    WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
+
     Statistics::Variable &pushStat;
     Statistics::Variable &firstPopStat;
     Statistics::Variable &popStat;
     Statistics::Variable &getStat;
     Statistics::Variable &computeStat;
-};
-
-/**
- * A collection of threads operating on work-items, fed by a queue.
- *
- * @param WorkItem     A POD type describing an item of work.
- * @param Worker       Function object class that is called to process elements.
- * @param Derived      The class that is being derived from the template.
- *
- * The @a Worker class must have an @c operator() that accepts a reference to a
- * @a WorkItem. The operator does not need to be @c const.  The worker class
- * does not need to be copyable or default-constructable and may contain
- * significant state.
- *
- * The @a Worker class must also have @c start() and @c stop() methods, which will
- * be called when the whole workgroup is started or stopped. These may be empty,
- * but are provided to allow for additional setup for cleanup, particularly when
- * the whole group is reused in multiple passes.
- *
- * The workitems may also be large objects, and the design is based on
- * recycling a fixed pool rather than having the caller construct them. Users
- * of the class will call @ref get to retrieve an item from the pool, populate
- * it, then call @ref push to enqueue the item for processing.
- *
- * At construction, the worker group is given both a number of threads and a
- * capacity. The capacity determines the number of workitems that will be
- * live. If capacity equals the number of workers, then it will only be
- * possible to populate a new work item while one of the workers is idle. If
- * capacity exceeds the number of threads, then it will be possible to
- * populate spare work items while all worker threads are busy. The capacity
- * is specified as a delta to the number of workers.
- *
- * The @ref start and @ref stop functions are not thread-safe: they should
- * only be called by a single manager thread. The other functions are
- * thread-safe, allowing for multiple producers.
- */
-template<typename WorkItem, typename Worker, typename Derived>
-class WorkerGroup : public WorkerGroupPool<WorkItem, Worker, Derived>
-{
-    typedef WorkerGroupPool<WorkItem, Worker, Derived> BaseType;
-    friend class WorkerGroupPool<WorkItem, Worker, Derived>;
-
-public:
-    /**
-     * Constructor. The derived class must chain to this, and then
-     * make exactly @a numWorkers calls to @ref addWorker to provide the
-     * constructed workers.
-     *
-     * @param name           Name for the threads in the pool.
-     * @param numWorkers     Number of worker threads to use.
-     * @param spare          Number of work items to have available in the pool when all workers are busy.
-     *
-     * @pre @a numWorkers &gt; 0.
-     */
-    WorkerGroup(const std::string &name,
-                std::size_t numWorkers, std::size_t spare)
-        : BaseType(name, numWorkers, spare),
-          workQueue(numWorkers + spare)
-    {
-    }
 
     /**
-     * Shut down the worker threads.
+     * Take shutdown actions prior to joining the worker threads. This is a hook
+     * that subclasses may override.
      */
     void stopPreJoin()
     {
-        for (std::size_t i = 0; i < this->numWorkers(); i++)
-            workQueue.push(boost::shared_ptr<WorkItem>());
-    }
-
-private:
-    /**
-     * Enqueue an item of work.
-     *
-     * @pre @a item was obtained by @ref get.
-     */
-    void pushImpl(boost::shared_ptr<WorkItem> item)
-    {
-        workQueue.push(item);
     }
 
     /**
-     * Dequeue an item of work.
+     * Take shutdown actions after the worker threads have been joined. This is
+     * a hook that subclasses may override.
      */
-    boost::shared_ptr<WorkItem> popImpl(const Worker &worker)
+    void stopPostJoin()
     {
-        (void) &worker;
-        return workQueue.pop();
     }
 
-    /// Work queue
-    WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
+    /**
+     * Release transient resources stored in an item. This is a hook that
+     * subclasses my override.
+     */
+    void freeItem(WorkItem &item)
+    {
+        (void) item;
+    }
 };
 
 #endif /* !WORKER_GROUP_H */

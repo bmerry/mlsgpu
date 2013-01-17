@@ -185,8 +185,6 @@ public:
      */
     void stopPostJoin()
     {
-        WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>::stopPostJoin();
-
         /* Shut down the receivers */
         for (std::size_t i = 0; i < requesters; i++)
         {
