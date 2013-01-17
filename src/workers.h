@@ -131,14 +131,8 @@ public:
     struct WorkItem
     {
         ChunkId chunkId;               ///< Chunk owning this item
-        cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping the buffer
         cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use
 
-        /**
-         * Mutex to be held while mapping the splats.
-         * @see @ref DeviceWorkerGroup::splatMutex.
-         */
-        boost::mutex *splatMutex;
         cl::Buffer splats;
         std::size_t numSplats;
         CircularBufferBase::Allocation alloc;
@@ -208,6 +202,7 @@ private:
      * necessary, but NVIDIA drivers (up to at least 313.09) aren't thread-safe
      * when it comes to manipulations on sub-buffers.
      */
+    cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping buffers
     boost::mutex splatMutex;
     std::size_t splatAlign;
     CircularBufferBase splatAllocator;
@@ -275,6 +270,12 @@ public:
      * Estimate spare queue capacity.
      */
     std::size_t unallocated() { return splatAllocator.unallocated() / sizeof(Splat); }
+
+    /// Get the mutex to hold while mapping splats
+    boost::mutex &getSplatMutex() { return splatMutex; }
+
+    /// Get the command queue for mapping splats
+    const cl::CommandQueue &getMapQueue() const { return mapQueue; }
 };
 
 class FineBucketGroup;

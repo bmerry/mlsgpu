@@ -114,6 +114,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
+    mapQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
     splatAlign(device.getInfo<CL_DEVICE_MEM_BASE_ADDR_ALIGN>() / 8),
     splatAllocator("mem.device.splats", roundUp(memSplats, splatAlign)),
     splatStore(context, CL_MEM_READ_WRITE, splatAllocator.size())
@@ -121,9 +122,6 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     for (std::size_t i = 0; i < numWorkers + spare; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-        item->splatMutex = &splatMutex;
-        item->mapQueue = cl::CommandQueue(context, device);
-        item->numSplats = 0;
         addPoolItem(item);
     }
     for (std::size_t i = 0; i < numWorkers; i++)
@@ -149,7 +147,7 @@ boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
     region.origin = item->alloc.get();
     region.size = size * sizeof(Splat);
     {
-        boost::lock_guard<boost::mutex> createLock(*item->splatMutex);
+        boost::lock_guard<boost::mutex> createLock(splatMutex);
         item->splats = splatStore.createSubBuffer(CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region);
     }
     item->numSplats = size;
@@ -248,7 +246,7 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 
         tree.clearSplats();
         {
-            boost::lock_guard<boost::mutex> releaseLock(*work.splatMutex);
+            boost::lock_guard<boost::mutex> releaseLock(owner.splatMutex);
             work.splats = cl::Buffer(); // free the reference to the sub-buffer
         }
         owner.splatAllocator.free(work.alloc);
@@ -332,11 +330,11 @@ void FineBucketGroupBase::Worker::operator()(
         Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
 
         cl::Event mapEvent;
-        boost::unique_lock<boost::mutex> mapLock(*outItem->splatMutex);
-        CLH::BufferMapping<Splat> splats(outItem->splats, outItem->mapQueue, CL_MAP_WRITE,
+        boost::unique_lock<boost::mutex> mapLock(outGroup->getSplatMutex());
+        CLH::BufferMapping<Splat> splats(outItem->splats, outGroup->getMapQueue(), CL_MAP_WRITE,
                                          0, bytes, &mapEvent);
         mapLock.release()->unlock();
-        outItem->mapQueue.flush();
+        outGroup->getMapQueue().flush();
         mapEvent.wait();
 
         std::size_t pos = 0;
@@ -354,10 +352,10 @@ void FineBucketGroupBase::Worker::operator()(
         registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
 
         {
-            boost::lock_guard<boost::mutex> unmapLock(*outItem->splatMutex);
+            boost::lock_guard<boost::mutex> unmapLock(outGroup->getSplatMutex());
             splats.reset(NULL, &outItem->unmapEvent);
         }
-        outItem->mapQueue.flush();
+        outGroup->getMapQueue().flush();
     }
 
     outGroup->push(outItem, getTimeplotWorker(), splatSet.numSplats());
