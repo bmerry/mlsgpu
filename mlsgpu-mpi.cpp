@@ -154,11 +154,6 @@ public:
         : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, spare, requesters, comm),
         splatBuffer("mem.ScatterGroup.splats", maxCoarseSplats * sizeof(Splat))
     {
-        for (std::size_t i = 0; i < numWorkers + spare; i++)
-        {
-            boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-            addPoolItem(item);
-        }
     }
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
@@ -190,10 +185,6 @@ public:
         : WorkerGroupGather<WorkItem, GatherGroup>("gather", spare, comm, root),
         meshBuffer("mem.GatherGroup.mesh", 256 * 1024 * 1024)
     {
-        for (std::size_t i = 0; i < 1 + spare; i++)
-        {
-            addPoolItem(boost::make_shared<WorkItem>());
-        }
     }
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)

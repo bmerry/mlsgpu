@@ -59,10 +59,6 @@ public:
     ScatterGroup(std::size_t numWorkers, std::size_t spare, std::size_t requesters, MPI_Comm comm)
         : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, spare, requesters, comm)
     {
-        for (std::size_t i = 0; i < numWorkers + spare; i++)
-        {
-            addPoolItem(boost::make_shared<Item>());
-        }
     }
 };
 
@@ -72,10 +68,6 @@ public:
     GatherGroup(std::size_t spare, MPI_Comm comm, int root)
         : WorkerGroupGather<Item, GatherGroup>("GatherGroup", spare, comm, root)
     {
-        for (std::size_t i = 0; i < 1 + spare; i++)
-        {
-            addPoolItem(boost::make_shared<Item>());
-        }
     }
 };
 
@@ -108,8 +100,6 @@ public:
     {
         for (std::size_t i = 0; i < numWorkers; i++)
             addWorker(new ProcessWorker("ProcessWorker", i, outGroup));
-        for (std::size_t i = 0; i < numWorkers + spare; i++)
-            addPoolItem(boost::make_shared<Item>());
     }
 };
 
@@ -134,8 +124,6 @@ public:
     ConsumerGroup(std::size_t spare, std::vector<int> &values)
         : WorkerGroup<Item, ConsumerWorker, ConsumerGroup>("ConsumerGroup", 1, spare)
     {
-        for (std::size_t i = 0; i < 1 + spare; i++)
-            addPoolItem(boost::make_shared<Item>());
         addWorker(new ConsumerWorker(values));
     }
 };

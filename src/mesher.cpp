@@ -108,8 +108,6 @@ void OOCMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
 OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
     : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1, spare)
 {
-    for (std::size_t i = 0; i < 1 + spare; i++)
-        addPoolItem(boost::make_shared<TmpWriterItem>());
     addWorker(new TmpWriterWorker(*this, verticesFile, trianglesFile));
 }
 

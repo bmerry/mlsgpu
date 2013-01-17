@@ -16,6 +16,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/make_shared.hpp>
 #include <boost/foreach.hpp>
 #include <cstdlib>
 #include <cstddef>
@@ -191,16 +192,6 @@ protected:
         workers.push_back(worker);
     }
 
-    /**
-     * Register a work item during construction.
-     *
-     * @see @ref WorkerGroup::WorkerGroup.
-     */
-    void addPoolItem(boost::shared_ptr<WorkItem> item)
-    {
-        itemPool.push(item);
-    }
-
     /// Retrieve a reference to a worker.
     Worker &getWorker(std::size_t index)
     {
@@ -209,9 +200,8 @@ protected:
 
     /**
      * Constructor. The derived class must chain to this, and then
-     * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
-     * calls to @ref addPoolItem to provide the constructed workers and
-     * work items.
+     * make exactly @a numWorkers calls to @ref addWorker to provide the
+     * constructed workers.
      *
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
@@ -230,6 +220,8 @@ protected:
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
         workers.reserve(numWorkers);
+        for (std::size_t i = 0; i < numWorkers + spare; i++)
+            itemPool.push(boost::make_shared<WorkItem>());
     }
 
 private:
@@ -343,9 +335,8 @@ class WorkerGroup : public WorkerGroupPool<WorkItem, Worker, Derived>
 public:
     /**
      * Constructor. The derived class must chain to this, and then
-     * make exactly @a numWorkers calls to @ref addWorker and @a numWorkers + @a spare
-     * calls to @ref addPoolItem to provide the constructed workers and
-     * work items.
+     * make exactly @a numWorkers calls to @ref addWorker to provide the
+     * constructed workers.
      *
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.

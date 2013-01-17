@@ -55,8 +55,6 @@ MesherGroup::MesherGroup(std::size_t memMesh)
         "mesher", 1, spare),
     meshBuffer("mem.MesherGroup.mesh", memMesh)
 {
-    for (std::size_t i = 0; i < 1 + spare; i++)
-        addPoolItem(boost::make_shared<WorkItem>());
     addWorker(new Worker(*this));
 }
 
@@ -119,11 +117,6 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     splatAllocator("mem.device.splats", roundUp(memSplats, splatAlign)),
     splatStore(context, CL_MEM_READ_WRITE, splatAllocator.size())
 {
-    for (std::size_t i = 0; i < numWorkers + spare; i++)
-    {
-        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-        addPoolItem(item);
-    }
     for (std::size_t i = 0; i < numWorkers; i++)
     {
         addWorker(new Worker(*this, context, device, levels, boundaryLimit, shape, i));
@@ -277,11 +270,6 @@ FineBucketGroup::FineBucketGroup(
     for (std::size_t i = 0; i < numWorkers; i++)
     {
         addWorker(new Worker(*this, i));
-    }
-    for (std::size_t i = 0; i < numWorkers + spare; i++)
-    {
-        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-        addPoolItem(item);
     }
 }
 

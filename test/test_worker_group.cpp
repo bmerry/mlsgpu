@@ -101,8 +101,6 @@ void Worker::operator()(Item &item)
 Group::Group(Sink &sink, std::size_t workers, std::size_t spare)
     : WorkerGroup<Item, Worker, Group>("test", workers, spare)
 {
-    for (std::size_t i = 0; i < workers + spare; i++)
-        addPoolItem(boost::make_shared<Item>());
     for (std::size_t i = 0; i < workers; i++)
         addWorker(new Worker(sink, i));
 }
