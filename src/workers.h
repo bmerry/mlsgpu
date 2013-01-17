@@ -94,8 +94,10 @@ public:
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
 
-    MesherGroup(std::size_t spare);
+    MesherGroup();
 private:
+    static const std::size_t spare;
+
     MesherBase::InputFunctor input;
     CircularBuffer meshBuffer;
 

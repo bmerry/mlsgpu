@@ -111,7 +111,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
 
             Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup(devices.size() * numDeviceThreads * 8);
+            MesherGroup mesherGroup;
             boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
             std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
             for (std::size_t i = 0; i < devices.size(); i++)

@@ -38,7 +38,7 @@
 
 const std::size_t DeviceWorkerGroup::spare = 64;
 const std::size_t FineBucketGroup::spare = 64;
-
+const std::size_t MesherGroup::spare = 64;
 
 MesherGroupBase::Worker::Worker(MesherGroup &owner)
     : WorkerBase("mesher", 0), owner(owner) {}
@@ -50,7 +50,7 @@ void MesherGroupBase::Worker::operator()(WorkItem &item)
     owner.meshBuffer.free(item.alloc);
 }
 
-MesherGroup::MesherGroup(std::size_t spare)
+MesherGroup::MesherGroup()
     : WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>(
         "mesher", 1, spare),
     // TODO: compute minimum size, take actual size from cmd line

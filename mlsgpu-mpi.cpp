@@ -149,7 +149,7 @@ public:
     typedef FineBucketGroup::WorkItem WorkItem;
 
     ScatterGroup(
-        std::size_t numWorkers, std::size_t spare, std::size_t requesters,
+        std::size_t numWorkers, std::size_t requesters,
         MPI_Comm comm, std::size_t maxCoarseSplats)
         : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, spare, requesters, comm),
         splatBuffer("mem.ScatterGroup.splats", maxCoarseSplats * sizeof(Splat))
@@ -175,6 +175,8 @@ public:
     }
 
 private:
+    static const std::size_t spare = 64;
+
     CircularBuffer splatBuffer;
 };
 
@@ -184,7 +186,7 @@ public:
     typedef MesherGroup::WorkItem WorkItem;
 
     // TODO: figure out right size for buffer
-    GatherGroup(std::size_t spare, MPI_Comm comm, int root)
+    GatherGroup(MPI_Comm comm, int root)
         : WorkerGroupGather<WorkItem, GatherGroup>("gather", spare, comm, root),
         meshBuffer("mem.GatherGroup.mesh", 256 * 1024 * 1024)
     {
@@ -208,6 +210,7 @@ public:
     }
 
 private:
+    static const std::size_t spare = 64;
     CircularBuffer meshBuffer;
 };
 
@@ -282,7 +285,7 @@ void Slave::operator()() const
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    GatherGroup gatherGroup(devices.size() * numDeviceThreads * 8, gatherComm, gatherRoot);
+    GatherGroup gatherGroup(gatherComm, gatherRoot);
     boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
     std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
     for (std::size_t i = 0; i < devices.size(); i++)
@@ -430,10 +433,10 @@ static void run(
             mesher->setReorderCapacity(1024 * 1024 * 1024); // TODO: make tunable
 
             Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup(numSlaves * 8);
+            MesherGroup mesherGroup;
             ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
             // TODO: tune number of scatter senders
-            ScatterGroup scatterGroup(1, 1, numSlaves, scatterComm, maxHostSplats);
+            ScatterGroup scatterGroup(1, numSlaves, scatterComm, maxHostSplats);
             CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroup, mainWorker);
 
             Splats splats("mem.blobData");
