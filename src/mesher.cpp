@@ -24,6 +24,7 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/system/error_code.hpp>
@@ -660,6 +661,9 @@ public:
         cl::Event *event) const
     {
         MesherWork work;
+
+        boost::scoped_array<char> buffer(new char[mesh.getHostBytes()]);
+        work.mesh = HostKeyMesh(buffer.get(), mesh);
         std::vector<cl::Event> wait(3);
         enqueueReadMesh(queue, mesh, work.mesh, events, &wait[0], &wait[1], &wait[2]);
         CLH::enqueueMarkerWithWaitList(queue, &wait, event);
