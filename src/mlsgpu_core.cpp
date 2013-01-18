@@ -101,7 +101,7 @@ static void addMemoryOptions(po::options_description &opts)
 {
     po::options_description memory("Advanced memory options");
     memory.add_options()
-        (Option::memSplats,       po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for splats on the CPU (MiB)")
+        (Option::memHostSplats,   po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for splats on the CPU (MiB)")
         (Option::memDeviceSplats, po::value<Capacity>()->default_value(256 * 1024 * 1024),  "Memory for splats on the device (MiB)")
         (Option::memMesh,         po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for mesh data on the CPU (MiB)");
     opts.add(memory);
@@ -313,7 +313,7 @@ void validateOptions(const po::variables_map &vm)
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
-    const std::size_t memSplats = vm[Option::memSplats].as<Capacity>();
+    const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
 
@@ -351,8 +351,8 @@ void validateOptions(const po::variables_map &vm)
     if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
         throw invalid_option("Value of --fit-prune must be in [0, 1]");
 
-    if (memSplats < maxHostSplats * sizeof(Splat))
-        throw invalid_option("Value of --mem-splats is too small for --max-host-splats");
+    if (memHostSplats < maxHostSplats * sizeof(Splat))
+        throw invalid_option("Value of --mem-host-splats is too small for --max-host-splats");
     if (memDeviceSplats < maxDeviceSplats * sizeof(Splat))
         throw invalid_option("Value of --mem-device-splats is too small for --max-device-splats");
     if (memMesh < meshMemory(vm))

@@ -272,7 +272,7 @@ void Slave::operator()() const
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
 
-    const std::size_t memSplats = vm[Option::memSplats].as<Capacity>();
+    const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
@@ -295,7 +295,7 @@ void Slave::operator()() const
     }
     FineBucketGroup fineBucketGroup(
         numBucketThreads, deviceWorkerGroupPtrs,
-        memSplats, maxDeviceSplats, blockCells, maxSplit);
+        memHostSplats, maxDeviceSplats, blockCells, maxSplit);
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);
 

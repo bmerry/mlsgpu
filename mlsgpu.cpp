@@ -81,7 +81,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const bool split = vm.count(Option::split);
     const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
 
-    const std::size_t memSplats = vm[Option::memSplats].as<Capacity>();
+    const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
 
@@ -133,7 +133,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             }
             FineBucketGroup fineBucketGroup(
                 numBucketThreads, deviceWorkerGroupPtrs,
-                memSplats, maxDeviceSplats, blockCells, maxSplit);
+                memHostSplats, maxDeviceSplats, blockCells, maxSplit);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
 
             Splats splats("mem.blobData");

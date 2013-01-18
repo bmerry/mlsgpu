@@ -57,7 +57,7 @@ namespace Option
     const char * const writer = "writer";
     const char * const decache = "decache";
 
-    const char * const memSplats = "mem-splats";
+    const char * const memHostSplats = "mem-host-splats";
     const char * const memDeviceSplats = "mem-device-splats";
     const char * const memMesh = "mem-mesh";
 };
