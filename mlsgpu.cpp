@@ -72,8 +72,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MesherType mesherType = OOC_MESHER;
-    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
-    const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+    const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
+    const std::size_t maxHostSplats = getMaxHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
@@ -127,7 +127,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
                     devices[i].first, devices[i].second,
                     maxDeviceSplats, blockCells,
-                    memDeviceSplats, meshMemory(vm),
+                    memDeviceSplats, getMeshMemory(vm),
                     levels, subsampling,
                     boundaryLimit, shape);
                 deviceWorkerGroups.push_back(dwg);

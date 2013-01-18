@@ -46,8 +46,8 @@ namespace Option
     const char * const statisticsCL = "statistics-cl";
     const char * const timeplot = "timeplot";
 
-    const char * const maxHostSplats = "max-host-splats";
-    const char * const maxDeviceSplats = "max-device-splats";
+    const char * const hostSplatsLoad = "host-splats-load";
+    const char * const deviceSplatsLoad = "device-splats-load";
     const char * const maxSplit = "max-split";
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
@@ -104,9 +104,25 @@ void validateOptions(const boost::program_options::variables_map &vm, bool isMPI
 void setLogLevel(const boost::program_options::variables_map &vm);
 
 /**
- * Amount of GPU memory to reserve for mesh output.
+ * Amount of GPU memory to reserve for mesh data, including intermediate
+ * structures.
  */
-std::size_t meshMemory(const boost::program_options::variables_map &vm);
+std::size_t getMeshMemory(const boost::program_options::variables_map &vm);
+
+/**
+ * Amount of host memory needed to store an output mesh.
+ */
+std::size_t getMeshHostMemory(const boost::program_options::variables_map &vm);
+
+/**
+ * Maximum number of splats to produce from a coarse bucket.
+ */
+std::size_t getMaxHostSplats(const boost::program_options::variables_map &vm);
+
+/**
+ * Maximum number of splats to produce from a fine bucket.
+ */
+std::size_t getMaxDeviceSplats(const boost::program_options::variables_map &vm);
 
 /**
  * Estimate the per-device resource usage based on command-line options.

@@ -262,7 +262,7 @@ void Slave::operator()() const
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const std::size_t maxDeviceSplats = vm[Option::maxDeviceSplats].as<int>();
+    const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
@@ -284,7 +284,7 @@ void Slave::operator()() const
             numDeviceThreads, GetOutputFunctor(gatherGroup),
             devices[i].first, devices[i].second,
             maxDeviceSplats, blockCells,
-            memDeviceSplats, meshMemory(vm),
+            memDeviceSplats, getMeshMemory(vm),
             levels, subsampling,
             boundaryLimit, shape);
         deviceWorkerGroups.push_back(dwg);
@@ -393,7 +393,7 @@ static void run(
             ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
         const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
         const MesherType mesherType = OOC_MESHER;
-        const std::size_t maxHostSplats = vm[Option::maxHostSplats].as<std::size_t>();
+        const std::size_t maxHostSplats = getMaxHostSplats(vm);
         const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
         const double pruneThreshold = vm[Option::fitPrune].as<double>();
         const bool split = vm.count(Option::split);
