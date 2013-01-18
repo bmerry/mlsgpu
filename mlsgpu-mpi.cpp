@@ -159,7 +159,7 @@ public:
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
         boost::shared_ptr<WorkItem> item = WorkerGroupScatter<FineBucketGroup::WorkItem, ScatterGroup>::get(tworker, size);
-        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat));
+        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat), &getStat);
         item->numSplats = size;
         return item;
     }
@@ -191,7 +191,7 @@ public:
     {
         boost::shared_ptr<WorkItem> item = WorkerGroupGather<WorkItem, GatherGroup>::get(tworker, size);
         std::size_t rounded = roundUp(size, sizeof(cl_ulong)); // to ensure alignment
-        item->alloc = meshBuffer.allocate(tworker, rounded);
+        item->alloc = meshBuffer.allocate(tworker, rounded, &getStat);
         return item;
     }
 

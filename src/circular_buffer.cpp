@@ -17,6 +17,7 @@
 #include <list>
 #include <boost/noncopyable.hpp>
 #include <boost/thread/locks.hpp>
+#include "statistics.h"
 #include "allocator.h"
 #include "errors.h"
 #include "timeplot.h"
@@ -44,12 +45,14 @@ CircularBufferBase::CircularBufferBase(const std::string &name, std::size_t size
     MLSGPU_ASSERT(size > 0, std::invalid_argument);
 }
 
-CircularBufferBase::Allocation CircularBufferBase::allocate(Timeplot::Worker &tworker, std::size_t n)
+CircularBufferBase::Allocation CircularBufferBase::allocate(
+    Timeplot::Worker &tworker, std::size_t n,
+    Statistics::Variable *stat)
 {
     MLSGPU_ASSERT(n > 0, std::invalid_argument);
     MLSGPU_ASSERT(n <= bufferSize, std::out_of_range);
 
-    Timeplot::Action action("get", tworker);
+    Timeplot::Action action("get", tworker, stat);
 
     boost::lock_guard<boost::mutex> allocLock(allocMutex);
     boost::unique_lock<boost::mutex> lock(mutex);
@@ -114,19 +117,24 @@ void *CircularBuffer::Allocation::get() const
     return ptr;
 }
 
-CircularBuffer::Allocation CircularBuffer::allocate(Timeplot::Worker &tworker, std::size_t bytes)
+CircularBuffer::Allocation CircularBuffer::allocate(
+    Timeplot::Worker &tworker, std::size_t bytes,
+    Statistics::Variable *stat)
 {
     Allocation ans;
-    ans.base = CircularBufferBase::allocate(tworker, bytes);
+    ans.base = CircularBufferBase::allocate(tworker, bytes, stat);
     ans.ptr = buffer + ans.base.get();
     return ans;
 }
 
-CircularBuffer::Allocation CircularBuffer::allocate(Timeplot::Worker &tworker, std::size_t elementSize, std::size_t elements)
+CircularBuffer::Allocation CircularBuffer::allocate(
+    Timeplot::Worker &tworker,
+    std::size_t elementSize, std::size_t elements,
+    Statistics::Variable *stat)
 {
     MLSGPU_ASSERT(elementSize > 0, std::invalid_argument);
     MLSGPU_ASSERT(elements <= size() / elementSize, std::out_of_range);
-    return allocate(tworker, elementSize * elements);
+    return allocate(tworker, elementSize * elements, stat);
 }
 
 void CircularBuffer::free(const Allocation &alloc)

@@ -134,7 +134,7 @@ void OOCMesher::TmpWriterWorkerGroup::stopPostJoin()
 boost::shared_ptr<OOCMesher::TmpWriterItem> OOCMesher::TmpWriterWorkerGroup::get(Timeplot::Worker &tworker, std::size_t size)
 {
     (void) size;
-    CircularBufferBase::Allocation alloc = itemAllocator.allocate(tworker, 1);
+    CircularBufferBase::Allocation alloc = itemAllocator.allocate(tworker, 1, &getStat);
     boost::shared_ptr<TmpWriterItem> item = itemPool[alloc.get()];
     item->alloc = alloc;
     return item;

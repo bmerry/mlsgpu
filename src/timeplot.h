@@ -153,11 +153,12 @@ private:
 
 public:
     /**
-     * Constructor with no statistic to update.
+     * Constructor with run-time optional statistic to update.
      * @param name   Name for the action.
      * @param worker Owning worker.
+     * @param stat   Statistics that will be updated with the total time, or @c NULL.
      */
-    Action(const std::string &name, Worker &worker);
+    Action(const std::string &name, Worker &worker, Statistics::Variable *stat = NULL);
 
     /**
      * Constructor with statistic to update.

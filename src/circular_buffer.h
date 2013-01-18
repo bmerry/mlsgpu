@@ -19,6 +19,7 @@
 #include <boost/thread/locks.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include "tr1_cstdint.h"
+#include "statistics.h"
 #include "allocator.h"
 #include "timeplot.h"
 
@@ -116,10 +117,11 @@ public:
      * Allocate items from the buffer.
      * @param tworker        Worker to which waiting time is accounted.
      * @param n              Number of items to allocate.
+     * @param stat           Statistic to which the waiting time will be recorded (may be @c NULL).
      *
      * @pre 0 &lt; @a n &lt; @ref size().
      */
-    Allocation allocate(Timeplot::Worker &tworker, std::size_t n);
+    Allocation allocate(Timeplot::Worker &tworker, std::size_t n, Statistics::Variable *stat = NULL);
 
     /**
      * Free previously allocated items. Note that undefined behaviour
@@ -178,12 +180,15 @@ public:
      * @param tworker         Worker to indicate waiting time.
      * @param elementSize     Size of a single element.
      * @param elements        Number of elements to allocate.
+     * @param stat            Statistic to which the waiting time will be recorded (may be @c NULL).
      * @return A pointer to the allocated data
      *
      * @pre
      * - 0 &lt; @a elementSize * @a maxElements &lt; @ref size()
      */
-    Allocation allocate(Timeplot::Worker &tworker, std::size_t elementSize, std::size_t elements);
+    Allocation allocate(Timeplot::Worker &tworker,
+                        std::size_t elementSize, std::size_t elements,
+                        Statistics::Variable *stat = NULL);
 
     /**
      * Variant of @ref allocate(Timeplot::Worker &, std::size_t, std::size_t)
@@ -191,12 +196,14 @@ public:
      *
      * @param tworker         Worker to indicate waiting time.
      * @param bytes           Number of bytes to allocate.
+     * @param stat            Statistic to which the waiting time will be recorded (may be @c NULL).
      * @return Allocation information
      *
      * @pre
      * - 0 &lt; @a bytes &lt;= @ref size()
      */
-    Allocation allocate(Timeplot::Worker &tworker, std::size_t bytes);
+    Allocation allocate(Timeplot::Worker &tworker, std::size_t bytes,
+                        Statistics::Variable *stat = NULL);
 
     /**
      * Free memory allocated by @ref allocate. Each call to @ref allocate must be matched with

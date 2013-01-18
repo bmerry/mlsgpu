@@ -181,6 +181,7 @@ public:
     }
 
 protected:
+
     /**
      * Register a worker during construction.
      *
@@ -213,6 +214,7 @@ protected:
         workQueue(),
         firstPopStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop.first")),
         popStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop")),
+        getStat(Statistics::getStatistic<Statistics::Variable>(name + ".get")),
         computeStat(Statistics::getStatistic<Statistics::Variable>(name + ".compute"))
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
@@ -284,6 +286,9 @@ private:
 
     Statistics::Variable &firstPopStat;
     Statistics::Variable &popStat;
+protected:
+    Statistics::Variable &getStat;
+private:
     Statistics::Variable &computeStat;
 
     /**

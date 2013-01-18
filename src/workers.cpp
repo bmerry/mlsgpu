@@ -58,7 +58,7 @@ boost::shared_ptr<MesherGroup::WorkItem> MesherGroup::get(Timeplot::Worker &twor
 {
     boost::shared_ptr<WorkItem> item = WorkerGroup<WorkItem, Worker, MesherGroup>::get(tworker, size);
     std::size_t rounded = roundUp(size, sizeof(cl_ulong)); // to ensure alignment
-    item->alloc = meshBuffer.allocate(tworker, rounded);
+    item->alloc = meshBuffer.allocate(tworker, rounded, &getStat);
     return item;
 }
 
@@ -130,7 +130,7 @@ boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
 {
     boost::shared_ptr<WorkItem> item = Base::get(tworker, size);
     std::size_t bytes = roundUp(size * sizeof(Splat), splatAlign);
-    item->alloc = splatAllocator.allocate(tworker, bytes);
+    item->alloc = splatAllocator.allocate(tworker, bytes, &getStat);
 
     cl_buffer_region region;
     region.origin = item->alloc.get();

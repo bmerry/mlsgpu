@@ -92,8 +92,8 @@ void Action::init()
     oldAction = worker.start(this, start);
 }
 
-Action::Action(const std::string &name, Worker &worker)
-    : name(name), worker(worker), stat(NULL)
+Action::Action(const std::string &name, Worker &worker, Statistics::Variable *stat)
+    : name(name), worker(worker), stat(stat)
 {
     init();
 }

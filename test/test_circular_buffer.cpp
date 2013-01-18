@@ -86,9 +86,9 @@ void TestCircularBuffer::testTooLarge()
 {
     Timeplot::Worker tworker("test");
     CircularBuffer buffer("test", 999);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1000, 1), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1, 1000), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 100, 100), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1000, 1, NULL), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1, 1000, NULL), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 100, 100, NULL), std::out_of_range);
     CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 1000), std::out_of_range);
 }
 
@@ -103,8 +103,8 @@ void TestCircularBuffer::testZero()
 {
     Timeplot::Worker tworker("test");
     CircularBuffer buffer("test", 16);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 4, 0), std::invalid_argument);
-    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 0, 4), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 4, 0, NULL), std::invalid_argument);
+    CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 0, 4, NULL), std::invalid_argument);
     CPPUNIT_ASSERT_THROW(buffer.allocate(tworker, 0), std::invalid_argument);
 }
 

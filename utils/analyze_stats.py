@@ -59,9 +59,9 @@ def analyze_bucket_coarse(values):
     times['compute'] = values['bucket.coarse.compute']
     times['load'] = values['bucket.coarse.load']
     if 'scatter.get' in values:
-        times['wait-out'] = values['scatter.get'] + values['scatter.push']
+        times['wait-out'] = values['scatter.get'] + values.get('scatter.push', 0.0)
     else:
-        times['wait-out'] = values['bucket.fine.get'] + values['bucket.fine.push']
+        times['wait-out'] = values['bucket.fine.get'] + values.get('bucket.fine.push', 0.0)
     print_breakdown('CoarseBucket', times, values['pass1.time'])
 
 def analyze_bucket_fine(values):
@@ -70,7 +70,7 @@ def analyze_bucket_fine(values):
     times['startup'] = values['bucket.fine.pop.first']
     times['compute'] = values['bucket.fine.compute']
     times['wait-in'] = values['bucket.fine.pop']
-    times['wait-out'] = values['device.get'] + values['device.push']
+    times['wait-out'] = values['device.get'] + values.get('device.push', 0.0)
     print_breakdown('FineBucket', times, values['pass1.time'] * threads)
 
 def analyze_device(values):
@@ -80,9 +80,9 @@ def analyze_device(values):
     times['compute'] = values['device.compute']
     times['wait-in'] = values['device.pop']
     if 'gather.get' in values:
-        times['wait-out'] = values['gather.get'] + values['gather.push']
+        times['wait-out'] = values['gather.get'] + values.get('gather.push', 0.0)
     else:
-        times['wait-out'] = values['mesher.get'] + values['mesher.push']
+        times['wait-out'] = values['mesher.get'] + values.get('mesher.push', 0.0)
     print_breakdown('Device', times, values['pass1.time'] * threads)
 
 def analyze_mesher(values):
@@ -91,7 +91,7 @@ def analyze_mesher(values):
     times['compute'] = values['mesher.compute']
     times['wait-in'] = values['mesher.pop']
     if 'tmpwriter.get' in values:
-        times['wait-out'] = values['tmpwriter.get'] + values['tmpwriter.push']
+        times['wait-out'] = values['tmpwriter.get'] + values.get('tmpwriter.push', 0.0)
     print_breakdown('Mesher', times, values['pass1.time'])
 
 def analyze_tmpwriter(values):

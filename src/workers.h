@@ -338,7 +338,7 @@ public:
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
         boost::shared_ptr<WorkItem> item = BaseType::get(tworker, size);
-        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat));
+        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat), &getStat);
         item->numSplats = size;
         return item;
     }
