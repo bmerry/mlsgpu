@@ -42,6 +42,7 @@
 #include "statistics.h"
 #include "allocator.h"
 #include "timeplot.h"
+#include "circular_buffer.h"
 
 class TestTmpWriterWorkerGroup;
 
@@ -435,6 +436,9 @@ private:
          */
         Statistics::Container::vector<std::pair<std::size_t, std::size_t> > triangleRanges;
 
+        /// Allocation from the circular buffer for this item
+        CircularBufferBase::Allocation alloc;
+
         TmpWriterItem();
     };
 
@@ -477,11 +481,16 @@ private:
         boost::filesystem::path verticesPath;
         /// Filename for @ref trianglesFile
         boost::filesystem::path trianglesPath;
+
+        /// Allocator for items
+        CircularBufferBase itemAllocator;
+        /// Backing store of items
+        std::vector<boost::shared_ptr<TmpWriterItem> > itemPool;
     public:
         /**
          * Constructor.
          */
-        TmpWriterWorkerGroup();
+        explicit TmpWriterWorkerGroup(std::size_t spare);
 
         /**
          * @copydoc WorkerGroup::start
@@ -495,6 +504,10 @@ private:
          * by @ref WorkerGroup).
          */
         void stopPostJoin();
+
+        boost::shared_ptr<TmpWriterItem> get(Timeplot::Worker &tworker, std::size_t size);
+
+        void freeItem(TmpWriterItem &item);
 
         /**
          * Get the path to the temporary file for vertices. If @ref start has
@@ -539,7 +552,7 @@ private:
      * here. During @ref flushBuffer, the ranges to write are filled in from
      * the per-chunk information.
      *
-     * This is initially a null pointer, and is also null immediate after a
+     * This is initially a null pointer, and is also null immediately after a
      * call to @ref flushBuffer. Functions (including @ref write) must be
      * prepared to deal with this.
      */
@@ -637,21 +650,7 @@ public:
     /**
      * @copydoc MesherBase::MesherBase
      */
-    OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
-        : MesherBase(writer, namer),
-        tmpNodes("mem.OOCMesher::tmpNodes"),
-        tmpClumpId("mem.OOCMesher::tmpClumpId"),
-        tmpVertexLabel("mem.OOCMesher::tmpVertexLabel"),
-        tmpFirstVertex("mem.OOCMesher::tmpFirstVertex"),
-        tmpNextVertex("mem.OOCMesher::tmpNextVertex"),
-        tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
-        tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
-        tmpWriter(),
-        chunks("mem.OOCMesher::chunks"),
-        clumps("mem.OOCMesher::clumps"),
-        clumpIdMap("mem.OOCMesher::clumpIdMap")
-    {
-    }
+    OOCMesher(FastPly::WriterBase &writer, const Namer &namer);
 
     ~OOCMesher();
 

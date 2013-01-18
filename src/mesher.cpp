@@ -53,6 +53,7 @@
 #include "statistics.h"
 #include "clh.h"
 #include "misc.h"
+#include "circular_buffer.h"
 
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
@@ -100,16 +101,15 @@ void OOCMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
             << boost::system::errc::make_error_code((boost::system::errc::errc_t) errno).message() << std::endl;
         std::exit(1);
     }
-    item.vertices.clear();
-    item.triangles.clear();
-    item.vertexRanges.clear();
-    item.triangleRanges.clear();
 }
 
-OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup()
-    : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1)
+OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
+    : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1),
+    itemAllocator("mem.OOCMesher::TmpWriterWorkerGroup::itemAllocator", spare + 1)
 {
     addWorker(new TmpWriterWorker(*this, verticesFile, trianglesFile));
+    for (std::size_t i = 0; i < itemAllocator.size(); i++)
+        itemPool.push_back(boost::make_shared<TmpWriterItem>());
 }
 
 void OOCMesher::TmpWriterWorkerGroup::start()
@@ -129,6 +129,40 @@ void OOCMesher::TmpWriterWorkerGroup::stopPostJoin()
             << boost::system::errc::make_error_code((boost::system::errc::errc_t) errno).message() << std::endl;
         std::exit(1);
     }
+}
+
+boost::shared_ptr<OOCMesher::TmpWriterItem> OOCMesher::TmpWriterWorkerGroup::get(Timeplot::Worker &tworker, std::size_t size)
+{
+    (void) size;
+    CircularBufferBase::Allocation alloc = itemAllocator.allocate(tworker, 1);
+    boost::shared_ptr<TmpWriterItem> item = itemPool[alloc.get()];
+    item->alloc = alloc;
+    return item;
+}
+
+void OOCMesher::TmpWriterWorkerGroup::freeItem(TmpWriterItem &item)
+{
+    item.vertices.clear();
+    item.triangles.clear();
+    item.vertexRanges.clear();
+    item.triangleRanges.clear();
+    itemAllocator.free(item.alloc);
+}
+
+OOCMesher::OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
+    : MesherBase(writer, namer),
+    tmpNodes("mem.OOCMesher::tmpNodes"),
+    tmpClumpId("mem.OOCMesher::tmpClumpId"),
+    tmpVertexLabel("mem.OOCMesher::tmpVertexLabel"),
+    tmpFirstVertex("mem.OOCMesher::tmpFirstVertex"),
+    tmpNextVertex("mem.OOCMesher::tmpNextVertex"),
+    tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
+    tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
+    tmpWriter(2),
+    chunks("mem.OOCMesher::chunks"),
+    clumps("mem.OOCMesher::clumps"),
+    clumpIdMap("mem.OOCMesher::clumpIdMap")
+{
 }
 
 OOCMesher::~OOCMesher()
