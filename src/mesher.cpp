@@ -103,9 +103,9 @@ void OOCMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
     }
 }
 
-OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
+OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t slots)
     : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1),
-    itemAllocator("mem.OOCMesher::TmpWriterWorkerGroup::itemAllocator", spare + 1)
+    itemAllocator("mem.OOCMesher::TmpWriterWorkerGroup::itemAllocator", slots)
 {
     addWorker(new TmpWriterWorker(*this, verticesFile, trianglesFile));
     for (std::size_t i = 0; i < itemAllocator.size(); i++)
@@ -149,6 +149,8 @@ void OOCMesher::TmpWriterWorkerGroup::freeItem(TmpWriterItem &item)
     itemAllocator.free(item.alloc);
 }
 
+const int OOCMesher::reorderSlots = 3;
+
 OOCMesher::OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
     : MesherBase(writer, namer),
     tmpNodes("mem.OOCMesher::tmpNodes"),
@@ -158,7 +160,7 @@ OOCMesher::OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
     tmpNextVertex("mem.OOCMesher::tmpNextVertex"),
     tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
     tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
-    tmpWriter(2),
+    tmpWriter(reorderSlots),
     chunks("mem.OOCMesher::chunks"),
     clumps("mem.OOCMesher::clumps"),
     clumpIdMap("mem.OOCMesher::clumpIdMap")
@@ -350,7 +352,7 @@ void OOCMesher::updateLocalClumps(
     {
         if ((numVertices + reorderBuffer->vertices.size()) * sizeof(vertex_type)
             + (mesh.numTriangles() + reorderBuffer->triangles.size()) * sizeof(triangle_type)
-            > getReorderCapacity())
+            > getReorderCapacity() / reorderSlots)
             flushBuffer();
     }
     if (!reorderBuffer)

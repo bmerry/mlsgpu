@@ -150,9 +150,9 @@ public:
 
     ScatterGroup(
         std::size_t numWorkers, std::size_t requesters,
-        MPI_Comm comm, std::size_t maxCoarseSplats)
+        MPI_Comm comm, std::size_t bufferSize)
         : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, requesters, comm),
-        splatBuffer("mem.ScatterGroup.splats", maxCoarseSplats * sizeof(Splat))
+        splatBuffer("mem.ScatterGroup.splats", bufferSize)
     {
     }
 
@@ -170,8 +170,6 @@ public:
     }
 
 private:
-    static const std::size_t spare = 64;
-
     CircularBuffer splatBuffer;
 };
 
@@ -180,10 +178,9 @@ class GatherGroup : public WorkerGroupGather<MesherGroup::WorkItem, GatherGroup>
 public:
     typedef MesherGroup::WorkItem WorkItem;
 
-    // TODO: figure out right size for buffer
-    GatherGroup(MPI_Comm comm, int root)
+    GatherGroup(MPI_Comm comm, int root, std::size_t bufferSize)
         : WorkerGroupGather<WorkItem, GatherGroup>("gather", comm, root),
-        meshBuffer("mem.GatherGroup.mesh", 256 * 1024 * 1024)
+        meshBuffer("mem.GatherGroup.mesh", bufferSize)
     {
     }
 
@@ -201,7 +198,6 @@ public:
     }
 
 private:
-    static const std::size_t spare = 64;
     CircularBuffer meshBuffer;
 };
 
@@ -274,11 +270,12 @@ void Slave::operator()() const
 
     const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
+    const std::size_t memGather = vm[Option::memGather].as<Capacity>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
 
-    GatherGroup gatherGroup(gatherComm, gatherRoot);
+    GatherGroup gatherGroup(gatherComm, gatherRoot, memGather);
     boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
     std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
     for (std::size_t i = 0; i < devices.size(); i++)
@@ -404,6 +401,8 @@ static void run(
         const int subsampling = vm[Option::subsampling].as<int>();
         const int levels = vm[Option::levels].as<int>();
         const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
+        const std::size_t memScatter = vm[Option::memScatter].as<Capacity>();
+        const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
 
         Timeplot::Worker mainWorker("main");
 
@@ -425,13 +424,13 @@ static void run(
             writer->addComment("mlsgpu options:" + makeOptions(vm));
             boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
             mesher->setPruneThreshold(pruneThreshold);
-            mesher->setReorderCapacity(1024 * 1024 * 1024); // TODO: make tunable
+            mesher->setReorderCapacity(memReorder);
 
             Log::log[Log::info] << "Initializing...\n";
             MesherGroup mesherGroup(memMesh);
             ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
             // TODO: tune number of scatter senders
-            ScatterGroup scatterGroup(1, numSlaves, scatterComm, maxHostSplats);
+            ScatterGroup scatterGroup(1, numSlaves, scatterComm, memScatter);
             CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroup, mainWorker);
 
             Splats splats("mem.blobData");
@@ -579,7 +578,7 @@ int main(int argc, char **argv)
     Serialize::init();
 
     Log::log.setLevel(Log::info);
-    po::variables_map vm = processOptions(argc, argv);
+    po::variables_map vm = processOptions(argc, argv, true);
     setLogLevel(vm);
 
     int rank, size;
@@ -601,7 +600,7 @@ int main(int argc, char **argv)
 
         try
         {
-            validateOptions(vm);
+            validateOptions(vm, true);
         }
         catch (invalid_option &e)
         {

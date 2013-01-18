@@ -1216,7 +1216,7 @@ public:
 
     virtual void tearDown();  ///< Delete the temporary files
 
-    TestTmpWriterWorkerGroup() : group(2) {}
+    TestTmpWriterWorkerGroup() : group(3) {}
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestTmpWriterWorkerGroup, TestSet::perCommit());
 

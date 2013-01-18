@@ -97,13 +97,18 @@ static void addAdvancedOptions(po::options_description &opts)
     opts.add(advanced);
 }
 
-static void addMemoryOptions(po::options_description &opts)
+static void addMemoryOptions(po::options_description &opts, bool isMPI)
 {
     po::options_description memory("Advanced memory options");
     memory.add_options()
-        (Option::memHostSplats,   po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for splats on the CPU (MiB)")
-        (Option::memDeviceSplats, po::value<Capacity>()->default_value(256 * 1024 * 1024),  "Memory for splats on the device (MiB)")
-        (Option::memMesh,         po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for mesh data on the CPU (MiB)");
+        (Option::memHostSplats,   po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for splats on the CPU")
+        (Option::memDeviceSplats, po::value<Capacity>()->default_value(256 * 1024 * 1024),  "Memory for splats on the device")
+        (Option::memMesh,         po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for raw mesh data on the CPU")
+        (Option::memReorder,      po::value<Capacity>()->default_value(2U * 1024 * 1024 * 1024), "Memory for processed mesh data on the CPU");
+    if (isMPI)
+        memory.add_options()
+            (Option::memScatter,  po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for buffering splats on the master")
+            (Option::memGather,   po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for buffering raw mesh data on the slaves");
     opts.add(memory);
 }
 
@@ -113,7 +118,7 @@ void usage(std::ostream &o, const po::options_description desc)
     o << desc;
 }
 
-po::variables_map processOptions(int argc, char **argv)
+po::variables_map processOptions(int argc, char **argv, bool isMPI)
 {
     // TODO: replace cerr with thrown exception
     po::positional_options_description positional;
@@ -124,7 +129,7 @@ po::variables_map processOptions(int argc, char **argv)
     addFitOptions(desc);
     addStatisticsOptions(desc);
     addAdvancedOptions(desc);
-    addMemoryOptions(desc);
+    addMemoryOptions(desc, isMPI);
     desc.add_options()
         ("output-file,o",   po::value<std::string>()->required(), "output file")
         (Option::split,     "split output across multiple files")
@@ -302,7 +307,7 @@ void writeStatistics(const po::variables_map &vm, bool force)
     }
 }
 
-void validateOptions(const po::variables_map &vm)
+void validateOptions(const po::variables_map &vm, bool isMPI)
 {
     const int levels = vm[Option::levels].as<int>();
     const int subsampling = vm[Option::subsampling].as<int>();
@@ -357,6 +362,15 @@ void validateOptions(const po::variables_map &vm)
         throw invalid_option("Value of --mem-device-splats is too small for --max-device-splats");
     if (memMesh < meshMemory(vm))
         throw invalid_option("Value of --mem-mesh is too small");
+    if (isMPI)
+    {
+        const std::size_t memScatter = vm[Option::memScatter].as<Capacity>();
+        const std::size_t memGather = vm[Option::memGather].as<Capacity>();
+        if (memScatter < maxHostSplats * sizeof(Splat))
+            throw invalid_option("Value of --mem-scatter is too small for --max-host-splats");
+        if (memGather < meshMemory(vm))
+            throw invalid_option("Value of --mem-gather is too small");
+    }
 }
 
 void setLogLevel(const po::variables_map &vm)

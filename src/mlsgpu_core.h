@@ -60,6 +60,9 @@ namespace Option
     const char * const memHostSplats = "mem-host-splats";
     const char * const memDeviceSplats = "mem-device-splats";
     const char * const memMesh = "mem-mesh";
+    const char * const memReorder = "mem-reorder";
+    const char * const memScatter = "mem-scatter";
+    const char * const memGather = "mem-gather";
 };
 
 /**
@@ -70,7 +73,7 @@ void usage(std::ostream &o, const boost::program_options::options_description de
 /**
  * Process the argv array to produce command-line options.
  */
-boost::program_options::variables_map processOptions(int argc, char **argv);
+boost::program_options::variables_map processOptions(int argc, char **argv, bool isMPI);
 
 /**
  * Translate the command-line options back into the form they would be given
@@ -89,10 +92,11 @@ void writeStatistics(const boost::program_options::variables_map &vm, bool force
 /**
  * Check that command-line option values are valid and in range.
  * @param vm    Command-line options.
+ * @param isMPI Whether MPI-related options are expected.
  *
  * @throw invalid_option if any of the options were invalid.
  */
-void validateOptions(const boost::program_options::variables_map &vm);
+void validateOptions(const boost::program_options::variables_map &vm, bool isMPI);
 
 /**
  * Set the logging level based on the command-line options.

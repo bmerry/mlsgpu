@@ -84,6 +84,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
+    const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
 
     Timeplot::Worker mainWorker("main");
 
@@ -107,6 +108,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         writer->addComment("mlsgpu variant: " + provenanceVariant());
         writer->addComment("mlsgpu options:" + makeOptions(vm));
         boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
+        mesher->setReorderCapacity(memReorder);
         mesher->setPruneThreshold(pruneThreshold);
 
         {
@@ -243,7 +245,7 @@ int main(int argc, char **argv)
 {
     Log::log.setLevel(Log::info);
 
-    po::variables_map vm = processOptions(argc, argv);
+    po::variables_map vm = processOptions(argc, argv, false);
     setLogLevel(vm);
 
     std::vector<cl::Device> devices = CLH::findDevices(vm);
@@ -255,7 +257,7 @@ int main(int argc, char **argv)
 
     try
     {
-        validateOptions(vm);
+        validateOptions(vm, false);
     }
     catch (invalid_option &e)
     {

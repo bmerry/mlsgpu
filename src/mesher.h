@@ -311,6 +311,8 @@ public:
     typedef boost::array<cl_uint, 3> triangle_type;
 
 private:
+    static const int reorderSlots;
+
     typedef std::tr1::int32_t clump_id;
 
     /**
@@ -490,7 +492,7 @@ private:
         /**
          * Constructor.
          */
-        explicit TmpWriterWorkerGroup(std::size_t spare);
+        explicit TmpWriterWorkerGroup(std::size_t slots);
 
         /**
          * @copydoc WorkerGroup::start
