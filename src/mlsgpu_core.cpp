@@ -387,6 +387,7 @@ CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
 
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
+    // TODO: get rid of device parameter
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
         deviceThreads, cl::Device(),
         maxDeviceSplats, maxCells,
