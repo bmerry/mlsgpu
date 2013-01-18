@@ -23,81 +23,6 @@
 namespace
 {
 
-template<typename T>
-class mpi_type_traits
-{
-};
-
-template<>
-class mpi_type_traits<int>
-{
-public:
-    static MPI_Datatype type() { return MPI_INT; }
-};
-
-template<>
-class mpi_type_traits<unsigned int>
-{
-public:
-    static MPI_Datatype type() { return MPI_UNSIGNED; }
-};
-
-template<>
-class mpi_type_traits<long>
-{
-public:
-    static MPI_Datatype type() { return MPI_LONG; }
-};
-
-template<>
-class mpi_type_traits<unsigned long>
-{
-public:
-    static MPI_Datatype type() { return MPI_UNSIGNED_LONG; }
-};
-
-template<>
-class mpi_type_traits<long long>
-{
-public:
-    static MPI_Datatype type() { return MPI_LONG_LONG; }
-};
-
-template<>
-class mpi_type_traits<unsigned long long>
-{
-public:
-    static MPI_Datatype type() { return MPI_UNSIGNED_LONG_LONG; }
-};
-
-template<>
-class mpi_type_traits<short>
-{
-public:
-    static MPI_Datatype type() { return MPI_SHORT; }
-};
-
-template<>
-class mpi_type_traits<unsigned short>
-{
-public:
-    static MPI_Datatype type() { return MPI_UNSIGNED_SHORT; }
-};
-
-template<>
-class mpi_type_traits<float>
-{
-public:
-    static MPI_Datatype type() { return MPI_FLOAT; }
-};
-
-template<>
-class mpi_type_traits<double>
-{
-public:
-    static MPI_Datatype type() { return MPI_DOUBLE; }
-};
-
 /// Representation of @ref Grid that can safely be turned into an MPI data type.
 struct RawGrid
 {
@@ -120,7 +45,7 @@ static void registerGridType()
         offsetof(RawGrid, extents),
         sizeof(RawGrid)
     };
-    MPI_Datatype types[5] = { MPI_LB, MPI_FLOAT, MPI_FLOAT, mpi_type_traits<Grid::difference_type>::type(), MPI_UB };
+    MPI_Datatype types[5] = { MPI_LB, MPI_FLOAT, MPI_FLOAT, Serialize::mpi_type_traits<Grid::difference_type>::type(), MPI_UB };
 
     MPI_Type_create_struct(5, lengths, displacements, types, &gridType);
     MPI_Type_set_name(gridType, const_cast<char *>("RawGrid"));
@@ -146,8 +71,8 @@ static void registerBucketRecursionType()
     {
         MPI_LB,
         MPI_UNSIGNED,
-        mpi_type_traits<std::size_t>::type(),
-        mpi_type_traits<Grid::size_type>::type(),
+        Serialize::mpi_type_traits<std::size_t>::type(),
+        Serialize::mpi_type_traits<Grid::size_type>::type(),
         MPI_UB
     };
 
@@ -170,8 +95,8 @@ static void registerChunkIdType()
     MPI_Datatype types[4] =
     {
         MPI_LB,
-        mpi_type_traits<ChunkId::gen_type>::type(),
-        mpi_type_traits<Grid::size_type>::type(),
+        Serialize::mpi_type_traits<ChunkId::gen_type>::type(),
+        Serialize::mpi_type_traits<Grid::size_type>::type(),
         MPI_UB
     };
 

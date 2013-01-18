@@ -14,6 +14,7 @@
 #include <cassert>
 #include "worker_group.h"
 #include "tags.h"
+#include "serialize.h"
 
 /**
  * Transmits an item by calling its @c send member. For items that do not have this
@@ -78,9 +79,9 @@ public:
         {
             Timeplot::Action action("send", getTimeplotWorker());
             // Tell it there is a work item coming
-            unsigned long workSize = sizeItem(item);
+            std::size_t workSize = sizeItem(item);
             assert(workSize > 0);
-            MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+            MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
             // Send it the work item
             sendItem(item, comm, status.MPI_SOURCE);
         }
@@ -117,7 +118,7 @@ public:
         Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("RequesterScatter.recv");
         while (true)
         {
-            int workSize;
+            std::size_t workSize;
             MPI_Status status;
             {
                 Timeplot::Action action("send", tworker, sendStat);
@@ -126,7 +127,7 @@ public:
             {
                 Timeplot::Action action("wait", tworker, waitStat);
                 /* We will either get some work or a request to shut down */
-                MPI_Recv(&workSize, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
+                MPI_Recv(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm, &status);
             }
             if (workSize == 0)
                 break;
@@ -188,9 +189,9 @@ public:
         for (std::size_t i = 0; i < requesters; i++)
         {
             MPI_Status status;
-            unsigned long workSize = 0;
+            std::size_t workSize = 0;
             MPI_Recv(NULL, 0, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
-            MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+            MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), status.MPI_SOURCE, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
         }
     }
 };
@@ -224,15 +225,17 @@ public:
     void operator()(WorkItem &item)
     {
         Timeplot::Action action("send", getTimeplotWorker());
-        unsigned long workSize = sizeItem(item);
-        MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
+        std::size_t workSize = sizeItem(item);
+        MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), root,
+                 MLSGPU_TAG_GATHER_HAS_WORK, comm);
         sendItem(item, comm, root);
     }
 
     void stop()
     {
-        unsigned long workSize = 0;
-        MPI_Send(&workSize, 1, MPI_UNSIGNED_LONG, root, MLSGPU_TAG_GATHER_HAS_WORK, comm);
+        std::size_t workSize = 0;
+        MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), root,
+                 MLSGPU_TAG_GATHER_HAS_WORK, comm);
     }
 };
 
@@ -265,11 +268,12 @@ public:
         Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("ReceiverGather.recv");
         while (rem > 0)
         {
-            unsigned long workSize;
+            std::size_t workSize;
             MPI_Status status;
             {
                 Timeplot::Action action("wait", tworker, waitStat);
-                MPI_Recv(&workSize, 1, MPI_UNSIGNED_LONG, MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
+                MPI_Recv(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
+                         MPI_ANY_SOURCE, MLSGPU_TAG_GATHER_HAS_WORK, comm, &status);
             }
             if (workSize == 0)
                 rem--;
