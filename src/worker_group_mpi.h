@@ -137,7 +137,7 @@ public:
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
                 }
-                outGroup.push(item, tworker, workSize);
+                outGroup.push(item);
             }
         }
     }
@@ -164,15 +164,14 @@ protected:
      *
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
-     * @param spare          Number of work items to have available in the pool when all workers are busy.
      * @param requesters     Number of requesters which need to be shut down at the end.
      * @param comm           Communicator to use. The remote group must have an associated requester per member.
      */
     WorkerGroupScatter(const std::string &name,
-                       std::size_t numWorkers, std::size_t spare,
+                       std::size_t numWorkers,
                        std::size_t requesters,
                        MPI_Comm comm)
-        : WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>(name, numWorkers, spare),
+        : WorkerGroup<WorkItem, WorkerScatter<WorkItem>, Derived>(name, numWorkers),
         comm(comm), requesters(requesters)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
@@ -281,7 +280,7 @@ public:
                     Timeplot::Action action("recv", tworker, recvStat);
                     recvItem(*item, comm, status.MPI_SOURCE);
                 }
-                outGroup.push(item, tworker, workSize);
+                outGroup.push(item);
             }
         }
     }
@@ -296,16 +295,14 @@ class WorkerGroupGather : public WorkerGroup<WorkItem, WorkerGather<WorkItem>, D
 {
 protected:
     /**
-     * Constructor. This takes care of constructing the (single) worker, but does not
-     * generate the item pool. The subclass must place @a spare + 1 items in the pool.
+     * Constructor. This takes care of constructing the (single) worker.
      *
      * @param name      Name for the group (also for the worker).
-     * @param spare     Number of extra available workitems (after the first).
      * @param comm      Communicator to send the items.
      * @param root      Destination for the items within @a comm.
      */
-    WorkerGroupGather(const std::string &name, std::size_t spare, MPI_Comm comm, int root)
-        : WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>(name, 1, spare)
+    WorkerGroupGather(const std::string &name, MPI_Comm comm, int root)
+        : WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>(name, 1)
     {
         this->addWorker(new WorkerGather<WorkItem>(name, comm, root));
     }

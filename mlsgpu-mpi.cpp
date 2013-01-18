@@ -151,7 +151,7 @@ public:
     ScatterGroup(
         std::size_t numWorkers, std::size_t requesters,
         MPI_Comm comm, std::size_t maxCoarseSplats)
-        : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, spare, requesters, comm),
+        : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, requesters, comm),
         splatBuffer("mem.ScatterGroup.splats", maxCoarseSplats * sizeof(Splat))
     {
     }
@@ -182,7 +182,7 @@ public:
 
     // TODO: figure out right size for buffer
     GatherGroup(MPI_Comm comm, int root)
-        : WorkerGroupGather<WorkItem, GatherGroup>("gather", spare, comm, root),
+        : WorkerGroupGather<WorkItem, GatherGroup>("gather", comm, root),
         meshBuffer("mem.GatherGroup.mesh", 256 * 1024 * 1024)
     {
     }
@@ -239,7 +239,7 @@ public:
         item->work.verticesEvent = wait[0];
         item->work.vertexKeysEvent = wait[1];
         item->work.trianglesEvent = wait[2];
-        outGroup.push(item, tworker, bytes);
+        outGroup.push(item);
     }
 };
 

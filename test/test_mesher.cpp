@@ -1216,7 +1216,7 @@ public:
 
     virtual void tearDown();  ///< Delete the temporary files
 
-    TestTmpWriterWorkerGroup() : group(2) {}
+    TestTmpWriterWorkerGroup() : group() {}
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestTmpWriterWorkerGroup, TestSet::perCommit());
 
@@ -1302,7 +1302,7 @@ void TestTmpWriterWorkerGroup::testRandom()
                 expectedTriangles.push_back(triangles[k]);
         }
 
-        group.push(item, tworker, 1);
+        group.push(item);
     }
 
     group.stop();

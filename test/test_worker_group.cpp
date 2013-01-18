@@ -64,7 +64,7 @@ public:
 class Group : public WorkerGroup<Item, Worker, Group>
 {
 public:
-    Group(Sink &sink, std::size_t workers, std::size_t spare);
+    Group(Sink &sink, std::size_t workers);
 };
 
 /**
@@ -98,8 +98,8 @@ void Worker::operator()(Item &item)
     sink.values.push_back(out);
 }
 
-Group::Group(Sink &sink, std::size_t workers, std::size_t spare)
-    : WorkerGroup<Item, Worker, Group>("test", workers, spare)
+Group::Group(Sink &sink, std::size_t workers)
+    : WorkerGroup<Item, Worker, Group>("test", workers)
 {
     for (std::size_t i = 0; i < workers; i++)
         addWorker(new Worker(sink, i));
@@ -112,7 +112,7 @@ void Producer<T>::operator()()
     {
         boost::shared_ptr<Item> item = outGroup.get(*tworker, 1);
         item->value = i;
-        outGroup.push(item, *tworker, 1);
+        outGroup.push(item);
     }
 }
 
@@ -136,7 +136,7 @@ void TestWorkerGroup::testStress()
     const int numWorkers = 4;
     const int numbers = 10000;
     Sink sink;
-    Group group(sink, numWorkers, numProducers);
+    Group group(sink, numWorkers);
     group.start();
     boost::thread_group producers;
     for (int i = 0; i < numProducers; i++)

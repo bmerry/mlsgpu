@@ -480,9 +480,8 @@ private:
     public:
         /**
          * Constructor.
-         * @param spare  Number of reorder buffers that can be in flight
          */
-        explicit TmpWriterWorkerGroup(std::size_t spare);
+        TmpWriterWorkerGroup();
 
         /**
          * @copydoc WorkerGroup::start
@@ -627,9 +626,9 @@ private:
         Timeplot::Worker &tworker);
 
     /**
-     * Transfer any data in the reordering buffer to the temporary files.
+     * Start async transfer any data in the reordering buffer to the temporary files.
      */
-    void flushBuffer(Timeplot::Worker &tworker);
+    void flushBuffer();
 
     /// Implementation of the functor
     void add(MesherWork &work, Timeplot::Worker &worker);
@@ -647,7 +646,7 @@ public:
         tmpNextVertex("mem.OOCMesher::tmpNextVertex"),
         tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
         tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
-        tmpWriter(2),
+        tmpWriter(),
         chunks("mem.OOCMesher::chunks"),
         clumps("mem.OOCMesher::clumps"),
         clumpIdMap("mem.OOCMesher::clumpIdMap")

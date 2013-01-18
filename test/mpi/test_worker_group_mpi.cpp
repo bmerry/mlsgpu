@@ -56,8 +56,8 @@ std::size_t Item::size() const
 class ScatterGroup : public WorkerGroupScatter<Item, ScatterGroup>
 {
 public:
-    ScatterGroup(std::size_t numWorkers, std::size_t spare, std::size_t requesters, MPI_Comm comm)
-        : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, spare, requesters, comm)
+    ScatterGroup(std::size_t numWorkers, std::size_t requesters, MPI_Comm comm)
+        : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, requesters, comm)
     {
     }
 };
@@ -65,8 +65,8 @@ public:
 class GatherGroup : public WorkerGroupGather<Item, GatherGroup>
 {
 public:
-    GatherGroup(std::size_t spare, MPI_Comm comm, int root)
-        : WorkerGroupGather<Item, GatherGroup>("GatherGroup", spare, comm, root)
+    GatherGroup(MPI_Comm comm, int root)
+        : WorkerGroupGather<Item, GatherGroup>("GatherGroup", comm, root)
     {
     }
 };
@@ -88,15 +88,15 @@ public:
     {
         boost::shared_ptr<Item> outItem = outGroup.get(getTimeplotWorker(), 1);
         outItem->set(2 * item.get());
-        outGroup.push(outItem, getTimeplotWorker(), 1);
+        outGroup.push(outItem);
     }
 };
 
 class ProcessGroup : public WorkerGroup<Item, ProcessWorker, ProcessGroup>
 {
 public:
-    ProcessGroup(std::size_t numWorkers, std::size_t spare, GatherGroup &outGroup)
-        : WorkerGroup<Item, ProcessWorker, ProcessGroup>("ProcessGroup", numWorkers, spare)
+    ProcessGroup(std::size_t numWorkers, GatherGroup &outGroup)
+        : WorkerGroup<Item, ProcessWorker, ProcessGroup>("ProcessGroup", numWorkers)
     {
         for (std::size_t i = 0; i < numWorkers; i++)
             addWorker(new ProcessWorker("ProcessWorker", i, outGroup));
@@ -121,8 +121,8 @@ public:
 class ConsumerGroup : public WorkerGroup<Item, ConsumerWorker, ConsumerGroup>
 {
 public:
-    ConsumerGroup(std::size_t spare, std::vector<int> &values)
-        : WorkerGroup<Item, ConsumerWorker, ConsumerGroup>("ConsumerGroup", 1, spare)
+    ConsumerGroup(std::vector<int> &values)
+        : WorkerGroup<Item, ConsumerWorker, ConsumerGroup>("ConsumerGroup", 1)
     {
         addWorker(new ConsumerWorker(values));
     }
@@ -149,8 +149,8 @@ public:
 
     void operator()() const
     {
-        GatherGroup gatherGroup(2, inComm, inRoot);
-        ProcessGroup processGroup(3, 1, gatherGroup);
+        GatherGroup gatherGroup(inComm, inRoot);
+        ProcessGroup processGroup(3, gatherGroup);
         RequesterScatter<Item, ProcessGroup> requester("scatter", processGroup, outComm, outRoot);
         processGroup.start();
         gatherGroup.start();
@@ -210,9 +210,9 @@ void TestWorkerGroupScatter::testIntracomm()
         int size;
         MPI_Comm_size(outComm, &size);
 
-        ConsumerGroup consumer(2, values);
+        ConsumerGroup consumer(values);
         ReceiverGather<Item, ConsumerGroup> receiver("ReceiverGather", consumer, inComm, size);
-        ScatterGroup sendGroup(3, 3, size, outComm);
+        ScatterGroup sendGroup(3, size, outComm);
 
         sendGroup.start();
         boost::thread receiverThread(boost::ref(receiver));
@@ -224,7 +224,7 @@ void TestWorkerGroupScatter::testIntracomm()
             boost::shared_ptr<Item> item;
             item = sendGroup.get(tworker, 1);
             item->set(i);
-            sendGroup.push(item, tworker, 1);
+            sendGroup.push(item);
         }
 
         sendGroup.stop();

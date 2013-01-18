@@ -105,8 +105,8 @@ void OOCMesher::TmpWriterWorker::operator()(TmpWriterItem &item)
     item.triangleRanges.clear();
 }
 
-OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup(std::size_t spare)
-    : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1, spare)
+OOCMesher::TmpWriterWorkerGroup::TmpWriterWorkerGroup()
+    : WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>("tmpwriter", 1)
 {
     addWorker(new TmpWriterWorker(*this, verticesFile, trianglesFile));
 }
@@ -241,7 +241,7 @@ void OOCMesher::updateClumpKeyMap(
     }
 }
 
-void OOCMesher::flushBuffer(Timeplot::Worker &tworker)
+void OOCMesher::flushBuffer()
 {
     if (!reorderBuffer)
         return;
@@ -272,7 +272,7 @@ void OOCMesher::flushBuffer(Timeplot::Worker &tworker)
             chunk.bufferedClumps.clear();
         }
     }
-    tmpWriter.push(reorderBuffer, tworker, 1);
+    tmpWriter.push(reorderBuffer);
     reorderBuffer.reset();
 }
 
@@ -316,7 +316,7 @@ void OOCMesher::updateLocalClumps(
         if ((numVertices + reorderBuffer->vertices.size()) * sizeof(vertex_type)
             + (mesh.numTriangles() + reorderBuffer->triangles.size()) * sizeof(triangle_type)
             > getReorderCapacity())
-            flushBuffer(tworker);
+            flushBuffer();
     }
     if (!reorderBuffer)
         reorderBuffer = tmpWriter.get(tworker, 1);
@@ -424,7 +424,7 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    flushBuffer(tworker);
+    flushBuffer();
     tmpWriter.stop();
 
     boost::filesystem::ifstream verticesTmpRead(

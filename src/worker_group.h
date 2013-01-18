@@ -87,18 +87,9 @@ public:
  * but are provided to allow for additional setup for cleanup, particularly when
  * the whole group is reused in multiple passes.
  *
- * The workitems may also be large objects, and the design is based on
- * recycling a fixed pool rather than having the caller construct them. Users
- * of the class will call @ref get to retrieve an item from the pool, populate
- * it, then call @ref push to enqueue the item for processing.
- *
- * At construction, the worker group is given both a number of threads and a
- * capacity. The capacity determines the number of workitems that will be
- * live. If capacity equals the number of workers, then it will only be
- * possible to populate a new work item while one of the workers is idle. If
- * capacity exceeds the number of threads, then it will be possible to
- * populate spare work items while all worker threads are busy. The capacity
- * is specified as a delta to the number of workers.
+ * At construction, the worker group is given a number of threads. There is no
+ * bound on queue size, so if necessary some external mechanism must be used to
+ * block producers from flooding the queue.
  *
  * The @ref start and @ref stop functions are not thread-safe: they should
  * only be called by a single manager thread. The other functions are
@@ -108,30 +99,32 @@ template<typename WorkItem, typename Worker, typename Derived>
 class WorkerGroup
 {
 public:
+    typedef WorkItem work_item_type;
+    typedef Worker worker_type;
+
     bool running() const
     {
         return !threads.empty();
     }
 
     /**
-     * Retrieve an unused item to be populated with work.
-     *
-     * @todo Eliminate this entirely: callers can just create the item themselves, or
-     * the subclass can create it for them.
+     * Retrieve an unused item to be populated with work. In the default
+     * implementation @a tworker and @a size are unused, and this will not
+     * block. However, subclasses will typically override this method to
+     * obtain resources from a finite pool. The interpretation of @a size
+     * is dependent on the subclass.
      */
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
+        (void) tworker;
+        (void) size;
         return boost::make_shared<WorkItem>();
     }
 
     /**
      * Enqueue an item of work.
-     *
-     * @pre @a item was obtained by @ref get.
-     *
-     * @todo Eliminate tworker and size - it can no longer block.
      */
-    void push(boost::shared_ptr<WorkItem> item, Timeplot::Worker &tworker, std::size_t size)
+    void push(boost::shared_ptr<WorkItem> item)
     {
         workQueue.push(item);
     }
@@ -211,18 +204,15 @@ protected:
      *
      * @param name           Name for the threads in the pool.
      * @param numWorkers     Number of worker threads to use.
-     * @param spare          Number of work items to have available in the pool when all workers are busy.
      *
      * @pre @a numWorkers &gt; 0.
      */
     WorkerGroup(const std::string &name,
-                std::size_t numWorkers, std::size_t spare)
+                std::size_t numWorkers)
         : threadName(name),
         workQueue(),
-        pushStat(Statistics::getStatistic<Statistics::Variable>(name + ".push")),
         firstPopStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop.first")),
         popStat(Statistics::getStatistic<Statistics::Variable>(name + ".pop")),
-        getStat(Statistics::getStatistic<Statistics::Variable>(name + ".get")),
         computeStat(Statistics::getStatistic<Statistics::Variable>(name + ".compute"))
     {
         MLSGPU_ASSERT(numWorkers > 0, std::invalid_argument);
@@ -292,10 +282,8 @@ private:
      */
     WorkQueue<boost::shared_ptr<WorkItem> > workQueue;
 
-    Statistics::Variable &pushStat;
     Statistics::Variable &firstPopStat;
     Statistics::Variable &popStat;
-    Statistics::Variable &getStat;
     Statistics::Variable &computeStat;
 
     /**

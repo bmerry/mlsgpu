@@ -36,10 +36,6 @@
 #include "thread_name.h"
 #include "misc.h"
 
-const std::size_t DeviceWorkerGroup::spare = 64;
-const std::size_t FineBucketGroup::spare = 64;
-const std::size_t MesherGroup::spare = 64;
-
 MesherGroupBase::Worker::Worker(MesherGroup &owner)
     : WorkerBase("mesher", 0), owner(owner) {}
 
@@ -52,7 +48,7 @@ void MesherGroupBase::Worker::operator()(WorkItem &item)
 
 MesherGroup::MesherGroup(std::size_t memMesh)
     : WorkerGroup<MesherGroupBase::WorkItem, MesherGroupBase::Worker, MesherGroup>(
-        "mesher", 1, spare),
+        "mesher", 1),
     meshBuffer("mem.MesherGroup.mesh", memMesh)
 {
     addWorker(new Worker(*this));
@@ -95,7 +91,7 @@ void MesherGroup::outputFunc(
     item->work.verticesEvent = wait[0];
     item->work.vertexKeysEvent = wait[1];
     item->work.trianglesEvent = wait[2];
-    push(item, tworker, bytes);
+    push(item);
 }
 
 
@@ -108,7 +104,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     int levels, int subsampling, float boundaryLimit,
     MlsShape shape)
 :
-    Base("device", numWorkers, spare),
+    Base("device", numWorkers),
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
@@ -132,7 +128,7 @@ void DeviceWorkerGroup::start(const Grid &fullGrid)
 boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
     Timeplot::Worker &tworker, std::size_t size)
 {
-    boost::shared_ptr<DeviceWorkerGroup::WorkItem> item = Base::get(tworker, size);
+    boost::shared_ptr<WorkItem> item = Base::get(tworker, size);
     std::size_t bytes = roundUp(size * sizeof(Splat), splatAlign);
     item->alloc = splatAllocator.allocate(tworker, bytes);
 
@@ -259,7 +255,7 @@ FineBucketGroup::FineBucketGroup(
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
         "bucket.fine",
-        numWorkers, spare),
+        numWorkers),
     outGroups(outGroups),
     splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats),
     maxSplats(maxSplats),
@@ -346,7 +342,7 @@ void FineBucketGroupBase::Worker::operator()(
         outGroup->getMapQueue().flush();
     }
 
-    outGroup->push(outItem, getTimeplotWorker(), splatSet.numSplats());
+    outGroup->push(outItem);
 }
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)

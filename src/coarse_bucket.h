@@ -97,7 +97,7 @@ void CoarseBucket<Splats, OutGroup>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item, tworker, splats.numSplats());
+    outGroup.push(item);
 }
 
 template<typename Splats, typename OutGroup>

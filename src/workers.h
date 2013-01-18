@@ -101,8 +101,6 @@ public:
      */
     explicit MesherGroup(const std::size_t memMesh);
 private:
-    static const std::size_t spare;
-
     MesherBase::InputFunctor input;
     CircularBuffer meshBuffer;
 
@@ -185,8 +183,6 @@ public:
     typedef boost::function<Marching::OutputFunctor(const ChunkId &, Timeplot::Worker &)> OutputGenerator;
 
 private:
-    static const std::size_t spare;
-
     typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup> Base;
     ProgressMeter *progress;
     OutputGenerator outputGenerator;
@@ -350,8 +346,6 @@ public:
     void start(const Grid &fullGrid);
 
 private:
-    static const std::size_t spare;
-
     const std::vector<DeviceWorkerGroup *> outGroups;
     CircularBuffer splatBuffer;
 
