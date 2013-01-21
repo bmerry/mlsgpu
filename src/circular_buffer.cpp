@@ -148,7 +148,6 @@ CircularBuffer::CircularBuffer(const std::string &name, std::size_t size)
     allocator(Statistics::makeAllocator<Statistics::Allocator<std::allocator<char> > >(name)),
     buffer(NULL)
 {
-    MLSGPU_ASSERT(size >= 1, std::length_error);
     buffer = allocator.allocate(size);
 }
 
