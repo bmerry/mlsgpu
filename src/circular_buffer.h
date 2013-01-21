@@ -191,7 +191,7 @@ public:
                         Statistics::Variable *stat = NULL);
 
     /**
-     * Variant of @ref allocate(Timeplot::Worker &, std::size_t, std::size_t)
+     * Variant of @ref allocate(Timeplot::Worker &, std::size_t, std::size_t, Statistics::Variable *)
      * that takes just a byte count.
      *
      * @param tworker         Worker to indicate waiting time.
