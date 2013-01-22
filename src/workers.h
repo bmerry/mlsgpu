@@ -193,12 +193,12 @@ private:
     const std::size_t meshMemory;
     const int subsampling;
 
+    cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping buffers
     /**
      * Mutex to be held while doing subbuffer operations. This shouldn't be
      * necessary, but NVIDIA drivers (up to at least 313.09) aren't thread-safe
      * when it comes to manipulations on sub-buffers.
      */
-    cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping buffers
     boost::mutex splatMutex;
     std::size_t splatAlign;
     CircularBufferBase splatAllocator;
