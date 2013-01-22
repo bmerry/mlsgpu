@@ -226,7 +226,7 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
         std::vector<cl::Event> wait(1);
 
         wait[0] = work.unmapEvent;
-        tree.enqueueBuild(queue, work.splats, work.numSplats,
+        tree.enqueueBuild(queue, work.splats, 0, work.numSplats,
                           expandedSize, offset, owner.subsampling, &wait, &treeBuildEvent);
         wait[0] = treeBuildEvent;
 

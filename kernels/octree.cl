@@ -134,6 +134,7 @@ inline uint makeCode(int3 xyz)
  * @param levelOffsets     Values added to codes to give sort keys (allocated to hold @a maxShift + 1 values).
  * @param minShift         Minimum bit shift (determines subsampling of grid to give finest level).
  * @param maxShift         Maximum bit shift (determines base level).
+ * @param firstSplat       Index of first splat to process within @a splats
  */
 __kernel void writeEntries(
     __global uint *keys,
@@ -142,7 +143,8 @@ __kernel void writeEntries(
     int3 bias,
     __local uint *levelOffsets,
     uint minShift,
-    uint maxShift)
+    uint maxShift,
+    uint firstSplat)
 {
     if (get_local_id(0) == 0)
     {
@@ -160,6 +162,7 @@ __kernel void writeEntries(
 
     uint gid = get_global_id(0);
     uint pos = gid * 8;
+    gid += firstSplat;
 
     float4 positionRadius = splats[gid].positionRadius;
     int3 ilo;

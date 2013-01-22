@@ -125,6 +125,7 @@ void SplatTreeCL::enqueueWriteEntries(
     const cl::Buffer &keys,
     const cl::Buffer &values,
     const cl::Buffer &splats,
+    command_type firstSplat,
     command_type numSplats,
     const Grid::difference_type offset[3],
     std::size_t minShift,
@@ -141,6 +142,7 @@ void SplatTreeCL::enqueueWriteEntries(
     writeEntriesKernel.setArg(4, cl::__local(sizeof(code_type) * (maxShift + 1)));
     writeEntriesKernel.setArg(5, (cl_uint) minShift);
     writeEntriesKernel.setArg(6, (cl_uint) maxShift);
+    writeEntriesKernel.setArg(7, (cl_uint) firstSplat);
 
     CLH::enqueueNDRangeKernel(queue,
                               writeEntriesKernel,
@@ -246,13 +248,14 @@ void SplatTreeCL::enqueueWriteStart(
 
 void SplatTreeCL::enqueueBuild(
     const cl::CommandQueue &queue,
-    const cl::Buffer &splats, std::size_t numSplats,
+    const cl::Buffer &splats, std::size_t firstSplat, std::size_t numSplats,
     const Grid::size_type size[3], const Grid::difference_type offset[3],
     unsigned int subsamplingShift,
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
     MLSGPU_ASSERT(numSplats <= maxSplats, std::length_error);
+    MLSGPU_ASSERT(firstSplat < CL_UINT_MAX - numSplats, std::length_error);
     Grid::size_type maxSize = Grid::size_type(1U) << (maxLevels + subsamplingShift - 1);
     MLSGPU_ASSERT(size[0] <= maxSize && size[1] <= maxSize && size[2] <= maxSize,
                   std::length_error);
@@ -280,7 +283,7 @@ void SplatTreeCL::enqueueBuild(
 
     // TODO: revisit this dependency tracking
     const std::size_t numEntries = numSplats * 8;
-    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, numSplats, offset, minShift, maxShift, events, &writeEntriesEvent);
+    enqueueWriteEntries(queue, entryKeys, entryValues, this->splats, firstSplat, numSplats, offset, minShift, maxShift, events, &writeEntriesEvent);
     wait[0] = writeEntriesEvent;
     sort.enqueue(queue, entryKeys, entryValues, numEntries, 3 * (maxShift - minShift) + 1, &wait, &sortEvent);
     wait[0] = sortEvent;

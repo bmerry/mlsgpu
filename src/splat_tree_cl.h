@@ -133,6 +133,7 @@ private:
                              const cl::Buffer &keys,
                              const cl::Buffer &values,
                              const cl::Buffer &splats,
+                             command_type firstSplat,
                              command_type numSplats,
                              const Grid::difference_type offset[3],
                              std::size_t minShift,
@@ -229,7 +230,8 @@ public:
      *
      * @param queue         The command queue for the building operations.
      * @param splats        The splats to use in the octree.
-     * @param numSplats     The size of the @a splats array.
+     * @param firstSplat    Index of the first splat to use.
+     * @param numSplats     Number of splats to use from the @a splats array.
      * @param size          The number of cells to cover with the octree.
      * @param offset        The offset of the octree within the overall grid.
      * @param subsamplingShift Number of fine levels to drop.
@@ -243,7 +245,7 @@ public:
      * @note @a splats is not copied. It becomes the backing store of splats for the octree.
      */
     void enqueueBuild(const cl::CommandQueue &queue,
-                      const cl::Buffer &splats, std::size_t numSplats,
+                      const cl::Buffer &splats, std::size_t firstSplat, std::size_t numSplats,
                       const Grid::size_type size[3], const Grid::difference_type offset[3],
                       unsigned int subsamplingShift,
                       const std::vector<cl::Event> *events = NULL,
