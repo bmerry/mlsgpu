@@ -21,6 +21,7 @@
 #include <boost/thread/locks.hpp>
 #include <boost/ref.hpp>
 #include <boost/bind.hpp>
+#include <boost/foreach.hpp>
 #include "grid.h"
 #include "workers.h"
 #include "work_queue.h"
