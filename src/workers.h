@@ -123,19 +123,44 @@ class DeviceWorkerGroupBase
 public:
     /**
      * Data about a fine-grained bucket. A shared pointer to this is obtained
-     * from @ref DeviceWorkerGroup::get and enqueued with @ref
-     * DeviceWorkerGroup::push.
+     * from @ref DeviceWorkerGroup::getBucket and enqueued with @ref
+     * DeviceWorkerGroup::pushBucket.
+     */
+    struct SubItem
+    {
+        ChunkId chunkId;               ///< Chunk owning this item
+        std::size_t firstSplat;
+        std::size_t numSplats;
+        /**
+         * Pointer at which to start writing splats (already offset by @a
+         * firstSplat). This is only valid for producers.
+         */
+        Splat *splats;
+        Grid grid;
+        Bucket::Recursion recursionState;
+    };
+
+    /**
+     * Data about multiple fine-grained buckets that share a single CL buffer.
      */
     struct WorkItem
     {
-        ChunkId chunkId;               ///< Chunk owning this item
-        cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use
+        /**
+         * Data for individual fine buckets. This is a linked list rather than
+         * a vector because other threads can append to the list asynchronously,
+         * and this must not move the memory around.
+         */
+        std::list<SubItem> subItems;
+        cl::Buffer splats;             ///< Backing store for splats
+        cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use on device
 
-        cl::Buffer splats;
-        std::size_t numSplats;
-        CircularBufferBase::Allocation alloc;
-        Grid grid;
-        Bucket::Recursion recursionState;
+        std::size_t nextSplat() const
+        {
+            if (subItems.empty())
+                return 0;
+            else
+                return subItems.back().firstSplat + subItems.back().numSplats;
+        }
     };
 
     class Worker : public WorkerBase
@@ -192,22 +217,63 @@ private:
     const Grid::size_type maxCells;
     const std::size_t meshMemory;
     const int subsampling;
+    std::size_t maxItemSplats; ///< Maximum number of splats per work item
 
-    cl::CommandQueue mapQueue;     ///< Queue for mapping and unmapping buffers
+    cl::CommandQueue mapQueue; ///< Queue for mapping and unmapping buffers
+
+    /// Pool of unused buffers to be recycled
+    WorkQueue<boost::shared_ptr<WorkItem> > itemPool;
+
     /**
-     * Mutex to be held while doing subbuffer operations. This shouldn't be
-     * necessary, but NVIDIA drivers (up to at least 313.09) aren't thread-safe
-     * when it comes to manipulations on sub-buffers.
+     * Work item currently being filled (by all producers). This may at times
+     * be @c NULL, provided that @c activeWriters is also zero. It is neither
+     * in the queue nor the item pool. When it is full and once activeWriters
+     * drops to zero, it is pushed onto the queue.
      */
-    boost::mutex splatMutex;
-    std::size_t splatAlign;
-    CircularBufferBase splatAllocator;
-    cl::Buffer splatStore;
+    boost::shared_ptr<WorkItem> writeItem;
+
+    /**
+     * Memory mapping for the buffer in @ref writeItem. It is non-NULL if and
+     * only if @ref writeItem is non-NULL.
+     */
+    Splat *writePtr;
+
+    /**
+     * Number of writers that are currently writing through the mapped pointer.
+     * It will only be safe to unmap the buffer once this hits zero.
+     */
+    std::size_t activeWriters;
+
+    /**
+     * Mutex protecting @ref writeItem (both the pointer value and the
+     * contents) and @ref writePtr.
+     */
+    boost::mutex splatsMutex;
+
+    /**
+     * Mutex protecting @ref activeWriters. If held concurrently with @ref
+     * splatsMutex, it must be taken afterwards.
+     */
+    boost::mutex activeMutex;
+
+    /**
+     * Condition that is signalled when the number of writers reaches zero,
+     * making it safe to enqueue the write item.
+     */
+    boost::condition_variable inactiveCondition;
+
+    /**
+     * Pushes the current @ref writeItem (if any) into the queue, and resets it.
+     *
+     * @pre The caller holds @ref splatsMutex.
+     */
+    void flushWriteItem();
 
     friend class DeviceWorkerGroupBase::Worker;
 
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
+    typedef DeviceWorkerGroupBase::SubItem SubItem;
 
     /**
      * Constructor.
@@ -252,6 +318,11 @@ public:
     void start(const Grid &fullGrid);
 
     /**
+     * @copydoc WorkerGroup::stop
+     */
+    void stop();
+
+    /**
      * Sets a progress display that will be updated by the number of cells
      * processed.
      */
@@ -260,18 +331,24 @@ public:
     /**
      * @copydoc WorkerGroup::get
      */
-    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
+    SubItem &get(Timeplot::Worker &tworker, std::size_t size);
+
+    /**
+     * @copydoc WorkerGroup::push
+     */
+    void push();
+
+    /**
+     * Returns the item to the pool. It is called by the base class.
+     */
+    void freeItem(boost::shared_ptr<WorkItem> item);
 
     /**
      * Estimate spare queue capacity.
+     *
+     * @todo Fix
      */
-    std::size_t unallocated() { return splatAllocator.unallocated() / sizeof(Splat); }
-
-    /// Get the mutex to hold while mapping splats
-    boost::mutex &getSplatMutex() { return splatMutex; }
-
-    /// Get the command queue for mapping splats
-    const cl::CommandQueue &getMapQueue() const { return mapQueue; }
+    std::size_t unallocated() { return 1; }
 };
 
 class FineBucketGroup;

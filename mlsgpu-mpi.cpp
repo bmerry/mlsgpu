@@ -164,9 +164,9 @@ public:
         return item;
     }
 
-    void freeItem(WorkItem &item)
+    void freeItem(boost::shared_ptr<WorkItem> item)
     {
-        splatBuffer.free(item.splats);
+        splatBuffer.free(item->splats);
     }
 
 private:
@@ -192,9 +192,9 @@ public:
         return item;
     }
 
-    void freeItem(WorkItem &item)
+    void freeItem(boost::shared_ptr<WorkItem> item)
     {
-        meshBuffer.free(item.alloc);
+        meshBuffer.free(item->alloc);
     }
 
 private:

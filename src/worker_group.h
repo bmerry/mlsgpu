@@ -252,7 +252,7 @@ private:
 
                     worker(*item);
 
-                    owner.freeItem(*item);
+                    owner.freeItem(item);
                 }
                 worker.stop();
             }
@@ -309,9 +309,9 @@ private:
 
     /**
      * Release transient resources stored in an item. This is a hook that
-     * subclasses my override.
+     * subclasses may override.
      */
-    void freeItem(WorkItem &item)
+    void freeItem(boost::shared_ptr<WorkItem> item)
     {
         (void) item;
     }

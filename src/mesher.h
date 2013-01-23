@@ -509,7 +509,7 @@ private:
 
         boost::shared_ptr<TmpWriterItem> get(Timeplot::Worker &tworker, std::size_t size);
 
-        void freeItem(TmpWriterItem &item);
+        void freeItem(boost::shared_ptr<TmpWriterItem> item);
 
         /**
          * Get the path to the temporary file for vertices. If @ref start has

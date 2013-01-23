@@ -140,13 +140,13 @@ boost::shared_ptr<OOCMesher::TmpWriterItem> OOCMesher::TmpWriterWorkerGroup::get
     return item;
 }
 
-void OOCMesher::TmpWriterWorkerGroup::freeItem(TmpWriterItem &item)
+void OOCMesher::TmpWriterWorkerGroup::freeItem(boost::shared_ptr<TmpWriterItem> item)
 {
-    item.vertices.clear();
-    item.triangles.clear();
-    item.vertexRanges.clear();
-    item.triangleRanges.clear();
-    itemAllocator.free(item.alloc);
+    item->vertices.clear();
+    item->triangles.clear();
+    item->vertexRanges.clear();
+    item->triangleRanges.clear();
+    itemAllocator.free(item->alloc);
 }
 
 const int OOCMesher::reorderSlots = 3;
