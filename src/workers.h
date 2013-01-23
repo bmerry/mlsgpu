@@ -233,10 +233,10 @@ private:
     boost::shared_ptr<WorkItem> writeItem;
 
     /**
-     * Memory mapping for the buffer in @ref writeItem. It is non-NULL if and
-     * only if @ref writeItem is non-NULL.
+     * Pinned host memory to write splats to, prior to them being copied
+     * to the GPU.
      */
-    Splat *writePtr;
+    boost::scoped_ptr<CLH::PinnedMemory<Splat> > writePinned;
 
     /**
      * Number of writers that are currently writing through the mapped pointer.
@@ -246,7 +246,7 @@ private:
 
     /**
      * Mutex protecting @ref writeItem (both the pointer value and the
-     * contents) and @ref writePtr.
+     * contents).
      */
     boost::mutex splatsMutex;
 
@@ -422,6 +422,8 @@ public:
 
     void start(const Grid &fullGrid);
 
+    Statistics::Variable &getWriteStat() const { return writeStat; }
+
 private:
     const std::vector<DeviceWorkerGroup *> outGroups;
     CircularBuffer splatBuffer;
@@ -431,6 +433,7 @@ private:
     Grid::size_type maxCells;
     std::size_t maxSplit;
     ProgressMeter *progress;
+    Statistics::Variable &writeStat;
 
     friend class FineBucketGroupBase::Worker;
 };

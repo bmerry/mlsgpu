@@ -111,7 +111,6 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     subsampling(subsampling),
     mapQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
     itemPool(),
-    writePtr(NULL),
     activeWriters(0)
 {
     for (std::size_t i = 0; i < numWorkers; i++)
@@ -121,6 +120,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     const std::size_t items = numWorkers + 2;
     maxItemSplats = memSplats / (items * sizeof(Splat));
     MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument); // TODO: fall back to fewer items
+    writePinned.reset(new CLH::PinnedMemory<Splat>(context, device, maxItemSplats));
     for (std::size_t i = 0; i < items; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
@@ -158,12 +158,15 @@ void DeviceWorkerGroup::flushWriteItem()
         inactiveCondition.wait(activeLock);
     }
 
-    mapQueue.enqueueUnmapMemObject(
-        writeItem->splats, writePtr, NULL, &writeItem->unmapEvent);
+    mapQueue.enqueueWriteBuffer(
+        writeItem->splats,
+        CL_FALSE,
+        0, writeItem->nextSplat() * sizeof(Splat),
+        writePinned->get(),
+        NULL, &writeItem->unmapEvent);
     mapQueue.flush();
     Base::push(writeItem);
     writeItem.reset();
-    writePtr = NULL;
 }
 
 DeviceWorkerGroup::SubItem &DeviceWorkerGroup::get(
@@ -176,9 +179,6 @@ retry:
     if (!writeItem)
     {
         writeItem = itemPool.pop();
-        writePtr = (Splat *) mapQueue.enqueueMapBuffer(
-            writeItem->splats, CL_TRUE, CL_MAP_WRITE,
-            0, maxItemSplats * sizeof(Splat));
     }
     std::size_t spare = maxItemSplats - writeItem->nextSplat();
     if (numSplats > spare)
@@ -192,7 +192,7 @@ retry:
     SubItem sub;
     sub.firstSplat = start;
     sub.numSplats = numSplats;
-    sub.splats = writePtr + start;
+    sub.splats = writePinned->get() + start;
     writeItem->subItems.push_back(sub);
 
     {
@@ -332,7 +332,8 @@ FineBucketGroup::FineBucketGroup(
     maxSplats(maxSplats),
     maxCells(maxCells),
     maxSplit(maxSplit),
-    progress(NULL)
+    progress(NULL),
+    writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write"))
 {
     for (std::size_t i = 0; i < numWorkers; i++)
     {
@@ -357,6 +358,7 @@ void FineBucketGroupBase::Worker::operator()(
     const Grid &grid,
     const Bucket::Recursion &recursionState)
 {
+    Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     /* Select the least-busy device to target */
@@ -379,11 +381,11 @@ void FineBucketGroupBase::Worker::operator()(
     outItem.recursionState = recursionState;
     outItem.chunkId = chunkId;
 
-    {
-        Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
+    std::size_t pos = 0;
+    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
 
-        std::size_t pos = 0;
-        boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
+    {
+        Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
         while (!splatStream->empty())
         {
             outItem.splats[pos] = **splatStream;
@@ -391,11 +393,11 @@ void FineBucketGroupBase::Worker::operator()(
             ++pos;
         }
         assert(pos == splatSet.numSplats());
-
-        registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem.numSplats);
-        registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
-        registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
     }
+
+    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem.numSplats);
+    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
+    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
 
     outGroup->push();
 }
