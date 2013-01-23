@@ -69,6 +69,8 @@ def analyze_bucket_fine(values):
     threads = values['total-bucket-threads']
     times['startup'] = values['bucket.fine.pop.first']
     times['compute'] = values['bucket.fine.compute']
+    if 'bucket.fine.write' in values:
+        times['write'] = values['bucket.fine.write']
     times['wait-in'] = values['bucket.fine.pop']
     times['wait-out'] = values['device.get'] + values.get('device.push', 0.0)
     print_breakdown('FineBucket', times, values['pass1.time'] * threads)
