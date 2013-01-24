@@ -335,7 +335,7 @@ bool PickNodes::operator()(const Node &node) const
     }
 
     if (node.getLevel() == 0
-        || ((state.microSize * node.size() <= state.params.maxCells || state.params.maxCellsHint)
+        || ((state.microSize * node.size() <= state.params.maxCells)
             && count <= state.params.maxSplats))
     {
         std::size_t id = state.subregions.size();

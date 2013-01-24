@@ -93,16 +93,14 @@ struct BucketParameters
 {
     std::tr1::uint64_t maxSplats;       ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
-    bool maxCellsHint;                  ///< If true, @ref maxCells is merely a microblock size hint
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
     ProgressMeter *progress;            ///< Progress display to update for empty cells
 
     BucketParameters(std::tr1::uint64_t maxSplats,
                      Grid::size_type maxCells,
-                     bool maxCellsHint, std::size_t maxSplit,
+                     std::size_t maxSplit,
                      ProgressMeter *progress)
         : maxSplats(maxSplats), maxCells(maxCells),
-        maxCellsHint(maxCellsHint),
         maxSplit(maxSplit), progress(progress) {}
 };
 
@@ -267,7 +265,7 @@ void BucketState::doCallbacks(
         bucketRecurse(subset,
                       childGrid,
                       params,
-                      0,
+                      0, 0,
                       process,
                       childRecursion);
     }
@@ -388,6 +386,7 @@ bool bucketCallback(const Splats &splats, const Grid &grid,
  * @param chunkCells      Approximate size for output chunks (the
  *                        implementation may round it for alignment). If 0, alignment
  *                        is disabled (this is always done below the top level).
+ * @param microCells      Requested microblock size.
  * @param recursionState  Statistics about what is already held on the stack.
  */
 template<typename Splats>
@@ -396,6 +395,7 @@ void bucketRecurse(
     const Grid &grid,
     const BucketParameters &params,
     Grid::size_type chunkCells,
+    Grid::size_type microCells,
     const typename ProcessorType<Splats>::type &process,
     const Recursion &recursionState)
 {
@@ -408,7 +408,7 @@ void bucketRecurse(
     Grid::size_type maxCellDim = std::max(std::max(cellDims[0], cellDims[1]), cellDims[2]);
 
     if (splats.maxSplats() <= params.maxSplats
-        && (maxCellDim <= params.maxCells || params.maxCellsHint)
+        && (maxCellDim <= params.maxCells)
         && (chunkCells == 0 || chunkCells >= maxCellDim)
         && bucketCallback(splats, grid, process, recursionState,
                           typename SplatSet::Traits<Splats>::is_subset()))
@@ -421,27 +421,32 @@ void bucketRecurse(
     }
     else
     {
+        // microSize is the *actual* microblock size, as opposed to the request
+        Grid::size_type microSize = microCells;
+
         if (recursionState.depth > 0)
             Statistics::getStatistic<Statistics::Counter>("bucket.reprocess").add(1);
-        /* Pick a microblock size such that we don't exceed maxSplit
-         * microblocks. If the current region is bigger than maxCells
-         * in any direction we use a power of two times maxCells, otherwise
-         * we use a power of 2.
-         *
-         * TODO: no need for it to be a power of 2?
-         */
-        Grid::size_type microSize;
 
-        if (maxCellDim > params.maxCells)
+        if (microSize == 0 || microSize > maxCellDim)
         {
-            // number of maxCells-sized blocks
-            Grid::size_type subDims[3];
-            for (unsigned int i = 0; i < 3; i++)
-                subDims[i] = divUp(cellDims[i], params.maxCells);
-            microSize = params.maxCells * chooseMicroSize(subDims, params.maxSplit, splats.maxSplats(), params.maxSplats, 1);
-        }
-        else
+            // Either no request, or request was useless
             microSize = chooseMicroSize(cellDims, params.maxSplit, splats.maxSplats(), params.maxSplats, params.maxCells);
+        }
+
+        /* Coarsen until we have sufficiently few microblocks */
+        std::size_t subDims[3];
+        while (true)
+        {
+            std::size_t microBlocks = 1;
+            for (unsigned int i = 0; i < 3; i++)
+            {
+                subDims[i] = divUp(cellDims[i], microSize);
+                microBlocks = mulSat(microBlocks, subDims[i]);
+            }
+            if (microBlocks <= params.maxSplit)
+                break;
+            microSize *= 2;
+        }
         Statistics::getStatistic<Statistics::Peak>("bucket.microsize.peak") = microSize;
 
         if (chunkCells == 0)
@@ -509,14 +514,14 @@ void bucket(const Splats &splats,
             std::tr1::uint64_t maxSplats,
             Grid::size_type maxCells,
             Grid::size_type chunkCells,
-            bool maxCellsHint,
+            Grid::size_type microCells,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
             ProgressMeter *progress,
             const Recursion &recursionState)
 {
-    detail::BucketParameters params(maxSplats, maxCells, maxCellsHint, maxSplit, progress);
-    detail::bucketRecurse(splats, region, params, chunkCells, process, recursionState);
+    detail::BucketParameters params(maxSplats, maxCells, maxSplit, progress);
+    detail::bucketRecurse(splats, region, params, chunkCells, microCells, process, recursionState);
 }
 
 } // namespace Bucket

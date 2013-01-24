@@ -443,7 +443,7 @@ void TestBucket::testSimple()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 1000000;
-    bucket(splats, grid, maxSplats, maxCells, 0, false, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, 0, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
     validate(splats, grid, blocks, maxSplats, maxCells, 0);
 
@@ -463,7 +463,7 @@ void TestBucket::testDensityError()
     const int maxCells = 8;
     const int maxSplit = 1000000;
     CPPUNIT_ASSERT_THROW(
-        bucket(splats, grid, maxSplats, maxCells, 0, false, maxSplit,
+        bucket(splats, grid, maxSplats, maxCells, 0, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3)),
         DensityError);
 }
@@ -478,7 +478,7 @@ void TestBucket::testFlat()
     const int maxSplats = 15;
     const int maxCells = 32;
     const int maxSplit = 1000000;
-    bucket(splats, grid, maxSplats, maxCells, 0, false, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, 0, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
     validate(splats, grid, blocks, maxSplats, maxCells, 0);
 
@@ -499,7 +499,7 @@ void TestBucket::testEmpty()
      */
     typedef SplatSet::VectorsSet Set;
     Set splatSet;
-    bucket(splatSet, grid, maxSplats, maxCells, 0, false, maxSplit,
+    bucket(splatSet, grid, maxSplats, maxCells, 0, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Set>, boost::ref(blocks), _1, _2, _3));
     CPPUNIT_ASSERT(blocks.empty());
 }
@@ -514,7 +514,7 @@ void TestBucket::testMultiLevel()
     const int maxSplats = 5;
     const int maxCells = 8;
     const int maxSplit = 8;
-    bucket(splats, grid, maxSplats, maxCells, 0, false, maxSplit,
+    bucket(splats, grid, maxSplats, maxCells, 0, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
     validate(splats, grid, blocks, maxSplats, maxCells, 0);
 
@@ -536,7 +536,7 @@ void TestBucket::testChunkCells()
     const int maxSplit = 1000000;
     const int chunkCells = 14;
     const int chunkCellsRounded = 16;
-    bucket(splats, grid, maxSplats, maxCells, chunkCells, true, maxSplit,
+    bucket(splats, grid, maxSplats, INT_MAX, chunkCells, maxCells, maxSplit,
            boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
     validate(splats, grid, blocks, maxSplats, INT_MAX, chunkCellsRounded);
 }
@@ -629,7 +629,7 @@ void TestBucket::testRandom(unsigned long seed)
     std::vector<Block> blocks;
     try
     {
-        bucket(splats, grid, maxSplats, maxCells, chunkCells, false, maxSplit,
+        bucket(splats, grid, maxSplats, maxCells, chunkCells, maxCells, maxSplit,
                boost::bind(&TestBucket::bucketFunc<Splats>, boost::ref(blocks), _1, _2, _3));
         validate(splats, grid, blocks, maxSplats, maxCells, 0);
     }

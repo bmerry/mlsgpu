@@ -103,13 +103,10 @@ public:
  *                   approximately this granularity ("approximately" because it
  *                   will be rounded up to a multiple of the microblock size).
  *                   To disable this chunking, pass 0.
- * @param maxCellsHint If true, @a maxCells does not constrain bucket sizes, and
- *                   is instead used as a hint for sizing microblocks. It is
- *                   most useful if the output of coarse bucketing is going to
- *                   be used for a finer-grained bucketing with a constrained
- *                   bucket size, in which case this can be used to ensure a
- *                   balanced split. It is also useful for hitting the fast
- *                   path in @ref SplatSet::FastBlobSet.
+ * @param microCells The side length of a microblock. The implementation may
+ *                   use coarser microCells if forced by @a maxSplit, but if so
+ *                   it will scale up by a power of 2. This may also be zero to
+ *                   fall back to a heuristic choice.
  * @param maxSplit   Maximum recursion fan-out. Larger values will usually
  *                   give higher performance by reducing recursion depth,
  *                   but at the cost of more memory.
@@ -172,7 +169,7 @@ void bucket(const Splats &splats,
             std::tr1::uint64_t maxSplats,
             Grid::size_type maxCells,
             Grid::size_type chunkCells,
-            bool maxCellsHint,
+            Grid::size_type microCells,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
             ProgressMeter *progress = NULL,

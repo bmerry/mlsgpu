@@ -504,7 +504,7 @@ static void run(
                 try
                 {
                     Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
-                    Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, true, maxSplit,
+                    Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, chunkCells, blockCells, maxSplit,
                                    boost::ref(coarseBucket), &progressMPI);
                 }
                 catch (...)
