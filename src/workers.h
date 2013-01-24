@@ -222,6 +222,8 @@ private:
     const int subsampling;
     std::size_t maxItemSplats;    ///< Maximum number of splats per work item
 
+    Statistics::Variable &getFlushStat; ///< Time spent waiting to be able to flush
+
     cl::CommandQueue copyQueue;   ///< Queue for transferring data to the device
 
     /// Pool of unused buffers to be recycled

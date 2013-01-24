@@ -10,6 +10,7 @@ _color_map = {
     'bbox': 'gray',
     'push' : 'purple',
     'get': 'yellow',
+    'get.flush': 'yellow',
     'pop': 'red',
     'load': 'blue',
     'write': 'orange',

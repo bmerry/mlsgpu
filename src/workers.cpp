@@ -109,6 +109,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
+    getFlushStat(Statistics::getStatistic<Statistics::Variable>("device.get.flush")),
     copyQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
     itemPool(),
     activeWriters(0)
@@ -154,7 +155,6 @@ void DeviceWorkerGroup::flushWriteItem()
     boost::unique_lock<boost::mutex> activeLock(activeMutex);
     while (activeWriters > 0)
     {
-        // TODO: put a Timeplot::Action here
         inactiveCondition.wait(activeLock);
     }
 
@@ -183,6 +183,7 @@ retry:
     std::size_t spare = maxItemSplats - writeItem->nextSplat();
     if (numSplats > spare)
     {
+        Timeplot::Action timer("get.flush", tworker, getFlushStat);
         flushWriteItem();
         goto retry;
     }
