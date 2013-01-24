@@ -45,6 +45,7 @@
 #include "clh.h"
 #include "errors.h"
 #include "statistics.h"
+#include "allocator.h"
 #include "worker_group.h"
 #include "timeplot.h"
 
@@ -123,14 +124,14 @@ class DeviceWorkerGroupBase
 public:
     /**
      * Data about a fine-grained bucket. A shared pointer to this is obtained
-     * from @ref DeviceWorkerGroup::getBucket and enqueued with @ref
-     * DeviceWorkerGroup::pushBucket.
+     * from @ref DeviceWorkerGroup::get and enqueued with @ref
+     * DeviceWorkerGroup::push.
      */
     struct SubItem
     {
         ChunkId chunkId;               ///< Chunk owning this item
-        std::size_t firstSplat;
-        std::size_t numSplats;
+        std::size_t firstSplat;        ///< Index of first splat in device buffer
+        std::size_t numSplats;         ///< Number of splats in the bucket
         /**
          * Pointer at which to start writing splats (already offset by @a
          * firstSplat). This is only valid for producers.
@@ -150,9 +151,9 @@ public:
          * a vector because other threads can append to the list asynchronously,
          * and this must not move the memory around.
          */
-        std::list<SubItem> subItems;
+        Statistics::Container::list<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
-        cl::Event unmapEvent;          ///< Event signaled when the splats are ready to use on device
+        cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
         std::size_t nextSplat() const
         {
@@ -161,6 +162,8 @@ public:
             else
                 return subItems.back().firstSplat + subItems.back().numSplats;
         }
+
+        WorkItem() : subItems("mem.FineBucketGroup.subItems") {}
     };
 
     class Worker : public WorkerBase
@@ -213,13 +216,13 @@ private:
     OutputGenerator outputGenerator;
 
     Grid fullGrid;
-    const std::size_t maxSplats;
+    const std::size_t maxSplats;  ///< Maximum splats in a single bucket
     const Grid::size_type maxCells;
     const std::size_t meshMemory;
     const int subsampling;
-    std::size_t maxItemSplats; ///< Maximum number of splats per work item
+    std::size_t maxItemSplats;    ///< Maximum number of splats per work item
 
-    cl::CommandQueue mapQueue; ///< Queue for mapping and unmapping buffers
+    cl::CommandQueue copyQueue;   ///< Queue for transferring data to the device
 
     /// Pool of unused buffers to be recycled
     WorkQueue<boost::shared_ptr<WorkItem> > itemPool;
@@ -246,7 +249,7 @@ private:
 
     /**
      * Mutex protecting @ref writeItem (both the pointer value and the
-     * contents).
+     * contents, but not individual items in the list).
      */
     boost::mutex splatsMutex;
 

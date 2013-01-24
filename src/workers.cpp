@@ -109,7 +109,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
-    mapQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
+    copyQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
     itemPool(),
     activeWriters(0)
 {
@@ -158,13 +158,13 @@ void DeviceWorkerGroup::flushWriteItem()
         inactiveCondition.wait(activeLock);
     }
 
-    mapQueue.enqueueWriteBuffer(
+    copyQueue.enqueueWriteBuffer(
         writeItem->splats,
         CL_FALSE,
         0, writeItem->nextSplat() * sizeof(Splat),
         writePinned->get(),
-        NULL, &writeItem->unmapEvent);
-    mapQueue.flush();
+        NULL, &writeItem->copyEvent);
+    copyQueue.flush();
     Base::push(writeItem);
     writeItem.reset();
 }
@@ -214,7 +214,7 @@ void DeviceWorkerGroup::push()
 void DeviceWorkerGroup::freeItem(boost::shared_ptr<WorkItem> item)
 {
     item->subItems.clear();
-    item->unmapEvent = cl::Event(); // release the reference
+    item->copyEvent = cl::Event(); // release the reference
     itemPool.push(item);
 }
 
@@ -301,7 +301,7 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
         cl::Event treeBuildEvent;
         std::vector<cl::Event> wait(1);
 
-        wait[0] = work.unmapEvent;
+        wait[0] = work.copyEvent;
         tree.enqueueBuild(queue, work.splats, sub.firstSplat, sub.numSplats,
                           expandedSize, offset, owner.subsampling, &wait, &treeBuildEvent);
         wait[0] = treeBuildEvent;
