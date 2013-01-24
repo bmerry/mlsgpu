@@ -15,6 +15,7 @@
 #include <string>
 #include <map>
 #include <CL/cl.hpp>
+#include "allocator.h"
 
 namespace Statistics
 {
@@ -186,12 +187,15 @@ template<typename T>
 class PinnedMemory : public detail::TypedMemoryMapping<T>
 {
 private:
+    Statistics::Allocator<std::allocator<T> > allocator;
     std::size_t nElements;
 public:
-    PinnedMemory(const cl::Context &context, const cl::Device &device, std::size_t nElements = 1)
+    PinnedMemory(const std::string &name, const cl::Context &context, const cl::Device &device, std::size_t nElements = 1)
         : detail::TypedMemoryMapping<T>(cl::Buffer(context, CL_MEM_ALLOC_HOST_PTR, nElements * sizeof(T)), device),
+        allocator(Statistics::makeAllocator<Statistics::Allocator<std::allocator<T> > >(name)),
         nElements(nElements)
     {
+        allocator.recordAllocate(nElements * sizeof(T));
         T *ptr = static_cast<T *>(this->getQueue().enqueueMapBuffer(
                 static_cast<const cl::Buffer &>(this->getMemory()),
                 CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, nElements * sizeof(T)));
@@ -205,6 +209,7 @@ public:
         if (this->get() != NULL)
             for (std::size_t i = 0; i < nElements; i++)
                 this->get()[i].~T();
+        allocator.recordDeallocate(nElements * sizeof(T));
     }
 };
 

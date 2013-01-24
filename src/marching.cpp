@@ -330,8 +330,8 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
-    readback(context, device),
-    viReadback(context, device, maxDepth)
+    readback("mem.Marching.readback", context, device),
+    viReadback("mem.Marching.viReadback", context, device, maxDepth)
 {
     MLSGPU_ASSERT(2 <= maxWidth && maxWidth <= MAX_DIMENSION, std::invalid_argument);
     MLSGPU_ASSERT(2 <= maxHeight && maxHeight <= MAX_DIMENSION, std::invalid_argument);

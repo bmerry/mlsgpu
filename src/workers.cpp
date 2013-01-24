@@ -120,7 +120,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     const std::size_t items = numWorkers + spare;
     maxItemSplats = memSplats / (items * sizeof(Splat));
     MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument);
-    writePinned.reset(new CLH::PinnedMemory<Splat>(context, device, maxItemSplats));
+    writePinned.reset(new CLH::PinnedMemory<Splat>("mem.DeviceWorkerGroup.writePinned", context, device, maxItemSplats));
     for (std::size_t i = 0; i < items; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
