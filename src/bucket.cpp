@@ -123,7 +123,6 @@ BucketState::BucketState(
     Grid::size_type microSize, int macroLevels)
     : params(params), grid(grid), microSize(microSize), macroLevels(macroLevels),
     dims(computeDims(grid, microSize)),
-    microRegions("mem.BucketState::microRegions", dims),
     subregions("mem.BucketState::subregions")
 {
     for (int i = 0; i < 3; i++)
@@ -140,15 +139,7 @@ BucketState::BucketState(
             s[i] = divUp(dims[i], Grid::size_type(1) << level);
             assert(level != macroLevels - 1 || s[i] == 1);
         }
-        nodeCounts.push_back(new Statistics::Container::multi_array<std::tr1::int64_t, 3>(
-                "mem.BucketState::nodeCounts", s));
-        if (level == 0)
-        {
-            for (Node::size_type x = 0; x < s[0]; x++)
-                for (Node::size_type y = 0; y < s[1]; y++)
-                    for (Node::size_type z = 0; z < s[2]; z++)
-                        microRegions[x][y][z] = BAD_REGION;
-        }
+        nodeCounts.push_back(new node_count_type("mem.BucketState::nodeCounts"));
     }
 }
 
@@ -156,10 +147,13 @@ void BucketState::upsweepCounts()
 {
     for (int level = 0; level + 1 < macroLevels; level++)
     {
-        for (Node::size_type x = 0; x < nodeCounts[level].shape()[0]; x++)
-            for (Node::size_type y = 0; y < nodeCounts[level].shape()[1]; y++)
-                for (Node::size_type z = 0; z < nodeCounts[level].shape()[2]; z++)
-                    nodeCounts[level + 1][x >> 1][y >> 1][z >> 1] += nodeCounts[level][x][y][z];
+        BOOST_FOREACH(node_count_type::const_reference v, nodeCounts[level])
+        {
+            HashCoord::arg_type parent;
+            for (int i = 0; i < 3; i++)
+                parent[i] = v.first[i] >> 1;
+            nodeCounts[level + 1][parent].numSplats += v.second.numSplats;
+        }
     }
 }
 
@@ -174,8 +168,8 @@ bool BucketState::clamp(const boost::array<Grid::difference_type, 3> &lower,
         Grid::difference_type h = upper[i];
         if (l < 0)
             l = 0;
-        if (h >= Grid::difference_type(nodeCounts[0].shape()[i]))
-            h = Grid::difference_type(nodeCounts[0].shape()[i]) - 1;
+        if (h >= Grid::difference_type(dims[i]))
+            h = Grid::difference_type(dims[i]) - 1;
         if (l > h)
             return false; // does not intersect the grid
         lo[i] = l;
@@ -187,7 +181,12 @@ bool BucketState::clamp(const boost::array<Grid::difference_type, 3> &lower,
 std::tr1::int64_t BucketState::getNodeCount(const Node &node) const
 {
     assert(node.getLevel() < nodeCounts.size());
-    return nodeCounts[node.getLevel()](node.getCoords());
+    const node_count_type &nc = nodeCounts[node.getLevel()];
+    node_count_type::const_iterator pos = nc.find(node.getCoords());
+    if (pos == nc.end())
+        return 0;
+    else
+        return pos->second.numSplats;
 }
 
 void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates)
@@ -201,7 +200,8 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                nodeCounts[level][x][y][z] += numSplats;
+                const HashCoord::arg_type coords = {{ x, y, z }};
+                nodeCounts[level][coords].numSplats += numSplats;
                 numUpdates++;
             }
     while (level + 1 < macroLevels && (lo[0] < hi[0] || lo[1] < hi[1] || lo[2] < hi[2]))
@@ -218,13 +218,37 @@ void BucketState::countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t
                         hits *= 2;
                     if (lo[2] <= 2 * z && 2 * z < hi[2])
                         hits *= 2;
-                    nodeCounts[level][x][y][z] -= (hits - 1) * numSplats;
+                    const HashCoord::arg_type coords = {{ x, y, z }};
+                    nodeCounts[level][coords].numSplats -= (hits - 1) * numSplats;
                     numUpdates++;
                 }
         for (unsigned int i = 0; i < 3; i++)
         {
             lo[i] >>= 1;
             hi[i] >>= 1;
+        }
+    }
+}
+
+void BucketState::pickNodes()
+{
+    /* Select cells to bucket splats into */
+    forEachNode(getDims(), macroLevels, PickNodes(*this));
+
+    /* Compute subregion for descendants of the cut */
+    for (int lvl = macroLevels - 2; lvl >= 0; lvl--)
+    {
+        BOOST_FOREACH(node_count_type::reference n, nodeCounts[lvl])
+        {
+            if (n.second.subregion == BAD_REGION)
+            {
+                HashCoord::arg_type pcoord;
+                for (int i = 0; i < 3; i++)
+                    pcoord[i] = n.first[i] >> 1;
+                node_count_type::iterator parent = nodeCounts[lvl + 1].find(pcoord);
+                if (parent != nodeCounts[lvl + 1].end())
+                    n.second.subregion = parent->second.subregion;
+            }
         }
     }
 }
@@ -239,7 +263,10 @@ void BucketState::bucketSplats(const SplatSet::BlobInfo &blob)
         for (Node::size_type y = lo[1]; y <= hi[1]; y++)
             for (Node::size_type z = lo[2]; z <= hi[2]; z++)
             {
-                std::size_t regionId = microRegions[x][y][z];
+                const HashCoord::arg_type coord = {{ x, y, z }};
+                node_count_type::iterator pos = nodeCounts[0].find(coord);
+                assert(pos != nodeCounts[0].end());
+                std::size_t regionId = pos->second.subregion;
                 assert(regionId < subregions.size());
                 BucketState::Subregion &region = subregions[regionId];
 
@@ -312,12 +339,7 @@ bool PickNodes::operator()(const Node &node) const
             && count <= state.params.maxSplats))
     {
         std::size_t id = state.subregions.size();
-        Node::size_type lo[3], hi[3];
-        node.toMicro(lo, hi, state.getDims());
-        for (Node::size_type x = lo[0]; x < hi[0]; x++)
-            for (Node::size_type y = lo[1]; y < hi[1]; y++)
-                for (Node::size_type z = lo[2]; z < hi[2]; z++)
-                    state.microRegions[x][y][z] = id;
+        state.nodeCounts[node.getLevel()][node.getCoords()].subregion = id;
         state.subregions.push_back(BucketState::Subregion(node));
         return false; // no more recursion required
     }

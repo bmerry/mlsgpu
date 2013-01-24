@@ -18,37 +18,36 @@ static const float BIG_MARKER = -1.0f;
 static const float MEDIUM_MARKER = -2.0f;
 static const float SMALL_MARKER = -3.0f;
 
-struct CompareSplatsInfo
+/**
+ * Determines the highest bit at which two values differ.
+ *
+ * @retval @c INT_MAX If the sign bits differ (+0 and -0 are thus different)
+ * @retval @c INT_MIN If @a a and @a b are bit-wise identical
+ * @retval exp If the raw exponent field in the floating-point encoding of the power of two
+ *             at which they differ is @a exp
+ */
+static int compare1d(float a, float b)
 {
-    int exps[3];
-    int maxExp;
-    int octant;
+    std::tr1::uint32_t aBits = floatToBits(a);
+    std::tr1::uint32_t bBits = floatToBits(b);
 
-    CompareSplatsInfo(const Splat &a);
-};
+    // Sign bit is the most major key
+    std::tr1::uint32_t aSign = aBits >> 31;
+    std::tr1::uint32_t bSign = bBits >> 31;
+    if (aSign != bSign)
+        return INT_MAX;
 
-CompareSplatsInfo::CompareSplatsInfo(const Splat &a)
-{
-    octant = 0;
-    for (int i = 0; i < 3; i++)
+    std::tr1::int32_t aExp = (aBits >> 23) & 255;
+    std::tr1::int32_t bExp = (bBits >> 23) & 255;
+    if (aExp != bExp)
+        return std::max(aExp, bExp);
+    else
     {
-        /* Logically we'd like to extract the exponent with frexp, but it
-         * has a number of oddities:
-         * - the exponent extracted from 0.0 is 0, which is larger than the
-         *   exponent extracted from denorms
-         * - it is undefined for non-finite values.
-         * So we manually pull out the bits. This will give the same value for
-         * all denorms (unlike frexp), but for our purposes this does not
-         * matter as we only use the exponents to decide how to normalize
-         * everything.
-         */
-        assert(std::numeric_limits<float>::is_iec559);
-        std::tr1::uint32_t bits = floatToBits(a.position[i]);
-        exps[i] = ((bits >> 23) & 255) - 127;
-        assert((std::tr1::isfinite)(a.position[i]));
-        octant = octant * 2 + (a.position[i] < 0.0f ? 1 : 0);
+        std::tr1::uint32_t mantissaDiff = aBits ^ bBits;
+        if (mantissaDiff == 0)
+            return INT_MIN;
+        return aExp - (__builtin_clz(mantissaDiff) - 8);
     }
-    maxExp = *std::max_element(exps, exps + 3);
 }
 
 bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
@@ -62,38 +61,21 @@ bool CompareSplatsMorton::operator()(const Splat &a, const Splat &b) const
         return ar < br;
     }
 
-    CompareSplatsInfo ai(a);
-    CompareSplatsInfo bi(b);
-
-    // Keep the octants completely separate
-    if (ai.octant != bi.octant)
-        return ai.octant < bi.octant;
-
-    // If one has a bigger exponent, it will automatically win in
-    // an interleaved-bits comparison
-    if (ai.maxExp != bi.maxExp)
-        return ai.maxExp < bi.maxExp;
-
-    // Now scale everything up to be relative to the maximum exponent,
-    // discarding sign
-    std::tr1::uint32_t ap[3], bp[3], bd[3];
-    const int bits = std::numeric_limits<float>::digits;
+    int dim = 0;
+    int bit = INT_MIN;
     for (int i = 0; i < 3; i++)
     {
-        ap[i] = (std::tr1::uint32_t) std::ldexp(std::abs(a.position[i]), bits - ai.maxExp);
-        bp[i] = (std::tr1::uint32_t) std::ldexp(std::abs(b.position[i]), bits - bi.maxExp);
-        bd[i] = ap[i] ^ bp[i];
+        int cur = compare1d(a.position[i], b.position[i]);
+        if (cur > bit)
+        {
+            bit = cur;
+            dim = i;
+        }
     }
 
-    /* Determine which of the bd values has the highest bit set, breaking ties in
-     * favour of earlier axes. This is not the same as picking the largest one,
-     * because that breaks ties using lower bits.
-     */
-    int axis = 0;
-    for (int i = 1; i < 3; i++)
-        if (bd[i] > bd[axis] && (bd[axis] ^ bd[i]) > bd[axis])
-            axis = i;
-    return ap[axis] < bp[axis];
+    std::tr1::uint32_t aBits = floatToBits(a.position[dim]);
+    std::tr1::uint32_t bBits = floatToBits(b.position[dim]);
+    return aBits < bBits;
 }
 
 Splat CompareSplatsMorton::min_value() const

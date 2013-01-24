@@ -33,6 +33,18 @@ namespace Bucket
 namespace detail
 {
 
+class HashCoord
+{
+public:
+    typedef boost::array<Node::size_type, 3> arg_type;
+    typedef std::size_t result_type;
+
+    result_type operator()(const arg_type &arg) const
+    {
+        return arg[0] ^ (result_type(arg[1]) << 20) ^ (result_type(arg[2]) << 40);
+    }
+};
+
 /**
  * Implementation detail of @ref forEachNode. Do not call this directly.
  *
@@ -127,6 +139,12 @@ public:
      */
     void upsweepCounts();
 
+    /**
+     * Select subregions and mark the corresponding nodes (and their
+     * descendants) in @ref nodeCounts.
+     */
+    void pickNodes();
+
     /// Places splat information into bucket ranges.
     void bucketSplats(const SplatSet::BlobInfo &blob);
 
@@ -167,9 +185,18 @@ private:
             : node(node) {}
     };
 
+    struct HashEntry
+    {
+        std::tr1::int64_t numSplats;  ///< Differential encoding
+        std::size_t subregion;        ///< ID of subregion, or BAD_REGION if not known
+
+        HashEntry() : numSplats(0), subregion(BAD_REGION) {}
+    };
+
     /// Size in microblocks of the region being processed.
     boost::array<Grid::size_type, 3> dims;
 
+    typedef Statistics::Container::unordered_map<HashCoord::arg_type, HashEntry, HashCoord> node_count_type;
     /**
      * Octree of splat counts. Each element of the vector is one level of the
      * octree.  Element zero contains the finest level, higher elements the
@@ -180,12 +207,7 @@ private:
      * will thus typically be negative. @ref upsweepCounts applies the
      * summation up the tree.
      */
-    boost::ptr_vector<Statistics::Container::multi_array<std::tr1::int64_t, 3> > nodeCounts;
-
-    /**
-     * Index of the chosen subregion for each leaf (BAD_REGION if empty).
-     */
-    Statistics::Container::multi_array<std::size_t, 3> microRegions;
+    boost::ptr_vector<node_count_type> nodeCounts;
 
     /**
      * The nodes and ranges for the next level of the hierarchy.
@@ -399,6 +421,8 @@ void bucketRecurse(
     }
     else
     {
+        if (recursionState.depth > 0)
+            Statistics::getStatistic<Statistics::Counter>("bucket.reprocess").add(1);
         /* Pick a microblock size such that we don't exceed maxSplit
          * microblocks. If the current region is bigger than maxCells
          * in any direction we use a power of two times maxCells, otherwise
@@ -456,8 +480,7 @@ void bucketRecurse(
                 {
                     BucketState &state = *states(chunkCoord);
                     state.upsweepCounts();
-                    /* Select cells to bucket splats into */
-                    forEachNode(state.getDims(), state.macroLevels, PickNodes(state));
+                    state.pickNodes();
                 }
 
         /* Do the bucketing. */

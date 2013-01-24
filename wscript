@@ -356,6 +356,7 @@ def build(bld):
             'src/bucket.cpp',
             'src/circular_buffer.cpp',
             'src/decache.cpp',
+            'src/diskstats.cpp',
             'src/fast_ply.cpp',
             'src/grid.cpp',
             'src/logging.cpp',

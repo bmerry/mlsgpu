@@ -96,6 +96,14 @@ void TestCompareSplatsMorton::testOrder()
         {
             CPPUNIT_ASSERT_EQUAL(i < j, CompareSplatsMorton()(splats[i], splats[j]));
         }
+
+    Splat low = CompareSplatsMorton().min_value();
+    Splat high = CompareSplatsMorton().max_value();
+    for (std::size_t i = 0; i < splats.size(); i++)
+    {
+        CPPUNIT_ASSERT(CompareSplatsMorton()(low, splats[i]));
+        CPPUNIT_ASSERT(CompareSplatsMorton()(splats[i], high));
+    }
 }
 
 void TestCompareSplatsMorton::testMinMax()

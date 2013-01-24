@@ -1,5 +1,5 @@
 /**
- * @file 
+ * @file
  *
  * Wrapper header to include either <tt>&lt;tr1/unordered_map&gt;</tt> or
  * <tt>&lt;unordered_map&gt;</tt> depending on what the compiler provides.
