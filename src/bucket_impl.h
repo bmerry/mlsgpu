@@ -130,6 +130,22 @@ public:
      */
     void countSplats(const SplatSet::BlobInfo &blob, std::tr1::uint64_t &numUpdates);
 
+    class CountSplats
+    {
+    private:
+        std::tr1::uint64_t &numUpdates;
+
+    public:
+        typedef void result_type;
+
+        explicit CountSplats(std::tr1::uint64_t &numUpdates) : numUpdates(numUpdates) {}
+
+        void operator()(boost::shared_ptr<BucketState> self, const SplatSet::BlobInfo &blob) const
+        {
+            self->countSplats(blob, numUpdates);
+        }
+    };
+
     /**
      * Convert @ref nodeCounts from a delta encoding to plain counts.
      * This should be called after all calls to @ref countSplats are complete,
@@ -145,6 +161,16 @@ public:
 
     /// Places splat information into bucket ranges.
     void bucketSplats(const SplatSet::BlobInfo &blob);
+
+    class BucketSplats
+    {
+    public:
+        typedef void result_type;
+        void operator()(boost::shared_ptr<BucketState> self, const SplatSet::BlobInfo &blob) const
+        {
+            self->bucketSplats(blob);
+        }
+    };
 
     /// Make callbacks to the child regions
     template<typename Splats>
@@ -470,8 +496,7 @@ void bucketRecurse(
         std::tr1::uint64_t numUpdates = 0;
         while (!blobs->empty())
         {
-            states.processBlob(**blobs,
-                               boost::bind(&BucketState::countSplats, _1, _2, boost::ref(numUpdates)));
+            states.processBlob(**blobs, BucketState::CountSplats(numUpdates));
             ++*blobs;
         }
         blobs.reset();
@@ -492,7 +517,7 @@ void bucketRecurse(
         blobs.reset(splats.makeBlobStream(grid, microSize));
         while (!blobs->empty())
         {
-            states.processBlob(**blobs, boost::mem_fn(&BucketState::bucketSplats));
+            states.processBlob(**blobs, BucketState::BucketSplats());
             ++*blobs;
         }
 
