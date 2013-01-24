@@ -267,6 +267,7 @@ void Slave::operator()() const
     const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
+    const std::size_t deviceSpare = getDeviceWorkerGroupSpare(vm);
 
     const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
@@ -281,7 +282,8 @@ void Slave::operator()() const
     for (std::size_t i = 0; i < devices.size(); i++)
     {
         DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
-            numDeviceThreads, GetOutputFunctor(gatherGroup),
+            numDeviceThreads, deviceSpare,
+            GetOutputFunctor(gatherGroup),
             devices[i].first, devices[i].second,
             maxDeviceSplats, blockCells,
             memDeviceSplats, getMeshMemory(vm),

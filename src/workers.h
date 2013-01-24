@@ -282,6 +282,7 @@ public:
      * Constructor.
      *
      * @param numWorkers         Number of worker threads to use (each with a separate OpenCL queue and state)
+     * @param spare              Number of extra slots (beyond @a numWorkers) for items.
      * @param outputGenerator    Output handler generator. The generator is passed a chunk
      *                           ID and @ref Timeplot::Worker, and returns a @ref Marching::OutputFunctor which
      *                           which will receive the output blocks for the corresponding chunk.
@@ -297,7 +298,7 @@ public:
      * @param shape              The shape to fit to the data
      */
     DeviceWorkerGroup(
-        std::size_t numWorkers,
+        std::size_t numWorkers, std::size_t spare,
         OutputGenerator outputGenerator,
         const cl::Context &context, const cl::Device &device,
         std::size_t maxSplats, Grid::size_type maxCells,

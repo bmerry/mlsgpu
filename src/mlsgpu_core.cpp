@@ -316,6 +316,7 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
+    const int deviceSpare = getDeviceWorkerGroupSpare(vm);
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
     const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
@@ -358,7 +359,8 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
 
     if (maxHostSplats <= 0 || maxHostSplats * sizeof(Splat) > memHostSplats)
         throw invalid_option("Invalid value for --host-splats-load");
-    if (maxDeviceSplats <= 0 || maxDeviceSplats * sizeof(Splat) > memDeviceSplats)
+    if (maxDeviceSplats <= 0
+        || maxDeviceSplats > memDeviceSplats / sizeof(Splat) / (deviceThreads + deviceSpare))
         throw invalid_option("Invalid value for --device-splats-load");
     if (memMesh < getMeshHostMemory(vm))
         throw invalid_option("Value of --mem-mesh is too small");
@@ -381,6 +383,11 @@ void setLogLevel(const po::variables_map &vm)
         Log::log.setLevel(Log::debug);
     else
         Log::log.setLevel(Log::info);
+}
+
+std::size_t getDeviceWorkerGroupSpare(const po::variables_map &vm)
+{
+    return vm[Option::bucketThreads].as<int>() + 1;
 }
 
 static std::size_t getMeshMemoryCells(const po::variables_map &vm)
@@ -414,7 +421,7 @@ std::size_t getMaxHostSplats(const po::variables_map &vm)
 std::size_t getMaxDeviceSplats(const po::variables_map &vm)
 {
     std::size_t mem = vm[Option::memDeviceSplats].as<Capacity>();
-    mem = std::size_t(mem * vm[Option::hostSplatsLoad].as<double>());
+    mem = std::size_t(mem * vm[Option::deviceSplatsLoad].as<double>());
     return mem / sizeof(Splat);
 }
 

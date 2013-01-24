@@ -104,6 +104,11 @@ void validateOptions(const boost::program_options::variables_map &vm, bool isMPI
 void setLogLevel(const boost::program_options::variables_map &vm);
 
 /**
+ * Number of spare slots for @ref DeviceWorkerGroup.
+ */
+std::size_t getDeviceWorkerGroupSpare(const boost::program_options::variables_map &vm);
+
+/**
  * Amount of GPU memory to reserve for mesh data, including intermediate
  * structures.
  */

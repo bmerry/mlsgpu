@@ -97,7 +97,7 @@ void MesherGroup::outputFunc(
 
 
 DeviceWorkerGroup::DeviceWorkerGroup(
-    std::size_t numWorkers,
+    std::size_t numWorkers, std::size_t spare,
     OutputGenerator outputGenerator,
     const cl::Context &context, const cl::Device &device,
     std::size_t maxSplats, Grid::size_type maxCells,
@@ -117,9 +117,9 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     {
         addWorker(new Worker(*this, context, device, levels, boundaryLimit, shape, i));
     }
-    const std::size_t items = numWorkers + 2;
+    const std::size_t items = numWorkers + spare;
     maxItemSplats = memSplats / (items * sizeof(Splat));
-    MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument); // TODO: fall back to fewer items
+    MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument);
     writePinned.reset(new CLH::PinnedMemory<Splat>(context, device, maxItemSplats));
     for (std::size_t i = 0; i < items; i++)
     {

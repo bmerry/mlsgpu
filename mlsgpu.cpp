@@ -80,6 +80,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const bool split = vm.count(Option::split);
     const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+    const std::size_t deviceSpare = getDeviceWorkerGroupSpare(vm);
 
     const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
     const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
@@ -123,7 +124,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             for (std::size_t i = 0; i < devices.size(); i++)
             {
                 DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
-                    numDeviceThreads,
+                    numDeviceThreads, deviceSpare,
                     boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2),
                     devices[i].first, devices[i].second,
                     maxDeviceSplats, blockCells,
