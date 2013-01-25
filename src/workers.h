@@ -154,6 +154,11 @@ public:
          */
         Statistics::Container::list<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
+        /**
+         * Pinned host memory to write splats to, prior to them being copied
+         * to the GPU.
+         */
+        CLH::PinnedMemory<Splat> writePinned;
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
         std::size_t nextSplat() const
@@ -164,7 +169,12 @@ public:
                 return subItems.back().firstSplat + subItems.back().numSplats;
         }
 
-        WorkItem() : subItems("mem.FineBucketGroup.subItems") {}
+        WorkItem(const cl::Context &context, const cl::Device &device, std::size_t maxItemSplats)
+            : subItems("mem.FineBucketGroup.subItems"),
+            splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat)),
+            writePinned("mem.DeviceWorkerGroup.writePinned", context, device, maxItemSplats)
+        {
+        }
     };
 
     class Worker : public WorkerBase
@@ -237,12 +247,6 @@ private:
      * drops to zero, it is pushed onto the queue.
      */
     boost::shared_ptr<WorkItem> writeItem;
-
-    /**
-     * Pinned host memory to write splats to, prior to them being copied
-     * to the GPU.
-     */
-    boost::scoped_ptr<CLH::PinnedMemory<Splat> > writePinned;
 
     /**
      * Number of writers that are currently writing through the mapped pointer.
