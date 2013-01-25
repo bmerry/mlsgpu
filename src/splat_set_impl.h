@@ -22,6 +22,7 @@
 #endif
 #include <algorithm>
 #include <iterator>
+#include <utility>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/next_prior.hpp>
@@ -707,6 +708,43 @@ bool FastBlobSet<Base, BlobVector>::fastPath(const Grid &grid, Grid::size_type b
             return false;
     }
     return true;
+}
+
+
+template<typename InputIterator1, typename InputIterator2, typename OutputIterator>
+OutputIterator merge(
+    InputIterator1 first1, InputIterator1 last1,
+    InputIterator2 first2, InputIterator2 last2,
+    OutputIterator out)
+{
+    InputIterator1 p1 = first1;
+    InputIterator2 p2 = first2;
+    while (p1 != last1 && p2 != last2)
+    {
+        splat_id first = std::min(p1->first, p2->first);
+        splat_id last = first;
+        // Extend last for as far as we have contiguous ranges
+        while (true)
+        {
+            if (p1 != last1 && p1->first <= last)
+            {
+                last = std::max(last, p1->second);
+                ++p1;
+            }
+            else if (p2 != last2 && p2->first <= last)
+            {
+                last = std::max(last, p2->second);
+                ++p2;
+            }
+            else
+                break;
+        }
+        *out++ = std::make_pair(first, last);
+    }
+    // Copy tail pieces
+    out = std::copy(p1, last1, out);
+    out = std::copy(p2, last2, out);
+    return out;
 }
 
 

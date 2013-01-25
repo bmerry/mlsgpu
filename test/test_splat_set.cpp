@@ -399,10 +399,10 @@ protected:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastSequenceSet, TestSet::perBuild());
 
-/// Tests for @ref SplatSet::SubsetBase
-class TestSubsetBase : public CppUnit::TestFixture
+/// Tests for @ref SplatSet::merge
+class TestMerge : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestSubsetBase);
+    CPPUNIT_TEST_SUITE(TestMerge);
     CPPUNIT_TEST(testMergeEmpty);
     CPPUNIT_TEST(testMergeTail);
     CPPUNIT_TEST(testMergeGeneral);
@@ -420,7 +420,7 @@ public:
     void testMergeTail();      ///< Test @ref SplatSet::merge with tail elements in one set
     void testMergeGeneral();   ///< Miscellaneous tests for @ref SplatSet::merge.
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSubsetBase, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMerge, TestSet::perBuild());
 
 /// Tests for @ref SplatSet::Subset
 class TestSubset : public TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > >
@@ -957,7 +957,7 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
     return set.release();
 }
 
-void TestSubsetBase::testMergeHelper(
+void TestMerge::testMergeHelper(
     std::size_t numA,
     const splat_id rangesA[][2],
     std::size_t numB,
@@ -973,7 +973,9 @@ void TestSubsetBase::testMergeHelper(
     a.flush();
     b.flush();
 
-    SubsetBase ans = merge(a, b);
+    SubsetBase ans;
+    SplatSet::merge(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(ans));
+    ans.flush();
     std::size_t pos = 0;
     for (SubsetBase::const_iterator i = ans.begin(); i != ans.end(); ++i)
     {
@@ -985,12 +987,12 @@ void TestSubsetBase::testMergeHelper(
     CPPUNIT_ASSERT_EQUAL(pos, numExpected);
 }
 
-void TestSubsetBase::testMergeEmpty()
+void TestMerge::testMergeEmpty()
 {
     testMergeHelper(0, NULL, 0, NULL, 0, NULL);
 }
 
-void TestSubsetBase::testMergeTail()
+void TestMerge::testMergeTail()
 {
     const splat_id rangesA[][2] =
     {
@@ -1014,7 +1016,7 @@ void TestSubsetBase::testMergeTail()
     testMergeHelper(2, rangesB, 3, rangesA, 4, rangesExpected);
 }
 
-void TestSubsetBase::testMergeGeneral()
+void TestMerge::testMergeGeneral()
 {
     const splat_id rangesA[][2] =
     {

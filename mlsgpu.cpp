@@ -133,7 +133,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroups.push_back(dwg);
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
-            CoarseBucket<Splats, DeviceWorkerGroup> coarseBucket(deviceWorkerGroupPtrs, mainWorker);
+            CoarseBucket<Splats, DeviceWorkerGroup> coarseBucket(
+                memHostSplats,
+                deviceWorkerGroupPtrs, mainWorker);
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
@@ -194,7 +196,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     deviceWorkerGroups[i].setProgress(&progress);
 
                 // Start threads
-                coarseBucket.start(grid);
+                coarseBucket.start(splats, grid);
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].start(grid);
                 mesherGroup.start();

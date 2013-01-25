@@ -916,12 +916,23 @@ public:
         const_iterator() : prev(0) {}
     };
 
+    typedef const std::pair<splat_id, splat_id> &const_reference;
+
     /**
      * Add a range to the subset.
      * @pre
      * - @a first is greater than any previously added splat.
      */
     void addRange(splat_id first, splat_id last);
+
+    /**
+     * Add a range to the subset. This is an adapter over @ref addRange that simplifies
+     * use with @c std::back_inserter.
+     */
+    void push_back(std::pair<splat_id, splat_id> range)
+    {
+        addRange(range.first, range.second);
+    }
 
     /**
      * Add a blob to the subset.
@@ -1008,13 +1019,17 @@ protected:
 
 /**
  * Combine two subsets into their union.
- * @pre
- * - @a a and @a b are both flushed.
- * @post
- * - The return value is flushed.
+ *
+ * @param first1, last1     First range of iterators to [start, end) pairs
+ * @param first2, last2     Second range of iterators to [start, end) pairs
+ * @param out               Output iterator that receives [start, end) pairs
+ * @return Updated value of @a out
  */
-SubsetBase merge(const SubsetBase &a, const SubsetBase &b);
-
+template<typename InputIterator1, typename InputIterator2, typename OutputIterator>
+OutputIterator merge(
+    InputIterator1 first1, InputIterator1 last1,
+    InputIterator2 first2, InputIterator2 last2,
+    OutputIterator out);
 
 /**
  * A subset of the splats from another set. Note that this class does not

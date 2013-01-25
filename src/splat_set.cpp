@@ -11,7 +11,10 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/make_shared.hpp>
+#include <algorithm>
 #include <iosfwd>
+#include <utility>
+#include <stdexcept>
 #include "splat_set.h"
 #include "errors.h"
 #include "misc.h"
@@ -298,50 +301,6 @@ std::pair<splat_id, splat_id> SubsetBase::const_iterator::dereference() const
         last |= *p++;
         return std::make_pair(first, last);
     }
-}
-
-SubsetBase merge(const SubsetBase &a, const SubsetBase &b)
-{
-    SubsetBase ans;
-    SubsetBase::const_iterator ap = a.begin();
-    SubsetBase::const_iterator bp = b.begin();
-    while (ap != a.end() && bp != b.end())
-    {
-        splat_id first = std::min(ap->first, bp->first);
-        splat_id last = first;
-        // Extend last for as far as we have contiguous ranges
-        while (true)
-        {
-            if (ap != a.end() && ap->first <= last)
-            {
-                if (ap->second > last)
-                    last = ap->second;
-                ++ap;
-            }
-            else if (bp != b.end() && bp->first <= last)
-            {
-                if (bp->second > last)
-                    last = bp->second;
-                ++bp;
-            }
-            else
-                break;
-        }
-        ans.addRange(first, last);
-    }
-    // Copy tail pieces
-    while (ap != a.end())
-    {
-        ans.addRange(ap->first, ap->second);
-        ++ap;
-    }
-    while (bp != b.end())
-    {
-        ans.addRange(bp->first, bp->second);
-        ++bp;
-    }
-    ans.flush();
-    return ans;
 }
 
 } // namespace SplatSet
