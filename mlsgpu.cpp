@@ -92,7 +92,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const unsigned int blockCells = block - 1;
     const unsigned int microCells = std::min(63U, blockCells);
 
-    const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
     {
@@ -134,10 +133,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroups.push_back(dwg);
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
-            FineBucketGroup fineBucketGroup(
-                numBucketThreads, deviceWorkerGroupPtrs,
-                memHostSplats, maxDeviceSplats, blockCells, microCells, maxSplit);
-            CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
+            CoarseBucket<Splats, DeviceWorkerGroup> coarseBucket(deviceWorkerGroupPtrs, mainWorker);
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
@@ -196,11 +192,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 mesherGroup.setInputFunctor(mesher->functor(pass));
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].setProgress(&progress);
-                fineBucketGroup.setProgress(&progress);
 
                 // Start threads
                 coarseBucket.start(grid);
-                fineBucketGroup.start(grid);
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].start(grid);
                 mesherGroup.start();
@@ -216,7 +210,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     // This can't be handled using unwinding, because that would operate in
                     // the wrong order
                     coarseBucket.stop();
-                    fineBucketGroup.stop();
                     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                         deviceWorkerGroups[i].stop();
                     mesherGroup.stop();
@@ -228,7 +221,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  * are terminated.
                  */
                 coarseBucket.stop();
-                fineBucketGroup.stop();
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].stop();
                 mesherGroup.stop();

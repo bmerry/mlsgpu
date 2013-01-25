@@ -138,7 +138,8 @@ public:
          */
         Splat *splats;
         Grid grid;
-        Bucket::Recursion recursionState;
+
+        Splat *getSplats() const { return splats; }
     };
 
     /**
@@ -279,6 +280,7 @@ private:
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
     typedef DeviceWorkerGroupBase::SubItem SubItem;
+    typedef SubItem * get_type;
 
     /**
      * Constructor.
@@ -337,12 +339,14 @@ public:
     /**
      * @copydoc WorkerGroup::get
      */
-    SubItem &get(Timeplot::Worker &tworker, std::size_t size);
+    SubItem *get(Timeplot::Worker &tworker, std::size_t size);
 
     /**
      * @copydoc WorkerGroup::push
+     *
+     * @param item    Item retrieved from @ref get
      */
-    void push();
+    void push(SubItem *item);
 
     /**
      * Returns the item to the pool. It is called by the base class.
@@ -371,6 +375,8 @@ public:
         std::size_t numSplats;
         Grid grid;
         Bucket::Recursion recursionState;
+
+        Splat *getSplats() const { return (Splat *) splats.get(); }
     };
 
     class Worker : public WorkerBase

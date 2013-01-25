@@ -147,6 +147,7 @@ class ScatterGroup : public WorkerGroupScatter<FineBucketGroup::WorkItem, Scatte
 {
 public:
     typedef FineBucketGroup::WorkItem WorkItem;
+    typedef boost::shared_ptr<WorkItem> get_type;
 
     ScatterGroup(
         std::size_t numWorkers, std::size_t requesters,
@@ -167,6 +168,11 @@ public:
     void freeItem(boost::shared_ptr<WorkItem> item)
     {
         splatBuffer.free(item->splats);
+    }
+
+    std::size_t unallocated()
+    {
+        return 1; // TODO: does it need anything smarter?
     }
 
 private:
@@ -435,7 +441,8 @@ static void run(
             ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
             // TODO: tune number of scatter senders
             ScatterGroup scatterGroup(1, numSlaves, scatterComm, memScatter);
-            CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroup, mainWorker);
+            std::vector<ScatterGroup *> scatterGroupPtrs(1, &scatterGroup);
+            CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroupPtrs, mainWorker);
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);

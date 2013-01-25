@@ -169,7 +169,7 @@ void DeviceWorkerGroup::flushWriteItem()
     writeItem.reset();
 }
 
-DeviceWorkerGroup::SubItem &DeviceWorkerGroup::get(
+DeviceWorkerGroup::SubItem *DeviceWorkerGroup::get(
     Timeplot::Worker &tworker, std::size_t numSplats)
 {
     Timeplot::Action timer("get", tworker, getStat);
@@ -201,11 +201,14 @@ retry:
         activeWriters++;
     }
 
-    return writeItem->subItems.back();
+    return &writeItem->subItems.back();
 }
 
-void DeviceWorkerGroup::push()
+void DeviceWorkerGroup::push(SubItem *item)
 {
+    // not used - just passed to keep signature consistent for metaprogramming
+    (void) item;
+
     boost::lock_guard<boost::mutex> activeLock(activeMutex);
     activeWriters--;
     if (activeWriters == 0)
@@ -382,7 +385,7 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
         }
     }
 
-    DeviceWorkerGroup::SubItem &outItem =
+    DeviceWorkerGroup::SubItem *outItem =
         outGroup->get(getTimeplotWorker(), work.numSplats);
 
     /* The host transformed splats from world space into fullGrid space, so we need to
@@ -397,18 +400,17 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
         Grid::difference_type high = work.grid.getExtent(i).second - base;
         grid.setExtent(i, low, high);
     }
-    outItem.grid = grid;
-    outItem.recursionState = work.recursionState;
-    outItem.chunkId = work.chunkId;
+    outItem->grid = grid;
+    outItem->chunkId = work.chunkId;
 
     {
         Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
-        std::memcpy(outItem.splats, work.splats.get(), work.numSplats * sizeof(Splat));
+        std::memcpy(outItem->splats, work.splats.get(), work.numSplats * sizeof(Splat));
     }
 
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem.numSplats);
+    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
     registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
 
-    outGroup->push();
+    outGroup->push(outItem);
     owner.splatBuffer.free(work.splats);
 }
