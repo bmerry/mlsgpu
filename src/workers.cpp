@@ -121,11 +121,9 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     const std::size_t items = numWorkers + spare;
     maxItemSplats = memSplats / (items * sizeof(Splat));
     MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument);
-    writePinned.reset(new CLH::PinnedMemory<Splat>("mem.DeviceWorkerGroup.writePinned", context, device, maxItemSplats));
     for (std::size_t i = 0; i < items; i++)
     {
-        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>();
-        item->splats = cl::Buffer(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat));
+        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, device, maxItemSplats);
         itemPool.push(item);
     }
 }
@@ -162,7 +160,7 @@ void DeviceWorkerGroup::flushWriteItem()
         writeItem->splats,
         CL_FALSE,
         0, writeItem->nextSplat() * sizeof(Splat),
-        writePinned->get(),
+        writeItem->writePinned.get(),
         NULL, &writeItem->copyEvent);
     copyQueue.flush();
     Base::push(writeItem);
@@ -193,7 +191,7 @@ retry:
     SubItem sub;
     sub.firstSplat = start;
     sub.numSplats = numSplats;
-    sub.splats = writePinned->get() + start;
+    sub.splats = writeItem->writePinned.get() + start;
     writeItem->subItems.push_back(sub);
 
     {
