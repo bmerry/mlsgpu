@@ -917,11 +917,18 @@ public:
     };
 
     /**
+     * Add a range to the subset.
+     * @pre
+     * - @a first is greater than any previously added splat.
+     */
+    void addRange(splat_id first, splat_id last);
+
+    /**
      * Add a blob to the subset.
      * @pre
      * - @a blob.firstSplat is greater than any previously added splat.
      */
-    void addBlob(const BlobInfo &blob);
+    void addBlob(const BlobInfo &blob) { addRange(blob.firstSplat, blob.lastSplat); }
 
     /**
      * Call this after adding all blobs with @ref addBlob and before
@@ -998,6 +1005,16 @@ protected:
     /// Number of ranges encoded
     std::size_t nRanges;
 };
+
+/**
+ * Combine two subsets into their union.
+ * @pre
+ * - @a a and @a b are both flushed.
+ * @post
+ * - The return value is flushed.
+ */
+SubsetBase merge(const SubsetBase &a, const SubsetBase &b);
+
 
 /**
  * A subset of the splats from another set. Note that this class does not

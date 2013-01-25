@@ -399,6 +399,29 @@ protected:
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastSequenceSet, TestSet::perBuild());
 
+/// Tests for @ref SplatSet::SubsetBase
+class TestSubsetBase : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestSubsetBase);
+    CPPUNIT_TEST(testMergeEmpty);
+    CPPUNIT_TEST(testMergeTail);
+    CPPUNIT_TEST(testMergeGeneral);
+    CPPUNIT_TEST_SUITE_END();
+protected:
+    void testMergeHelper(
+        std::size_t numA,
+        const splat_id rangesA[][2],
+        std::size_t numB,
+        const splat_id rangesB[][2],
+        std::size_t numExpected,
+        const splat_id rangesExpected[][2]);
+public:
+    void testMergeEmpty();     ///< Test @ref SplatSet::merge with two empty subsets
+    void testMergeTail();      ///< Test @ref SplatSet::merge with tail elements in one set
+    void testMergeGeneral();   ///< Miscellaneous tests for @ref SplatSet::merge.
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSubsetBase, TestSet::perBuild());
+
 /// Tests for @ref SplatSet::Subset
 class TestSubset : public TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > >
 {
@@ -932,4 +955,84 @@ TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
     CPPUNIT_ASSERT_EQUAL((unsigned int) flatSplats.size(), offset);
     flatSplats.swap(flatSubset);
     return set.release();
+}
+
+void TestSubsetBase::testMergeHelper(
+    std::size_t numA,
+    const splat_id rangesA[][2],
+    std::size_t numB,
+    const splat_id rangesB[][2],
+    std::size_t numExpected,
+    const splat_id rangesExpected[][2])
+{
+    SubsetBase a, b;
+    for (std::size_t i = 0; i < numA; i++)
+        a.addRange(rangesA[i][0], rangesA[i][1]);
+    for (std::size_t i = 0; i < numB; i++)
+        b.addRange(rangesB[i][0], rangesB[i][1]);
+    a.flush();
+    b.flush();
+
+    SubsetBase ans = merge(a, b);
+    std::size_t pos = 0;
+    for (SubsetBase::const_iterator i = ans.begin(); i != ans.end(); ++i)
+    {
+        CPPUNIT_ASSERT(pos < numExpected);
+        CPPUNIT_ASSERT_EQUAL(rangesExpected[pos][0], i->first);
+        CPPUNIT_ASSERT_EQUAL(rangesExpected[pos][1], i->second);
+        pos++;
+    }
+    CPPUNIT_ASSERT_EQUAL(pos, numExpected);
+}
+
+void TestSubsetBase::testMergeEmpty()
+{
+    testMergeHelper(0, NULL, 0, NULL, 0, NULL);
+}
+
+void TestSubsetBase::testMergeTail()
+{
+    const splat_id rangesA[][2] =
+    {
+        { 1, 3 },
+        { 20, 22 },
+        { 25, 30 }
+    };
+    const splat_id rangesB[][2] =
+    {
+        { 3, 5 },
+        { 7, 10 }
+    };
+    const splat_id rangesExpected[][2] =
+    {
+        { 1, 5 },
+        { 7, 10 },
+        { 20, 22 },
+        { 25, 30 }
+    };
+    testMergeHelper(3, rangesA, 2, rangesB, 4, rangesExpected);
+    testMergeHelper(2, rangesB, 3, rangesA, 4, rangesExpected);
+}
+
+void TestSubsetBase::testMergeGeneral()
+{
+    const splat_id rangesA[][2] =
+    {
+        { 1, 10 },
+        { 20, 30 },
+        { 40, 50 }
+    };
+    const splat_id rangesB[][2] =
+    {
+        { 3, 8 },
+        { 9, 15 },
+        { 18, 22 },
+        { 30, 40 }
+    };
+    const splat_id rangesExpected[][2] =
+    {
+        { 1, 15 },
+        { 18, 50 }
+    };
+    testMergeHelper(3, rangesA, 4, rangesB, 2, rangesExpected);
 }
