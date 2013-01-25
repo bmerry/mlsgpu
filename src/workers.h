@@ -416,6 +416,7 @@ public:
         std::size_t memCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
+        Grid::size_type microCells,
         std::size_t maxSplit);
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
@@ -437,6 +438,7 @@ private:
     Grid fullGrid;
     std::size_t maxSplats;
     Grid::size_type maxCells;
+    Grid::size_type microCells;
     std::size_t maxSplit;
     ProgressMeter *progress;
     Statistics::Variable &writeStat;

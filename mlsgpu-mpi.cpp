@@ -275,6 +275,7 @@ void Slave::operator()() const
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
+    const unsigned int microCells = std::min(63U, blockCells); // TODO: share code with mlsgpu.cpp
 
     GatherGroup gatherGroup(gatherComm, gatherRoot, memGather);
     boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
@@ -294,7 +295,7 @@ void Slave::operator()() const
     }
     FineBucketGroup fineBucketGroup(
         numBucketThreads, deviceWorkerGroupPtrs,
-        memHostSplats, maxDeviceSplats, blockCells, maxSplit);
+        memHostSplats, maxDeviceSplats, blockCells, microCells, maxSplit);
     RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
         "requester", fineBucketGroup, scatterComm, scatterRoot);
 
@@ -410,6 +411,7 @@ static void run(
 
         const unsigned int block = 1U << (levels + subsampling - 1);
         const unsigned int blockCells = block - 1;
+        const unsigned int microCells = std::min(63U, blockCells); // TODO: share code with mlsgpu.cpp
 
         {
             Statistics::Timer grandTotalTimer("run.time");
@@ -440,7 +442,7 @@ static void run(
             try
             {
                 Timeplot::Action timer("bbox", mainWorker, "bbox.time");
-                splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
+                splats.computeBlobs(spacing, microCells, &Log::log[Log::info]);
             }
             catch (std::length_error &e) // TODO: should be a subclass of runtime_error
             {
@@ -504,7 +506,7 @@ static void run(
                 try
                 {
                     Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
-                    Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, chunkCells, blockCells, maxSplit,
+                    Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, microCells, maxSplit,
                                    boost::ref(coarseBucket), &progressMPI);
                 }
                 catch (...)

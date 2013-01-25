@@ -323,6 +323,7 @@ FineBucketGroup::FineBucketGroup(
     std::size_t memCoarseSplats,
     std::size_t maxSplats,
     Grid::size_type maxCells,
+    Grid::size_type microCells,
     std::size_t maxSplit)
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
@@ -332,6 +333,7 @@ FineBucketGroup::FineBucketGroup(
     splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats),
     maxSplats(maxSplats),
     maxCells(maxCells),
+    microCells(microCells),
     maxSplit(maxSplit),
     progress(NULL),
     writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write"))
@@ -359,6 +361,10 @@ void FineBucketGroupBase::Worker::operator()(
     const Grid &grid,
     const Bucket::Recursion &recursionState)
 {
+}
+
+void FineBucketGroupBase::Worker::operator()(WorkItem &work)
+{
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
@@ -377,35 +383,7 @@ void FineBucketGroupBase::Worker::operator()(
     }
 
     DeviceWorkerGroup::SubItem &outItem =
-        outGroup->get(getTimeplotWorker(), splatSet.numSplats());
-    outItem.grid = grid;
-    outItem.recursionState = recursionState;
-    outItem.chunkId = chunkId;
-
-    std::size_t pos = 0;
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(splatSet.makeSplatStream());
-
-    {
-        Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
-        while (!splatStream->empty())
-        {
-            outItem.splats[pos] = **splatStream;
-            ++*splatStream;
-            ++pos;
-        }
-        assert(pos == splatSet.numSplats());
-    }
-
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem.numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.ranges").add(splatSet.numRanges());
-    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
-
-    outGroup->push();
-}
-
-void FineBucketGroupBase::Worker::operator()(WorkItem &work)
-{
-    Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
+        outGroup->get(getTimeplotWorker(), work.numSplats);
 
     /* The host transformed splats from world space into fullGrid space, so we need to
      * construct a new grid for this coordinate system.
@@ -419,13 +397,18 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
         Grid::difference_type high = work.grid.getExtent(i).second - base;
         grid.setExtent(i, low, high);
     }
+    outItem.grid = grid;
+    outItem.recursionState = work.recursionState;
+    outItem.chunkId = work.chunkId;
 
-    const Splat *splatsPtr = (const Splat *) work.splats.get();
-    Splats splats;
-    splats.reset(splatsPtr, splatsPtr + work.numSplats);
-    splats.computeBlobs(grid.getSpacing(), owner.maxCells, NULL, false);
-    Bucket::bucket(splats, grid, owner.maxSplats, owner.maxCells, 0, false, owner.maxSplit,
-                   boost::bind<void>(boost::ref(*this), work.chunkId, _1, _2, _3),
-                   owner.progress, work.recursionState);
+    {
+        Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
+        std::memcpy(outItem.splats, work.splats.get(), work.numSplats * sizeof(Splat));
+    }
+
+    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem.numSplats);
+    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
+
+    outGroup->push();
     owner.splatBuffer.free(work.splats);
 }
