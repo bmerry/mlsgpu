@@ -68,7 +68,7 @@ public:
             else if (preserve)
             {
                 T *new_data = allocator_.allocate(new_capacity);
-                std::memcpy(new_data, data_, new_capacity * sizeof(T));
+                std::memcpy(new_data, data_, capacity_ * sizeof(T));
                 allocator_.deallocate(data_, capacity_);
                 data_ = new_data;
             }
