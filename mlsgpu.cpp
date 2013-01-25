@@ -73,7 +73,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MesherType mesherType = OOC_MESHER;
     const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
-    const std::size_t maxHostSplats = getMaxHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
@@ -91,8 +90,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
+    const unsigned int microCells = std::min(63U, blockCells);
 
-    const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
     {
@@ -134,10 +133,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroups.push_back(dwg);
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
-            FineBucketGroup fineBucketGroup(
-                numBucketThreads, deviceWorkerGroupPtrs,
-                memHostSplats, maxDeviceSplats, blockCells, maxSplit);
-            CoarseBucket<Splats, FineBucketGroup> coarseBucket(fineBucketGroup, mainWorker);
+            CoarseBucket<Splats, DeviceWorkerGroup> coarseBucket(deviceWorkerGroupPtrs, mainWorker);
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
@@ -146,7 +142,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             try
             {
                 Timeplot::Action timer("bbox", mainWorker, "bbox.time");
-                splats.computeBlobs(spacing, blockCells, &Log::log[Log::info]);
+                splats.computeBlobs(spacing, microCells, &Log::log[Log::info]);
             }
             catch (std::length_error &e) // TODO: should be a subclass of runtime_error
             {
@@ -196,11 +192,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 mesherGroup.setInputFunctor(mesher->functor(pass));
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].setProgress(&progress);
-                fineBucketGroup.setProgress(&progress);
 
                 // Start threads
                 coarseBucket.start(grid);
-                fineBucketGroup.start(grid);
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].start(grid);
                 mesherGroup.start();
@@ -208,7 +202,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 try
                 {
                     Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
-                    Bucket::bucket(splats, grid, maxHostSplats, INT_MAX, chunkCells, blockCells, maxSplit,
+                    Bucket::bucket(splats, grid, maxDeviceSplats, blockCells, chunkCells, microCells, maxSplit,
                                    boost::ref(coarseBucket), &progress);
                 }
                 catch (...)
@@ -216,7 +210,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     // This can't be handled using unwinding, because that would operate in
                     // the wrong order
                     coarseBucket.stop();
-                    fineBucketGroup.stop();
                     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                         deviceWorkerGroups[i].stop();
                     mesherGroup.stop();
@@ -228,7 +221,6 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  * are terminated.
                  */
                 coarseBucket.stop();
-                fineBucketGroup.stop();
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].stop();
                 mesherGroup.stop();

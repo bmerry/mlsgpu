@@ -13,6 +13,7 @@
 #include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/noncopyable.hpp>
+#include <vector>
 #include "splat_set.h"
 #include "grid.h"
 #include "bucket.h"
@@ -37,7 +38,7 @@ public:
         const Grid &grid,
         const Bucket::Recursion &recursionState);
 
-    CoarseBucket(OutGroup &outGroup, Timeplot::Worker &tworker);
+    CoarseBucket(const std::vector<OutGroup *> &outGroups, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
     void start(const Grid &fullGrid);
@@ -45,15 +46,15 @@ public:
     /// Ends a pass
     void stop();
 private:
+    const std::vector<OutGroup *> outGroups;
     ChunkId curChunkId;
-    OutGroup &outGroup;
     Grid fullGrid;
     Timeplot::Worker &tworker;
 };
 
 template<typename Splats, typename OutGroup>
-CoarseBucket<Splats, OutGroup>::CoarseBucket(OutGroup &outGroup, Timeplot::Worker &tworker)
-: outGroup(outGroup), tworker(tworker)
+CoarseBucket<Splats, OutGroup>::CoarseBucket(const std::vector<OutGroup *> &outGroups, Timeplot::Worker &tworker)
+: outGroups(outGroups), tworker(tworker)
 {
 }
 
@@ -70,17 +71,43 @@ void CoarseBucket<Splats, OutGroup>::operator()(
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker, splats.numSplats());
+    /* Select the least-busy output group to target */
+    OutGroup *outGroup = NULL;
+    std::size_t bestSpare = 0;
+    BOOST_FOREACH(OutGroup *w, outGroups)
+    {
+        std::size_t spare = w->unallocated();
+        if (spare >= bestSpare)
+        {
+            // Note: >= above so that we always get a non-NULL result
+            outGroup = w;
+            bestSpare = spare;
+        }
+    }
+
+    /* The host transformed splats from world space into fullGrid space, so we need to
+     * construct a new grid for this coordinate system.
+     */
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    Grid subGrid(ref, 1.0f, 0, 1, 0, 1, 0, 1);
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        Grid::difference_type base = fullGrid.getExtent(i).first;
+        Grid::difference_type low = grid.getExtent(i).first - base;
+        Grid::difference_type high = grid.getExtent(i).second - base;
+        subGrid.setExtent(i, low, high);
+    }
+
+    typename OutGroup::get_type item = outGroup->get(tworker, splats.numSplats());
     item->chunkId = curChunkId;
-    item->grid = grid;
-    item->recursionState = recursionState;
+    item->grid = subGrid;
     float invSpacing = 1.0f / fullGrid.getSpacing();
 
     {
         Timeplot::Action timer("load", tworker, "bucket.coarse.load");
 
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-        Splat *splatPtr = (Splat *) item->splats.get();
+        Splat *splatPtr = (Splat *) item->getSplats();
         while (!splatStream->empty())
         {
             Splat splat = **splatStream;
@@ -97,7 +124,7 @@ void CoarseBucket<Splats, OutGroup>::operator()(
             (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
     }
 
-    outGroup.push(item);
+    outGroup->push(item);
 }
 
 template<typename Splats, typename OutGroup>

@@ -138,7 +138,8 @@ public:
          */
         Splat *splats;
         Grid grid;
-        Bucket::Recursion recursionState;
+
+        Splat *getSplats() const { return splats; }
     };
 
     /**
@@ -153,6 +154,11 @@ public:
          */
         Statistics::Container::list<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
+        /**
+         * Pinned host memory to write splats to, prior to them being copied
+         * to the GPU.
+         */
+        CLH::PinnedMemory<Splat> writePinned;
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
         std::size_t nextSplat() const
@@ -163,7 +169,12 @@ public:
                 return subItems.back().firstSplat + subItems.back().numSplats;
         }
 
-        WorkItem() : subItems("mem.FineBucketGroup.subItems") {}
+        WorkItem(const cl::Context &context, const cl::Device &device, std::size_t maxItemSplats)
+            : subItems("mem.FineBucketGroup.subItems"),
+            splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat)),
+            writePinned("mem.DeviceWorkerGroup.writePinned", context, device, maxItemSplats)
+        {
+        }
     };
 
     class Worker : public WorkerBase
@@ -238,12 +249,6 @@ private:
     boost::shared_ptr<WorkItem> writeItem;
 
     /**
-     * Pinned host memory to write splats to, prior to them being copied
-     * to the GPU.
-     */
-    boost::scoped_ptr<CLH::PinnedMemory<Splat> > writePinned;
-
-    /**
      * Number of writers that are currently writing through the mapped pointer.
      * It will only be safe to unmap the buffer once this hits zero.
      */
@@ -279,6 +284,7 @@ private:
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
     typedef DeviceWorkerGroupBase::SubItem SubItem;
+    typedef SubItem * get_type;
 
     /**
      * Constructor.
@@ -337,12 +343,14 @@ public:
     /**
      * @copydoc WorkerGroup::get
      */
-    SubItem &get(Timeplot::Worker &tworker, std::size_t size);
+    SubItem *get(Timeplot::Worker &tworker, std::size_t size);
 
     /**
      * @copydoc WorkerGroup::push
+     *
+     * @param item    Item retrieved from @ref get
      */
-    void push();
+    void push(SubItem *item);
 
     /**
      * Returns the item to the pool. It is called by the base class.
@@ -371,6 +379,8 @@ public:
         std::size_t numSplats;
         Grid grid;
         Bucket::Recursion recursionState;
+
+        Splat *getSplats() const { return (Splat *) splats.get(); }
     };
 
     class Worker : public WorkerBase
@@ -416,6 +426,7 @@ public:
         std::size_t memCoarseSplats,
         std::size_t maxSplats,
         Grid::size_type maxCells,
+        Grid::size_type microCells,
         std::size_t maxSplit);
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
@@ -437,6 +448,7 @@ private:
     Grid fullGrid;
     std::size_t maxSplats;
     Grid::size_type maxCells;
+    Grid::size_type microCells;
     std::size_t maxSplit;
     ProgressMeter *progress;
     Statistics::Variable &writeStat;
