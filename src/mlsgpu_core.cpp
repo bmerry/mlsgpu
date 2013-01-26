@@ -101,7 +101,7 @@ static void addMemoryOptions(po::options_description &opts, bool isMPI)
 {
     po::options_description memory("Advanced memory options");
     memory.add_options()
-        (Option::memHostSplats,   po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for splats on the CPU")
+        (Option::memHostSplats,   po::value<Capacity>()->default_value(512 * 1024 * 1024), "Memory for splats on the CPU")
         (Option::memDeviceSplats, po::value<Capacity>()->default_value(256 * 1024 * 1024),  "Memory for splats on the device")
         (Option::memMesh,         po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for raw mesh data on the CPU")
         (Option::memReorder,      po::value<Capacity>()->default_value(2U * 1024 * 1024 * 1024), "Memory for processed mesh data on the CPU");
