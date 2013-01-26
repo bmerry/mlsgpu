@@ -97,6 +97,7 @@ CoarseBucket<Splats, OutGroup>::CoarseBucket(
     ranges("mem.CoarseBucket.ranges"),
     splatBuffer("mem.CoarseBucket.splatBuffer")
 {
+    splatBuffer.reserve(maxHostSplats);
 }
 
 template<typename Splats, typename OutGroup>
@@ -181,8 +182,6 @@ void CoarseBucket<Splats, OutGroup>::flush()
     if (bins.empty())
         return;
 
-    std::size_t totalSplats = numSplats();
-    splatBuffer.reserve(totalSplats, false);
     std::size_t pos = 0;
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(super->makeSplatStream(ranges.begin(), ranges.end()));
     float invSpacing = 1.0f / fullGrid.getSpacing();
