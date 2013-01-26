@@ -182,17 +182,21 @@ void CoarseBucket<Splats, OutGroup>::flush()
     if (bins.empty())
         return;
 
-    std::size_t pos = 0;
-    boost::scoped_ptr<SplatSet::SplatStream> splatStream(super->makeSplatStream(ranges.begin(), ranges.end()));
-    float invSpacing = 1.0f / fullGrid.getSpacing();
-    while (!splatStream->empty())
     {
-        Splat splat = **splatStream;
-        /* Transform the splats into the grid's coordinate system */
-        fullGrid.worldToVertex(splat.position, splat.position);
-        splat.radius *= invSpacing;
-        splatBuffer[pos++] = splat;
-        ++*splatStream;
+        // TODO: cache the statistics references passed to timeplot
+        Timeplot::Action timer("load", tworker, "bucket.coarse.load");
+        std::size_t pos = 0;
+        boost::scoped_ptr<SplatSet::SplatStream> splatStream(super->makeSplatStream(ranges.begin(), ranges.end()));
+        float invSpacing = 1.0f / fullGrid.getSpacing();
+        while (!splatStream->empty())
+        {
+            Splat splat = **splatStream;
+            /* Transform the splats into the grid's coordinate system */
+            fullGrid.worldToVertex(splat.position, splat.position);
+            splat.radius *= invSpacing;
+            splatBuffer[pos++] = splat;
+            ++*splatStream;
+        }
     }
 
     // Now process each bin, copying the relevant subset to the device
@@ -207,7 +211,7 @@ void CoarseBucket<Splats, OutGroup>::flush()
 
         Timeplot::Action timer("write", tworker, "bucket.coarse.write");
         Statistics::Container::vector<range_type>::const_iterator p = ranges.begin();
-        pos = 0;
+        std::size_t pos = 0;
         Splat *splatPtr = (Splat *) item->getSplats();
         for (SplatSet::SubsetBase::const_iterator q = bin.ranges.begin(); q != bin.ranges.end(); ++q)
         {
