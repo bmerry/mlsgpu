@@ -272,6 +272,11 @@ private:
      */
     boost::condition_variable inactiveCondition;
 
+    /// Number of spare splats in device buffers.
+    std::size_t unallocated_;
+    /// Mutex protecting @ref unallocated_.
+    boost::mutex unallocatedMutex;
+
     /**
      * Pushes the current @ref writeItem (if any) into the queue, and resets it.
      *
@@ -358,11 +363,11 @@ public:
     void freeItem(boost::shared_ptr<WorkItem> item);
 
     /**
-     * Estimate spare queue capacity.
-     *
-     * @todo Fix
+     * Estimate spare queue capacity. It ignores data in @ref writePinned, in
+     * order to give a better estimate of how soon the queue will be drained
+     * if no more data arrives.
      */
-    std::size_t unallocated() { return 1; }
+    std::size_t unallocated();
 };
 
 class FineBucketGroup;

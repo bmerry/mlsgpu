@@ -126,6 +126,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, device, maxItemSplats);
         itemPool.push(item);
     }
+    unallocated_ = maxItemSplats * items;
 }
 
 void DeviceWorkerGroup::start(const Grid &fullGrid)
@@ -150,10 +151,17 @@ void DeviceWorkerGroup::flushWriteItem()
     if (!writeItem)
         return;
 
-    boost::unique_lock<boost::mutex> activeLock(activeMutex);
-    while (activeWriters > 0)
     {
-        inactiveCondition.wait(activeLock);
+        boost::unique_lock<boost::mutex> activeLock(activeMutex);
+        while (activeWriters > 0)
+        {
+            inactiveCondition.wait(activeLock);
+        }
+    }
+
+    {
+        boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
+        unallocated_ -= writeItem->nextSplat();
     }
 
     copyQueue.enqueueWriteBuffer(
@@ -218,6 +226,12 @@ void DeviceWorkerGroup::freeItem(boost::shared_ptr<WorkItem> item)
     item->subItems.clear();
     item->copyEvent = cl::Event(); // release the reference
     itemPool.push(item);
+}
+
+std::size_t DeviceWorkerGroup::unallocated()
+{
+    boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
+    return unallocated_;
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
@@ -315,6 +329,11 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 
         if (owner.progress != NULL)
             *owner.progress += sub.grid.numCells();
+
+        {
+            boost::lock_guard<boost::mutex> unallocatedLock(owner.unallocatedMutex);
+            owner.unallocated_ += sub.numSplats;
+        }
     }
 }
 
