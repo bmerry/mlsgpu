@@ -147,7 +147,6 @@ class ScatterGroup : public WorkerGroupScatter<FineBucketGroup::WorkItem, Scatte
 {
 public:
     typedef FineBucketGroup::WorkItem WorkItem;
-    typedef boost::shared_ptr<WorkItem> get_type;
 
     ScatterGroup(
         std::size_t numWorkers, std::size_t requesters,

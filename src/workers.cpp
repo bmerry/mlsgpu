@@ -109,10 +109,8 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     progress(NULL), outputGenerator(outputGenerator),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
-    getFlushStat(Statistics::getStatistic<Statistics::Variable>("device.get.flush")),
     copyQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
-    itemPool(),
-    activeWriters(0)
+    itemPool()
 {
     for (std::size_t i = 0; i < numWorkers; i++)
     {
@@ -123,7 +121,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument);
     for (std::size_t i = 0; i < items; i++)
     {
-        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, device, maxItemSplats);
+        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, maxItemSplats);
         itemPool.push(item);
     }
     unallocated_ = maxItemSplats * items;
@@ -135,90 +133,16 @@ void DeviceWorkerGroup::start(const Grid &fullGrid)
     Base::start();
 }
 
-void DeviceWorkerGroup::stop()
-{
-    // Note: we can't just override the stopPreJoin hook, because that still runs after
-    // the work queue is stopped
-    {
-        boost::lock_guard<boost::mutex> lock(splatsMutex);
-        flushWriteItem();
-    }
-    Base::stop();
-}
-
-void DeviceWorkerGroup::flushWriteItem()
-{
-    if (!writeItem)
-        return;
-
-    {
-        boost::unique_lock<boost::mutex> activeLock(activeMutex);
-        while (activeWriters > 0)
-        {
-            inactiveCondition.wait(activeLock);
-        }
-    }
-
-    {
-        boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
-        unallocated_ -= writeItem->nextSplat();
-    }
-
-    copyQueue.enqueueWriteBuffer(
-        writeItem->splats,
-        CL_FALSE,
-        0, writeItem->nextSplat() * sizeof(Splat),
-        writeItem->writePinned.get(),
-        NULL, &writeItem->copyEvent);
-    copyQueue.flush();
-    Base::push(writeItem);
-    writeItem.reset();
-}
-
-DeviceWorkerGroup::SubItem *DeviceWorkerGroup::get(
+boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
     Timeplot::Worker &tworker, std::size_t numSplats)
 {
     Timeplot::Action timer("get", tworker, getStat);
-    boost::lock_guard<boost::mutex> splatsLock(splatsMutex);
-
-retry:
-    if (!writeItem)
-    {
-        writeItem = itemPool.pop();
-    }
-    std::size_t spare = maxItemSplats - writeItem->nextSplat();
-    if (numSplats > spare)
-    {
-        Timeplot::Action timer("get.flush", tworker, getFlushStat);
-        flushWriteItem();
-        goto retry;
-    }
-
-    // Now writeItem is safe to use
-    std::size_t start = writeItem->nextSplat();
-    SubItem sub;
-    sub.firstSplat = start;
-    sub.numSplats = numSplats;
-    sub.splats = writeItem->writePinned.get() + start;
-    writeItem->subItems.push_back(sub);
 
     {
-        boost::lock_guard<boost::mutex> activeLock(activeMutex);
-        activeWriters++;
+        boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
+        unallocated_ -= numSplats;
     }
-
-    return &writeItem->subItems.back();
-}
-
-void DeviceWorkerGroup::push(SubItem *item)
-{
-    // not used - just passed to keep signature consistent for metaprogramming
-    (void) item;
-
-    boost::lock_guard<boost::mutex> activeLock(activeMutex);
-    activeWriters--;
-    if (activeWriters == 0)
-        inactiveCondition.notify_one();
+    return itemPool.pop();
 }
 
 void DeviceWorkerGroup::freeItem(boost::shared_ptr<WorkItem> item)
@@ -335,99 +259,4 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
             owner.unallocated_ += sub.numSplats;
         }
     }
-}
-
-FineBucketGroup::FineBucketGroup(
-    std::size_t numWorkers,
-    const std::vector<DeviceWorkerGroup *> &outGroups,
-    std::size_t memCoarseSplats,
-    std::size_t maxSplats,
-    Grid::size_type maxCells,
-    Grid::size_type microCells,
-    std::size_t maxSplit)
-:
-    WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
-        "bucket.fine",
-        numWorkers),
-    outGroups(outGroups),
-    splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats),
-    maxSplats(maxSplats),
-    maxCells(maxCells),
-    microCells(microCells),
-    maxSplit(maxSplit),
-    progress(NULL),
-    writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write"))
-{
-    for (std::size_t i = 0; i < numWorkers; i++)
-    {
-        addWorker(new Worker(*this, i));
-    }
-}
-
-void FineBucketGroup::start(const Grid &fullGrid)
-{
-    this->fullGrid = fullGrid;
-    this->BaseType::start();
-}
-
-FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner, int idx)
-    : WorkerBase("bucket.fine", idx), owner(owner)
-{
-};
-
-void FineBucketGroupBase::Worker::operator()(
-    const ChunkId &chunkId,
-    const SplatSet::Traits<Splats>::subset_type &splatSet,
-    const Grid &grid,
-    const Bucket::Recursion &recursionState)
-{
-}
-
-void FineBucketGroupBase::Worker::operator()(WorkItem &work)
-{
-    Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-
-    /* Select the least-busy device to target */
-    DeviceWorkerGroup *outGroup = NULL;
-    std::size_t bestSpare = 0;
-    BOOST_FOREACH(DeviceWorkerGroup *w, owner.outGroups)
-    {
-        std::size_t spare = w->unallocated();
-        if (spare >= bestSpare)
-        {
-            // Note: >= above so that we always get a non-NULL result
-            outGroup = w;
-            bestSpare = spare;
-        }
-    }
-
-    DeviceWorkerGroup::SubItem *outItem =
-        outGroup->get(getTimeplotWorker(), work.numSplats);
-
-    /* The host transformed splats from world space into fullGrid space, so we need to
-     * construct a new grid for this coordinate system.
-     */
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 1.0f, 0, 1, 0, 1, 0, 1);
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        Grid::difference_type base = owner.fullGrid.getExtent(i).first;
-        Grid::difference_type low = work.grid.getExtent(i).first - base;
-        Grid::difference_type high = work.grid.getExtent(i).second - base;
-        grid.setExtent(i, low, high);
-    }
-    outItem->grid = grid;
-    outItem->chunkId = work.chunkId;
-
-    {
-        Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
-        std::memcpy(outItem->splats, work.splats.get(), work.numSplats * sizeof(Splat));
-    }
-
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
-
-    outGroup->push(outItem);
-    owner.splatBuffer.free(work.splats);
 }

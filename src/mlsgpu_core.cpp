@@ -387,7 +387,8 @@ void setLogLevel(const po::variables_map &vm)
 
 std::size_t getDeviceWorkerGroupSpare(const po::variables_map &vm)
 {
-    return vm[Option::bucketThreads].as<int>() + 1;
+    (void) vm;
+    return 1;
 }
 
 static std::size_t getMeshMemoryCells(const po::variables_map &vm)

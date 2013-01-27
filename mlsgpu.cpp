@@ -134,7 +134,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
             CoarseBucket<Splats, DeviceWorkerGroup> coarseBucket(
-                memHostSplats,
+                devices[0].first, devices[0].second,
+                deviceWorkerGroups[0].getMaxItemSplats(),
                 deviceWorkerGroupPtrs, mainWorker);
 
             Splats splats("mem.blobData");
