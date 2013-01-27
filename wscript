@@ -91,6 +91,8 @@ def configure_mpi(conf):
             have_mpi = True
         except waflib.Errors.ConfigurationError:
             have_mpi = False
+    else:
+        have_mpi = False
 
     conf.env['mpi'] = have_mpi
 
