@@ -132,7 +132,14 @@ public:
         ChunkId chunkId;               ///< Chunk owning this item
         std::size_t firstSplat;        ///< Index of first splat in device buffer
         std::size_t numSplats;         ///< Number of splats in the bucket
+        /**
+         * Pointer at which to start writing splats (already offset by @a
+         * firstSplat). This is only valid for producers.
+         */
+        Splat *splats;
         Grid grid;
+
+        Splat *getSplats() const { return splats; }
     };
 
     /**
@@ -140,14 +147,32 @@ public:
      */
     struct WorkItem
     {
-        /// Data for individual fine buckets.
+        /**
+         * Data for individual fine buckets. This is a linked list rather than
+         * a vector because other threads can append to the list asynchronously,
+         * and this must not move the memory around.
+         */
         Statistics::Container::list<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
+        /**
+         * Pinned host memory to write splats to, prior to them being copied
+         * to the GPU.
+         */
+        CLH::PinnedMemory<Splat> writePinned;
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
-        WorkItem(const cl::Context &context, std::size_t maxItemSplats)
-            : subItems("mem.DeviceWorkerGroup.subItems"),
-            splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat))
+        std::size_t nextSplat() const
+        {
+            if (subItems.empty())
+                return 0;
+            else
+                return subItems.back().firstSplat + subItems.back().numSplats;
+        }
+
+        WorkItem(const cl::Context &context, const cl::Device &device, std::size_t maxItemSplats)
+            : subItems("mem.FineBucketGroup.subItems"),
+            splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat)),
+            writePinned("mem.DeviceWorkerGroup.writePinned", context, device, maxItemSplats)
         {
         }
     };
@@ -202,27 +227,69 @@ private:
     OutputGenerator outputGenerator;
 
     Grid fullGrid;
-    const std::size_t maxSplats;  ///< Maximum splats in a single bin
+    const std::size_t maxSplats;  ///< Maximum splats in a single bucket
     const Grid::size_type maxCells;
     const std::size_t meshMemory;
     const int subsampling;
     std::size_t maxItemSplats;    ///< Maximum number of splats per work item
+
+    Statistics::Variable &getFlushStat; ///< Time spent waiting to be able to flush
 
     cl::CommandQueue copyQueue;   ///< Queue for transferring data to the device
 
     /// Pool of unused buffers to be recycled
     WorkQueue<boost::shared_ptr<WorkItem> > itemPool;
 
+    /**
+     * Work item currently being filled (by all producers). This may at times
+     * be @c NULL, provided that @c activeWriters is also zero. It is neither
+     * in the queue nor the item pool. When it is full and once activeWriters
+     * drops to zero, it is pushed onto the queue.
+     */
+    boost::shared_ptr<WorkItem> writeItem;
+
+    /**
+     * Number of writers that are currently writing through the mapped pointer.
+     * It will only be safe to unmap the buffer once this hits zero.
+     */
+    std::size_t activeWriters;
+
+    /**
+     * Mutex protecting @ref writeItem (both the pointer value and the
+     * contents, but not individual items in the list).
+     */
+    boost::mutex splatsMutex;
+
+    /**
+     * Mutex protecting @ref activeWriters. If held concurrently with @ref
+     * splatsMutex, it must be taken afterwards.
+     */
+    boost::mutex activeMutex;
+
+    /**
+     * Condition that is signalled when the number of writers reaches zero,
+     * making it safe to enqueue the write item.
+     */
+    boost::condition_variable inactiveCondition;
+
     /// Number of spare splats in device buffers.
     std::size_t unallocated_;
     /// Mutex protecting @ref unallocated_.
     boost::mutex unallocatedMutex;
+
+    /**
+     * Pushes the current @ref writeItem (if any) into the queue, and resets it.
+     *
+     * @pre The caller holds @ref splatsMutex.
+     */
+    void flushWriteItem();
 
     friend class DeviceWorkerGroupBase::Worker;
 
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
     typedef DeviceWorkerGroupBase::SubItem SubItem;
+    typedef SubItem * get_type;
 
     /**
      * Constructor.
@@ -268,6 +335,11 @@ public:
     void start(const Grid &fullGrid);
 
     /**
+     * @copydoc WorkerGroup::stop
+     */
+    void stop();
+
+    /**
      * Sets a progress display that will be updated by the number of cells
      * processed.
      */
@@ -276,7 +348,14 @@ public:
     /**
      * @copydoc WorkerGroup::get
      */
-    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
+    SubItem *get(Timeplot::Worker &tworker, std::size_t size);
+
+    /**
+     * @copydoc WorkerGroup::push
+     *
+     * @param item    Item retrieved from @ref get
+     */
+    void push(SubItem *item);
 
     /**
      * Returns the item to the pool. It is called by the base class.
@@ -289,10 +368,97 @@ public:
      * if no more data arrives.
      */
     std::size_t unallocated();
+};
 
-    const cl::CommandQueue &getCopyQueue() const { return copyQueue; }
+class FineBucketGroup;
 
-    std::size_t getMaxItemSplats() const { return maxItemSplats; }
+class FineBucketGroupBase
+{
+public:
+    typedef SplatSet::FastBlobSet<SplatSet::SequenceSet<const Splat *>, std::vector<SplatSet::BlobData> > Splats;
+
+    struct WorkItem
+    {
+        ChunkId chunkId;
+        CircularBuffer::Allocation splats;
+        std::size_t numSplats;
+        Grid grid;
+        Bucket::Recursion recursionState;
+
+        Splat *getSplats() const { return (Splat *) splats.get(); }
+    };
+
+    class Worker : public WorkerBase
+    {
+    private:
+        FineBucketGroup &owner;
+
+    public:
+        typedef void result_type;
+
+        Worker(FineBucketGroup &owner, int idx);
+
+        /// Bucketing callback for blocks sized for device execution.
+        void operator()(
+            const ChunkId &chunkId,
+            const SplatSet::Traits<Splats>::subset_type &splats,
+            const Grid &grid,
+            const Bucket::Recursion &recursionState);
+
+        void operator()(WorkItem &work);
+    };
+};
+
+/**
+ * A worker object that handles coarse-to-fine bucketing. It pulls work from
+ * an internal queue (containing regions of splats already read from storage),
+ * calls @ref Bucket::bucket to subdivide the splats into buckets suitable for
+ * device execution, and passes them on to a @ref DeviceWorkerGroup.
+ */
+class FineBucketGroup :
+    protected FineBucketGroupBase,
+    public WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup>
+{
+public:
+    typedef WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup> BaseType;
+    typedef FineBucketGroupBase::WorkItem WorkItem;
+
+    void setProgress(ProgressMeter *progress) { this->progress = progress; }
+
+    FineBucketGroup(
+        std::size_t numWorkers,
+        const std::vector<DeviceWorkerGroup *> &outGroups,
+        std::size_t memCoarseSplats,
+        std::size_t maxSplats,
+        Grid::size_type maxCells,
+        Grid::size_type microCells,
+        std::size_t maxSplit);
+
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
+    {
+        boost::shared_ptr<WorkItem> item = BaseType::get(tworker, size);
+        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat), &getStat);
+        item->numSplats = size;
+        return item;
+    }
+
+    void start(const Grid &fullGrid);
+
+    Statistics::Variable &getWriteStat() const { return writeStat; }
+
+private:
+    const std::vector<DeviceWorkerGroup *> outGroups;
+    CircularBuffer splatBuffer;
+
+    Grid fullGrid;
+    std::size_t maxSplats;
+    Grid::size_type maxCells;
+    Grid::size_type microCells;
+    std::size_t maxSplit;
+    ProgressMeter *progress;
+    Statistics::Variable &writeStat;
+
+    friend class FineBucketGroupBase::Worker;
 };
 
 #endif /* !WORKERS_H */
