@@ -340,22 +340,13 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 FineBucketGroup::FineBucketGroup(
     std::size_t numWorkers,
     const std::vector<DeviceWorkerGroup *> &outGroups,
-    std::size_t memCoarseSplats,
-    std::size_t maxSplats,
-    Grid::size_type maxCells,
-    Grid::size_type microCells,
-    std::size_t maxSplit)
+    std::size_t memSplats)
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
         "bucket.fine",
         numWorkers),
     outGroups(outGroups),
-    splatBuffer("mem.FineBucketGroup.splats", memCoarseSplats),
-    maxSplats(maxSplats),
-    maxCells(maxCells),
-    microCells(microCells),
-    maxSplit(maxSplit),
-    progress(NULL),
+    splatBuffer("mem.FineBucketGroup.splats", memSplats),
     writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write"))
 {
     for (std::size_t i = 0; i < numWorkers; i++)
@@ -364,24 +355,10 @@ FineBucketGroup::FineBucketGroup(
     }
 }
 
-void FineBucketGroup::start(const Grid &fullGrid)
-{
-    this->fullGrid = fullGrid;
-    this->BaseType::start();
-}
-
 FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner, int idx)
     : WorkerBase("bucket.fine", idx), owner(owner)
 {
 };
-
-void FineBucketGroupBase::Worker::operator()(
-    const ChunkId &chunkId,
-    const SplatSet::Traits<Splats>::subset_type &splatSet,
-    const Grid &grid,
-    const Bucket::Recursion &recursionState)
-{
-}
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 {
@@ -405,28 +382,17 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
     DeviceWorkerGroup::SubItem *outItem =
         outGroup->get(getTimeplotWorker(), work.numSplats);
 
-    /* The host transformed splats from world space into fullGrid space, so we need to
-     * construct a new grid for this coordinate system.
-     */
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-    Grid grid(ref, 1.0f, 0, 1, 0, 1, 0, 1);
-    for (unsigned int i = 0; i < 3; i++)
-    {
-        Grid::difference_type base = owner.fullGrid.getExtent(i).first;
-        Grid::difference_type low = work.grid.getExtent(i).first - base;
-        Grid::difference_type high = work.grid.getExtent(i).second - base;
-        grid.setExtent(i, low, high);
-    }
-    outItem->grid = grid;
+    outItem->grid = work.grid;
     outItem->chunkId = work.chunkId;
 
     {
         Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
-        std::memcpy(outItem->splats, work.splats.get(), work.numSplats * sizeof(Splat));
+        std::memcpy(outItem->getSplats(), work.splats.get(), work.numSplats * sizeof(Splat));
     }
 
+    // TODO: cache these statistics
     registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(grid.numCells());
+    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(work.grid.numCells());
 
     outGroup->push(outItem);
     owner.splatBuffer.free(work.splats);

@@ -375,8 +375,6 @@ class FineBucketGroup;
 class FineBucketGroupBase
 {
 public:
-    typedef SplatSet::FastBlobSet<SplatSet::SequenceSet<const Splat *>, std::vector<SplatSet::BlobData> > Splats;
-
     struct WorkItem
     {
         ChunkId chunkId;
@@ -398,13 +396,6 @@ public:
 
         Worker(FineBucketGroup &owner, int idx);
 
-        /// Bucketing callback for blocks sized for device execution.
-        void operator()(
-            const ChunkId &chunkId,
-            const SplatSet::Traits<Splats>::subset_type &splats,
-            const Grid &grid,
-            const Bucket::Recursion &recursionState);
-
         void operator()(WorkItem &work);
     };
 };
@@ -422,17 +413,12 @@ class FineBucketGroup :
 public:
     typedef WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup> BaseType;
     typedef FineBucketGroupBase::WorkItem WorkItem;
-
-    void setProgress(ProgressMeter *progress) { this->progress = progress; }
+    typedef boost::shared_ptr<WorkItem> get_type;
 
     FineBucketGroup(
         std::size_t numWorkers,
         const std::vector<DeviceWorkerGroup *> &outGroups,
-        std::size_t memCoarseSplats,
-        std::size_t maxSplats,
-        Grid::size_type maxCells,
-        Grid::size_type microCells,
-        std::size_t maxSplit);
+        std::size_t memSplats);
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
@@ -442,20 +428,15 @@ public:
         return item;
     }
 
-    void start(const Grid &fullGrid);
-
     Statistics::Variable &getWriteStat() const { return writeStat; }
+
+    // TODO: eliminate once CoarseBucket takes a singular output again
+    std::size_t unallocated() const { return 1; }
 
 private:
     const std::vector<DeviceWorkerGroup *> outGroups;
     CircularBuffer splatBuffer;
 
-    Grid fullGrid;
-    std::size_t maxSplats;
-    Grid::size_type maxCells;
-    Grid::size_type microCells;
-    std::size_t maxSplit;
-    ProgressMeter *progress;
     Statistics::Variable &writeStat;
 
     friend class FineBucketGroupBase::Worker;
