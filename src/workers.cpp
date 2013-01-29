@@ -188,10 +188,9 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxBucketSplats);
 
     const std::size_t maxItemSplats = maxBucketSplats; // the same thing for now
-    CLH::ResourceUsage globalUsage;
-    for (std::size_t i = 0; i < numWorkers + spare; i++)
-        globalUsage.addBuffer(maxItemSplats * sizeof(Splat));
-    return workerUsage * numWorkers + globalUsage;
+    CLH::ResourceUsage itemUsage;
+    itemUsage.addBuffer(maxItemSplats * sizeof(Splat));
+    return workerUsage * numWorkers + itemUsage * (numWorkers + spare);
 }
 
 DeviceWorkerGroupBase::Worker::Worker(
