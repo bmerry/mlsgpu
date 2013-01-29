@@ -131,10 +131,11 @@ void FileSet::ReaderThreadBase::drain()
 }
 
 FileSet::MySplatStream::MySplatStream(
-    const FileSet &owner, ReaderThreadBase *reader)
+    const FileSet &owner, ReaderThreadBase *reader, bool useOMP)
 :
     owner(owner), buffer("mem.FileSet.MySplatStream.buffer"),
-    readerThread(reader), thread(boost::ref(*readerThread))
+    readerThread(reader), thread(boost::ref(*readerThread)),
+    useOMP(useOMP)
 {
     isEmpty = false;
     bufferCur = 0;
@@ -177,7 +178,7 @@ void FileSet::MySplatStream::refill()
             firstId = item.first;
             const std::size_t fileId = item.first >> scanIdShift;
 #ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) if(item.numSplats() >= 4096)
+#pragma omp parallel for default(none) schedule(static) if(useOMP && item.numSplats() >= 4096)
 #endif
             for (std::size_t i = 0; i < item.numSplats(); i++)
             {

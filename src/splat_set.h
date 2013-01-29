@@ -490,9 +490,9 @@ public:
      */
     void addFile(FastPly::ReaderBase *file);
 
-    SplatStream *makeSplatStream() const
+    SplatStream *makeSplatStream(bool useOMP = true) const
     {
-        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1, useOMP);
     }
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
@@ -501,11 +501,11 @@ public:
     }
 
     template<typename RangeIterator>
-    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange, bool useOMP = false) const
     {
         std::auto_ptr<ReaderThread<RangeIterator> > reader(
             new ReaderThread<RangeIterator>(*this, firstRange, lastRange));
-        SplatStream *ans = new MySplatStream(*this, reader.get());
+        SplatStream *ans = new MySplatStream(*this, reader.get(), useOMP);
         reader.release();
         return ans;
     }
@@ -645,7 +645,7 @@ private:
             return firstId + bufferCur;
         }
 
-        MySplatStream(const FileSet &owner, ReaderThreadBase *reader);
+        MySplatStream(const FileSet &owner, ReaderThreadBase *reader, bool useOMP);
         virtual ~MySplatStream();
 
     private:
@@ -656,6 +656,7 @@ private:
         bool isEmpty;                   ///< Set to true once sentinel item is seen
         boost::scoped_ptr<ReaderThreadBase> readerThread;
         boost::thread thread;
+        const bool useOMP;              ///< Whether to use OpenMP for acceleration
 
         /**
          * Advance the stream until empty or a finite splat is reached. This
