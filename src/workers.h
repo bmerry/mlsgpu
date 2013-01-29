@@ -145,14 +145,6 @@ public:
         cl::Buffer splats;             ///< Backing store for splats
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
-        std::size_t nextSplat() const
-        {
-            if (subItems.empty())
-                return 0;
-            else
-                return subItems.back().firstSplat + subItems.back().numSplats;
-        }
-
         WorkItem(const cl::Context &context, std::size_t maxItemSplats)
             : subItems("mem.FineBucketGroup.subItems"),
             splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat))
