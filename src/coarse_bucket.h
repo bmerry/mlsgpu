@@ -69,8 +69,11 @@ private:
     Timeplot::Worker &tworker;
 
     const Splats *super;
+    /// Bins that have been received from bucketing but not yet loaded
     Statistics::Container::list<Bin> bins;
+    /// Union of the ranges stored in @ref bins
     Statistics::Container::vector<range_type> ranges;
+    /// Temporary storage for loading @ref ranges before turning back into individual buckets
     Statistics::Container::PODBuffer<Splat> splatBuffer;
 
     /// Pick the least-busy output group

@@ -356,7 +356,10 @@ void FineBucketGroupBase::Worker::flush()
      * that this is not the same as doing a synchronous transfer, because we
      * are still overlapping the transfer with enqueuing the item.
      */
-    copyEvent.wait(); 
+    {
+        Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
+        copyEvent.wait();
+    }
     bufferedSplats = 0;
 }
 
@@ -367,11 +370,8 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
     if (bufferedSplats + work.numSplats > owner.maxDeviceSplats)
         flush();
 
-    {
-        Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
-        std::memcpy(pinned.get() + bufferedSplats, work.getSplats(),
-                    work.numSplats * sizeof(Splat));
-    }
+    std::memcpy(pinned.get() + bufferedSplats, work.getSplats(),
+                work.numSplats * sizeof(Splat));
     DeviceWorkerGroup::SubItem subItem;
     subItem.chunkId = work.chunkId;
     subItem.grid = work.grid;

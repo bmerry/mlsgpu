@@ -234,13 +234,6 @@ private:
     /// Mutex protecting @ref unallocated_.
     boost::mutex unallocatedMutex;
 
-    /**
-     * Pushes the current @ref writeItem (if any) into the queue, and resets it.
-     *
-     * @pre The caller holds @ref splatsMutex.
-     */
-    void flushWriteItem();
-
     friend class DeviceWorkerGroupBase::Worker;
 
 public:
@@ -324,9 +317,9 @@ public:
     void freeItem(boost::shared_ptr<WorkItem> item);
 
     /**
-     * Estimate spare queue capacity. It ignores data in @ref writePinned, in
-     * order to give a better estimate of how soon the queue will be drained
-     * if no more data arrives.
+     * Estimate spare queue capacity. It takes the theoretical maximum capacity
+     * and subtracts splats that are in the queue. It is not necessarily possible
+     * to allocate this many.
      */
     std::size_t unallocated();
 
@@ -341,12 +334,13 @@ class FineBucketGroup;
 class FineBucketGroupBase
 {
 public:
+    /// A single bin of splats
     struct WorkItem
     {
         ChunkId chunkId;
         Grid grid;
-        CircularBuffer::Allocation splats;
-        std::size_t numSplats;
+        CircularBuffer::Allocation splats;  ///< Allocation from @ref FineBucketGroup::splatBuffer
+        std::size_t numSplats;              ///< Number of splats in the bin
 
         Splat *getSplats() const { return (Splat *) splats.get(); }
     };
@@ -356,6 +350,9 @@ public:
     private:
         FineBucketGroup &owner;
         CLH::PinnedMemory<Splat> pinned;  ///< Staging area for copies
+        /**
+         * Bins that have been saved up but not yet flushed to the device.
+         */
         Statistics::Container::vector<DeviceWorkerGroup::SubItem> bufferedItems;
         std::size_t bufferedSplats;       ///< Number of splats stored in @ref pinned
 
@@ -371,10 +368,8 @@ public:
 };
 
 /**
- * A worker object that handles coarse-to-fine bucketing. It pulls work from
- * an internal queue (containing regions of splats already read from storage),
- * calls @ref Bucket::bucket to subdivide the splats into buckets suitable for
- * device execution, and passes them on to a @ref DeviceWorkerGroup.
+ * A worker object that copies bins of data to the GPU. It receives data from
+ * @ref CoarseBucket and sends it to the next available @ref DeviceWorkerGroup.
  */
 class FineBucketGroup :
     protected FineBucketGroupBase,
@@ -385,11 +380,23 @@ public:
     typedef FineBucketGroupBase::WorkItem WorkItem;
     typedef boost::shared_ptr<WorkItem> get_type;
 
+    /**
+     * Constructor.
+     * @param outGroups       Target devices. The first is used for allocating pinned memory.
+     * @param memSplats       Memory for splats in the internal queue.
+     * @param maxDeviceSplats Maximum splats to send to a device worker in one go.
+     *
+     * @todo @a maxDeviceSplats should be retrieved from the output group, to avoid possible
+     * mismatches.
+     */
     FineBucketGroup(
         const std::vector<DeviceWorkerGroup *> &outGroups,
         std::size_t memSplats,
         std::size_t maxDeviceSplats);
 
+    /**
+     * @copydoc WorkerGroup::get
+     */
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
         boost::shared_ptr<WorkItem> item = BaseType::get(tworker, size);
@@ -398,6 +405,7 @@ public:
         return item;
     }
 
+    /// Statistic for timing @c clEnqueueWriteBuffer
     Statistics::Variable &getWriteStat() const { return writeStat; }
 
     // TODO: eliminate once CoarseBucket takes a singular output again
@@ -405,13 +413,13 @@ public:
 
 private:
     const std::vector<DeviceWorkerGroup *> outGroups;
-    const std::size_t maxDeviceSplats;
-    CircularBuffer splatBuffer;
+    const std::size_t maxDeviceSplats;         ///< Maximum splats to send to the device in one go
+    CircularBuffer splatBuffer;                ///< Buffer holding incoming splats
 
-    boost::mutex popMutex;            ///< Mutex held while checking for device to target
+    boost::mutex popMutex;                     ///< Mutex held while checking for device to target
     boost::condition_variable popCondition;    ///< Condition signalled by devices when space available
 
-    Statistics::Variable &writeStat;
+    Statistics::Variable &writeStat;           ///< See @ref getWriteStat
 
     friend class FineBucketGroupBase::Worker;
 };
