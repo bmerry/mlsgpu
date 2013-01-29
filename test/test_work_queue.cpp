@@ -28,6 +28,7 @@ using namespace std;
 class TestWorkQueue : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestWorkQueue);
+    CPPUNIT_TEST(testEmpty);
     CPPUNIT_TEST(testStress);
     CPPUNIT_TEST_SUITE_END();
 private:
@@ -44,9 +45,24 @@ private:
     static void consumerThread(WorkQueue<int> &queue, vector<int> &out, boost::mutex &mutex);
 
 public:
+    void testEmpty();            ///< Test WorkQueue::empty
     void testStress();           ///< Stress test with multiple consumers and producers
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWorkQueue, TestSet::perCommit());
+
+void TestWorkQueue::testEmpty()
+{
+    WorkQueue<int> queue;
+    CPPUNIT_ASSERT(queue.empty());
+    queue.push(3);
+    CPPUNIT_ASSERT(!queue.empty());
+    queue.pop();
+    CPPUNIT_ASSERT(queue.empty());
+    queue.stop();
+    CPPUNIT_ASSERT(!queue.empty());
+    queue.start();
+    CPPUNIT_ASSERT(queue.empty());
+}
 
 void TestWorkQueue::producerThread(WorkQueue<int> &queue, int start, int end)
 {
