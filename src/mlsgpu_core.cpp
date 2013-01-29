@@ -334,34 +334,39 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
         throw invalid_option(msg.str());
     }
     if (maxBucketSplats < 1)
-        throw invalid_option("Value of --mem-bucket-splats must be positive");
+        throw invalid_option(std::string("Value of --") + Option::memBucketSplats + " must be positive");
     if (maxLoadSplats < maxBucketSplats)
-        throw invalid_option("Value of --mem-load-splats must be at least that of --mem-bucket-splats");
+        throw invalid_option(std::string("Value of --") + Option::memLoadSplats
+                             + " must be at least that of --" + Option::memBucketSplats);
     if (maxHostSplats < maxBucketSplats)
-        throw invalid_option("Value of --mem-host-splats must be at least that of --mem-bucket-splats");
+        throw invalid_option(std::string("Value of --") + Option::memHostSplats
+                             + " must be at least that of --" + Option::memBucketSplats);
     if (maxSplit < 8)
-        throw invalid_option("Value of --max-split must be at least 8");
+        throw invalid_option(std::string("Value of --") + Option::maxSplit + " must be at least 8");
     if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
-        throw invalid_option("Sum of --subsampling and --levels is too large");
+        throw invalid_option(std::string("Sum of --") + Option::subsampling
+                             + " and --" + Option::levels + " is too large");
     const std::size_t treeVerts = std::size_t(1) << (subsampling + levels - 1);
     if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
-        throw invalid_option("Sum of --subsampling and --levels is too small");
+        throw invalid_option(std::string("Sum of --") + Option::subsampling
+                             + " and --" + Option::levels + " is too small");
 
     if (deviceThreads < 1)
-        throw invalid_option("Value of --device-threads must be at least 1");
+        throw invalid_option(std::string("Value of --") + Option::deviceThreads + " must be at least 1");
     if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
-        throw invalid_option("Value of --fit-prune must be in [0, 1]");
+        throw invalid_option(std::string("Value of --") + Option::fitPrune + " must be in [0, 1]");
 
     if (memMesh < getMeshHostMemory(vm))
-        throw invalid_option("Value of --mem-mesh is too small");
+        throw invalid_option(std::string("Value of --") + Option::memMesh + " is too small");
     if (isMPI)
     {
         const std::size_t memScatter = vm[Option::memScatter].as<Capacity>();
         const std::size_t memGather = vm[Option::memGather].as<Capacity>();
         if (memScatter < maxLoadSplats * sizeof(Splat))
-            throw invalid_option("Value of --mem-scatter must be at least that of --mem-load-splats");
+            throw invalid_option(std::string("Value of --") + Option::memScatter
+                                             + " must be at least that of --" + Option::memLoadSplats);
         if (memGather < getMeshHostMemory(vm))
-            throw invalid_option("Value of --mem-gather is too small");
+            throw invalid_option(std::string("Value of --") + Option::memGather + " is too small");
     }
 }
 
