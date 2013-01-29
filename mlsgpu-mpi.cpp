@@ -265,7 +265,6 @@ void Slave::operator()() const
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
-    const unsigned int numBucketThreads = vm[Option::bucketThreads].as<int>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const std::size_t deviceSpare = getDeviceWorkerGroupSpare(vm);

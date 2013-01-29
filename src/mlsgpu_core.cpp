@@ -89,7 +89,6 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::deviceSplatsLoad, po::value<double>()->default_value(0.25), "Fraction of device splats buffer to use at one time")
         (Option::hostSplatsLoad, po::value<double>()->default_value(0.25), "Fraction of host splats buffer to use at one time")
         (Option::maxSplit,     po::value<int>()->default_value(1024 * 1024 * 1024), "Maximum fan-out in partitioning")
-        (Option::bucketThreads, po::value<int>()->default_value(2), "Number of threads for bucketing splats")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)")
@@ -314,7 +313,6 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
     const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
     const std::size_t maxHostSplats = getMaxHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const int bucketThreads = vm[Option::bucketThreads].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
     const int deviceSpare = getDeviceWorkerGroupSpare(vm);
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
@@ -350,8 +348,6 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
     if (treeVerts < MlsFunctor::wgs[0] || treeVerts < MlsFunctor::wgs[1])
         throw invalid_option("Sum of --subsampling and --levels is too small");
 
-    if (bucketThreads < 1)
-        throw invalid_option("Value of --bucket-threads must be at least 1");
     if (deviceThreads < 1)
         throw invalid_option("Value of --device-threads must be at least 1");
     if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
