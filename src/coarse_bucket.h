@@ -185,7 +185,7 @@ void CoarseBucket<Splats, OutGroup>::flush()
     // Now process each bin, copying the relevant subset to the device
     BOOST_FOREACH(const Bin &bin, bins)
     {
-        typename OutGroup::get_type item = outGroup.get(tworker, bin.ranges.numSplats());
+        boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker, bin.ranges.numSplats());
         item->chunkId = bin.chunkId;
         item->grid = bin.grid;
 

@@ -122,25 +122,19 @@ class DeviceWorkerGroup;
 class DeviceWorkerGroupBase
 {
 public:
-    /**
-     * Data about a fine-grained bucket. A shared pointer to this is obtained
-     * from @ref DeviceWorkerGroup::get and enqueued with @ref
-     * DeviceWorkerGroup::push.
-     */
+    /// Data about a single bucket.
     struct SubItem
     {
         ChunkId chunkId;               ///< Chunk owning this item
-        Grid grid;
+        Grid grid;                     ///< Grid area containing the bucket (pre-transformed)
         std::size_t firstSplat;        ///< Index of first splat in device buffer
         std::size_t numSplats;         ///< Number of splats in the bucket
     };
 
-    /**
-     * Data about multiple fine-grained buckets that share a single CL buffer.
-     */
+    /// Data about multiple buckets that share a single CL buffer.
     struct WorkItem
     {
-        /// Data for individual fine buckets. This is a linked list rather than
+        /// Data for individual fine buckets
         Statistics::Container::vector<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
@@ -231,7 +225,6 @@ private:
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
     typedef DeviceWorkerGroupBase::SubItem SubItem;
-    typedef boost::shared_ptr<WorkItem> get_type;
 
     /**
      * Constructor.
@@ -370,7 +363,6 @@ class FineBucketGroup :
 public:
     typedef WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup> BaseType;
     typedef FineBucketGroupBase::WorkItem WorkItem;
-    typedef boost::shared_ptr<WorkItem> get_type;
 
     /**
      * Constructor.
