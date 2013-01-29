@@ -76,6 +76,10 @@ private:
     /// Temporary storage for loading @ref ranges before turning back into individual buckets
     Statistics::Container::PODBuffer<Splat> splatBuffer;
 
+    Statistics::Variable &loadStat;
+    Statistics::Variable &writeStat;
+    Statistics::Variable &binsStat;
+
     /// Number of splats buffers in @ref bins
     std::size_t numSplats() const;
 
@@ -95,7 +99,10 @@ CoarseBucket<Splats, OutGroup>::CoarseBucket(
     super(NULL),
     bins("mem.CoarseBucket.bins"),
     ranges("mem.CoarseBucket.ranges"),
-    splatBuffer("mem.CoarseBucket.splatBuffer")
+    splatBuffer("mem.CoarseBucket.splatBuffer"),
+    loadStat(Statistics::getStatistic<Statistics::Variable>("bucket.coarse.load")),
+    writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.coarse.write")),
+    binsStat(Statistics::getStatistic<Statistics::Variable>("bucket.coarse.bins"))
 {
     splatBuffer.reserve(maxHostSplats);
 }
@@ -138,12 +145,6 @@ void CoarseBucket<Splats, OutGroup>::operator()(
     SplatSet::merge(oldRanges.begin(), oldRanges.end(),
                     splats.begin(), splats.end(),
                     std::back_inserter(ranges));
-
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-    registry.getStatistic<Statistics::Variable>("bucket.coarse.splats").add(splats.numSplats());
-    registry.getStatistic<Statistics::Variable>("bucket.coarse.ranges").add(splats.numRanges());
-    registry.getStatistic<Statistics::Variable>("bucket.coarse.size").add
-        (double(grid.numCells(0)) * grid.numCells(1) * grid.numCells(2));
 }
 
 template<typename Splats, typename OutGroup>
@@ -163,9 +164,10 @@ void CoarseBucket<Splats, OutGroup>::flush()
     if (bins.empty())
         return;
 
+    binsStat.add(bins.size());
+
     {
-        // TODO: cache the statistics references passed to timeplot
-        Timeplot::Action timer("load", tworker, "bucket.coarse.load");
+        Timeplot::Action timer("load", tworker, loadStat);
         std::size_t pos = 0;
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(super->makeSplatStream(ranges.begin(), ranges.end()));
         float invSpacing = 1.0f / fullGrid.getSpacing();
@@ -187,7 +189,7 @@ void CoarseBucket<Splats, OutGroup>::flush()
         item->chunkId = bin.chunkId;
         item->grid = bin.grid;
 
-        Timeplot::Action timer("write", tworker, "bucket.coarse.write");
+        Timeplot::Action timer("write", tworker, writeStat);
         Statistics::Container::vector<range_type>::const_iterator p = ranges.begin();
         std::size_t pos = 0;
         Splat *splatPtr = (Splat *) item->getSplats();

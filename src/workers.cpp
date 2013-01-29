@@ -286,7 +286,9 @@ FineBucketGroup::FineBucketGroup(
     outGroups(outGroups),
     maxDeviceSplats(maxDeviceSplats),
     splatBuffer("mem.FineBucketGroup.splats", memSplats),
-    writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write"))
+    writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write")),
+    splatsStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.splats")),
+    sizeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.size"))
 {
     addWorker(new Worker(*this, outGroups[0]->getContext(), outGroups[0]->getDevice()));
     BOOST_FOREACH(DeviceWorkerGroup *g, outGroups)
@@ -380,10 +382,8 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
     bufferedItems.push_back(subItem);
     bufferedSplats += work.numSplats;
 
-    // TODO: cache these statistics
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(work.numSplats);
-    registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(work.grid.numCells());
+    owner.splatsStat.add(work.numSplats);
+    owner.sizeStat.add(work.grid.numCells());
 
     owner.splatBuffer.free(work.splats);
 }

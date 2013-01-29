@@ -417,6 +417,8 @@ private:
     boost::condition_variable popCondition;    ///< Condition signalled by devices when space available
 
     Statistics::Variable &writeStat;           ///< See @ref getWriteStat
+    Statistics::Variable &splatsStat;          ///< Number of splats per bin
+    Statistics::Variable &sizeStat;            ///< Size of bins
 
     friend class FineBucketGroupBase::Worker;
 };
