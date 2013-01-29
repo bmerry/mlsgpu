@@ -47,7 +47,7 @@ public:
 
     CoarseBucket(
         std::size_t memHostSplats,
-        const std::vector<OutGroup *> &outGroups, Timeplot::Worker &tworker);
+        OutGroup &outGroup, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
     void start(const Splats &super, const Grid &fullGrid);
@@ -63,7 +63,7 @@ private:
     };
 
     const std::size_t maxHostSplats;
-    const std::vector<OutGroup *> outGroups;
+    OutGroup &outGroup;
     ChunkId curChunkId;
     Grid fullGrid;
     Timeplot::Worker &tworker;
@@ -76,9 +76,6 @@ private:
     /// Temporary storage for loading @ref ranges before turning back into individual buckets
     Statistics::Container::PODBuffer<Splat> splatBuffer;
 
-    /// Pick the least-busy output group
-    OutGroup *getOutGroup() const;
-
     /// Number of splats buffers in @ref bins
     std::size_t numSplats() const;
 
@@ -89,11 +86,11 @@ private:
 template<typename Splats, typename OutGroup>
 CoarseBucket<Splats, OutGroup>::CoarseBucket(
     std::size_t memHostSplats,
-    const std::vector<OutGroup *> &outGroups,
+    OutGroup &outGroup,
     Timeplot::Worker &tworker)
     :
     maxHostSplats(memHostSplats / sizeof(Splat)),
-    outGroups(outGroups),
+    outGroup(outGroup),
     tworker(tworker),
     super(NULL),
     bins("mem.CoarseBucket.bins"),
@@ -150,25 +147,6 @@ void CoarseBucket<Splats, OutGroup>::operator()(
 }
 
 template<typename Splats, typename OutGroup>
-OutGroup *CoarseBucket<Splats, OutGroup>::getOutGroup() const
-{
-    OutGroup *outGroup = NULL;
-    std::size_t bestSpare = 0;
-    BOOST_FOREACH(OutGroup *w, outGroups)
-    {
-        std::size_t spare = w->unallocated();
-        if (spare >= bestSpare)
-        {
-            // Note: >= above so that we always get a non-NULL result
-            outGroup = w;
-            bestSpare = spare;
-        }
-    }
-    assert(outGroup != NULL);
-    return outGroup;
-}
-
-template<typename Splats, typename OutGroup>
 std::size_t CoarseBucket<Splats, OutGroup>::numSplats() const
 {
     std::size_t totalSplats = 0;
@@ -205,10 +183,7 @@ void CoarseBucket<Splats, OutGroup>::flush()
     // Now process each bin, copying the relevant subset to the device
     BOOST_FOREACH(const Bin &bin, bins)
     {
-        // Select the least-busy output group to target.
-        OutGroup *outGroup = getOutGroup();
-
-        typename OutGroup::get_type item = outGroup->get(tworker, bin.ranges.numSplats());
+        typename OutGroup::get_type item = outGroup.get(tworker, bin.ranges.numSplats());
         item->chunkId = bin.chunkId;
         item->grid = bin.grid;
 
@@ -228,7 +203,7 @@ void CoarseBucket<Splats, OutGroup>::flush()
                    (q->second - q->first) * sizeof(Splat));
             splatPtr += q->second - q->first;
         }
-        outGroup->push(item);
+        outGroup.push(item);
     }
 
     ranges.clear();

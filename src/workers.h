@@ -408,9 +408,6 @@ public:
     /// Statistic for timing @c clEnqueueWriteBuffer
     Statistics::Variable &getWriteStat() const { return writeStat; }
 
-    // TODO: eliminate once CoarseBucket takes a singular output again
-    std::size_t unallocated() const { return 1; }
-
 private:
     const std::vector<DeviceWorkerGroup *> outGroups;
     const std::size_t maxDeviceSplats;         ///< Maximum splats to send to the device in one go

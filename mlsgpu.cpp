@@ -135,10 +135,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
             FineBucketGroup fineBucketGroup(deviceWorkerGroupPtrs, memHostSplats, maxDeviceSplats);
-            std::vector<FineBucketGroup *> fineBucketGroupPtrs(1, &fineBucketGroup);
             CoarseBucket<Splats, FineBucketGroup> coarseBucket(
                 memHostItemSplats,
-                fineBucketGroupPtrs, mainWorker);
+                fineBucketGroup, mainWorker);
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);

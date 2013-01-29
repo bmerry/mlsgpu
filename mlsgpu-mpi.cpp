@@ -170,11 +170,6 @@ public:
         splatBuffer.free(item->splats);
     }
 
-    std::size_t unallocated()
-    {
-        return 1; // TODO: does it need anything smarter?
-    }
-
 private:
     CircularBuffer splatBuffer;
 };
