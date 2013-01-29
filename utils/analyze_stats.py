@@ -58,6 +58,8 @@ def analyze_bucket_coarse(values):
     times = OrderedDict()
     times['compute'] = values['bucket.coarse.compute']
     times['load'] = values['bucket.coarse.load']
+    if 'bucket.coarse.write' in values:
+        times['write'] = values['bucket.coarse.write']
     if 'scatter.get' in values:
         times['wait-out'] = values['scatter.get'] + values.get('scatter.push', 0.0)
     else:
