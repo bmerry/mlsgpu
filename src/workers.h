@@ -130,16 +130,9 @@ public:
     struct SubItem
     {
         ChunkId chunkId;               ///< Chunk owning this item
+        Grid grid;
         std::size_t firstSplat;        ///< Index of first splat in device buffer
         std::size_t numSplats;         ///< Number of splats in the bucket
-        /**
-         * Pointer at which to start writing splats (already offset by @a
-         * firstSplat). This is only valid for producers.
-         */
-        Splat *splats;
-        Grid grid;
-
-        Splat *getSplats() const { return splats; }
     };
 
     /**
@@ -147,18 +140,9 @@ public:
      */
     struct WorkItem
     {
-        /**
-         * Data for individual fine buckets. This is a linked list rather than
-         * a vector because other threads can append to the list asynchronously,
-         * and this must not move the memory around.
-         */
-        Statistics::Container::list<SubItem> subItems;
+        /// Data for individual fine buckets. This is a linked list rather than
+        Statistics::Container::vector<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
-        /**
-         * Pinned host memory to write splats to, prior to them being copied
-         * to the GPU.
-         */
-        CLH::PinnedMemory<Splat> writePinned;
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
         std::size_t nextSplat() const
@@ -169,10 +153,9 @@ public:
                 return subItems.back().firstSplat + subItems.back().numSplats;
         }
 
-        WorkItem(const cl::Context &context, const cl::Device &device, std::size_t maxItemSplats)
+        WorkItem(const cl::Context &context, std::size_t maxItemSplats)
             : subItems("mem.FineBucketGroup.subItems"),
-            splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat)),
-            writePinned("mem.DeviceWorkerGroup.writePinned", context, device, maxItemSplats)
+            splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat))
         {
         }
     };
@@ -205,7 +188,7 @@ public:
 
 /**
  * Does the actual OpenCL calls necessary to compute the mesh and write
- * it to the @ref MesherBase class. It pulls chunks of work off a queue,
+ * it to the @ref MesherBase class. It pulls bins of work off a queue,
  * which contains pre-bucketed splats.
  */
 class DeviceWorkerGroup :
@@ -223,54 +206,28 @@ public:
 
 private:
     typedef WorkerGroup<DeviceWorkerGroupBase::WorkItem, DeviceWorkerGroupBase::Worker, DeviceWorkerGroup> Base;
+
     ProgressMeter *progress;
     OutputGenerator outputGenerator;
 
     Grid fullGrid;
+    const cl::Context context;
+    const cl::Device device;
     const std::size_t maxSplats;  ///< Maximum splats in a single bucket
     const Grid::size_type maxCells;
     const std::size_t meshMemory;
     const int subsampling;
-    std::size_t maxItemSplats;    ///< Maximum number of splats per work item
-
-    Statistics::Variable &getFlushStat; ///< Time spent waiting to be able to flush
 
     cl::CommandQueue copyQueue;   ///< Queue for transferring data to the device
 
     /// Pool of unused buffers to be recycled
     WorkQueue<boost::shared_ptr<WorkItem> > itemPool;
 
-    /**
-     * Work item currently being filled (by all producers). This may at times
-     * be @c NULL, provided that @c activeWriters is also zero. It is neither
-     * in the queue nor the item pool. When it is full and once activeWriters
-     * drops to zero, it is pushed onto the queue.
-     */
-    boost::shared_ptr<WorkItem> writeItem;
+    /// Mutex held while signaling @ref popCondition
+    boost::mutex *popMutex;
 
-    /**
-     * Number of writers that are currently writing through the mapped pointer.
-     * It will only be safe to unmap the buffer once this hits zero.
-     */
-    std::size_t activeWriters;
-
-    /**
-     * Mutex protecting @ref writeItem (both the pointer value and the
-     * contents, but not individual items in the list).
-     */
-    boost::mutex splatsMutex;
-
-    /**
-     * Mutex protecting @ref activeWriters. If held concurrently with @ref
-     * splatsMutex, it must be taken afterwards.
-     */
-    boost::mutex activeMutex;
-
-    /**
-     * Condition that is signalled when the number of writers reaches zero,
-     * making it safe to enqueue the write item.
-     */
-    boost::condition_variable inactiveCondition;
+    /// Condition signaled when items are added to the pool
+    boost::condition_variable *popCondition;
 
     /// Number of spare splats in device buffers.
     std::size_t unallocated_;
@@ -289,7 +246,7 @@ private:
 public:
     typedef DeviceWorkerGroupBase::WorkItem WorkItem;
     typedef DeviceWorkerGroupBase::SubItem SubItem;
-    typedef SubItem * get_type;
+    typedef boost::shared_ptr<WorkItem> get_type;
 
     /**
      * Constructor.
@@ -335,27 +292,31 @@ public:
     void start(const Grid &fullGrid);
 
     /**
-     * @copydoc WorkerGroup::stop
-     */
-    void stop();
-
-    /**
      * Sets a progress display that will be updated by the number of cells
      * processed.
      */
     void setProgress(ProgressMeter *progress) { this->progress = progress; }
 
     /**
-     * @copydoc WorkerGroup::get
+     * Set a condition variable that will be signaled when space becomes
+     * available in the item pool. The condition will be signaled with
+     * the mutex held.
      */
-    SubItem *get(Timeplot::Worker &tworker, std::size_t size);
+    void setPopCondition(boost::mutex *mutex, boost::condition_variable *condition)
+    {
+        popMutex = mutex;
+        popCondition = condition;
+    }
 
     /**
-     * @copydoc WorkerGroup::push
-     *
-     * @param item    Item retrieved from @ref get
+     * @copydoc WorkerGroup::get
      */
-    void push(SubItem *item);
+    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
+
+    /**
+     * Determine whether @ref get will block.
+     */
+    bool canGet();
 
     /**
      * Returns the item to the pool. It is called by the base class.
@@ -368,6 +329,11 @@ public:
      * if no more data arrives.
      */
     std::size_t unallocated();
+
+    const cl::Context &getContext() const { return context; }
+    const cl::Device &getDevice() const { return device; }
+    const cl::CommandQueue &getCopyQueue() const { return copyQueue; }
+    Statistics::Variable &getGetStat() const { return getStat; }
 };
 
 class FineBucketGroup;
@@ -378,10 +344,9 @@ public:
     struct WorkItem
     {
         ChunkId chunkId;
+        Grid grid;
         CircularBuffer::Allocation splats;
         std::size_t numSplats;
-        Grid grid;
-        Bucket::Recursion recursionState;
 
         Splat *getSplats() const { return (Splat *) splats.get(); }
     };
@@ -390,13 +355,18 @@ public:
     {
     private:
         FineBucketGroup &owner;
+        CLH::PinnedMemory<Splat> pinned;  ///< Staging area for copies
+        Statistics::Container::vector<DeviceWorkerGroup::SubItem> bufferedItems;
+        std::size_t bufferedSplats;       ///< Number of splats stored in @ref pinned
 
     public:
         typedef void result_type;
 
-        Worker(FineBucketGroup &owner, int idx);
+        Worker(FineBucketGroup &owner, const cl::Context &context, const cl::Device &device);
 
+        void flush();   ///< Flush items in @ref bufferedItems to the output
         void operator()(WorkItem &work);
+        void stop() { flush(); }
     };
 };
 
@@ -416,9 +386,9 @@ public:
     typedef boost::shared_ptr<WorkItem> get_type;
 
     FineBucketGroup(
-        std::size_t numWorkers,
         const std::vector<DeviceWorkerGroup *> &outGroups,
-        std::size_t memSplats);
+        std::size_t memSplats,
+        std::size_t maxDeviceSplats);
 
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
     {
@@ -435,7 +405,11 @@ public:
 
 private:
     const std::vector<DeviceWorkerGroup *> outGroups;
+    const std::size_t maxDeviceSplats;
     CircularBuffer splatBuffer;
+
+    boost::mutex popMutex;            ///< Mutex held while checking for device to target
+    boost::condition_variable popCondition;    ///< Condition signalled by devices when space available
 
     Statistics::Variable &writeStat;
 

@@ -107,23 +107,24 @@ DeviceWorkerGroup::DeviceWorkerGroup(
 :
     Base("device", numWorkers),
     progress(NULL), outputGenerator(outputGenerator),
+    context(context), device(device),
     maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
-    getFlushStat(Statistics::getStatistic<Statistics::Variable>("device.get.flush")),
     copyQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
     itemPool(),
-    activeWriters(0)
+    popMutex(NULL),
+    popCondition(NULL)
 {
     for (std::size_t i = 0; i < numWorkers; i++)
     {
         addWorker(new Worker(*this, context, device, levels, boundaryLimit, shape, i));
     }
     const std::size_t items = numWorkers + spare;
-    maxItemSplats = memSplats / (items * sizeof(Splat));
+    const std::size_t maxItemSplats = memSplats / (items * sizeof(Splat));
     MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument);
     for (std::size_t i = 0; i < items; i++)
     {
-        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, device, maxItemSplats);
+        boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, maxItemSplats);
         itemPool.push(item);
     }
     unallocated_ = maxItemSplats * items;
@@ -135,97 +136,35 @@ void DeviceWorkerGroup::start(const Grid &fullGrid)
     Base::start();
 }
 
-void DeviceWorkerGroup::stop()
+bool DeviceWorkerGroup::canGet()
 {
-    // Note: we can't just override the stopPreJoin hook, because that still runs after
-    // the work queue is stopped
-    {
-        boost::lock_guard<boost::mutex> lock(splatsMutex);
-        flushWriteItem();
-    }
-    Base::stop();
+    return !itemPool.empty();
 }
 
-void DeviceWorkerGroup::flushWriteItem()
-{
-    if (!writeItem)
-        return;
-
-    {
-        boost::unique_lock<boost::mutex> activeLock(activeMutex);
-        while (activeWriters > 0)
-        {
-            inactiveCondition.wait(activeLock);
-        }
-    }
-
-    {
-        boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
-        unallocated_ -= writeItem->nextSplat();
-    }
-
-    copyQueue.enqueueWriteBuffer(
-        writeItem->splats,
-        CL_FALSE,
-        0, writeItem->nextSplat() * sizeof(Splat),
-        writeItem->writePinned.get(),
-        NULL, &writeItem->copyEvent);
-    copyQueue.flush();
-    Base::push(writeItem);
-    writeItem.reset();
-}
-
-DeviceWorkerGroup::SubItem *DeviceWorkerGroup::get(
+boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
     Timeplot::Worker &tworker, std::size_t numSplats)
 {
     Timeplot::Action timer("get", tworker, getStat);
-    boost::lock_guard<boost::mutex> splatsLock(splatsMutex);
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> item = itemPool.pop();
 
-retry:
-    if (!writeItem)
-    {
-        writeItem = itemPool.pop();
-    }
-    std::size_t spare = maxItemSplats - writeItem->nextSplat();
-    if (numSplats > spare)
-    {
-        Timeplot::Action timer("get.flush", tworker, getFlushStat);
-        flushWriteItem();
-        goto retry;
-    }
-
-    // Now writeItem is safe to use
-    std::size_t start = writeItem->nextSplat();
-    SubItem sub;
-    sub.firstSplat = start;
-    sub.numSplats = numSplats;
-    sub.splats = writeItem->writePinned.get() + start;
-    writeItem->subItems.push_back(sub);
-
-    {
-        boost::lock_guard<boost::mutex> activeLock(activeMutex);
-        activeWriters++;
-    }
-
-    return &writeItem->subItems.back();
-}
-
-void DeviceWorkerGroup::push(SubItem *item)
-{
-    // not used - just passed to keep signature consistent for metaprogramming
-    (void) item;
-
-    boost::lock_guard<boost::mutex> activeLock(activeMutex);
-    activeWriters--;
-    if (activeWriters == 0)
-        inactiveCondition.notify_one();
+    boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
+    unallocated_ -= numSplats;
+    return item;
 }
 
 void DeviceWorkerGroup::freeItem(boost::shared_ptr<WorkItem> item)
 {
     item->subItems.clear();
     item->copyEvent = cl::Event(); // release the reference
-    itemPool.push(item);
+
+    if (popCondition != NULL)
+    {
+        boost::lock_guard<boost::mutex> popLock(*popMutex);
+        itemPool.push(item);
+        popCondition->notify_one();
+    }
+    else
+        itemPool.push(item);
 }
 
 std::size_t DeviceWorkerGroup::unallocated()
@@ -338,62 +277,113 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 }
 
 FineBucketGroup::FineBucketGroup(
-    std::size_t numWorkers,
     const std::vector<DeviceWorkerGroup *> &outGroups,
-    std::size_t memSplats)
+    std::size_t memSplats,
+    std::size_t maxDeviceSplats)
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
-        "bucket.fine",
-        numWorkers),
+        "bucket.fine", 1),
     outGroups(outGroups),
+    maxDeviceSplats(maxDeviceSplats),
     splatBuffer("mem.FineBucketGroup.splats", memSplats),
     writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write"))
 {
-    for (std::size_t i = 0; i < numWorkers; i++)
-    {
-        addWorker(new Worker(*this, i));
-    }
+    addWorker(new Worker(*this, outGroups[0]->getContext(), outGroups[0]->getDevice()));
+    BOOST_FOREACH(DeviceWorkerGroup *g, outGroups)
+        g->setPopCondition(&popMutex, &popCondition);
 }
 
-FineBucketGroupBase::Worker::Worker(FineBucketGroup &owner, int idx)
-    : WorkerBase("bucket.fine", idx), owner(owner)
+FineBucketGroupBase::Worker::Worker(
+    FineBucketGroup &owner, const cl::Context &context, const cl::Device &device)
+    : WorkerBase("bucket.fine", 0), owner(owner),
+    pinned("mem.FineBucketGroup.pinned", context, device, owner.maxDeviceSplats),
+    bufferedItems("mem.FineBucketGroup.bufferedItems"),
+    bufferedSplats(0)
 {
-};
+}
+
+void FineBucketGroupBase::Worker::flush()
+{
+    if (bufferedItems.empty())
+        return;
+
+    boost::unique_lock<boost::mutex> popLock(owner.popMutex);
+    DeviceWorkerGroup *outGroup = NULL;
+    while (true)
+    {
+        /* Try all devices for which we can pop immediately, and take the one that
+         * seems likely to run out the soonest. It's a poor guess, but does at
+         * least make sure that we always service totally idle devices before ones
+         * that still have work queued.
+         */
+        std::size_t best = 0;
+        BOOST_FOREACH(DeviceWorkerGroup *g, owner.outGroups)
+        {
+            if (g->canGet())
+            {
+                std::size_t u = g->unallocated();
+                if (u >= best)
+                {
+                    best = u;
+                    outGroup = g;
+                }
+            }
+        }
+        if (outGroup != NULL)
+            break;
+
+        // No spare slots. Wait until there is one
+        {
+            Timeplot::Action timer("get", getTimeplotWorker(), owner.outGroups[0]->getGetStat());
+            owner.popCondition.wait(popLock);
+        }
+    }
+    popLock.release()->unlock();
+
+    // This should now never block
+    boost::shared_ptr<DeviceWorkerGroup::WorkItem> item = outGroup->get(getTimeplotWorker(), bufferedSplats);
+    item->subItems.swap(bufferedItems);
+    outGroup->getCopyQueue().enqueueWriteBuffer(
+        item->splats,
+        CL_FALSE,
+        0, bufferedSplats * sizeof(Splat),
+        pinned.get(),
+        NULL, &item->copyEvent);
+    cl::Event copyEvent = item->copyEvent;
+    outGroup->push(item);
+
+    /* Ensures that we can start refilling the pinned memory right away. Note
+     * that this is not the same as doing a synchronous transfer, because we
+     * are still overlapping the transfer with enqueuing the item.
+     */
+    copyEvent.wait(); 
+    bufferedSplats = 0;
+}
 
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    /* Select the least-busy device to target */
-    DeviceWorkerGroup *outGroup = NULL;
-    std::size_t bestSpare = 0;
-    BOOST_FOREACH(DeviceWorkerGroup *w, owner.outGroups)
-    {
-        std::size_t spare = w->unallocated();
-        if (spare >= bestSpare)
-        {
-            // Note: >= above so that we always get a non-NULL result
-            outGroup = w;
-            bestSpare = spare;
-        }
-    }
-
-    DeviceWorkerGroup::SubItem *outItem =
-        outGroup->get(getTimeplotWorker(), work.numSplats);
-
-    outItem->grid = work.grid;
-    outItem->chunkId = work.chunkId;
+    if (bufferedSplats + work.numSplats > owner.maxDeviceSplats)
+        flush();
 
     {
         Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
-        std::memcpy(outItem->getSplats(), work.splats.get(), work.numSplats * sizeof(Splat));
+        std::memcpy(pinned.get() + bufferedSplats, work.getSplats(),
+                    work.numSplats * sizeof(Splat));
     }
+    DeviceWorkerGroup::SubItem subItem;
+    subItem.chunkId = work.chunkId;
+    subItem.grid = work.grid;
+    subItem.numSplats = work.numSplats;
+    subItem.firstSplat = bufferedSplats;
+    bufferedItems.push_back(subItem);
+    bufferedSplats += work.numSplats;
 
     // TODO: cache these statistics
-    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(outItem->numSplats);
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+    registry.getStatistic<Statistics::Variable>("bucket.fine.splats").add(work.numSplats);
     registry.getStatistic<Statistics::Variable>("bucket.fine.size").add(work.grid.numCells());
 
-    outGroup->push(outItem);
     owner.splatBuffer.free(work.splats);
 }

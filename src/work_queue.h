@@ -61,6 +61,13 @@ public:
     value_type pop();
 
     /**
+     * Determine whether calling @ref pop will block. In a multithreaded
+     * environment the result should of course be considered immediately stale.
+     * Note that if the queue has been stopped then this will return @c false.
+     */
+    bool empty();
+
+    /**
      * Indicate that there will be no more data added. It is not safe to call
      * this simultaneously with @ref push.
      */
@@ -116,6 +123,13 @@ ValueType WorkQueue<ValueType>::pop()
         queue.pop();
         return ans;
     }
+}
+
+template<typename ValueType>
+bool WorkQueue<ValueType>::empty()
+{
+    boost::unique_lock<boost::mutex> lock(mutex);
+    return !stopped && queue.empty();
 }
 
 template<typename ValueType>
