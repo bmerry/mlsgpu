@@ -46,7 +46,7 @@ public:
         const Bucket::Recursion &recursionState);
 
     CoarseBucket(
-        std::size_t memHostSplats,
+        std::size_t maxItemSplats,
         OutGroup &outGroup, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
@@ -62,7 +62,7 @@ private:
         Grid grid;
     };
 
-    const std::size_t maxHostSplats;
+    const std::size_t maxItemSplats;
     OutGroup &outGroup;
     ChunkId curChunkId;
     Grid fullGrid;
@@ -89,11 +89,11 @@ private:
 
 template<typename Splats, typename OutGroup>
 CoarseBucket<Splats, OutGroup>::CoarseBucket(
-    std::size_t memHostSplats,
+    std::size_t maxItemSplats,
     OutGroup &outGroup,
     Timeplot::Worker &tworker)
     :
-    maxHostSplats(memHostSplats / sizeof(Splat)),
+    maxItemSplats(maxItemSplats),
     outGroup(outGroup),
     tworker(tworker),
     super(NULL),
@@ -104,7 +104,7 @@ CoarseBucket<Splats, OutGroup>::CoarseBucket(
     writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.coarse.write")),
     binsStat(Statistics::getStatistic<Statistics::Variable>("bucket.coarse.bins"))
 {
-    splatBuffer.reserve(maxHostSplats);
+    splatBuffer.reserve(maxItemSplats);
 }
 
 template<typename Splats, typename OutGroup>
@@ -112,7 +112,7 @@ void CoarseBucket<Splats, OutGroup>::operator()(
     const typename SplatSet::Traits<Splats>::subset_type &splats,
     const Grid &grid, const Bucket::Recursion &recursionState)
 {
-    if (numSplats() + splats.numSplats() > maxHostSplats)
+    if (numSplats() + splats.numSplats() > maxItemSplats)
         flush();
 
     if (recursionState.chunk != curChunkId.coords)

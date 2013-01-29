@@ -46,8 +46,6 @@ namespace Option
     const char * const statisticsCL = "statistics-cl";
     const char * const timeplot = "timeplot";
 
-    const char * const hostSplatsLoad = "host-splats-load";
-    const char * const deviceSplatsLoad = "device-splats-load";
     const char * const maxSplit = "max-split";
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
@@ -57,8 +55,9 @@ namespace Option
     const char * const writer = "writer";
     const char * const decache = "decache";
 
+    const char * const memLoadSplats = "mem-load-splats";
     const char * const memHostSplats = "mem-host-splats";
-    const char * const memDeviceSplats = "mem-device-splats";
+    const char * const memBucketSplats = "mem-bucket-splats";
     const char * const memMesh = "mem-mesh";
     const char * const memReorder = "mem-reorder";
     const char * const memScatter = "mem-scatter";
@@ -120,14 +119,19 @@ std::size_t getMeshMemory(const boost::program_options::variables_map &vm);
 std::size_t getMeshHostMemory(const boost::program_options::variables_map &vm);
 
 /**
- * Maximum number of splats to produce from a coarse bucket.
+ * Maximum number of splats to load as a batch.
+ */
+std::size_t getMaxLoadSplats(const boost::program_options::variables_map &vm);
+
+/**
+ * Maximum number of splats for the host-side queue.
  */
 std::size_t getMaxHostSplats(const boost::program_options::variables_map &vm);
 
 /**
- * Maximum number of splats to produce from a fine bucket.
+ * Maximum number of splats to produce from a bucket.
  */
-std::size_t getMaxDeviceSplats(const boost::program_options::variables_map &vm);
+std::size_t getMaxBucketSplats(const boost::program_options::variables_map &vm);
 
 /**
  * Estimate the per-device resource usage based on command-line options.

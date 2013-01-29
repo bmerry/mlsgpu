@@ -86,8 +86,6 @@ static void addAdvancedOptions(po::options_description &opts)
     advanced.add_options()
         (Option::levels,       po::value<int>()->default_value(6), "Levels in octree")
         (Option::subsampling,  po::value<int>()->default_value(3), "Subsampling of octree")
-        (Option::deviceSplatsLoad, po::value<double>()->default_value(0.25), "Fraction of device splats buffer to use at one time")
-        (Option::hostSplatsLoad, po::value<double>()->default_value(0.25), "Fraction of host splats buffer to use at one time")
         (Option::maxSplit,     po::value<int>()->default_value(1024 * 1024 * 1024), "Maximum fan-out in partitioning")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
@@ -100,8 +98,9 @@ static void addMemoryOptions(po::options_description &opts, bool isMPI)
 {
     po::options_description memory("Advanced memory options");
     memory.add_options()
+        (Option::memLoadSplats,   po::value<Capacity>()->default_value(256 * 1024 * 1024), "Memory for bucket merging")
         (Option::memHostSplats,   po::value<Capacity>()->default_value(512 * 1024 * 1024), "Memory for splats on the CPU")
-        (Option::memDeviceSplats, po::value<Capacity>()->default_value(256 * 1024 * 1024),  "Memory for splats on the device")
+        (Option::memBucketSplats, po::value<Capacity>()->default_value(64 * 1024 * 1024),  "Memory for splats in a single bucket")
         (Option::memMesh,         po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for raw mesh data on the CPU")
         (Option::memReorder,      po::value<Capacity>()->default_value(2U * 1024 * 1024 * 1024), "Memory for processed mesh data on the CPU");
     if (isMPI)
@@ -310,15 +309,13 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
 {
     const int levels = vm[Option::levels].as<int>();
     const int subsampling = vm[Option::subsampling].as<int>();
-    const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
+    const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
+    const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
     const std::size_t maxHostSplats = getMaxHostSplats(vm);
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
-    const int deviceSpare = getDeviceWorkerGroupSpare(vm);
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
 
-    const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
-    const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
 
     int maxLevels = std::min(
@@ -336,10 +333,12 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
         msg << "Value of --subsampling must be at least " << MlsFunctor::subsamplingMin;
         throw invalid_option(msg.str());
     }
-    if (maxDeviceSplats < 1)
-        throw invalid_option("Value of --max-device-splats must be positive");
-    if (maxHostSplats < maxDeviceSplats)
-        throw invalid_option("Value of --max-host-splats must be at least that of --max-device-splats");
+    if (maxBucketSplats < 1)
+        throw invalid_option("Value of --mem-bucket-splats must be positive");
+    if (maxLoadSplats < maxBucketSplats)
+        throw invalid_option("Value of --mem-load-splats must be at least that of --mem-bucket-splats");
+    if (maxHostSplats < maxBucketSplats)
+        throw invalid_option("Value of --mem-host-splats must be at least that of --mem-bucket-splats");
     if (maxSplit < 8)
         throw invalid_option("Value of --max-split must be at least 8");
     if (subsampling > Marching::MAX_DIMENSION_LOG2 + 1 - levels)
@@ -353,19 +352,14 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
     if (!(pruneThreshold >= 0.0 && pruneThreshold <= 1.0))
         throw invalid_option("Value of --fit-prune must be in [0, 1]");
 
-    if (maxHostSplats <= 0 || maxHostSplats * sizeof(Splat) > memHostSplats)
-        throw invalid_option("Invalid value for --host-splats-load");
-    if (maxDeviceSplats <= 0
-        || maxDeviceSplats > memDeviceSplats / sizeof(Splat) / (deviceThreads + deviceSpare))
-        throw invalid_option("Invalid value for --device-splats-load");
     if (memMesh < getMeshHostMemory(vm))
         throw invalid_option("Value of --mem-mesh is too small");
     if (isMPI)
     {
         const std::size_t memScatter = vm[Option::memScatter].as<Capacity>();
         const std::size_t memGather = vm[Option::memGather].as<Capacity>();
-        if (memScatter < maxHostSplats * sizeof(Splat))
-            throw invalid_option("Value of --mem-scatter is too small for --mem-host-splats or --host-splats-load");
+        if (memScatter < maxLoadSplats * sizeof(Splat))
+            throw invalid_option("Value of --mem-scatter must be at least that of --mem-load-splats");
         if (memGather < getMeshHostMemory(vm))
             throw invalid_option("Value of --mem-gather is too small");
     }
@@ -411,14 +405,18 @@ std::size_t getMeshHostMemory(const po::variables_map &vm)
 std::size_t getMaxHostSplats(const po::variables_map &vm)
 {
     std::size_t mem = vm[Option::memHostSplats].as<Capacity>();
-    mem = std::size_t(mem * vm[Option::hostSplatsLoad].as<double>());
     return mem / sizeof(Splat);
 }
 
-std::size_t getMaxDeviceSplats(const po::variables_map &vm)
+std::size_t getMaxLoadSplats(const po::variables_map &vm)
 {
-    std::size_t mem = vm[Option::memDeviceSplats].as<Capacity>();
-    mem = std::size_t(mem * vm[Option::deviceSplatsLoad].as<double>());
+    std::size_t mem = vm[Option::memLoadSplats].as<Capacity>();
+    return mem / sizeof(Splat);
+}
+
+std::size_t getMaxBucketSplats(const po::variables_map &vm)
+{
+    std::size_t mem = vm[Option::memBucketSplats].as<Capacity>();
     return mem / sizeof(Splat);
 }
 
@@ -426,17 +424,16 @@ CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
 {
     const int levels = vm[Option::levels].as<int>();
     const int subsampling = vm[Option::subsampling].as<int>();
-    const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
+    const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
     const int deviceThreads = vm[Option::deviceThreads].as<int>();
-
-    const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
+    const int deviceSpare = getDeviceWorkerGroupSpare(vm);
 
     const Grid::size_type maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
     // TODO: get rid of device parameter
     CLH::ResourceUsage totalUsage = DeviceWorkerGroup::resourceUsage(
-        deviceThreads, cl::Device(),
-        maxDeviceSplats, maxCells,
-        memDeviceSplats, getMeshMemory(vm), levels);
+        deviceThreads, deviceSpare, cl::Device(),
+        maxBucketSplats, maxCells,
+        getMeshMemory(vm), levels);
     return totalUsage;
 }
 

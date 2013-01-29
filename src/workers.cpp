@@ -100,15 +100,15 @@ DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers, std::size_t spare,
     OutputGenerator outputGenerator,
     const cl::Context &context, const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells,
-    std::size_t memSplats, std::size_t meshMemory,
+    std::size_t maxBucketSplats, Grid::size_type maxCells,
+    std::size_t meshMemory,
     int levels, int subsampling, float boundaryLimit,
     MlsShape shape)
 :
     Base("device", numWorkers),
     progress(NULL), outputGenerator(outputGenerator),
     context(context), device(device),
-    maxSplats(maxSplats), maxCells(maxCells), meshMemory(meshMemory),
+    maxBucketSplats(maxBucketSplats), maxCells(maxCells), meshMemory(meshMemory),
     subsampling(subsampling),
     copyQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE),
     itemPool(),
@@ -120,8 +120,7 @@ DeviceWorkerGroup::DeviceWorkerGroup(
         addWorker(new Worker(*this, context, device, levels, boundaryLimit, shape, i));
     }
     const std::size_t items = numWorkers + spare;
-    const std::size_t maxItemSplats = memSplats / (items * sizeof(Splat));
-    MLSGPU_ASSERT(maxItemSplats >= maxSplats, std::invalid_argument);
+    const std::size_t maxItemSplats = maxBucketSplats; // the same thing for now
     for (std::size_t i = 0; i < items; i++)
     {
         boost::shared_ptr<WorkItem> item = boost::make_shared<WorkItem>(context, maxItemSplats);
@@ -174,10 +173,10 @@ std::size_t DeviceWorkerGroup::unallocated()
 }
 
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
-    std::size_t numWorkers,
+    std::size_t numWorkers, std::size_t spare,
     const cl::Device &device,
-    std::size_t maxSplats, Grid::size_type maxCells,
-    std::size_t memSplats, std::size_t meshMemory,
+    std::size_t maxBucketSplats, Grid::size_type maxCells,
+    std::size_t meshMemory,
     int levels)
 {
     Grid::size_type block = maxCells + 1;
@@ -186,10 +185,12 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     workerUsage += Marching::resourceUsage(
         device, block, block, block,
         MlsFunctor::wgs[2], meshMemory, MlsFunctor::wgs);
-    workerUsage += SplatTreeCL::resourceUsage(device, levels, maxSplats);
+    workerUsage += SplatTreeCL::resourceUsage(device, levels, maxBucketSplats);
 
+    const std::size_t maxItemSplats = maxBucketSplats; // the same thing for now
     CLH::ResourceUsage globalUsage;
-    globalUsage.addBuffer(memSplats);
+    for (std::size_t i = 0; i < numWorkers + spare; i++)
+        globalUsage.addBuffer(maxItemSplats * sizeof(Splat));
     return workerUsage * numWorkers + globalUsage;
 }
 
@@ -202,7 +203,7 @@ DeviceWorkerGroupBase::Worker::Worker(
     WorkerBase("device", idx),
     owner(owner),
     queue(context, device, Statistics::isEventTimingEnabled() ? CL_QUEUE_PROFILING_ENABLE : 0),
-    tree(context, device, levels, owner.maxSplats),
+    tree(context, device, levels, owner.maxBucketSplats),
     input(context, shape),
     // OpenCL requires support for images of height 8192; the complex formula below ensures we
     // do not exceed this except when maxCells is large
@@ -278,14 +279,13 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
 
 FineBucketGroup::FineBucketGroup(
     const std::vector<DeviceWorkerGroup *> &outGroups,
-    std::size_t memSplats,
-    std::size_t maxDeviceSplats)
+    std::size_t maxQueueSplats)
 :
     WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
         "bucket.fine", 1),
     outGroups(outGroups),
-    maxDeviceSplats(maxDeviceSplats),
-    splatBuffer("mem.FineBucketGroup.splats", memSplats),
+    maxDeviceItemSplats(outGroups[0]->getMaxItemSplats()),
+    splatBuffer("mem.FineBucketGroup.splats", maxQueueSplats * sizeof(Splat)),
     writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write")),
     splatsStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.splats")),
     sizeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.size"))
@@ -298,7 +298,7 @@ FineBucketGroup::FineBucketGroup(
 FineBucketGroupBase::Worker::Worker(
     FineBucketGroup &owner, const cl::Context &context, const cl::Device &device)
     : WorkerBase("bucket.fine", 0), owner(owner),
-    pinned("mem.FineBucketGroup.pinned", context, device, owner.maxDeviceSplats),
+    pinned("mem.FineBucketGroup.pinned", context, device, owner.maxDeviceItemSplats),
     bufferedItems("mem.FineBucketGroup.bufferedItems"),
     bufferedSplats(0)
 {
@@ -369,7 +369,7 @@ void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
 
-    if (bufferedSplats + work.numSplats > owner.maxDeviceSplats)
+    if (bufferedSplats + work.numSplats > owner.maxDeviceItemSplats)
         flush();
 
     std::memcpy(pinned.get() + bufferedSplats, work.getSplats(),

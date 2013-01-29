@@ -199,7 +199,7 @@ private:
     Grid fullGrid;
     const cl::Context context;
     const cl::Device device;
-    const std::size_t maxSplats;  ///< Maximum splats in a single bucket
+    const std::size_t maxBucketSplats;  ///< Maximum splats in a single bucket
     const Grid::size_type maxCells;
     const std::size_t meshMemory;
     const int subsampling;
@@ -212,7 +212,7 @@ private:
     /// Mutex held while signaling @ref popCondition
     boost::mutex *popMutex;
 
-    /// Condition signaled when items are added to the pool
+    /// Condition signaled when items are added to the pool (may be @c NULL)
     boost::condition_variable *popCondition;
 
     /// Number of spare splats in device buffers.
@@ -236,9 +236,8 @@ public:
      *                           which will receive the output blocks for the corresponding chunk.
      * @param context            OpenCL context to run on.
      * @param device             OpenCL device to run on.
-     * @param maxSplats          Space to allocate for holding splats.
+     * @param maxBucketSplats    Space to allocate for holding splats for one bucket.
      * @param maxCells           Space to allocate for the octree.
-     * @param memSplats          Device bytes to use for queued splats.
      * @param meshMemory         Maximum device bytes to use for mesh-related data.
      * @param levels             Levels to allocate for the octree.
      * @param subsampling        Octree subsampling level.
@@ -249,17 +248,17 @@ public:
         std::size_t numWorkers, std::size_t spare,
         OutputGenerator outputGenerator,
         const cl::Context &context, const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells,
-        std::size_t memSplats, std::size_t meshMemory,
+        std::size_t maxBucketSplats, Grid::size_type maxCells,
+        std::size_t meshMemory,
         int levels, int subsampling, float boundaryLimit,
         MlsShape shape);
 
     /// Returns total resources that would be used by all workers and workitems
     static CLH::ResourceUsage resourceUsage(
-        std::size_t numWorkers,
+        std::size_t numWorkers, std::size_t spare,
         const cl::Device &device,
-        std::size_t maxSplats, Grid::size_type maxCells,
-        std::size_t memSplats, std::size_t meshMemory,
+        std::size_t maxBucketSplats, Grid::size_type maxCells,
+        std::size_t meshMemory,
         int levels);
 
     /**
@@ -308,6 +307,8 @@ public:
      */
     std::size_t unallocated();
 
+    /// Return the maximum number of splats that can be copied to a work item
+    std::size_t getMaxItemSplats() const { return maxBucketSplats; }
     const cl::Context &getContext() const { return context; }
     const cl::Device &getDevice() const { return device; }
     const cl::CommandQueue &getCopyQueue() const { return copyQueue; }
@@ -367,16 +368,11 @@ public:
     /**
      * Constructor.
      * @param outGroups       Target devices. The first is used for allocating pinned memory.
-     * @param memSplats       Memory for splats in the internal queue.
-     * @param maxDeviceSplats Maximum splats to send to a device worker in one go.
-     *
-     * @todo @a maxDeviceSplats should be retrieved from the output group, to avoid possible
-     * mismatches.
+     * @param maxQueueSplats  Splats to store in the internal queue.
      */
     FineBucketGroup(
         const std::vector<DeviceWorkerGroup *> &outGroups,
-        std::size_t memSplats,
-        std::size_t maxDeviceSplats);
+        std::size_t maxQueueSplats);
 
     /**
      * @copydoc WorkerGroup::get
@@ -394,7 +390,7 @@ public:
 
 private:
     const std::vector<DeviceWorkerGroup *> outGroups;
-    const std::size_t maxDeviceSplats;         ///< Maximum splats to send to the device in one go
+    const std::size_t maxDeviceItemSplats;     ///< Maximum splats to send to the device in one go
     CircularBuffer splatBuffer;                ///< Buffer holding incoming splats
 
     boost::mutex popMutex;                     ///< Mutex held while checking for device to target
