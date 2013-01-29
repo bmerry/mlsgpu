@@ -479,7 +479,15 @@ void bucketRecurse(
             chunkCells = maxCellDim;
         else
             chunkCells = std::min(maxCellDim, chunkCells);
-        chunkCells = divUp(chunkCells, microSize) * microSize;
+        if (chunkCells > params.maxCells)
+        {
+            std::size_t grain = params.maxCells / microSize * microSize;
+            if (grain == 0)
+                grain = microSize;
+            chunkCells = divUp(chunkCells, grain) * grain;
+        }
+        else
+            chunkCells = divUp(chunkCells, microSize) * microSize;
         boost::array<Grid::difference_type, 3> chunks;
         for (int i = 0; i < 3; i++)
             chunks[i] = divUp(cellDims[i], chunkCells);
