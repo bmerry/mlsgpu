@@ -262,6 +262,7 @@ void Slave::operator()() const
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const unsigned int leafCells = vm[Option::leafCells].as<int>();
     const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
@@ -274,7 +275,7 @@ void Slave::operator()() const
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
-    const unsigned int microCells = std::min(63U, blockCells); // TODO: share code with mlsgpu.cpp
+    const unsigned int microCells = std::min(leafCells, blockCells);
 
     GatherGroup gatherGroup(gatherComm, gatherRoot, memGather);
     boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;

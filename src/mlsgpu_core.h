@@ -49,7 +49,7 @@ namespace Option
     const char * const maxSplit = "max-split";
     const char * const levels = "levels";
     const char * const subsampling = "subsampling";
-    const char * const bucketThreads = "bucket-threads";
+    const char * const leafCells = "leaf-cells";
     const char * const deviceThreads = "device-threads";
     const char * const reader = "reader";
     const char * const writer = "writer";

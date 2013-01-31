@@ -73,6 +73,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MesherType mesherType = OOC_MESHER;
     const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const unsigned int leafCells = vm[Option::leafCells].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
@@ -90,7 +91,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
-    const unsigned int microCells = std::min(63U, blockCells);
+    const unsigned int microCells = std::min(leafCells, blockCells);
 
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
 
