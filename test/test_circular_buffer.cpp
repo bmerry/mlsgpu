@@ -36,7 +36,7 @@ class TestCircularBuffer : public CppUnit::TestFixture
     CPPUNIT_TEST(testTooLarge);
     CPPUNIT_TEST(testOverflow);
     CPPUNIT_TEST(testZero);
-    CPPUNIT_TEST(testUnallocated);
+    CPPUNIT_TEST(testUnallocatedAvailable);
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -47,7 +47,7 @@ private:
     void testTooLarge();        ///< Test exception handling when asking for too much memory
     void testOverflow();        ///< Test exception handling when total size overflows
     void testZero();            ///< Test that an exception is thrown when asking for zero elements
-    void testUnallocated();     ///< Test @ref CircularBufferBase::unallocated
+    void testUnallocatedAvailable();     ///< Test @ref CircularBufferBase::unallocated and @ref CircularBufferBase::available
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestCircularBuffer, TestSet::perBuild());
 
@@ -246,31 +246,46 @@ void TestCircularBufferStress::testStress()
     CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), badCount);
 }
 
-void TestCircularBuffer::testUnallocated()
+void TestCircularBuffer::testUnallocatedAvailable()
 {
+    /* Comments show the layout in the buffer: numbers correspond to
+     * allocations, . to empty but usable space, X to unusable free space.
+     */
     Timeplot::Worker worker("test");
     CircularBuffer buffer("test", 10);
 
     MLSGPU_ASSERT_EQUAL(10, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(10, buffer.available());
 
     CircularBuffer::Allocation a1 = buffer.allocate(worker, 3);
     CircularBuffer::Allocation a2 = buffer.allocate(worker, 1);
+    // 1112......
 
     MLSGPU_ASSERT_EQUAL(6, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(6, buffer.available());
 
     buffer.free(a2); // does not make more space available until a1 freed
+    // 111X......
     MLSGPU_ASSERT_EQUAL(6, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(6, buffer.available());
 
     CircularBuffer::Allocation a3 = buffer.allocate(worker, 5);
+    // 111X33333.
     MLSGPU_ASSERT_EQUAL(1, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(1, buffer.available());
 
     buffer.free(a1);
+    // ....33333.
     MLSGPU_ASSERT_EQUAL(5, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(4, buffer.available());
 
     CircularBuffer::Allocation a4 = buffer.allocate(worker, 3); // wastes 1 slot at end
+    // 444.33333X
     MLSGPU_ASSERT_EQUAL(1, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(1, buffer.available());
 
     buffer.free(a3);
     buffer.free(a4);
     MLSGPU_ASSERT_EQUAL(10, buffer.unallocated());
+    MLSGPU_ASSERT_EQUAL(10, buffer.available());
 }

@@ -105,13 +105,30 @@ public:
     std::size_t size() const;
 
     /**
-     * Return number of unallocated elements in the buffer. This should be
-     * considered immediately stale in a multithreaded environment, but may
-     * be useful for load-balancing heuristics.
+     * Return number of unallocated and allocatable elements in the buffer.
+     * This should be considered immediately stale in a multithreaded
+     * environment, but may be useful for load-balancing heuristics.
+     *
+     * Note that calling @ref free will only cause this to increase if the
+     * oldest allocation is freed.
      *
      * It is not declared @c const because it needs to hold the mutex.
+     *
+     * @see @ref available.
      */
     std::size_t unallocated();
+
+    /**
+     * Returns the maximum allocation size that will not block. This should be
+     * considered immediately stale in a multithreaded environment, but it is
+     * guaranteed that an allocation of this size (or smaller) will succeed
+     * without blocking as long as there have been no intervening allocations.
+     *
+     * Note that this may be less than @ref unallocated due to fragmentation.
+     *
+     * @see @ref unallocated.
+     */
+    std::size_t available();
 
     /**
      * Allocate items from the buffer.
@@ -164,6 +181,7 @@ public:
 
     using CircularBufferBase::size;
     using CircularBufferBase::unallocated;
+    using CircularBufferBase::available;
 
     /**
      * Allocate some memory from the buffer. If the memory is not yet
