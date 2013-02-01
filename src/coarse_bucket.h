@@ -190,6 +190,8 @@ void CoarseBucket<Splats, OutGroup>::flush()
         item->grid = bin.grid;
 
         Timeplot::Action timer("write", tworker, writeStat);
+        timer.setValue(bin.ranges.numSplats() * sizeof(Splat));
+
         Statistics::Container::vector<range_type>::const_iterator p = ranges.begin();
         std::size_t pos = 0;
         Splat *splatPtr = (Splat *) item->getSplats();
@@ -205,7 +207,7 @@ void CoarseBucket<Splats, OutGroup>::flush()
                    (q->second - q->first) * sizeof(Splat));
             splatPtr += q->second - q->first;
         }
-        outGroup.push(item);
+        outGroup.push(tworker, item);
     }
 
     ranges.clear();

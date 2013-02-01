@@ -29,6 +29,7 @@ def process_worker(worker, pq):
     pqid = 0
     item = None
     cq = []
+    get_size = None
     for action in worker.actions:
         if action.name in ['bbox', 'pop']:
             if pqid == len(pq):
@@ -39,18 +40,22 @@ def process_worker(worker, pq):
         elif action.name == 'get':
             parent_get = action.start - base
             base = action.stop
+            get_size = action.value
         elif action.name == 'push':
             parent_push = action.start - base
             base = action.stop
             child = QItem(item, parent_get, parent_push)
-            if action.value is not None:
-                child.size = action.value
+            if get_size is not None:
+                child.size = get_size
+                get_size = None
             item.children.append(child)
             cq.append(child)
             item.finish = 0.0
-        elif action.name in ['compute', 'load']:
-            item.finish += action.stop - action.start
-        elif action.name in ['write']:
+        elif action.name in ['compute', 'load', 'write']:
+            if worker.name != 'main' or action.name != 'write':
+                # Want to exclude phase 3
+                item.finish += action.stop - action.start
+        elif action.name in ['init']:
             pass
         else:
             raise ValueError('Unhandled action "' + action.name + '"')
@@ -68,6 +73,7 @@ class SimPool(object):
     def __init__(self, simulator, size, inorder = True):
         self._size = size
         self._waiters = []
+        self._watchers = []
         self._allocs = []
         self._spare = size
         self._inorder = inorder
@@ -91,10 +97,25 @@ class SimPool(object):
                 return start - end
 
     def get(self, worker, size):
+        if not self._inorder:
+            size = 1
         assert size > 0
         assert size <= self._size
         self._waiters.append((worker, size))
         self._do_wakeups()
+
+    def can_get(self, size):
+        if not self._inorder:
+            size = 1
+        return size <= self._biggest()
+
+    def watch(self, worker):
+        '''Request to be woken up when free space increases'''
+        self._watches.append(worker)
+
+    def unwatch(self, worker):
+        '''Cancel a previous watch request'''
+        self._watches.remove(worker)
 
     def _do_wakeups(self):
         while self._waiters:
@@ -120,6 +141,9 @@ class SimPool(object):
             self._spare -= size
             del self._waiters[0]
             self._simulator.wakeup(w, value = a)
+        while self._watchers:
+            w = self._watchers.pop(0)
+            self._simulator.wakeup(w)
 
     def done(self, alloc):
         self._allocs.remove(alloc)
@@ -135,12 +159,16 @@ class SimSimpleQueue(object):
         self._queue = []
         self._waiters = []
         self._simulator = simulator
+        self._running = True
 
     def _do_wakeups(self):
         while self._waiters and self._queue:
             item = self._queue.pop(0)
             worker = self._waiters.pop(0)
             self._simulator.wakeup(worker, value = item)
+        while self._waiters and not self._running:
+            worker = self._waiters.pop(0)
+            self._simulator.wakeup(worker, value = EndQItem())
 
     def pop(self, worker):
         self._waiters.append(worker)
@@ -148,6 +176,10 @@ class SimSimpleQueue(object):
 
     def push(self, item):
         self._queue.append(item)
+        self._do_wakeups()
+
+    def stop(self):
+        self._running = False
         self._do_wakeups()
 
 class SimQueue(object):
@@ -164,48 +196,26 @@ class SimQueue(object):
     def get(self, worker, size):
         self._pool.get(worker, size)
 
+    def can_get(self, size):
+        return self._pool.can_get(worker, size)
+
+    def watch(self, worker):
+        self._pool.watch(worker)
+
+    def unwatch(self, worker):
+        self._pool.unwatch(worker)
+
     def push(self, item, alloc):
         self._queue.push(item)
 
     def done(self, alloc):
         self._pool.done(alloc)
 
-class SimSubqueue(object):
-    def __init__(self, simulator, parent, idx):
-        self._parent = parent
-        self._idx = idx
-        self._queue = SimSimpleQueue(simulator)
+    def watch(self, alloc):
+        self._pool
 
-    def pop(self, worker):
-        self._queue.pop(worker)
-
-    def push(self, item, alloc):
-        self._queue.push(item)
-
-    def done(self, alloc):
-        self._parent._pool.push(self._idx)
-
-class SimMultiQueue(object):
-    def __init__(self, simulator, pool_sizes, sets):
-        self._pool = SimSimpleQueue(simulator)
-        for i in range(pool_sizes):
-            for j in range(sets):
-                self._pool.push(j)
-        self._queues = [SimSubqueue(simulator, self, i) for i in range(sets)]
-
-    def get_subqueue(self, idx):
-        return self._queues[idx]
-
-    def get(self, worker, size):
-        self._pool.pop(worker)
-
-    def push(self, item, alloc):
-        if alloc is None:
-            # Used for enqueuing a shutdown
-            for q in self._queues:
-                q.push(item, None)
-        else:
-            self._queues[alloc].push(item, alloc)
+    def stop(self):
+        self._queue.stop()
 
 class SimWorker(object):
     def __init__(self, simulator, name, inq, outqs, options):
@@ -214,11 +224,14 @@ class SimWorker(object):
         self.inq = inq
         self.outqs = outqs
         self.generator = self.run()
-        self.by_size = options.by_size
 
-    def best_queue(self):
+    def best_queue(self, size):
         if len(self.outqs) > 1:
-            return max(self.outqs, key = lambda x: x.spare())
+            valid_queues = [q for q in self.outqs if q.can_get(size)]
+            if valid_queues:
+                return max(valid_queues, key = lambda x: x.spare())
+            else:
+                return None
         else:
             return self.outqs[0]
 
@@ -231,19 +244,24 @@ class SimWorker(object):
                 if self.simulator.count_running_workers(self.name) == 1:
                     # We are the last worker from the set
                     for q in self.outqs:
-                        q.push(item, None)
-                else:
-                    self.inq.push(item, None) # Pass the baton to siblings
+                        q.stop()
                 break
+            print(self.name, self.simulator.time, item.total_time())
             for child in item.children:
-                if self.by_size:
-                    size = child.size
-                else:
-                    size = 1
+                size = child.size
 
                 yield child.parent_get
 
-                outq = self.best_queue()
+                while True:
+                    outq = self.best_queue(size)
+                    if outq is not None:
+                        break
+                    for q in self.outqs:
+                        q.watch(self)
+                    yield
+                    for q in self.outqs:
+                        q.unwatch(self)
+
                 outq.get(self, size)
                 child.alloc = yield
 
@@ -251,10 +269,6 @@ class SimWorker(object):
                 outq.push(child, child.alloc)
             if item.finish > 0:
                 yield item.finish
-            if self.by_size:
-                size = item.size
-            else:
-                size = 1
             if hasattr(item, 'alloc'):
                 self.inq.done(item.alloc)
 
@@ -315,56 +329,41 @@ def load_items(group):
 def simulate(root, options):
     simulator = Simulator()
 
-    fine_threads = options.bucket_threads
     gpus = options.gpus
-
-    coarse_spare = 1
-    fine_spare = max(options.bucket_spare, fine_threads)
-    mesher_spare = gpus * options.mesher_spare
 
     if options.infinite:
         big = 10**30
         coarse_cap = big
         fine_cap = big
         mesher_cap = big
-    elif options.by_size:
-        coarse_cap = options.coarse_cap * 1024 * 1024
-        fine_cap = options.bucket_cap * 1024 * 1024
-        mesher_cap = options.mesher_cap * 1024 * 1024
     else:
-        coarse_cap = fine_threads + options.coarse_spare
-        fine_cap = 1 + fine_spare
-        mesher_cap = gpus * (1 + fine_spare)
+        coarse_cap = options.coarse_cap * 1024 * 1024
+        fine_cap = 2
+        mesher_cap = options.mesher_cap * 1024 * 1024
 
-    all_queue = SimQueue(simulator, 1, inorder = options.by_size)
-    coarse_queue = SimQueue(simulator, coarse_cap, inorder = options.by_size)
-    fine_queues = [SimQueue(simulator, fine_cap, inorder = options.by_size) for i in range(gpus)]
-    mesh_queue = SimQueue(simulator, mesher_cap, inorder = options.by_size)
+    all_queue = SimQueue(simulator, 1)
+    coarse_queue = SimQueue(simulator, coarse_cap)
+    fine_queues = [SimQueue(simulator, fine_cap, inorder = False) for i in range(gpus)]
+    mesh_queue = SimQueue(simulator, mesher_cap)
 
     simulator.add_worker(SimWorker(simulator, 'coarse', all_queue, [coarse_queue], options))
-    for i in range(fine_threads):
-        simulator.add_worker(SimWorker(simulator, 'fine', coarse_queue, fine_queues, options))
+    simulator.add_worker(SimWorker(simulator, 'fine', coarse_queue, fine_queues, options))
     for i in range(gpus):
         simulator.add_worker(SimWorker(simulator, 'device', fine_queues[i], [mesh_queue], options))
     simulator.add_worker(SimWorker(simulator, 'mesher', mesh_queue, [], options))
 
     all_queue.push(root, None)
-    all_queue.push(EndQItem(), None)
+    all_queue.stop()
     simulator.run()
     print(simulator.time)
 
 def main():
     parser = OptionParser()
-    parser.add_option('--by-size', action = 'store_true')
     parser.add_option('--infinite', action = 'store_true')
-    parser.add_option('--bucket-threads', type = 'int', metavar = 'THREADS', default = 2)
     parser.add_option('--gpus', type = 'int', default = 1)
-    parser.add_option('--coarse-spare', type = 'int', metavar = 'SLOTS', default = 1)
-    parser.add_option('--bucket-spare', type = 'int', metavar = 'SLOTS', default = 6)
-    parser.add_option('--mesher-spare', type = 'int', metavar = 'SLOTS', default = 8)
-    parser.add_option('--coarse-cap', type = 'int', metavar = 'MiB', default = 2 * 1024)
-    parser.add_option('--bucket-cap', type = 'int', metavar = 'MiB', default = 512)
-    parser.add_option('--mesher-cap', type = 'int', metavar = 'MiB', default = 256)
+    parser.add_option('--coarse-cap', type = 'int', metavar = 'MiB', default = 512)
+    parser.add_option('--bucket-cap', type = 'int', metavar = 'MiB', default = 128)
+    parser.add_option('--mesher-cap', type = 'int', metavar = 'MiB', default = 512)
     (options, args) = parser.parse_args()
 
     groups = []

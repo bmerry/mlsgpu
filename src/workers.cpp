@@ -92,7 +92,7 @@ void MesherGroup::outputFunc(
     item->work.verticesEvent = wait[0];
     item->work.vertexKeysEvent = wait[1];
     item->work.trianglesEvent = wait[2];
-    push(item);
+    push(tworker, item);
 }
 
 
@@ -144,6 +144,7 @@ boost::shared_ptr<DeviceWorkerGroup::WorkItem> DeviceWorkerGroup::get(
     Timeplot::Worker &tworker, std::size_t numSplats)
 {
     Timeplot::Action timer("get", tworker, getStat);
+    timer.setValue(numSplats * sizeof(Splat));
     boost::shared_ptr<DeviceWorkerGroup::WorkItem> item = itemPool.pop();
 
     boost::lock_guard<boost::mutex> unallocatedLock(unallocatedMutex);
@@ -351,7 +352,7 @@ void FineBucketGroupBase::Worker::flush()
         pinned.get(),
         NULL, &item->copyEvent);
     cl::Event copyEvent = item->copyEvent;
-    outGroup->push(item);
+    outGroup->push(getTimeplotWorker(), item);
 
     /* Ensures that we can start refilling the pinned memory right away. Note
      * that this is not the same as doing a synchronous transfer, because we
@@ -359,6 +360,7 @@ void FineBucketGroupBase::Worker::flush()
      */
     {
         Timeplot::Action writeTimer("write", getTimeplotWorker(), owner.getWriteStat());
+        writeTimer.setValue(bufferedSplats * sizeof(Splat));
         copyEvent.wait();
     }
     bufferedSplats = 0;
@@ -367,6 +369,7 @@ void FineBucketGroupBase::Worker::flush()
 void FineBucketGroupBase::Worker::operator()(WorkItem &work)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
+    timer.setValue(work.numSplats * sizeof(Splat));
 
     if (bufferedSplats + work.numSplats > owner.maxDeviceItemSplats)
         flush();

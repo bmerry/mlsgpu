@@ -278,7 +278,7 @@ void OOCMesher::updateClumpKeyMap(
     }
 }
 
-void OOCMesher::flushBuffer()
+void OOCMesher::flushBuffer(Timeplot::Worker &tworker)
 {
     if (!reorderBuffer)
         return;
@@ -309,7 +309,7 @@ void OOCMesher::flushBuffer()
             chunk.bufferedClumps.clear();
         }
     }
-    tmpWriter.push(reorderBuffer);
+    tmpWriter.push(tworker, reorderBuffer);
     reorderBuffer.reset();
 }
 
@@ -353,7 +353,7 @@ void OOCMesher::updateLocalClumps(
         if ((numVertices + reorderBuffer->vertices.size()) * sizeof(vertex_type)
             + (mesh.numTriangles() + reorderBuffer->triangles.size()) * sizeof(triangle_type)
             > getReorderCapacity() / reorderSlots)
-            flushBuffer();
+            flushBuffer(tworker);
     }
     if (!reorderBuffer)
         reorderBuffer = tmpWriter.get(tworker, 1);
@@ -461,7 +461,7 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    flushBuffer();
+    flushBuffer(tworker);
     tmpWriter.stop();
 
     boost::filesystem::ifstream verticesTmpRead(

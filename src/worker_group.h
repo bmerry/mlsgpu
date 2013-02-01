@@ -124,8 +124,9 @@ public:
     /**
      * Enqueue an item of work.
      */
-    void push(boost::shared_ptr<WorkItem> item)
+    void push(Timeplot::Worker &tworker, boost::shared_ptr<WorkItem> item)
     {
+        Timeplot::recordEvent("push", tworker);
         workQueue.push(item);
     }
 

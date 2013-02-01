@@ -235,7 +235,7 @@ public:
         item->work.verticesEvent = wait[0];
         item->work.vertexKeysEvent = wait[1];
         item->work.trianglesEvent = wait[2];
-        outGroup.push(item);
+        outGroup.push(tworker, item);
     }
 };
 

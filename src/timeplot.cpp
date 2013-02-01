@@ -150,4 +150,17 @@ Action::~Action()
     worker.stop(this, oldAction, stop);
 }
 
+void recordEvent(const std::string &name, Worker &worker)
+{
+    if (hasFile)
+    {
+        boost::lock_guard<boost::mutex> lock(outputMutex);
+        Timer::timestamp now = Timer::currentTime();
+        double t = Timer::getElapsed(startTime, now);
+        log << "EVENT " << worker.getName() << ' ' << name << ' '
+            << t << ' '
+            << t << '\n';
+    }
+}
+
 } // namespace Timeplot

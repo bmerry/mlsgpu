@@ -53,6 +53,7 @@ CircularBufferBase::Allocation CircularBufferBase::allocate(
     MLSGPU_ASSERT(n <= bufferSize, std::out_of_range);
 
     Timeplot::Action action("get", tworker, stat);
+    action.setValue(n);
 
     boost::lock_guard<boost::mutex> allocLock(allocMutex);
     boost::unique_lock<boost::mutex> lock(mutex);

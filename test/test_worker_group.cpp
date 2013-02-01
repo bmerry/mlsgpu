@@ -112,7 +112,7 @@ void Producer<T>::operator()()
     {
         boost::shared_ptr<Item> item = outGroup.get(*tworker, 1);
         item->value = i;
-        outGroup.push(item);
+        outGroup.push(*tworker, item);
     }
 }
 

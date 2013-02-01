@@ -1302,7 +1302,7 @@ void TestTmpWriterWorkerGroup::testRandom()
                 expectedTriangles.push_back(triangles[k]);
         }
 
-        group.push(item);
+        group.push(tworker, item);
     }
 
     group.stop();

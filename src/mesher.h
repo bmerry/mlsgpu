@@ -643,7 +643,7 @@ private:
     /**
      * Start async transfer any data in the reordering buffer to the temporary files.
      */
-    void flushBuffer();
+    void flushBuffer(Timeplot::Worker &tworker);
 
     /// Implementation of the functor
     void add(MesherWork &work, Timeplot::Worker &worker);

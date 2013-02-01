@@ -88,7 +88,7 @@ public:
     {
         boost::shared_ptr<Item> outItem = outGroup.get(getTimeplotWorker(), 1);
         outItem->set(2 * item.get());
-        outGroup.push(outItem);
+        outGroup.push(getTimeplotWorker(), outItem);
     }
 };
 

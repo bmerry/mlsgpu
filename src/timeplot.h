@@ -188,6 +188,11 @@ public:
     ~Action();
 };
 
+/**
+ * Record an event that takes no time.
+ */
+void recordEvent(const std::string &name, Worker &worker);
+
 } // namespace Timeplot
 
 #endif /* !TIMEPLOT_H */
