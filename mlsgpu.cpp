@@ -16,6 +16,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/progress.hpp>
+#include <boost/ref.hpp>
 #include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
@@ -45,7 +46,8 @@
 #include "src/progress.h"
 #include "src/mesh_filter.h"
 #include "src/timeplot.h"
-#include "src/coarse_bucket.h"
+#include "src/bucket_collector.h"
+#include "src/bucket_loader.h"
 #include "src/mlsgpu_core.h"
 
 namespace po = boost::program_options;
@@ -135,9 +137,8 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
             FineBucketGroup fineBucketGroup(deviceWorkerGroupPtrs, maxHostSplats);
-            CoarseBucket<Splats, FineBucketGroup> coarseBucket(
-                maxLoadSplats,
-                fineBucketGroup, mainWorker);
+            BucketLoader<Splats, FineBucketGroup> loader(maxLoadSplats, fineBucketGroup, mainWorker);
+            BucketCollector collector(maxLoadSplats, boost::ref(loader));
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
@@ -198,7 +199,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                     deviceWorkerGroups[i].setProgress(&progress);
 
                 // Start threads
-                coarseBucket.start(splats, grid);
+                loader.start(splats, grid);
                 fineBucketGroup.start();
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].start(grid);
@@ -206,15 +207,15 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
                 try
                 {
-                    Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
+                    Timeplot::Action bucketTimer("compute", mainWorker, "bucket.compute");
                     Bucket::bucket(splats, grid, maxBucketSplats, blockCells, chunkCells, microCells, maxSplit,
-                                   boost::ref(coarseBucket), &progress);
+                                   boost::ref(collector), &progress);
                 }
                 catch (...)
                 {
                     // This can't be handled using unwinding, because that would operate in
                     // the wrong order
-                    coarseBucket.stop();
+                    collector.flush();
                     fineBucketGroup.stop();
                     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                         deviceWorkerGroups[i].stop();
@@ -226,7 +227,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  * satisfy the requirement that stop() is only called after producers
                  * are terminated.
                  */
-                coarseBucket.stop();
+                collector.flush();
                 fineBucketGroup.stop();
                 for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
                     deviceWorkerGroups[i].stop();
