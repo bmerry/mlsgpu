@@ -16,6 +16,9 @@
 #include <boost/thread.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <limits>
+#include <vector>
+#include <iterator>
+#include <algorithm>
 #include <mpi.h>
 #include "../testutil.h"
 #include "../../src/serialize.h"
@@ -37,8 +40,8 @@ class TestSerialize : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSerialize);
     SERIALIZE_TEST(testGrid);
-    SERIALIZE_TEST(testBucketRecursion);
     SERIALIZE_TEST(testChunkId);
+    SERIALIZE_TEST(testSubset);
     SERIALIZE_TEST(testSplats);
     SERIALIZE_TEST(testMesherWork);
     CPPUNIT_TEST_SUITE_END();
@@ -53,10 +56,10 @@ private:
 
     void testGridSend(MPI_Comm comm, int dest);
     void testGridRecv(MPI_Comm comm, int source);
-    void testBucketRecursionSend(MPI_Comm comm, int dest);
-    void testBucketRecursionRecv(MPI_Comm comm, int source);
     void testChunkIdSend(MPI_Comm comm, int dest);
     void testChunkIdRecv(MPI_Comm comm, int source);
+    void testSubsetSend(MPI_Comm comm, int dest);
+    void testSubsetRecv(MPI_Comm comm, int source);
     void testSplatsSend(MPI_Comm comm, int dest);
     void testSplatsRecv(MPI_Comm comm, int source);
     void testMesherWorkSend(MPI_Comm comm, int dest);
@@ -99,32 +102,6 @@ void TestSerialize::testGridRecv(MPI_Comm comm, int source)
     MLSGPU_ASSERT_EQUAL(52, g.getExtent(2).second);
 }
 
-void TestSerialize::testBucketRecursionSend(MPI_Comm comm, int dest)
-{
-    Bucket::Recursion recursion;
-
-    recursion.depth = 100;
-    recursion.totalRanges = std::numeric_limits<std::size_t>::max() / 3;
-    recursion.chunk[0] = 123;
-    recursion.chunk[1] = 1000000000;
-    recursion.chunk[2] = 3000000000U;
-
-    Serialize::send(recursion, comm, dest);
-}
-
-void TestSerialize::testBucketRecursionRecv(MPI_Comm comm, int source)
-{
-    Bucket::Recursion recursion;
-
-    Serialize::recv(recursion, comm, source);
-
-    MLSGPU_ASSERT_EQUAL(100, recursion.depth);
-    MLSGPU_ASSERT_EQUAL(std::numeric_limits<std::size_t>::max() / 3, recursion.totalRanges);
-    MLSGPU_ASSERT_EQUAL(123, recursion.chunk[0]);
-    MLSGPU_ASSERT_EQUAL(1000000000, recursion.chunk[1]);
-    MLSGPU_ASSERT_EQUAL(3000000000U, recursion.chunk[2]);
-}
-
 void TestSerialize::testChunkIdSend(MPI_Comm comm, int dest)
 {
     ChunkId chunkId;
@@ -147,6 +124,39 @@ void TestSerialize::testChunkIdRecv(MPI_Comm comm, int source)
     MLSGPU_ASSERT_EQUAL(234, chunkId.coords[0]);
     MLSGPU_ASSERT_EQUAL(0, chunkId.coords[1]);
     MLSGPU_ASSERT_EQUAL(std::numeric_limits<Grid::size_type>::max(), chunkId.coords[2]);
+}
+
+void TestSerialize::testSubsetSend(MPI_Comm comm, int dest)
+{
+    SplatSet::SubsetBase subset;
+
+    subset.addRange(1, 5);
+    subset.addRange(5, 10);
+    subset.addRange(15, 20);
+    subset.addRange(5000, UINT64_C(1000000000000));
+    subset.flush();
+
+    Serialize::send(subset, comm, dest);
+}
+
+void TestSerialize::testSubsetRecv(MPI_Comm comm, int source)
+{
+    SplatSet::SubsetBase subset;
+
+    Serialize::recv(subset, comm, source);
+
+    MLSGPU_ASSERT_EQUAL(3, subset.numRanges());
+    MLSGPU_ASSERT_EQUAL(UINT64_C(999999995014), subset.numSplats());
+
+    std::vector<std::pair<SplatSet::splat_id, SplatSet::splat_id> > ranges;
+    std::copy(subset.begin(), subset.end(), std::back_inserter(ranges));
+    MLSGPU_ASSERT_EQUAL(3, ranges.size());
+    MLSGPU_ASSERT_EQUAL(1, ranges[0].first);
+    MLSGPU_ASSERT_EQUAL(10, ranges[0].second);
+    MLSGPU_ASSERT_EQUAL(15, ranges[1].first);
+    MLSGPU_ASSERT_EQUAL(20, ranges[1].second);
+    MLSGPU_ASSERT_EQUAL(5000, ranges[2].first);
+    MLSGPU_ASSERT_EQUAL(UINT64_C(1000000000000), ranges[2].second);
 }
 
 /**

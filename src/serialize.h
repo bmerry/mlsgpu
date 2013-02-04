@@ -11,6 +11,7 @@
 # include <config.h>
 #endif
 #include <mpi.h>
+#include "bucket_collector.h"
 
 /* Forward declaration */
 class Grid;
@@ -18,6 +19,7 @@ struct ChunkId;
 struct MesherWork;
 struct Splat;
 namespace Bucket { struct Recursion; }
+namespace SplatSet { class SubsetBase; }
 
 /**
  * Transmission of assorted data structures through MPI.
@@ -111,14 +113,17 @@ public:
 void send(const Grid &grid, MPI_Comm comm, int dest);
 void recv(Grid &grid, MPI_Comm comm, int source);
 
-void send(const Bucket::Recursion &recursion, MPI_Comm comm, int dest);
-void recv(Bucket::Recursion &recursion, MPI_Comm comm, int source);
-
 void send(const ChunkId &chunkId, MPI_Comm comm, int dest);
 void recv(ChunkId &chunkId, MPI_Comm comm, int source);
 
 void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest);
 void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source);
+
+void send(const SplatSet::SubsetBase &subset, MPI_Comm comm, int dest);
+void recv(SplatSet::SubsetBase &subset, MPI_Comm comm, int source);
+
+void send(const BucketCollector::Bin &bin, MPI_Comm comm, int dest);
+void recv(BucketCollector::Bin &bin, MPI_Comm comm, int source);
 
 void send(const MesherWork &work, MPI_Comm comm, int dest);
 /**

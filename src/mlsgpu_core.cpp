@@ -106,7 +106,6 @@ static void addMemoryOptions(po::options_description &opts, bool isMPI)
         (Option::memReorder,      po::value<Capacity>()->default_value(2U * 1024 * 1024 * 1024), "Memory for processed mesh data on the CPU");
     if (isMPI)
         memory.add_options()
-            (Option::memScatter,  po::value<Capacity>()->default_value(1024 * 1024 * 1024), "Memory for buffering splats on the master")
             (Option::memGather,   po::value<Capacity>()->default_value(512 * 1024 * 1024),  "Memory for buffering raw mesh data on the slaves");
     opts.add(memory);
 }
@@ -361,11 +360,7 @@ void validateOptions(const po::variables_map &vm, bool isMPI)
         throw invalid_option(std::string("Value of --") + Option::memMesh + " is too small");
     if (isMPI)
     {
-        const std::size_t memScatter = vm[Option::memScatter].as<Capacity>();
         const std::size_t memGather = vm[Option::memGather].as<Capacity>();
-        if (memScatter < maxLoadSplats * sizeof(Splat))
-            throw invalid_option(std::string("Value of --") + Option::memScatter
-                                             + " must be at least that of --" + Option::memLoadSplats);
         if (memGather < getMeshHostMemory(vm))
             throw invalid_option(std::string("Value of --") + Option::memGather + " is too small");
     }

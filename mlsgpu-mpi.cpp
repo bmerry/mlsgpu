@@ -62,32 +62,6 @@ namespace po = boost::program_options;
 using namespace std;
 
 template<>
-void sendItem(const FineBucketGroup::WorkItem &item, MPI_Comm comm, int dest)
-{
-    Serialize::send(item.chunkId, comm, dest);
-    Serialize::send(item.grid, comm, dest);
-    Serialize::send(item.recursionState, comm, dest);
-    const Splat *splatPtr = (const Splat *) item.splats.get();
-    Serialize::send(splatPtr, item.numSplats, comm, dest);
-}
-
-template<>
-void recvItem(FineBucketGroup::WorkItem &item, MPI_Comm comm, int source)
-{
-    Serialize::recv(item.chunkId, comm, source);
-    Serialize::recv(item.grid, comm, source);
-    Serialize::recv(item.recursionState, comm, source);
-    Splat *splatPtr = (Splat *) item.splats.get();
-    Serialize::recv(splatPtr, item.numSplats, comm, source);
-}
-
-template<>
-std::size_t sizeItem(const FineBucketGroup::WorkItem &item)
-{
-    return item.numSplats;
-}
-
-template<>
 void sendItem(const MesherGroup::WorkItem &item, MPI_Comm comm, int dest)
 {
     Serialize::send(item.work, comm, dest);
@@ -144,34 +118,24 @@ public:
     void operator()() const;
 };
 
-class ScatterGroup : public WorkerGroupScatter<FineBucketGroup::WorkItem, ScatterGroup>
+/**
+ * Receives collections of bins from @ref BucketCollector and passes them over MPI.
+ */
+class Scatter
 {
-public:
-    typedef FineBucketGroup::WorkItem WorkItem;
-
-    ScatterGroup(
-        std::size_t numWorkers, std::size_t requesters,
-        MPI_Comm comm, std::size_t bufferSize)
-        : WorkerGroupScatter<WorkItem, ScatterGroup>("scatter", numWorkers, requesters, comm),
-        splatBuffer("mem.ScatterGroup.splats", bufferSize)
-    {
-    }
-
-    boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size)
-    {
-        boost::shared_ptr<WorkItem> item = WorkerGroupScatter<FineBucketGroup::WorkItem, ScatterGroup>::get(tworker, size);
-        item->splats = splatBuffer.allocate(tworker, size * sizeof(Splat), &getStat);
-        item->numSplats = size;
-        return item;
-    }
-
-    void freeItem(boost::shared_ptr<WorkItem> item)
-    {
-        splatBuffer.free(item->splats);
-    }
-
 private:
-    CircularBuffer splatBuffer;
+    MPI_Comm comm;
+public:
+    typedef void result_type;
+
+    /// Constructor
+    explicit Scatter(MPI_Comm comm);
+
+    /// Send the bins to a slave
+    void operator()(const Statistics::Container::vector<BucketCollector::Bin> &bins) const;
+
+    /// Shuts down the slaves
+    void stop(std::size_t numSlaves) const;
 };
 
 class GatherGroup : public WorkerGroupGather<MesherGroup::WorkItem, GatherGroup>
@@ -258,25 +222,68 @@ public:
     }
 };
 
+Scatter::Scatter(MPI_Comm comm) : comm(comm)
+{
+}
+
+void Scatter::operator()(const Statistics::Container::vector<BucketCollector::Bin> &bins) const
+{
+    if (bins.empty())
+        return;
+
+    int needsWork;
+    MPI_Status status;
+    MPI_Recv(&needsWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+
+    int dest = status.MPI_SOURCE;
+    std::size_t workSize = bins.size();
+    MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
+             dest, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+    for (std::size_t i = 0; i < bins.size(); i++)
+    {
+        Serialize::send(bins[i], comm, dest);
+    }
+}
+
+void Scatter::stop(std::size_t numSlaves) const
+{
+    for (std::size_t i = 0; i < numSlaves; i++)
+    {
+        int needsWork;
+        MPI_Status status;
+        MPI_Recv(&needsWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+
+        int dest = status.MPI_SOURCE;
+        std::size_t workSize = 0; // signals shutdown
+        MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
+                 dest, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+    }
+}
+
 void Slave::operator()() const
 {
+    Timeplot::Worker tworker("slave");
+
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
-    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const unsigned int leafCells = vm[Option::leafCells].as<int>();
-    const std::size_t maxDeviceSplats = getMaxDeviceSplats(vm);
     const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
     const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
     const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
     const std::size_t deviceSpare = getDeviceWorkerGroupSpare(vm);
+    const float smooth = vm[Option::fitSmooth].as<double>();
+    const float maxRadius = vm.count(Option::maxRadius)
+        ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
 
-    const std::size_t memHostSplats = vm[Option::memHostSplats].as<Capacity>();
-    const std::size_t memDeviceSplats = vm[Option::memDeviceSplats].as<Capacity>();
+    const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
+    const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
+    const std::size_t maxHostSplats = getMaxHostSplats(vm);
     const std::size_t memGather = vm[Option::memGather].as<Capacity>();
 
     const unsigned int block = 1U << (levels + subsampling - 1);
     const unsigned int blockCells = block - 1;
-    const unsigned int microCells = std::min(leafCells, blockCells);
+
+    SplatSet::FileSet splats;
+    prepareInputs(splats, vm, smooth, maxRadius);
 
     GatherGroup gatherGroup(gatherComm, gatherRoot, memGather);
     boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
@@ -287,18 +294,15 @@ void Slave::operator()() const
             numDeviceThreads, deviceSpare,
             GetOutputFunctor(gatherGroup),
             devices[i].first, devices[i].second,
-            maxDeviceSplats, blockCells,
-            memDeviceSplats, getMeshMemory(vm),
+            maxBucketSplats, blockCells,
+            getMeshMemory(vm),
             levels, subsampling,
             boundaryLimit, shape);
         deviceWorkerGroups.push_back(dwg);
         deviceWorkerGroupPtrs.push_back(dwg);
     }
-    FineBucketGroup fineBucketGroup(
-        numBucketThreads, deviceWorkerGroupPtrs,
-        memHostSplats, maxDeviceSplats, blockCells, microCells, maxSplit);
-    RequesterScatter<FineBucketGroup::WorkItem, FineBucketGroup> requester(
-        "requester", fineBucketGroup, scatterComm, scatterRoot);
+    FineBucketGroup fineBucketGroup(deviceWorkerGroupPtrs, maxHostSplats);
+    BucketLoader<SplatSet::FileSet, FineBucketGroup> loader(maxLoadSplats, fineBucketGroup, tworker);
 
     Grid grid;
     /* If the slave shares a node with the master, then OpenMPI busy-waits
@@ -322,14 +326,28 @@ void Slave::operator()() const
     ProgressMPI progress(NULL, grid.numCells(), progressComm, progressRoot);
     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
         deviceWorkerGroups[i].setProgress(&progress);
-    fineBucketGroup.setProgress(&progress);
 
-    fineBucketGroup.start(grid);
+    loader.start(splats, grid);
+    fineBucketGroup.start();
     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
         deviceWorkerGroups[i].start(grid);
     gatherGroup.start();
 
-    requester();
+    while (true)
+    {
+        int needWork = 1;
+        std::size_t workSize;
+        MPI_Sendrecv(&needWork, 1, MPI_INT, scatterRoot, MLSGPU_TAG_SCATTER_NEED_WORK, 
+                     &workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), scatterRoot, MLSGPU_TAG_SCATTER_HAS_WORK,
+                     scatterComm, MPI_STATUS_IGNORE);
+        if (workSize == 0)
+            break;
+
+        Statistics::Container::vector<BucketCollector::Bin> bins("mem.BucketCollector.bins", workSize);
+        for (std::size_t i = 0; i < bins.size(); i++)
+            Serialize::recv(bins[i], scatterComm, scatterRoot);
+        loader(bins);
+    }
 
     fineBucketGroup.stop();
     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
@@ -397,15 +415,16 @@ static void run(
             ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
         const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
         const MesherType mesherType = OOC_MESHER;
-        const std::size_t maxHostSplats = getMaxHostSplats(vm);
         const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
         const double pruneThreshold = vm[Option::fitPrune].as<double>();
         const bool split = vm.count(Option::split);
         const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
         const int subsampling = vm[Option::subsampling].as<int>();
         const int levels = vm[Option::levels].as<int>();
+
+        const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
+        const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
         const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
-        const std::size_t memScatter = vm[Option::memScatter].as<Capacity>();
         const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
 
         Timeplot::Worker mainWorker("main");
@@ -434,10 +453,8 @@ static void run(
             Log::log[Log::info] << "Initializing...\n";
             MesherGroup mesherGroup(memMesh);
             ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
-            // TODO: tune number of scatter senders
-            ScatterGroup scatterGroup(1, numSlaves, scatterComm, memScatter);
-            std::vector<ScatterGroup *> scatterGroupPtrs(1, &scatterGroup);
-            CoarseBucket<Splats, ScatterGroup> coarseBucket(scatterGroupPtrs, mainWorker);
+            Scatter scatter(scatterComm);
+            BucketCollector collector(maxLoadSplats, scatter);
 
             Splats splats("mem.blobData");
             prepareInputs(splats, vm, smooth, maxRadius);
@@ -475,6 +492,8 @@ static void run(
                  * A manifold with genus 0 has two triangles per vertex; vertices take
                  * 12 bytes (3 floats) and triangles take 13 (count plus 3 uints in
                  * PLY), giving 38 bytes per vertex. So there are 760x^2 bytes.
+                 *
+                 * TODO: move this function to mlsgpu_core.
                  */
                 chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
                 if (chunkCells == 0) chunkCells = 1;
@@ -499,8 +518,6 @@ static void run(
                 mesherGroup.setInputFunctor(mesher->functor(pass));
 
                 // Start threads
-                coarseBucket.start(grid);
-                scatterGroup.start();
                 boost::thread receiverThread(boost::ref(receiver));
                 mesherGroup.start();
                 boost::thread progressThread(boost::ref(progressMPI));
@@ -508,15 +525,15 @@ static void run(
                 try
                 {
                     Timeplot::Action bucketTimer("compute", mainWorker, "bucket.coarse.compute");
-                    Bucket::bucket(splats, grid, maxHostSplats, blockCells, chunkCells, microCells, maxSplit,
-                                   boost::ref(coarseBucket), &progressMPI);
+                    Bucket::bucket(splats, grid, maxBucketSplats, blockCells, chunkCells, microCells, maxSplit,
+                                   boost::ref(collector), &progressMPI);
                 }
                 catch (...)
                 {
                     // This can't be handled using unwinding, because that would operate in
                     // the wrong order
-                    coarseBucket.stop();
-                    scatterGroup.stop();
+                    collector.flush();
+                    scatter.stop(numSlaves);
                     receiverThread.join();
                     mesherGroup.stop();
                     progressMPI.sync();
@@ -529,8 +546,8 @@ static void run(
                  * satisfy the requirement that stop() is only called after producers
                  * are terminated.
                  */
-                coarseBucket.stop();
-                scatterGroup.stop();
+                collector.flush();
+                scatter.stop(numSlaves);
                 receiverThread.join();
                 mesherGroup.stop();
                 progressMPI.sync();

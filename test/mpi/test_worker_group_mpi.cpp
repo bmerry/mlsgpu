@@ -53,15 +53,6 @@ std::size_t Item::size() const
     return 1;
 }
 
-class ScatterGroup : public WorkerGroupScatter<Item, ScatterGroup>
-{
-public:
-    ScatterGroup(std::size_t numWorkers, std::size_t requesters, MPI_Comm comm)
-        : WorkerGroupScatter<Item, ScatterGroup>("ScatterGroup", numWorkers, requesters, comm)
-    {
-    }
-};
-
 class GatherGroup : public WorkerGroupGather<Item, GatherGroup>
 {
 public:
@@ -151,97 +142,13 @@ public:
     {
         GatherGroup gatherGroup(inComm, inRoot);
         ProcessGroup processGroup(3, gatherGroup);
-        RequesterScatter<Item, ProcessGroup> requester("scatter", processGroup, outComm, outRoot);
+        // TODO RequesterScatter<Item, ProcessGroup> requester("scatter", processGroup, outComm, outRoot);
         processGroup.start();
         gatherGroup.start();
-        requester();
+        // TODO requester();
         processGroup.stop();
         gatherGroup.stop();
     }
 };
 
 } // anonymous namespace
-
-class TestWorkerGroupScatter : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestWorkerGroupScatter);
-    CPPUNIT_TEST(testIntracomm);
-    CPPUNIT_TEST_SUITE_END();
-private:
-    MPI_Comm outComm;       ///< For scattering items to processors
-    MPI_Comm inComm;        ///< For gathering results
-
-    void testIntracomm();   ///< Test distribution with an intracommunicator
-
-public:
-    virtual void setUp();
-    virtual void tearDown();
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWorkerGroupScatter, TestSet::perBuild());
-
-void TestWorkerGroupScatter::setUp()
-{
-    MPI_Barrier(MPI_COMM_WORLD);
-    MPI_Comm_dup(MPI_COMM_WORLD, &outComm);
-    MPI_Comm_dup(MPI_COMM_WORLD, &inComm);
-}
-
-void TestWorkerGroupScatter::tearDown()
-{
-    if (outComm != MPI_COMM_NULL)
-        MPI_Comm_free(&outComm);
-    if (inComm != MPI_COMM_NULL)
-        MPI_Comm_free(&inComm);
-    MPI_Barrier(MPI_COMM_WORLD);
-}
-
-void TestWorkerGroupScatter::testIntracomm()
-{
-    const std::size_t items = 1000;
-    const int root = 0;
-    int rank;
-    bool pass = true;
-
-    boost::thread slaveThread(Slave(outComm, root, inComm, root));
-    MPI_Comm_rank(outComm, &rank);
-    if (rank == root)
-    {
-        std::vector<int> values;
-        int size;
-        MPI_Comm_size(outComm, &size);
-
-        ConsumerGroup consumer(values);
-        ReceiverGather<Item, ConsumerGroup> receiver("ReceiverGather", consumer, inComm, size);
-        ScatterGroup sendGroup(3, size, outComm);
-
-        sendGroup.start();
-        boost::thread receiverThread(boost::ref(receiver));
-        consumer.start();
-
-        Timeplot::Worker tworker("producer");
-        for (std::size_t i = 0; i < items; i++)
-        {
-            boost::shared_ptr<Item> item;
-            item = sendGroup.get(tworker, 1);
-            item->set(i);
-            sendGroup.push(item);
-        }
-
-        sendGroup.stop();
-        receiverThread.join();
-        consumer.stop();
-
-        if (values.size() != items)
-            pass = false;
-        else
-        {
-            std::sort(values.begin(), values.end());
-            for (std::size_t i = 0; i < items; i++)
-                if (values[i] != 2 * (int) i)
-                    pass = false;
-        }
-    }
-    slaveThread.join();
-
-    CPPUNIT_ASSERT(pass);
-}

@@ -46,6 +46,8 @@
 template<typename BaseType>
 class TestFastBlobSet;
 
+namespace Serialize { class Access; }
+
 /**
  * Data structures for iteration over sets of splats.
  */
@@ -983,6 +985,8 @@ public:
         nSplats(0), nRanges(0) {}
 
 protected:
+    // Serialization accesses the internals
+    friend class Serialize::Access;
     /**
      * Store of splat ID ranges. Each range is a half-open interval of valid
      * IDs. They are encoded in one of two forms. The full encoding uses 4

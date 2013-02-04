@@ -60,7 +60,6 @@ namespace Option
     const char * const memBucketSplats = "mem-bucket-splats";
     const char * const memMesh = "mem-mesh";
     const char * const memReorder = "mem-reorder";
-    const char * const memScatter = "mem-scatter";
     const char * const memGather = "mem-gather";
 };
 

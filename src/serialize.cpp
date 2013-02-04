@@ -52,33 +52,48 @@ static void registerGridType()
     MPI_Type_commit(&gridType);
 }
 
-
-static MPI_Datatype bucketRecursionType; ///< MPI datatype representing @ref Bucket::Recursion
-
-/// Create @ref bucketRecursionType
-static void registerBucketRecursionType()
+/**
+ * Scalar fields from @ref SplatSet::SubsetBase.
+ */
+struct SubsetMetadata
 {
-    int lengths[5] = {1, 1, 1, 3, 1};
-    MPI_Aint displacements[5] =
+    std::size_t size;
+    SplatSet::splat_id first, last;
+    SplatSet::splat_id prev;
+    SplatSet::splat_id nSplats;
+    SplatSet::splat_id nRanges;
+};
+
+static MPI_Datatype subsetMetadataType; ///< MPI datatype representing @ref SubsetMetadata
+
+static void registerSubsetMetadataType()
+{
+    int lengths[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+    MPI_Aint displacements[8] =
     {
         0,
-        offsetof(Bucket::Recursion, depth),
-        offsetof(Bucket::Recursion, totalRanges),
-        offsetof(Bucket::Recursion, chunk),
-        sizeof(Bucket::Recursion)
+        offsetof(SubsetMetadata, size),
+        offsetof(SubsetMetadata, first),
+        offsetof(SubsetMetadata, last),
+        offsetof(SubsetMetadata, prev),
+        offsetof(SubsetMetadata, nSplats),
+        offsetof(SubsetMetadata, nRanges),
+        sizeof(SubsetMetadata)
     };
-    MPI_Datatype types[5] =
+    MPI_Datatype types[8] =
     {
         MPI_LB,
-        MPI_UNSIGNED,
         Serialize::mpi_type_traits<std::size_t>::type(),
-        Serialize::mpi_type_traits<Grid::size_type>::type(),
+        Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
+        Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
+        Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
+        Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
+        Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
         MPI_UB
     };
-
-    MPI_Type_create_struct(5, lengths, displacements, types, &bucketRecursionType);
-    MPI_Type_set_name(bucketRecursionType, const_cast<char *>("BucketRecursion"));
-    MPI_Type_commit(&bucketRecursionType);
+    MPI_Type_create_struct(8, lengths, displacements, types, &subsetMetadataType);
+    MPI_Type_set_name(subsetMetadataType, const_cast<char *>("SubsetMetadata"));
+    MPI_Type_commit(&subsetMetadataType);
 }
 
 static MPI_Datatype chunkIdType; ///< MPI datatype representing @ref ChunkId
@@ -86,7 +101,8 @@ static MPI_Datatype chunkIdType; ///< MPI datatype representing @ref ChunkId
 static void registerChunkIdType()
 {
     int lengths[4] = {1, 1, 3, 1};
-    MPI_Aint displacements[4] = {
+    MPI_Aint displacements[4] =
+    {
         0,
         offsetof(ChunkId, gen),
         offsetof(ChunkId, coords),
@@ -134,6 +150,17 @@ static void registerSplatType()
 namespace Serialize
 {
 
+/**
+ * Helper class that other classes can make a friend to allow access to the
+ * internals, without the class having to be aware of MPI_Comm.
+ */
+class Access
+{
+public:
+    static void send(const SplatSet::SubsetBase &subset, MPI_Comm comm, int dest);
+    static void recv(SplatSet::SubsetBase &subset, MPI_Comm comm, int source);
+};
+
 void send(const Grid &grid, MPI_Comm comm, int dest)
 {
     RawGrid raw;
@@ -159,16 +186,6 @@ void recv(Grid &grid, MPI_Comm comm, int source)
                 raw.extents[4], raw.extents[5]);
 }
 
-void send(const Bucket::Recursion &recursion, MPI_Comm comm, int dest)
-{
-    MPI_Send(const_cast<Bucket::Recursion *>(&recursion), 1, bucketRecursionType, dest, MLSGPU_TAG_WORK, comm);
-}
-
-void recv(Bucket::Recursion &recursion, MPI_Comm comm, int source)
-{
-    MPI_Recv(&recursion, 1, bucketRecursionType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-}
-
 void send(const ChunkId &chunkId, MPI_Comm comm, int dest)
 {
     MPI_Send(const_cast<ChunkId *>(&chunkId), 1, chunkIdType, dest, MLSGPU_TAG_WORK, comm);
@@ -187,6 +204,59 @@ void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest)
 void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source)
 {
     MPI_Recv(splats, numSplats, splatType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+}
+
+void send(const SplatSet::SubsetBase &subset, MPI_Comm comm, int dest)
+{
+    Access::send(subset, comm, dest);
+}
+
+void recv(SplatSet::SubsetBase &subset, MPI_Comm comm, int source)
+{
+    Access::recv(subset, comm, source);
+}
+
+void Access::send(const SplatSet::SubsetBase &subset, MPI_Comm comm, int dest)
+{
+    SubsetMetadata metadata;
+    metadata.size = subset.splatRanges.size();
+    metadata.first = subset.first;
+    metadata.last = subset.last;
+    metadata.prev = subset.prev;
+    metadata.nSplats = subset.nSplats;
+    metadata.nRanges = subset.nRanges;
+    MPI_Send(&metadata, 1, subsetMetadataType, dest, MLSGPU_TAG_WORK, comm);
+    MPI_Send(const_cast<std::tr1::uint32_t *>(&subset.splatRanges[0]),
+             subset.splatRanges.size(), mpi_type_traits<std::tr1::uint32_t>::type(),
+             dest, MLSGPU_TAG_WORK, comm);
+}
+
+void Access::recv(SplatSet::SubsetBase &subset, MPI_Comm comm, int source)
+{
+    SubsetMetadata metadata;
+    MPI_Recv(&metadata, 1, subsetMetadataType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+    subset.splatRanges.resize(metadata.size);
+    subset.first = metadata.first;
+    subset.last = metadata.last;
+    subset.prev = metadata.prev;
+    subset.nSplats = metadata.nSplats;
+    subset.nRanges = metadata.nRanges;
+    MPI_Recv(&subset.splatRanges[0], metadata.size, mpi_type_traits<std::tr1::uint32_t>::type(),
+             source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+}
+
+void send(const BucketCollector::Bin &bin, MPI_Comm comm, int dest)
+{
+    send(bin.ranges, comm, dest);
+    send(bin.chunkId, comm, dest);
+    send(bin.grid, comm, dest);
+}
+
+void recv(BucketCollector::Bin &bin, MPI_Comm comm, int source)
+{
+    recv(bin.ranges, comm, source);
+    recv(bin.chunkId, comm, source);
+    recv(bin.grid, comm, source);
 }
 
 void send(const MesherWork &work, MPI_Comm comm, int dest)
@@ -242,7 +312,7 @@ void recv(MesherWork &work, void *ptr, MPI_Comm comm, int source)
 void init()
 {
     registerGridType();
-    registerBucketRecursionType();
+    registerSubsetMetadataType();
     registerChunkIdType();
     registerSplatType();
 }
