@@ -105,24 +105,12 @@ std::size_t CircularBufferBase::size() const
 
 std::size_t CircularBufferBase::unallocated()
 {
-    boost::lock_guard<boost::mutex> lock(mutex);
     if (allocPoints.empty())
         return bufferSize;
     else if (allocPoints.front() >= firstFree)
         return allocPoints.front() - firstFree;
     else
         return bufferSize - firstFree + allocPoints.front();
-}
-
-std::size_t CircularBufferBase::available()
-{
-    boost::lock_guard<boost::mutex> lock(mutex);
-    if (allocPoints.empty())
-        return bufferSize;
-    else if (allocPoints.front() >= firstFree)
-        return allocPoints.front() - firstFree;
-    else
-        return std::max(bufferSize - firstFree, allocPoints.front());
 }
 
 void *CircularBuffer::Allocation::get() const
