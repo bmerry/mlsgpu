@@ -61,6 +61,7 @@ class WorkerGather : public WorkerBase
 private:
     MPI_Comm comm;
     int root;
+    Statistics::Variable &sendStat;
 public:
     /**
      * Constructor.
@@ -68,15 +69,16 @@ public:
      * @param name      Name for the worker.
      * @param comm      Communicator to communicate with the remote end.
      * @param root      Target for messages.
+     * @param sendStat  Statistic for time spent sending
      */
-    WorkerGather(const std::string &name, MPI_Comm comm, int root)
-        : WorkerBase(name, 0), comm(comm), root(root)
+    WorkerGather(const std::string &name, MPI_Comm comm, int root, Statistics::Variable &sendStat)
+        : WorkerBase(name, 0), comm(comm), root(root), sendStat(sendStat)
     {
     }
 
     void operator()(WorkItem &item)
     {
-        Timeplot::Action action("send", getTimeplotWorker());
+        Timeplot::Action action("send", getTimeplotWorker(), sendStat);
         std::size_t workSize = sizeItem(item);
         MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), root,
                  MLSGPU_TAG_GATHER_HAS_WORK, comm);
@@ -160,7 +162,7 @@ protected:
     WorkerGroupGather(const std::string &name, MPI_Comm comm, int root)
         : WorkerGroup<WorkItem, WorkerGather<WorkItem>, Derived>(name, 1)
     {
-        this->addWorker(new WorkerGather<WorkItem>(name, comm, root));
+        this->addWorker(new WorkerGather<WorkItem>(name, comm, root, this->getComputeStat()));
     }
 };
 

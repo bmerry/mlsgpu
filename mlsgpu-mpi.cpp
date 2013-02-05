@@ -125,11 +125,15 @@ class Scatter
 {
 private:
     MPI_Comm comm;
+    Timeplot::Worker &tworker;
+
+    Statistics::Variable &waitStat;
+    Statistics::Variable &sendStat;
 public:
     typedef void result_type;
 
     /// Constructor
-    explicit Scatter(MPI_Comm comm);
+    Scatter(MPI_Comm comm, Timeplot::Worker &tworker);
 
     /// Send the bins to a slave
     void operator()(const Statistics::Container::vector<BucketCollector::Bin> &bins) const;
@@ -223,7 +227,11 @@ public:
     }
 };
 
-Scatter::Scatter(MPI_Comm comm) : comm(comm)
+Scatter::Scatter(MPI_Comm comm, Timeplot::Worker &tworker) :
+    comm(comm),
+    tworker(tworker),
+    waitStat(Statistics::getStatistic<Statistics::Variable>("scatter.get")),
+    sendStat(Statistics::getStatistic<Statistics::Variable>("scatter.push"))
 {
 }
 
@@ -234,15 +242,21 @@ void Scatter::operator()(const Statistics::Container::vector<BucketCollector::Bi
 
     int needsWork;
     MPI_Status status;
-    MPI_Recv(&needsWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
-
-    int dest = status.MPI_SOURCE;
-    std::size_t workSize = bins.size();
-    MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
-             dest, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
-    for (std::size_t i = 0; i < bins.size(); i++)
     {
-        Serialize::send(bins[i], comm, dest);
+        Timeplot::Action timer("wait", tworker, waitStat);
+        MPI_Recv(&needsWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+    }
+
+    {
+        Timeplot::Action timer("send", tworker, sendStat);
+        int dest = status.MPI_SOURCE;
+        std::size_t workSize = bins.size();
+        MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
+                 dest, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+        for (std::size_t i = 0; i < bins.size(); i++)
+        {
+            Serialize::send(bins[i], comm, dest);
+        }
     }
 }
 
@@ -252,18 +266,27 @@ void Scatter::stop(std::size_t numSlaves) const
     {
         int needsWork;
         MPI_Status status;
-        MPI_Recv(&needsWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+        {
+            Timeplot::Action timer("wait", tworker, waitStat);
+            MPI_Recv(&needsWork, 1, MPI_INT, MPI_ANY_SOURCE, MLSGPU_TAG_SCATTER_NEED_WORK, comm, &status);
+        }
 
-        int dest = status.MPI_SOURCE;
-        std::size_t workSize = 0; // signals shutdown
-        MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
-                 dest, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+        {
+            Timeplot::Action timer("send", tworker, sendStat);
+            int dest = status.MPI_SOURCE;
+            std::size_t workSize = 0; // signals shutdown
+            MPI_Send(&workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(),
+                     dest, MLSGPU_TAG_SCATTER_HAS_WORK, comm);
+        }
     }
 }
 
 void Slave::operator()() const
 {
     Timeplot::Worker tworker("slave");
+    Statistics::Variable &firstPopStat = Statistics::getStatistic<Statistics::Variable>("slave.pop.first");
+    Statistics::Variable &popStat = Statistics::getStatistic<Statistics::Variable>("slave.pop");
+    Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("slave.recv");
 
     const float smooth = vm[Option::fitSmooth].as<double>();
     const float maxRadius = vm.count(Option::maxRadius)
@@ -299,19 +322,26 @@ void Slave::operator()() const
     slaveWorkers.start(splats, grid, &progress);
     gatherGroup.start();
 
+    bool first = true;
     while (true)
     {
         int needWork = 1;
         std::size_t workSize;
-        MPI_Sendrecv(&needWork, 1, MPI_INT, scatterRoot, MLSGPU_TAG_SCATTER_NEED_WORK, 
-                     &workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), scatterRoot, MLSGPU_TAG_SCATTER_HAS_WORK,
-                     scatterComm, MPI_STATUS_IGNORE);
-        if (workSize == 0)
-            break;
+        {
+            Timeplot::Action timer("pop", tworker, first ? firstPopStat : popStat);
+            MPI_Sendrecv(&needWork, 1, MPI_INT, scatterRoot, MLSGPU_TAG_SCATTER_NEED_WORK,
+                         &workSize, 1, Serialize::mpi_type_traits<std::size_t>::type(), scatterRoot, MLSGPU_TAG_SCATTER_HAS_WORK,
+                         scatterComm, MPI_STATUS_IGNORE);
+            if (workSize == 0)
+                break;
+        }
 
         Statistics::Container::vector<BucketCollector::Bin> bins("mem.BucketCollector.bins", workSize);
-        for (std::size_t i = 0; i < bins.size(); i++)
-            Serialize::recv(bins[i], scatterComm, scatterRoot);
+        {
+            Timeplot::Action timer("recv", tworker, recvStat);
+            for (std::size_t i = 0; i < bins.size(); i++)
+                Serialize::recv(bins[i], scatterComm, scatterRoot);
+        }
         (*slaveWorkers.loader)(bins);
     }
 
@@ -393,7 +423,7 @@ static void run(
                 Log::log[Log::info] << "Initializing...\n";
                 MesherGroup mesherGroup(memMesh);
                 ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
-                Scatter scatter(scatterComm);
+                Scatter scatter(scatterComm, mainWorker);
                 BucketCollector collector(maxLoadSplats, scatter);
 
                 Splats splats("mem.blobData");
