@@ -62,38 +62,6 @@ public:
     }
 };
 
-/**
- * Class that receives work-items, doubles them and sends on the result.
- */
-class ProcessWorker : public WorkerBase
-{
-private:
-    GatherGroup &outGroup;
-public:
-    ProcessWorker(const std::string &name, int idx, GatherGroup &outGroup)
-        : WorkerBase(name, idx), outGroup(outGroup)
-    {
-    }
-
-    void operator()(Item &item)
-    {
-        boost::shared_ptr<Item> outItem = outGroup.get(getTimeplotWorker(), 1);
-        outItem->set(2 * item.get());
-        outGroup.push(getTimeplotWorker(), outItem);
-    }
-};
-
-class ProcessGroup : public WorkerGroup<Item, ProcessWorker, ProcessGroup>
-{
-public:
-    ProcessGroup(std::size_t numWorkers, GatherGroup &outGroup)
-        : WorkerGroup<Item, ProcessWorker, ProcessGroup>("ProcessGroup", numWorkers)
-    {
-        for (std::size_t i = 0; i < numWorkers; i++)
-            addWorker(new ProcessWorker("ProcessWorker", i, outGroup));
-    }
-};
-
 class ConsumerWorker : public WorkerBase
 {
 private:
@@ -123,32 +91,107 @@ public:
  * Thread class for doing the work on each slave node. This is split into a thread
  * so that it can also be used on the master (which is actually both master and
  * a slave), in parallel to the master work.
+ *
+ * It sends integer items back to the master. Each slave sends those @a x for which
+ * <code>x % size == rank</code>.
  */
 class Slave
 {
 private:
-    MPI_Comm outComm;
-    int outRoot;
-    MPI_Comm inComm;
-    int inRoot;
+    MPI_Comm comm;
+    int root;
+    std::size_t items;   ///< Total items to send across all slaves
 
 public:
-    Slave(MPI_Comm outComm, int outRoot, MPI_Comm inComm, int inRoot)
-        : outComm(outComm), outRoot(outRoot), inComm(inComm), inRoot(inRoot)
+    Slave(MPI_Comm comm, int root, std::size_t items)
+        : comm(comm), root(root), items(items)
     {
     }
 
+    /// Thread callback
     void operator()() const
     {
-        GatherGroup gatherGroup(inComm, inRoot);
-        ProcessGroup processGroup(3, gatherGroup);
-        // TODO RequesterScatter<Item, ProcessGroup> requester("scatter", processGroup, outComm, outRoot);
-        processGroup.start();
+        Timeplot::Worker tworker("slave");
+
+        GatherGroup gatherGroup(comm, root);
         gatherGroup.start();
-        // TODO requester();
-        processGroup.stop();
+
+        int rank, size;
+        MPI_Comm_rank(comm, &rank);
+        MPI_Comm_size(comm, &size);
+        for (std::size_t i = rank; i < items; i += size)
+        {
+            boost::shared_ptr<Item> item = gatherGroup.get(tworker, 1);
+            item->set(i);
+            gatherGroup.push(tworker, item);
+        }
+
         gatherGroup.stop();
     }
 };
+
+class TestWorkerGroupGather : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestWorkerGroupGather);
+    CPPUNIT_TEST(testStress);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    MPI_Comm comm;
+    void testStress();    ///< Basic test with lots of items
+
+public:
+    virtual void setUp();
+    virtual void tearDown();
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestWorkerGroupGather, TestSet::perBuild());
+
+void TestWorkerGroupGather::setUp()
+{
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+}
+
+void TestWorkerGroupGather::tearDown()
+{
+    if (comm != MPI_COMM_NULL)
+        MPI_Comm_free(&comm);
+    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+void TestWorkerGroupGather::testStress()
+{
+    const std::size_t items = 100000;
+    const int root = 0;
+    boost::thread slaveThread(Slave(comm, root, items));
+
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+    std::vector<int> out;
+    if (rank == 0)
+    {
+
+        ConsumerGroup consumer(out);
+        ReceiverGather<Item, ConsumerGroup> receiver("ReceiverGather", consumer, comm, size);
+
+        consumer.start();
+        receiver();
+        consumer.stop();
+    }
+    slaveThread.join();
+
+    if (rank == 0)
+    {
+        MLSGPU_ASSERT_EQUAL(items, out.size());
+        std::sort(out.begin(), out.end());
+        int failed = 0;
+        for (std::size_t i = 0; i < items; i++)
+            if (out[i] != (int) i)
+                failed++;
+
+        CPPUNIT_ASSERT_EQUAL(0, failed);
+    }
+}
 
 } // anonymous namespace
