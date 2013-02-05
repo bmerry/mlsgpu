@@ -355,7 +355,7 @@ public:
 
 /**
  * A worker object that copies bins of data to the GPU. It receives data from
- * @ref CoarseBucket and sends it to the next available @ref DeviceWorkerGroup.
+ * @ref BucketLoader and sends it to the next available @ref DeviceWorkerGroup.
  */
 class FineBucketGroup :
     protected FineBucketGroupBase,

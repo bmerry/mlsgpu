@@ -49,7 +49,7 @@ private:
     Timeplot::Worker &tworker;
 
     const Splats *super;
-    /// Temporary storage for loading @ref ranges before turning back into individual buckets
+    /// Temporary storage for loading combined ranges before turning back into individual buckets
     Statistics::Container::PODBuffer<Splat> splatBuffer;
 
     Statistics::Variable &computeStat;
