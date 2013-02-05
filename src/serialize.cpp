@@ -196,16 +196,6 @@ void recv(ChunkId &chunkId, MPI_Comm comm, int source)
     MPI_Recv(&chunkId, 1, chunkIdType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
 
-void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest)
-{
-    MPI_Send(const_cast<Splat *>(splats), numSplats, splatType, dest, MLSGPU_TAG_WORK, comm);
-}
-
-void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source)
-{
-    MPI_Recv(splats, numSplats, splatType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-}
-
 void send(const SplatSet::SubsetBase &subset, MPI_Comm comm, int dest)
 {
     Access::send(subset, comm, dest);

@@ -42,7 +42,6 @@ class TestSerialize : public CppUnit::TestFixture
     SERIALIZE_TEST(testGrid);
     SERIALIZE_TEST(testChunkId);
     SERIALIZE_TEST(testSubset);
-    SERIALIZE_TEST(testSplats);
     SERIALIZE_TEST(testMesherWork);
     CPPUNIT_TEST_SUITE_END();
 private:
@@ -60,8 +59,6 @@ private:
     void testChunkIdRecv(MPI_Comm comm, int source);
     void testSubsetSend(MPI_Comm comm, int dest);
     void testSubsetRecv(MPI_Comm comm, int source);
-    void testSplatsSend(MPI_Comm comm, int dest);
-    void testSplatsRecv(MPI_Comm comm, int source);
     void testMesherWorkSend(MPI_Comm comm, int dest);
     void testMesherWorkRecv(MPI_Comm comm, int source);
 };
@@ -157,57 +154,6 @@ void TestSerialize::testSubsetRecv(MPI_Comm comm, int source)
     MLSGPU_ASSERT_EQUAL(20, ranges[1].second);
     MLSGPU_ASSERT_EQUAL(5000, ranges[2].first);
     MLSGPU_ASSERT_EQUAL(UINT64_C(1000000000000), ranges[2].second);
-}
-
-/**
- * Create a splat.
- */
-static Splat makeSplat(float x, float y, float z, float radius, float nx, float ny, float nz, float quality)
-{
-    Splat splat;
-    splat.position[0] = x;
-    splat.position[1] = y;
-    splat.position[2] = z;
-    splat.radius = radius;
-    splat.normal[0] = nx;
-    splat.normal[1] = ny;
-    splat.normal[2] = nz;
-    splat.quality = quality;
-    return splat;
-}
-
-void TestSerialize::testSplatsSend(MPI_Comm comm, int dest)
-{
-    Splat splats[2] =
-    {
-        makeSplat(1.0f, 2.2f, 4.1f, 0.5f, -0.3f, -0.4f, 0.5f, 1000.0f),
-        makeSplat(0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f)
-    };
-    Serialize::send(splats, 2, comm, dest);
-}
-
-void TestSerialize::testSplatsRecv(MPI_Comm comm, int source)
-{
-    Splat splats[2];
-
-    Serialize::recv(splats, 2, comm, source);
-
-    MLSGPU_ASSERT_EQUAL(1.0f, splats[0].position[0]);
-    MLSGPU_ASSERT_EQUAL(2.2f, splats[0].position[1]);
-    MLSGPU_ASSERT_EQUAL(4.1f, splats[0].position[2]);
-    MLSGPU_ASSERT_EQUAL(0.5f, splats[0].radius);
-    MLSGPU_ASSERT_EQUAL(-0.3f, splats[0].normal[0]);
-    MLSGPU_ASSERT_EQUAL(-0.4f, splats[0].normal[1]);
-    MLSGPU_ASSERT_EQUAL(0.5f, splats[0].normal[2]);
-    MLSGPU_ASSERT_EQUAL(1000.0f, splats[0].quality);
-    MLSGPU_ASSERT_EQUAL(0.1f, splats[1].position[0]);
-    MLSGPU_ASSERT_EQUAL(0.2f, splats[1].position[1]);
-    MLSGPU_ASSERT_EQUAL(0.3f, splats[1].position[2]);
-    MLSGPU_ASSERT_EQUAL(0.4f, splats[1].radius);
-    MLSGPU_ASSERT_EQUAL(0.5f, splats[1].normal[0]);
-    MLSGPU_ASSERT_EQUAL(0.6f, splats[1].normal[1]);
-    MLSGPU_ASSERT_EQUAL(0.7f, splats[1].normal[2]);
-    MLSGPU_ASSERT_EQUAL(0.8f, splats[1].quality);
 }
 
 void TestSerialize::testMesherWorkSend(MPI_Comm comm, int dest)
