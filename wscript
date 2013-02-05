@@ -356,6 +356,7 @@ def build(bld):
 
     core_sources = [
             'src/bucket.cpp',
+            'src/bucket_collector.cpp',
             'src/circular_buffer.cpp',
             'src/decache.cpp',
             'src/diskstats.cpp',
@@ -373,7 +374,6 @@ def build(bld):
             'src/timeplot.cpp',
             'src/timer.cpp']
     cl_sources = [
-            'src/bucket_collector.cpp',   # TODO: separate from CL components
             'src/bucket_loader.cpp',
             'src/clh.cpp',
             'src/kernels.cpp',
