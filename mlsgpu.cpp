@@ -66,25 +66,16 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 {
     typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
 
-    const int subsampling = vm[Option::subsampling].as<int>();
-    const int levels = vm[Option::levels].as<int>();
     const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
     const MesherType mesherType = OOC_MESHER;
-    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
-    const unsigned int leafCells = vm[Option::leafCells].as<int>();
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const bool split = vm.count(Option::split);
 
-    const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
     const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
     const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
 
     Timeplot::Worker mainWorker("main");
-
-    const unsigned int block = 1U << (levels + subsampling - 1);
-    const unsigned int blockCells = block - 1;
-    const unsigned int microCells = std::min(leafCells, blockCells);
 
     {
         Statistics::Timer grandTotalTimer("run.time");
@@ -112,12 +103,13 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             MesherGroup mesherGroup(memMesh);
             SlaveWorkers slaveWorkers(mainWorker, vm, devices, boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2));
             BucketCollector collector(maxLoadSplats, boost::ref(*slaveWorkers.loader));
-            initTimer.reset();
 
             Splats splats("mem.blobData");
             Grid grid;
             unsigned int chunkCells;
             prepareGrid(mainWorker, vm, splats, grid, chunkCells);
+
+            initTimer.reset();
 
             for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
             {
@@ -136,9 +128,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
                 try
                 {
-                    Timeplot::Action bucketTimer("compute", mainWorker, "bucket.compute");
-                    Bucket::bucket(splats, grid, maxBucketSplats, blockCells, chunkCells, microCells, maxSplit,
-                                   boost::ref(collector), &progress);
+                    doBucket(mainWorker, vm, splats, grid, chunkCells, collector, &progress);
                 }
                 catch (...)
                 {

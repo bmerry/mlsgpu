@@ -19,6 +19,7 @@
 #include <utility>
 #include "splat_set.h"
 #include "workers.h"
+#include "bucket.h"
 #include "bucket_loader.h"
 #include "splat_set.h"
 #include "grid.h"
@@ -117,11 +118,6 @@ void setLogLevel(const boost::program_options::variables_map &vm);
 std::size_t getMaxLoadSplats(const boost::program_options::variables_map &vm);
 
 /**
- * Maximum number of splats to produce from a bucket.
- */
-std::size_t getMaxBucketSplats(const boost::program_options::variables_map &vm);
-
-/**
  * Estimate the per-device resource usage based on command-line options.
  */
 CLH::ResourceUsage resourceUsage(const boost::program_options::variables_map &vm);
@@ -148,6 +144,8 @@ void prepareInputs(SplatSet::FileSet &files, const boost::program_options::varia
  */
 void reportException(std::exception &e);
 
+typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > BlobSplats;
+
 /**
  * Load the inputs and compute the bounding box and chunk size.
  *
@@ -163,9 +161,29 @@ void reportException(std::exception &e);
 void prepareGrid(
     Timeplot::Worker &tworker,
     const boost::program_options::variables_map &vm,
-    SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > &splats,
+    BlobSplats &splats,
     Grid &grid,
     unsigned int &chunkCells);
+
+/**
+ * An all-in-one helper to call @ref Bucket::bucket with appropriate parameters.
+ *
+ * @param tworker          Worker to which the bucketing time is allocated
+ * @param vm               Command-line options
+ * @param splats           Splats to bucket
+ * @param grid             Bounding box grid from @ref prepareGrid
+ * @param chunkCells       Chunk side length from @ref prepareGrid
+ * @param collector        Bucket processor passed to @ref Bucket::bucket
+ * @param progress         Progress meter to record skipped empty space
+ */
+void doBucket(
+    Timeplot::Worker &tworker,
+    const boost::program_options::variables_map &vm,
+    const BlobSplats &splats,
+    const Grid &grid,
+    Grid::size_type chunkCells,
+    BucketCollector &collector,
+    ProgressMeter *progress);
 
 /**
  * Collects together the workers that run on the slave side in MPI, without

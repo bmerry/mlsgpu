@@ -18,6 +18,7 @@
 #include <boost/exception/all.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/ref.hpp>
 #include <memory>
 #include <string>
 #include <iterator>
@@ -43,6 +44,7 @@
 #include "marching.h"
 #include "splat_tree_cl.h"
 #include "workers.h"
+#include "bucket.h"
 #include "splat_set.h"
 #include "decache.h"
 
@@ -345,7 +347,7 @@ std::size_t getMaxLoadSplats(const po::variables_map &vm)
     return mem / sizeof(Splat);
 }
 
-std::size_t getMaxBucketSplats(const po::variables_map &vm)
+static std::size_t getMaxBucketSplats(const po::variables_map &vm)
 {
     std::size_t mem = vm[Option::memBucketSplats].as<Capacity>();
     return mem / sizeof(Splat);
@@ -604,6 +606,31 @@ void prepareGrid(
         chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
         if (chunkCells == 0) chunkCells = 1;
     }
+}
+
+void doBucket(
+    Timeplot::Worker &tworker,
+    const boost::program_options::variables_map &vm,
+    const BlobSplats &splats,
+    const Grid &grid,
+    Grid::size_type chunkCells,
+    BucketCollector &collector,
+    ProgressMeter *progress)
+{
+    Timeplot::Action bucketTimer("compute", tworker, "bucket.compute");
+
+    const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
+    const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const int levels = vm[Option::levels].as<int>();
+    const unsigned int leafCells = vm[Option::leafCells].as<int>();
+
+    const unsigned int block = 1U << (levels + subsampling - 1);
+    const unsigned int blockCells = block - 1;
+    const unsigned int microCells = std::min(leafCells, blockCells);
+
+    Bucket::bucket(splats, grid, maxBucketSplats, blockCells, chunkCells, microCells, maxSplit,
+                   boost::ref(collector), progress);
 }
 
 SlaveWorkers::SlaveWorkers(
