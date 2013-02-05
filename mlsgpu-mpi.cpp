@@ -385,68 +385,76 @@ static void run(
             boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
             boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
-            Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup(memMesh);
-            ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
-            Scatter scatter(scatterComm);
-            BucketCollector collector(maxLoadSplats, scatter);
-
-            Splats splats("mem.blobData");
-            Grid grid;
-            unsigned int chunkCells;
-            prepareGrid(mainWorker, vm, splats, grid, chunkCells);
-
-            for (int i = 0; i < size; i++)
             {
-                if (slaveMask[i])
-                    Serialize::send(grid, comm, i);
-            }
+                // Open a scope so that objects will be released before finalization
 
-            for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
-            {
-                Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
-                ostringstream passName;
-                passName << "pass" << pass + 1 << ".time";
-                Statistics::Timer timer(passName.str());
+                boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
 
-                ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
-                ProgressMPI progressMPI(&progress, grid.numCells(), progressComm, 0);
+                Log::log[Log::info] << "Initializing...\n";
+                MesherGroup mesherGroup(memMesh);
+                ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
+                Scatter scatter(scatterComm);
+                BucketCollector collector(maxLoadSplats, scatter);
 
-                mesherGroup.setInputFunctor(mesher->functor(pass));
+                Splats splats("mem.blobData");
+                Grid grid;
+                unsigned int chunkCells;
+                prepareGrid(mainWorker, vm, splats, grid, chunkCells);
 
-                // Start threads
-                boost::thread receiverThread(boost::ref(receiver));
-                mesherGroup.start();
-                boost::thread progressThread(boost::ref(progressMPI));
+                initTimer.reset();
 
-                try
+                for (int i = 0; i < size; i++)
                 {
-                    doBucket(mainWorker, vm, splats, grid, chunkCells, collector, &progressMPI);
+                    if (slaveMask[i])
+                        Serialize::send(grid, comm, i);
                 }
-                catch (...)
+
+                for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
                 {
-                    // This can't be handled using unwinding, because that would operate in
-                    // the wrong order
+                    Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
+                    ostringstream passName;
+                    passName << "pass" << pass + 1 << ".time";
+                    Statistics::Timer timer(passName.str());
+
+                    ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+                    ProgressMPI progressMPI(&progress, grid.numCells(), progressComm, 0);
+
+                    mesherGroup.setInputFunctor(mesher->functor(pass));
+
+                    // Start threads
+                    boost::thread receiverThread(boost::ref(receiver));
+                    mesherGroup.start();
+                    boost::thread progressThread(boost::ref(progressMPI));
+
+                    try
+                    {
+                        doBucket(mainWorker, vm, splats, grid, chunkCells, collector, &progressMPI);
+                    }
+                    catch (...)
+                    {
+                        // This can't be handled using unwinding, because that would operate in
+                        // the wrong order
+                        collector.flush();
+                        scatter.stop(numSlaves);
+                        receiverThread.join();
+                        mesherGroup.stop();
+                        progressMPI.sync();
+                        progressThread.interrupt();
+                        progressThread.join();
+                        throw;
+                    }
+
+                    /* Shut down threads. Note that it has to be done in forward order to
+                     * satisfy the requirement that stop() is only called after producers
+                     * are terminated.
+                     */
                     collector.flush();
                     scatter.stop(numSlaves);
                     receiverThread.join();
                     mesherGroup.stop();
                     progressMPI.sync();
-                    progressThread.interrupt();
                     progressThread.join();
-                    throw;
                 }
-
-                /* Shut down threads. Note that it has to be done in forward order to
-                 * satisfy the requirement that stop() is only called after producers
-                 * are terminated.
-                 */
-                collector.flush();
-                scatter.stop(numSlaves);
-                receiverThread.join();
-                mesherGroup.stop();
-                progressMPI.sync();
-                progressThread.join();
             }
 
             mesher->write(mainWorker, &Log::log[Log::info]);
