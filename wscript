@@ -374,6 +374,7 @@ def build(bld):
             'src/timer.cpp']
     cl_sources = [
             'src/bucket_collector.cpp',   # TODO: separate from CL components
+            'src/bucket_loader.cpp',
             'src/clh.cpp',
             'src/kernels.cpp',
             'src/marching.cpp',

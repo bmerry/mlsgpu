@@ -302,7 +302,7 @@ void Slave::operator()() const
         deviceWorkerGroupPtrs.push_back(dwg);
     }
     FineBucketGroup fineBucketGroup(deviceWorkerGroupPtrs, maxHostSplats);
-    BucketLoader<SplatSet::FileSet, FineBucketGroup> loader(maxLoadSplats, fineBucketGroup, tworker);
+    BucketLoader loader(maxLoadSplats, fineBucketGroup, tworker);
 
     Grid grid;
     /* If the slave shares a node with the master, then OpenMPI busy-waits

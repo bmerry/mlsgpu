@@ -137,7 +137,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 deviceWorkerGroupPtrs.push_back(dwg);
             }
             FineBucketGroup fineBucketGroup(deviceWorkerGroupPtrs, maxHostSplats);
-            BucketLoader<Splats, FineBucketGroup> loader(maxLoadSplats, fineBucketGroup, mainWorker);
+            BucketLoader loader(maxLoadSplats, fineBucketGroup, mainWorker);
             BucketCollector collector(maxLoadSplats, boost::ref(loader));
 
             Splats splats("mem.blobData");
