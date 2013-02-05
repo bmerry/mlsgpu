@@ -416,6 +416,7 @@ static void run(
         const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
         const MesherType mesherType = OOC_MESHER;
         const std::size_t maxSplit = vm[Option::maxSplit].as<int>();
+        const unsigned int leafCells = vm[Option::leafCells].as<int>();
         const double pruneThreshold = vm[Option::fitPrune].as<double>();
         const bool split = vm.count(Option::split);
         const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
@@ -431,7 +432,7 @@ static void run(
 
         const unsigned int block = 1U << (levels + subsampling - 1);
         const unsigned int blockCells = block - 1;
-        const unsigned int microCells = std::min(63U, blockCells); // TODO: share code with mlsgpu.cpp
+        const unsigned int microCells = std::min(leafCells, blockCells);
 
         {
             Statistics::Timer grandTotalTimer("run.time");
