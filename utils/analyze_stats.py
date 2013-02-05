@@ -52,6 +52,9 @@ common_names = {
 mpi_names = {
     'scatter.get': ('main', 'wait-out'),
     'scatter.push': ('main', 'wait-out'),
+    'slave.pop.first': ('slave', 'startup'),
+    'slave.pop': ('slave', 'wait-in'),
+    'slave.recv': ('slave', 'receive'),
     'bucket.loader.load': ('slave', 'load'),
     'bucket.loader.write': ('slave', 'write'),
     'bucket.loader.compute': ('slave', 'compute'),
