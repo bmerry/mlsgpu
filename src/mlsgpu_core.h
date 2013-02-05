@@ -11,9 +11,19 @@
 # include <config.h>
 #endif
 #include <boost/program_options.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/smart_ptr/scoped_ptr.hpp>
 #include <ostream>
 #include <exception>
+#include <vector>
+#include <utility>
 #include "splat_set.h"
+#include "workers.h"
+#include "bucket_loader.h"
+#include "splat_set.h"
+#include "grid.h"
+#include "progress.h"
+#include "timeplot.h"
 #include <CL/cl.hpp>
 
 namespace CLH
@@ -102,30 +112,9 @@ void validateOptions(const boost::program_options::variables_map &vm, bool isMPI
 void setLogLevel(const boost::program_options::variables_map &vm);
 
 /**
- * Number of spare slots for @ref DeviceWorkerGroup.
- */
-std::size_t getDeviceWorkerGroupSpare(const boost::program_options::variables_map &vm);
-
-/**
- * Amount of GPU memory to reserve for mesh data, including intermediate
- * structures.
- */
-std::size_t getMeshMemory(const boost::program_options::variables_map &vm);
-
-/**
- * Amount of host memory needed to store an output mesh.
- */
-std::size_t getMeshHostMemory(const boost::program_options::variables_map &vm);
-
-/**
  * Maximum number of splats to load as a batch.
  */
 std::size_t getMaxLoadSplats(const boost::program_options::variables_map &vm);
-
-/**
- * Maximum number of splats for the host-side queue.
- */
-std::size_t getMaxHostSplats(const boost::program_options::variables_map &vm);
 
 /**
  * Maximum number of splats to produce from a bucket.
@@ -158,5 +147,50 @@ void prepareInputs(SplatSet::FileSet &files, const boost::program_options::varia
  * Dump an error to stderr.
  */
 void reportException(std::exception &e);
+
+/**
+ * Load the inputs and compute the bounding box and chunk size.
+ *
+ * @param tworker          Worker to attribute time for bounding box calculation
+ * @param vm               Command-line options
+ * @param[out] files       The input files (must be initially empty)
+ * @param[out] grid        Bound box grid
+ * @param[out] chunkCells  Chunk size for output, in cells
+ *
+ * @throw boost::exception   if there was a problem reading the files.
+ * @throw std::runtime_error if there are too many or too few files or splats.
+ */
+void prepareGrid(
+    Timeplot::Worker &tworker,
+    const boost::program_options::variables_map &vm,
+    SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > &splats,
+    Grid &grid,
+    unsigned int &chunkCells);
+
+/**
+ * Collects together the workers that run on the slave side in MPI, without
+ * using any MPI-specific code.
+ *
+ * @todo Eliminate some of the public functions from this header that can
+ * become static.
+ */
+class SlaveWorkers
+{
+public:
+    Timeplot::Worker &tworker;
+    boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
+    boost::scoped_ptr<FineBucketGroup> fineBucketGroup;
+    boost::scoped_ptr<BucketLoader> loader;
+
+    SlaveWorkers(
+        Timeplot::Worker &tworker,
+        const boost::program_options::variables_map &vm,
+        const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+        const DeviceWorkerGroup::OutputGenerator &outputGenerator);
+
+    void start(SplatSet::FileSet &splats, Grid &grid, ProgressMeter *progress);
+
+    void stop();
+};
 
 #endif /* !MLSGPU_CORE_H */

@@ -28,6 +28,7 @@
 #include <sstream>
 #include <cstdlib>
 #include <cassert>
+#include <limits>
 #include <stxxl.h>
 #include "mlsgpu_core.h"
 #include "options.h"
@@ -305,6 +306,51 @@ void writeStatistics(const po::variables_map &vm, bool force)
     }
 }
 
+static std::size_t getDeviceWorkerGroupSpare(const po::variables_map &vm)
+{
+    (void) vm;
+    return 1;
+}
+
+static std::size_t getMeshMemoryCells(const po::variables_map &vm)
+{
+    const int levels = vm[Option::levels].as<int>();
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const std::size_t maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
+    return maxCells * maxCells * 2;
+}
+
+static std::size_t getMeshMemory(const po::variables_map &vm)
+{
+    return getMeshMemoryCells(vm) * Marching::MAX_CELL_BYTES;
+}
+
+static std::size_t getMeshHostMemory(const po::variables_map &vm)
+{
+    const std::size_t scale =
+        Marching::MAX_CELL_VERTICES * (3 * sizeof(cl_float) + sizeof(cl_ulong))
+        + Marching::MAX_CELL_INDICES * sizeof(cl_uint);
+    return getMeshMemoryCells(vm) * scale;
+}
+
+static std::size_t getMaxHostSplats(const po::variables_map &vm)
+{
+    std::size_t mem = vm[Option::memHostSplats].as<Capacity>();
+    return mem / sizeof(Splat);
+}
+
+std::size_t getMaxLoadSplats(const po::variables_map &vm)
+{
+    std::size_t mem = vm[Option::memLoadSplats].as<Capacity>();
+    return mem / sizeof(Splat);
+}
+
+std::size_t getMaxBucketSplats(const po::variables_map &vm)
+{
+    std::size_t mem = vm[Option::memBucketSplats].as<Capacity>();
+    return mem / sizeof(Splat);
+}
+
 void validateOptions(const po::variables_map &vm, bool isMPI)
 {
     const int levels = vm[Option::levels].as<int>();
@@ -374,51 +420,6 @@ void setLogLevel(const po::variables_map &vm)
         Log::log.setLevel(Log::debug);
     else
         Log::log.setLevel(Log::info);
-}
-
-std::size_t getDeviceWorkerGroupSpare(const po::variables_map &vm)
-{
-    (void) vm;
-    return 1;
-}
-
-static std::size_t getMeshMemoryCells(const po::variables_map &vm)
-{
-    const int levels = vm[Option::levels].as<int>();
-    const int subsampling = vm[Option::subsampling].as<int>();
-    const std::size_t maxCells = (Grid::size_type(1U) << (levels + subsampling - 1)) - 1;
-    return maxCells * maxCells * 2;
-}
-
-std::size_t getMeshMemory(const po::variables_map &vm)
-{
-    return getMeshMemoryCells(vm) * Marching::MAX_CELL_BYTES;
-}
-
-std::size_t getMeshHostMemory(const po::variables_map &vm)
-{
-    const std::size_t scale =
-        Marching::MAX_CELL_VERTICES * (3 * sizeof(cl_float) + sizeof(cl_ulong))
-        + Marching::MAX_CELL_INDICES * sizeof(cl_uint);
-    return getMeshMemoryCells(vm) * scale;
-}
-
-std::size_t getMaxHostSplats(const po::variables_map &vm)
-{
-    std::size_t mem = vm[Option::memHostSplats].as<Capacity>();
-    return mem / sizeof(Splat);
-}
-
-std::size_t getMaxLoadSplats(const po::variables_map &vm)
-{
-    std::size_t mem = vm[Option::memLoadSplats].as<Capacity>();
-    return mem / sizeof(Splat);
-}
-
-std::size_t getMaxBucketSplats(const po::variables_map &vm)
-{
-    std::size_t mem = vm[Option::memBucketSplats].as<Capacity>();
-    return mem / sizeof(Splat);
 }
 
 CLH::ResourceUsage resourceUsage(const po::variables_map &vm)
@@ -537,4 +538,127 @@ void reportException(std::exception &e)
         std::cerr << boost::system::errc::make_error_code((boost::system::errc::errc_t) *err).message() << std::endl;
     else
         std::cerr << e.what() << std::endl;
+}
+
+void prepareGrid(
+    Timeplot::Worker &tworker,
+    const boost::program_options::variables_map &vm,
+    SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > &splats,
+    Grid &grid,
+    unsigned int &chunkCells)
+{
+    const float spacing = vm[Option::fitGrid].as<double>();
+    const float smooth = vm[Option::fitSmooth].as<double>();
+    const float maxRadius = vm.count(Option::maxRadius)
+        ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
+    const bool split = vm.count(Option::split);
+    const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const int levels = vm[Option::levels].as<int>();
+    const unsigned int leafCells = vm[Option::leafCells].as<int>();
+    const unsigned int block = 1U << (levels + subsampling - 1);
+    const unsigned int blockCells = block - 1;
+    const unsigned int microCells = std::min(leafCells, blockCells);
+
+    prepareInputs(splats, vm, smooth, maxRadius);
+    try
+    {
+        Timeplot::Action timer("bbox", tworker, "bbox.time");
+        splats.computeBlobs(spacing, microCells, &Log::log[Log::info]);
+    }
+    catch (std::length_error &e) // TODO: push this down to splat_set_impl
+    {
+        throw std::runtime_error("At least one input point is required");
+    }
+    grid = splats.getBoundingGrid();
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        double size = grid.numCells(i) * grid.getSpacing();
+        Statistics::getStatistic<Statistics::Variable>(std::string("bbox") + "XYZ"[i]).add(size);
+        if (grid.numVertices(i) > Marching::MAX_GLOBAL_DIMENSION)
+        {
+            std::ostringstream msg;
+            msg << "The bounding box is too big (" << grid.numVertices(i) << " grid units).\n"
+                << "Perhaps you have used the wrong units for --fit-grid?";
+            throw std::runtime_error(msg.str());
+        }
+    }
+
+    chunkCells = 0;
+    if (split)
+    {
+        /* Determine a chunk size from splitSize. We assume that a chunk will be
+         * sliced by an axis-aligned plane. This plane will cut each vertical and
+         * each diagonal edge ones, thus generating 2x^2 vertices. We then
+         * apply a fudge factor of 10 to account for the fact that the real
+         * world is not a simple plane, and will have walls, noise, etc, giving
+         * 20x^2 vertices.
+         *
+         * A manifold with genus 0 has two triangles per vertex; vertices take
+         * 12 bytes (3 floats) and triangles take 13 (count plus 3 uints in
+         * PLY), giving 38 bytes per vertex. So there are 760x^2 bytes.
+         *
+         * TODO: move this function to mlsgpu_core.
+         */
+        chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
+        if (chunkCells == 0) chunkCells = 1;
+    }
+}
+
+SlaveWorkers::SlaveWorkers(
+    Timeplot::Worker &tworker,
+    const boost::program_options::variables_map &vm,
+    const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+    const DeviceWorkerGroup::OutputGenerator &outputGenerator)
+    : tworker(tworker)
+{
+    const int subsampling = vm[Option::subsampling].as<int>();
+    const int levels = vm[Option::levels].as<int>();
+    const unsigned int numDeviceThreads = vm[Option::deviceThreads].as<int>();
+    const float boundaryLimit = vm[Option::fitBoundaryLimit].as<double>();
+    const MlsShape shape = vm[Option::fitShape].as<Choice<MlsShapeWrapper> >();
+    const std::size_t deviceSpare = getDeviceWorkerGroupSpare(vm);
+
+    const std::size_t maxBucketSplats = getMaxBucketSplats(vm);
+    const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
+    const std::size_t maxHostSplats = getMaxHostSplats(vm);
+
+    const unsigned int block = 1U << (levels + subsampling - 1);
+    const unsigned int blockCells = block - 1;
+
+    std::vector<DeviceWorkerGroup *> deviceWorkerGroupPtrs;
+    for (std::size_t i = 0; i < devices.size(); i++)
+    {
+        DeviceWorkerGroup *dwg = new DeviceWorkerGroup(
+            numDeviceThreads, deviceSpare,
+            outputGenerator,
+            devices[i].first, devices[i].second,
+            maxBucketSplats, blockCells,
+            getMeshMemory(vm),
+            levels, subsampling,
+            boundaryLimit, shape);
+        deviceWorkerGroups.push_back(dwg);
+        deviceWorkerGroupPtrs.push_back(dwg);
+    }
+    fineBucketGroup.reset(new FineBucketGroup(deviceWorkerGroupPtrs, maxHostSplats));
+    loader.reset(new BucketLoader(maxLoadSplats, *fineBucketGroup, tworker));
+}
+
+void SlaveWorkers::start(SplatSet::FileSet &splats, Grid &grid, ProgressMeter *progress)
+{
+    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+        deviceWorkerGroups[i].setProgress(progress);
+
+    loader->start(splats, grid);
+    fineBucketGroup->start();
+    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+        deviceWorkerGroups[i].start(grid);
+}
+
+void SlaveWorkers::stop()
+{
+    fineBucketGroup->stop();
+    for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
+        deviceWorkerGroups[i].stop();
 }
