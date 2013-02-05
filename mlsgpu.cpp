@@ -61,38 +61,21 @@ using namespace std;
  * @param vm              Command-line options
  */
 static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
-                 const string &out,
+                 const std::string &out,
                  const po::variables_map &vm)
 {
     typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
 
-    const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    const MesherType mesherType = OOC_MESHER;
-    const double pruneThreshold = vm[Option::fitPrune].as<double>();
-    const bool split = vm.count(Option::split);
-
     const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
-    const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
 
     Timeplot::Worker mainWorker("main");
 
     {
         Statistics::Timer grandTotalTimer("run.time");
 
-        MesherBase::Namer namer;
-        if (split)
-            namer = ChunkNamer(out);
-        else
-            namer = TrivialNamer(out);
-
-        boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
-        writer->addComment("mlsgpu version: " + provenanceVersion());
-        writer->addComment("mlsgpu variant: " + provenanceVariant());
-        writer->addComment("mlsgpu options:" + makeOptions(vm));
-        boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
-        mesher->setReorderCapacity(memReorder);
-        mesher->setPruneThreshold(pruneThreshold);
+        boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
+        boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
         {
             // Open a scope so that objects will be released before finalization

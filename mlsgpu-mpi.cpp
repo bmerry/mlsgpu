@@ -373,33 +373,17 @@ static void run(
         typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
 
         const int numSlaves = accumulate(slaveMask.begin(), slaveMask.end(), 0);
-        const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-        const MesherType mesherType = OOC_MESHER;
-        const double pruneThreshold = vm[Option::fitPrune].as<double>();
-        const bool split = vm.count(Option::split);
 
         const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
         const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
-        const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
 
         Timeplot::Worker mainWorker("main");
 
         {
             Statistics::Timer grandTotalTimer("run.time");
 
-            MesherBase::Namer namer;
-            if (split)
-                namer = ChunkNamer(out);
-            else
-                namer = TrivialNamer(out);
-
-            boost::scoped_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
-            writer->addComment("mlsgpu version: " + provenanceVersion());
-            writer->addComment("mlsgpu variant: " + provenanceVariant());
-            writer->addComment("mlsgpu options:" + makeOptions(vm));
-            boost::scoped_ptr<MesherBase> mesher(createMesher(mesherType, *writer, namer));
-            mesher->setPruneThreshold(pruneThreshold);
-            mesher->setReorderCapacity(memReorder);
+            boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
+            boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
             Log::log[Log::info] << "Initializing...\n";
             MesherGroup mesherGroup(memMesh);

@@ -216,7 +216,11 @@ po::variables_map processOptions(int argc, char **argv, bool isMPI)
     }
 }
 
-std::string makeOptions(const po::variables_map &vm)
+/**
+ * Translate the command-line options back into the form they would be given
+ * on the command line.
+ */
+static std::string makeOptions(const po::variables_map &vm)
 {
     std::ostringstream opts;
     for (po::variables_map::const_iterator i = vm.begin(); i != vm.end(); ++i)
@@ -544,7 +548,7 @@ void reportException(std::exception &e)
 
 void prepareGrid(
     Timeplot::Worker &tworker,
-    const boost::program_options::variables_map &vm,
+    const po::variables_map &vm,
     SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > &splats,
     Grid &grid,
     unsigned int &chunkCells)
@@ -610,7 +614,7 @@ void prepareGrid(
 
 void doBucket(
     Timeplot::Worker &tworker,
-    const boost::program_options::variables_map &vm,
+    const po::variables_map &vm,
     const BlobSplats &splats,
     const Grid &grid,
     Grid::size_type chunkCells,
@@ -633,9 +637,38 @@ void doBucket(
                    boost::ref(collector), progress);
 }
 
+FastPly::WriterBase *doCreateWriter(const po::variables_map &vm)
+{
+    const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
+    std::auto_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
+    writer->addComment("mlsgpu version: " + provenanceVersion());
+    writer->addComment("mlsgpu variant: " + provenanceVariant());
+    writer->addComment("mlsgpu options:" + makeOptions(vm));
+    return writer.release();
+}
+
+MesherBase *doCreateMesher(const po::variables_map &vm, FastPly::WriterBase &writer, const std::string &out)
+{
+    const MesherType mesherType = OOC_MESHER;
+    const bool split = vm.count(Option::split);
+    const double pruneThreshold = vm[Option::fitPrune].as<double>();
+    const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
+
+    MesherBase::Namer namer;
+    if (split)
+        namer = ChunkNamer(out);
+    else
+        namer = TrivialNamer(out);
+
+    std::auto_ptr<MesherBase> mesher(createMesher(mesherType, writer, namer));
+    mesher->setPruneThreshold(pruneThreshold);
+    mesher->setReorderCapacity(memReorder);
+    return mesher.release();
+}
+
 SlaveWorkers::SlaveWorkers(
     Timeplot::Worker &tworker,
-    const boost::program_options::variables_map &vm,
+    const po::variables_map &vm,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const DeviceWorkerGroup::OutputGenerator &outputGenerator)
     : tworker(tworker)
