@@ -4,9 +4,7 @@
  * Data structures for storing the output of @ref Marching.
  *
  * The classes in this file are @ref MesherBase, an abstract base class, and
- * several concrete instantiations of it. They differ in terms of
- *  - the number of passes needed
- *  - the amount of temporary memory required.
+ * one concrete instantiation of it.
  */
 
 #ifndef MESHER_H
