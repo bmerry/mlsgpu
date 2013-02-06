@@ -618,8 +618,7 @@ void doBucket(
     const BlobSplats &splats,
     const Grid &grid,
     Grid::size_type chunkCells,
-    BucketCollector &collector,
-    ProgressMeter *progress)
+    BucketCollector &collector)
 {
     Timeplot::Action bucketTimer("compute", tworker, "bucket.compute");
 
@@ -634,7 +633,7 @@ void doBucket(
     const unsigned int microCells = std::min(leafCells, blockCells);
 
     Bucket::bucket(splats, grid, maxBucketSplats, blockCells, chunkCells, microCells, maxSplit,
-                   boost::ref(collector), progress);
+                   boost::ref(collector));
 }
 
 FastPly::WriterBase *doCreateWriter(const po::variables_map &vm)

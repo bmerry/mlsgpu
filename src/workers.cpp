@@ -236,7 +236,7 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
         tree.clearSplats();
 
         if (owner.progress != NULL)
-            *owner.progress += sub.grid.numCells();
+            *owner.progress += sub.progressSplats;
 
         {
             boost::lock_guard<boost::mutex> unallocatedLock(owner.unallocatedMutex);
@@ -342,13 +342,32 @@ void CopyGroupBase::Worker::operator()(WorkItem &work)
     if (bufferedSplats + work.numSplats > owner.maxDeviceItemSplats)
         flush();
 
-    std::memcpy(pinned.get() + bufferedSplats, work.getSplats(),
-                work.numSplats * sizeof(Splat));
+    const Splat *in = work.getSplats();
+    Splat *out = pinned.get() + bufferedSplats;
+    std::size_t progressSplats = 0;
+    for (std::size_t i = 0; i < work.numSplats; i++)
+    {
+        /* Each splat is accounted in the progress meter with the
+         * bin it is inside (half-open intervals). Note that this
+         * test is a short-cut that makes assumptions about the
+         * grid written by BucketLoader.
+         */
+        bool inside = true;
+        for (int j = 0; j < 3; j++)
+        {
+            Grid::extent_type e = work.grid.getExtent(j);
+            float p = in[i].position[j];
+            inside = inside && p >= e.first && p < e.second;
+        }
+        progressSplats += inside;
+        out[i] = in[i];
+    }
     DeviceWorkerGroup::SubItem subItem;
     subItem.chunkId = work.chunkId;
     subItem.grid = work.grid;
     subItem.numSplats = work.numSplats;
     subItem.firstSplat = bufferedSplats;
+    subItem.progressSplats = progressSplats;
     bufferedItems.push_back(subItem);
     bufferedSplats += work.numSplats;
 

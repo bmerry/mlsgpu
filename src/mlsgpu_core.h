@@ -168,7 +168,6 @@ void prepareGrid(
  * @param grid             Bounding box grid from @ref prepareGrid
  * @param chunkCells       Chunk side length from @ref prepareGrid
  * @param collector        Bucket processor passed to @ref Bucket::bucket
- * @param progress         Progress meter to record skipped empty space
  */
 void doBucket(
     Timeplot::Worker &tworker,
@@ -176,8 +175,7 @@ void doBucket(
     const BlobSplats &splats,
     const Grid &grid,
     Grid::size_type chunkCells,
-    BucketCollector &collector,
-    ProgressMeter *progress);
+    BucketCollector &collector);
 
 /**
  * An all-in-one helper to wrap @ref FastPly::createWriter and set properties

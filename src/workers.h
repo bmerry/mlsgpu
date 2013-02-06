@@ -123,6 +123,7 @@ public:
         Grid grid;                     ///< Grid area containing the bucket (pre-transformed)
         std::size_t firstSplat;        ///< Index of first splat in device buffer
         std::size_t numSplats;         ///< Number of splats in the bucket
+        std::size_t progressSplats;    ///< Splats to count towards the progress meter
     };
 
     /// Data about multiple buckets that share a single CL buffer.

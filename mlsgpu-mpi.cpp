@@ -401,7 +401,7 @@ static void run(
 
                     try
                     {
-                        doBucket(mainWorker, vm, splats, grid, chunkCells, collector, &progressMPI);
+                        doBucket(mainWorker, vm, splats, grid, chunkCells, collector);
                     }
                     catch (...)
                     {

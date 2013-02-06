@@ -18,7 +18,6 @@
 #include "splat.h"
 #include "grid.h"
 #include "fast_ply.h"
-#include "progress.h"
 #include "splat_set.h"
 
 /**
@@ -50,8 +49,8 @@ public:
  * and progress. It is used in several places:
  *  -# It is passed between calls to @ref detail::bucketRecurse to track
  *     statistics;
- *  -# It is passed to the processing callback so that it can update a
- *     progress meter if desired;
+ *  -# It is passed to the processing callback so that it can update
+ *     statistics if desired;
  *  -# It may be passed into @ref bucket in which case it is used as the
  *     initial state. The intended use is when the processor function
  *     makes a recursive call back into @ref bucket.
@@ -73,8 +72,7 @@ struct Recursion
  * Type-class for callback function called by @ref bucket. The parameters are:
  *  -# The splat collection.
  *  -# A grid covering the spatial extent of the bucket.
- *  -# A count of the number of grid cells already processed (before this one).
- *     The intended use is for progress meters.
+ *  -# Statistics about processing.
  * It is guaranteed that the number of splats will be non-zero (empty buckets
  * are skipped). All splats that intersect the bucket will be passed, but
  * the intersection test is conservative so there may be extras.
@@ -111,10 +109,6 @@ public:
  *                   give higher performance by reducing recursion depth,
  *                   but at the cost of more memory.
  * @param process    Processing function called for each non-empty bucket.
- * @param progress   If specified, a progress display that will be incremented
- *                   for each empty cell that is skipped. It does not increment
- *                   for returned buckets, as that should be done as the final
- *                   processing on the bucket is done.
  * @param recursionState Optional parameter indicating recursion statistics
  *                   on entry. This is intended for use when the processing
  *                   callback calls this function again.
@@ -172,7 +166,6 @@ void bucket(const Splats &splats,
             Grid::size_type microCells,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
-            ProgressMeter *progress = NULL,
             const Recursion &recursionState = Recursion());
 
 } // namespace Bucket

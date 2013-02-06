@@ -23,7 +23,6 @@
 #include "bucket_internal.h"
 #include "statistics.h"
 #include "misc.h"
-#include "progress.h"
 #include "logging.h"
 #include "allocator.h"
 
@@ -94,14 +93,12 @@ struct BucketParameters
     std::tr1::uint64_t maxSplats;       ///< Maximum splats permitted for processing
     Grid::size_type maxCells;           ///< Maximum cells along any dimension
     std::size_t maxSplit;               ///< Maximum fan-out for recursion
-    ProgressMeter *progress;            ///< Progress display to update for empty cells
 
     BucketParameters(std::tr1::uint64_t maxSplats,
                      Grid::size_type maxCells,
-                     std::size_t maxSplit,
-                     ProgressMeter *progress)
+                     std::size_t maxSplit)
         : maxSplats(maxSplats), maxCells(maxCells),
-        maxSplit(maxSplit), progress(progress) {}
+        maxSplit(maxSplit) {}
 };
 
 /**
@@ -550,10 +547,9 @@ void bucket(const Splats &splats,
             Grid::size_type microCells,
             std::size_t maxSplit,
             const typename ProcessorType<Splats>::type &process,
-            ProgressMeter *progress,
             const Recursion &recursionState)
 {
-    detail::BucketParameters params(maxSplats, maxCells, maxSplit, progress);
+    detail::BucketParameters params(maxSplats, maxCells, maxSplit);
     detail::bucketRecurse(splats, region, params, chunkCells, microCells, process, recursionState);
 }
 

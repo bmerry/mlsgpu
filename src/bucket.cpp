@@ -315,24 +315,8 @@ bool PickNodes::operator()(const Node &node) const
 {
     std::tr1::uint64_t count = state.getNodeCount(node);
 
-    // Skip completely empty regions, but record the fact
-    // for progress meters
     if (count == 0)
-    {
-        if (state.params.progress != NULL)
-        {
-            // Intersect with grid
-            std::tr1::uint64_t skipped = 1;
-            Grid::size_type lower[3], upper[3];
-            node.toCells(state.microSize, lower, upper, state.grid);
-            for (int i = 0; i < 3; i++)
-            {
-                skipped *= upper[i] - lower[i];
-            }
-            *state.params.progress += skipped;
-        }
-        return false;
-    }
+        return false;  // skip empty space
 
     if (node.getLevel() == 0
         || ((state.microSize * node.size() <= state.params.maxCells)

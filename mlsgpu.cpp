@@ -103,7 +103,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 passName << "pass" << pass + 1 << ".time";
                 Statistics::Timer timer(passName.str());
 
-                ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
+                ProgressDisplay progress(splats.numSplats(), Log::log[Log::info]);
 
                 mesherGroup.setInputFunctor(mesher->functor(pass));
 
@@ -113,7 +113,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
                 try
                 {
-                    doBucket(mainWorker, vm, splats, grid, chunkCells, collector, &progress);
+                    doBucket(mainWorker, vm, splats, grid, chunkCells, collector);
                 }
                 catch (...)
                 {
