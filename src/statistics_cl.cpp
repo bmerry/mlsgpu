@@ -93,8 +93,11 @@ static void flushEventTimes(bool finalize)
 
             if (good)
             {
-                double duration = 1e-9 * (values[1] - values[0]);
-                total += duration;
+                double duration = 1e-9 * (cl_long(values[1]) - cl_long(values[0]));
+                if (duration >= 0.0 && duration < 100.0)
+                    total += duration;
+                else
+                    Log::log[Log::debug] << "Warning: nonsense event times: " << values[1] << " - " << values[0] << " = " << duration << "s\n";
             }
         }
 
