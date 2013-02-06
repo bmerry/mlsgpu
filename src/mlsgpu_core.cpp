@@ -701,8 +701,8 @@ SlaveWorkers::SlaveWorkers(
         deviceWorkerGroups.push_back(dwg);
         deviceWorkerGroupPtrs.push_back(dwg);
     }
-    fineBucketGroup.reset(new FineBucketGroup(deviceWorkerGroupPtrs, maxHostSplats));
-    loader.reset(new BucketLoader(maxLoadSplats, *fineBucketGroup, tworker));
+    copyGroup.reset(new CopyGroup(deviceWorkerGroupPtrs, maxHostSplats));
+    loader.reset(new BucketLoader(maxLoadSplats, *copyGroup, tworker));
 }
 
 void SlaveWorkers::start(SplatSet::FileSet &splats, Grid &grid, ProgressMeter *progress)
@@ -711,14 +711,14 @@ void SlaveWorkers::start(SplatSet::FileSet &splats, Grid &grid, ProgressMeter *p
         deviceWorkerGroups[i].setProgress(progress);
 
     loader->start(splats, grid);
-    fineBucketGroup->start();
+    copyGroup->start();
     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
         deviceWorkerGroups[i].start(grid);
 }
 
 void SlaveWorkers::stop()
 {
-    fineBucketGroup->stop();
+    copyGroup->stop();
     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
         deviceWorkerGroups[i].stop();
 }

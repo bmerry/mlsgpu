@@ -199,16 +199,13 @@ MesherBase *doCreateMesher(
 /**
  * Collects together the workers that run on the slave side in MPI, without
  * using any MPI-specific code.
- *
- * @todo Eliminate some of the public functions from this header that can
- * become static.
  */
 class SlaveWorkers
 {
 public:
     Timeplot::Worker &tworker;
     boost::ptr_vector<DeviceWorkerGroup> deviceWorkerGroups;
-    boost::scoped_ptr<FineBucketGroup> fineBucketGroup;
+    boost::scoped_ptr<CopyGroup> copyGroup;
     boost::scoped_ptr<BucketLoader> loader;
 
     SlaveWorkers(

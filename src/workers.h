@@ -134,13 +134,13 @@ public:
     /// Data about multiple buckets that share a single CL buffer.
     struct WorkItem
     {
-        /// Data for individual fine buckets
+        /// Data for individual buckets
         Statistics::Container::vector<SubItem> subItems;
         cl::Buffer splats;             ///< Backing store for splats
         cl::Event copyEvent;           ///< Event signaled when the splats are ready to use on device
 
         WorkItem(const cl::Context &context, std::size_t maxItemSplats)
-            : subItems("mem.FineBucketGroup.subItems"),
+            : subItems("mem.DeviceWorkerGroup.subItems"),
             splats(context, CL_MEM_READ_WRITE, maxItemSplats * sizeof(Splat))
         {
         }
@@ -315,9 +315,9 @@ public:
     Statistics::Variable &getGetStat() const { return getStat; }
 };
 
-class FineBucketGroup;
+class CopyGroup;
 
-class FineBucketGroupBase
+class CopyGroupBase
 {
 public:
     /// A single bin of splats
@@ -325,7 +325,7 @@ public:
     {
         ChunkId chunkId;
         Grid grid;
-        CircularBuffer::Allocation splats;  ///< Allocation from @ref FineBucketGroup::splatBuffer
+        CircularBuffer::Allocation splats;  ///< Allocation from @ref CopyGroup::splatBuffer
         std::size_t numSplats;              ///< Number of splats in the bin
 
         Splat *getSplats() const { return (Splat *) splats.get(); }
@@ -334,7 +334,7 @@ public:
     class Worker : public WorkerBase
     {
     private:
-        FineBucketGroup &owner;
+        CopyGroup &owner;
         CLH::PinnedMemory<Splat> pinned;  ///< Staging area for copies
         /**
          * Bins that have been saved up but not yet flushed to the device.
@@ -345,7 +345,7 @@ public:
     public:
         typedef void result_type;
 
-        Worker(FineBucketGroup &owner, const cl::Context &context, const cl::Device &device);
+        Worker(CopyGroup &owner, const cl::Context &context, const cl::Device &device);
 
         void flush();   ///< Flush items in @ref bufferedItems to the output
         void operator()(WorkItem &work);
@@ -357,20 +357,20 @@ public:
  * A worker object that copies bins of data to the GPU. It receives data from
  * @ref BucketLoader and sends it to the next available @ref DeviceWorkerGroup.
  */
-class FineBucketGroup :
-    protected FineBucketGroupBase,
-    public WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup>
+class CopyGroup :
+    protected CopyGroupBase,
+    public WorkerGroup<CopyGroupBase::WorkItem, CopyGroupBase::Worker, CopyGroup>
 {
 public:
-    typedef WorkerGroup<FineBucketGroupBase::WorkItem, FineBucketGroupBase::Worker, FineBucketGroup> BaseType;
-    typedef FineBucketGroupBase::WorkItem WorkItem;
+    typedef WorkerGroup<CopyGroupBase::WorkItem, CopyGroupBase::Worker, CopyGroup> BaseType;
+    typedef CopyGroupBase::WorkItem WorkItem;
 
     /**
      * Constructor.
      * @param outGroups       Target devices. The first is used for allocating pinned memory.
      * @param maxQueueSplats  Splats to store in the internal queue.
      */
-    FineBucketGroup(
+    CopyGroup(
         const std::vector<DeviceWorkerGroup *> &outGroups,
         std::size_t maxQueueSplats);
 
@@ -400,7 +400,7 @@ private:
     Statistics::Variable &splatsStat;          ///< Number of splats per bin
     Statistics::Variable &sizeStat;            ///< Size of bins
 
-    friend class FineBucketGroupBase::Worker;
+    friend class CopyGroupBase::Worker;
 };
 
 #endif /* !WORKERS_H */

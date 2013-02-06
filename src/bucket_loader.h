@@ -18,7 +18,7 @@
 #include "bucket_collector.h"
 #include "allocator.h"
 
-class FineBucketGroup;
+class CopyGroup;
 namespace SplatSet { class FileSet; }
 namespace Statistics { class Variable; }
 namespace Timeplot { class Worker; }
@@ -36,7 +36,7 @@ private:
 public:
     typedef void result_type;
 
-    BucketLoader(std::size_t maxItemSplats, FineBucketGroup &outGroup, Timeplot::Worker &tworker);
+    BucketLoader(std::size_t maxItemSplats, CopyGroup &outGroup, Timeplot::Worker &tworker);
 
     /// Prepares for a pass
     void start(const Splats &super, const Grid &fullGrid);
@@ -44,7 +44,7 @@ public:
     /// Callback for @ref BucketCollector
     void operator()(const Statistics::Container::vector<BucketCollector::Bin> &bins);
 private:
-    FineBucketGroup &outGroup;
+    CopyGroup &outGroup;
     Grid fullGrid;
     Timeplot::Worker &tworker;
 

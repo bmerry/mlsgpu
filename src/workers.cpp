@@ -277,34 +277,34 @@ void DeviceWorkerGroupBase::Worker::operator()(WorkItem &work)
     }
 }
 
-FineBucketGroup::FineBucketGroup(
+CopyGroup::CopyGroup(
     const std::vector<DeviceWorkerGroup *> &outGroups,
     std::size_t maxQueueSplats)
 :
-    WorkerGroup<FineBucketGroup::WorkItem, FineBucketGroup::Worker, FineBucketGroup>(
-        "bucket.fine", 1),
+    WorkerGroup<CopyGroup::WorkItem, CopyGroup::Worker, CopyGroup>(
+        "copy", 1),
     outGroups(outGroups),
     maxDeviceItemSplats(outGroups[0]->getMaxItemSplats()),
-    splatBuffer("mem.FineBucketGroup.splats", maxQueueSplats * sizeof(Splat)),
-    writeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.write")),
-    splatsStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.splats")),
-    sizeStat(Statistics::getStatistic<Statistics::Variable>("bucket.fine.size"))
+    splatBuffer("mem.CopyGroup.splats", maxQueueSplats * sizeof(Splat)),
+    writeStat(Statistics::getStatistic<Statistics::Variable>("copy.write")),
+    splatsStat(Statistics::getStatistic<Statistics::Variable>("copy.splats")),
+    sizeStat(Statistics::getStatistic<Statistics::Variable>("copy.size"))
 {
     addWorker(new Worker(*this, outGroups[0]->getContext(), outGroups[0]->getDevice()));
     BOOST_FOREACH(DeviceWorkerGroup *g, outGroups)
         g->setPopCondition(&popMutex, &popCondition);
 }
 
-FineBucketGroupBase::Worker::Worker(
-    FineBucketGroup &owner, const cl::Context &context, const cl::Device &device)
-    : WorkerBase("bucket.fine", 0), owner(owner),
-    pinned("mem.FineBucketGroup.pinned", context, device, owner.maxDeviceItemSplats),
-    bufferedItems("mem.FineBucketGroup.bufferedItems"),
+CopyGroupBase::Worker::Worker(
+    CopyGroup &owner, const cl::Context &context, const cl::Device &device)
+    : WorkerBase("copy", 0), owner(owner),
+    pinned("mem.CopyGroup.pinned", context, device, owner.maxDeviceItemSplats),
+    bufferedItems("mem.CopyGroup.bufferedItems"),
     bufferedSplats(0)
 {
 }
 
-void FineBucketGroupBase::Worker::flush()
+void CopyGroupBase::Worker::flush()
 {
     if (bufferedItems.empty())
         return;
@@ -366,7 +366,7 @@ void FineBucketGroupBase::Worker::flush()
     bufferedSplats = 0;
 }
 
-void FineBucketGroupBase::Worker::operator()(WorkItem &work)
+void CopyGroupBase::Worker::operator()(WorkItem &work)
 {
     Timeplot::Action timer("compute", getTimeplotWorker(), owner.getComputeStat());
     timer.setValue(work.numSplats * sizeof(Splat));

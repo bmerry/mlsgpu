@@ -319,10 +319,14 @@ class Simulator(object):
             sys.exit(1)
 
 def load_items(group):
+    copy_worker = get_worker(group, 'bucket.fine.0')
+    if copy_worker is None:
+        copy_worker = get_worker(group, 'copy.0')
+
     all_queue = [QItem(None, 0.0, 0.0)]
     coarse_queue = process_worker(get_worker(group, 'main'), all_queue)
-    fine_queue = process_worker(get_worker(group, 'bucket.fine.0'), coarse_queue)
-    mesh_queue = process_worker(get_worker(group, 'device.0'), fine_queue)
+    copy_queue = process_worker(copy_worker, coarse_queue)
+    mesh_queue = process_worker(get_worker(group, 'device.0'), copy_queue)
     process_worker(get_worker(group, 'mesher.0'), mesh_queue)
     return all_queue[0]
 
@@ -334,22 +338,22 @@ def simulate(root, options):
     if options.infinite:
         big = 10**30
         coarse_cap = big
-        fine_cap = big
+        copy_cap = big
         mesher_cap = big
     else:
         coarse_cap = options.coarse_cap * 1024 * 1024
-        fine_cap = 2
+        copy_cap = 2
         mesher_cap = options.mesher_cap * 1024 * 1024
 
     all_queue = SimQueue(simulator, 1)
     coarse_queue = SimQueue(simulator, coarse_cap)
-    fine_queues = [SimQueue(simulator, fine_cap, inorder = False) for i in range(gpus)]
+    copy_queues = [SimQueue(simulator, copy_cap, inorder = False) for i in range(gpus)]
     mesh_queue = SimQueue(simulator, mesher_cap)
 
     simulator.add_worker(SimWorker(simulator, 'coarse', all_queue, [coarse_queue], options))
-    simulator.add_worker(SimWorker(simulator, 'fine', coarse_queue, fine_queues, options))
+    simulator.add_worker(SimWorker(simulator, 'copy', coarse_queue, copy_queues, options))
     for i in range(gpus):
-        simulator.add_worker(SimWorker(simulator, 'device', fine_queues[i], [mesh_queue], options))
+        simulator.add_worker(SimWorker(simulator, 'device', copy_queues[i], [mesh_queue], options))
     simulator.add_worker(SimWorker(simulator, 'mesher', mesh_queue, [], options))
 
     all_queue.push(root, None)

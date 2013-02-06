@@ -19,7 +19,7 @@
 #include "bucket_loader.h"
 
 BucketLoader::BucketLoader(
-    std::size_t maxItemSplats, FineBucketGroup &outGroup, Timeplot::Worker &tworker)
+    std::size_t maxItemSplats, CopyGroup &outGroup, Timeplot::Worker &tworker)
     :
     outGroup(outGroup),
     tworker(tworker),
@@ -82,7 +82,7 @@ void BucketLoader::operator()(const Statistics::Container::vector<BucketCollecto
             subGrid.setExtent(i, low, high);
         }
 
-        boost::shared_ptr<typename FineBucketGroup::WorkItem> item = outGroup.get(tworker, bin.ranges.numSplats());
+        boost::shared_ptr<typename CopyGroup::WorkItem> item = outGroup.get(tworker, bin.ranges.numSplats());
         item->chunkId = bin.chunkId;
         item->grid = subGrid;
 

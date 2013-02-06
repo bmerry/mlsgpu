@@ -30,6 +30,10 @@ common_names = {
     'bucket.fine.pop.first': ('copy', 'startup'),
     'bucket.fine.pop': ('copy', 'wait-in'),
     'bucket.fine.write': ('copy', 'write'),
+    'copy.compute': ('copy', 'compute'),
+    'copy.pop.first': ('copy', 'startup'),
+    'copy.pop': ('copy', 'wait-in'),
+    'copy.write': ('copy', 'write'),
 
     'device.get': ('copy', 'wait-out'),
     'device.push': ('copy', 'wait-out'),
@@ -60,6 +64,8 @@ mpi_names = {
     'bucket.loader.compute': ('slave', 'compute'),
     'bucket.fine.get': ('slave', 'wait-out'),
     'bucket.fine.push': ('slave', 'wait-out'),
+    'copy.get': ('slave', 'wait-out'),
+    'copy.push': ('slave', 'wait-out'),
     'gather.get': ('device', 'wait-out'),
     'gather.compute': ('gather', 'compute'),
     'gather.pop.first': ('gather', 'startup'),
@@ -76,6 +82,8 @@ nompi_names = {
     'bucket.loader.write': ('main', 'write'),
     'bucket.fine.get': ('main', 'wait-out'),
     'bucket.fine.push': ('main', 'wait-out'),
+    'copy.get': ('main', 'wait-out'),
+    'copy.push': ('main', 'wait-out'),
     'mesher.get': ('device', 'wait-out'),
     'mesher.push': ('device', 'wait-out'),
 }
@@ -120,10 +128,10 @@ def parse_stats(f):
             m = re.match(r'device\.pop\.first: .* : .* \[(\d+)\]', line)
             if m:
                 values['total-device-threads'] = int(m.group(1))
-            m = re.match(r'bucket.fine.pop.first: .* : .* \[(\d+)\]', line)
+            m = re.match(r'(?:bucket\.fine|copy)\.pop\.first: .* : .* \[(\d+)\]', line)
             if m:
                 values['total-bucket-threads'] = int(m.group(1))
-            m = re.match(r'gather.pop.first: .* : .* \[(\d+)\]', line)
+            m = re.match(r'gather\.pop\.first: .* : .* \[(\d+)\]', line)
             if m:
                 values['total-slave-threads'] = int(m.group(1))
     return values
