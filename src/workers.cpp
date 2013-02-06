@@ -63,38 +63,6 @@ boost::shared_ptr<MesherGroup::WorkItem> MesherGroup::get(Timeplot::Worker &twor
     return item;
 }
 
-Marching::OutputFunctor MesherGroup::getOutputFunctor(const ChunkId &chunkId, Timeplot::Worker &tworker)
-{
-    return boost::bind(&MesherGroup::outputFunc, this, boost::ref(tworker), chunkId, _1, _2, _3, _4);
-}
-
-void MesherGroup::outputFunc(
-    Timeplot::Worker &tworker,
-    const ChunkId &chunkId,
-    const cl::CommandQueue &queue,
-    const DeviceKeyMesh &mesh,
-    const std::vector<cl::Event> *events,
-    cl::Event *event)
-{
-    MLSGPU_ASSERT(input, std::logic_error);
-
-    std::size_t bytes = mesh.getHostBytes();
-
-    boost::shared_ptr<WorkItem> item = get(tworker, bytes);
-    item->work.mesh = HostKeyMesh(item->alloc.get(), mesh);
-
-    std::vector<cl::Event> wait(3);
-    enqueueReadMesh(queue, mesh, item->work.mesh, events, &wait[0], &wait[1], &wait[2]);
-    CLH::enqueueMarkerWithWaitList(queue, &wait, event);
-
-    item->work.chunkId = chunkId;
-    item->work.hasEvents = true;
-    item->work.verticesEvent = wait[0];
-    item->work.vertexKeysEvent = wait[1];
-    item->work.trianglesEvent = wait[2];
-    push(tworker, item);
-}
-
 
 DeviceWorkerGroup::DeviceWorkerGroup(
     std::size_t numWorkers, std::size_t spare,

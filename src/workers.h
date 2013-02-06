@@ -87,12 +87,6 @@ public:
     /// Set the functor to use for processing data received from the output functor.
     void setInputFunctor(const MesherBase::InputFunctor &input) { this->input = input; }
 
-    /**
-     * Retrieve a functor that can be used in any thread to insert work into
-     * the queue.
-     */
-    Marching::OutputFunctor getOutputFunctor(const ChunkId &chunkId, Timeplot::Worker &tworker);
-
     boost::shared_ptr<WorkItem> get(Timeplot::Worker &tworker, std::size_t size);
 
     /**
@@ -402,5 +396,82 @@ private:
 
     friend class CopyGroupBase::Worker;
 };
+
+
+/**
+ * Wraps a worker group class to provide the @ref DeviceWorkerGroup::OutputGenerator
+ * interface. The returned functor will push the data to the output group.
+ */
+template<typename OutGroup>
+class OutputGeneratorBuilder
+{
+private:
+    OutGroup &outGroup;
+
+    /**
+     * Provides @ref Marching::OutputFunctor interface.
+     */
+    class Functor
+    {
+    private:
+        OutGroup &outGroup;
+        ChunkId chunkId;
+        Timeplot::Worker &tworker;
+    public:
+        typedef void result_type;
+        Functor(OutGroup &outGroup, const ChunkId &chunkId, Timeplot::Worker &tworker)
+            : outGroup(outGroup), chunkId(chunkId), tworker(tworker)
+        {
+        }
+
+        void operator()(
+            const cl::CommandQueue &queue,
+            const DeviceKeyMesh &mesh,
+            const std::vector<cl::Event> *events,
+            cl::Event *event) const;
+    };
+
+public:
+    typedef Marching::OutputFunctor result_type;
+
+    explicit OutputGeneratorBuilder(OutGroup &outGroup)
+        : outGroup(outGroup)
+    {
+    }
+
+    result_type operator()(const ChunkId &chunkId, Timeplot::Worker &tworker) const
+    {
+        return Functor(outGroup, chunkId, tworker);
+    }
+};
+
+template<typename OutGroup>
+void OutputGeneratorBuilder<OutGroup>::Functor::operator()(
+            const cl::CommandQueue &queue,
+            const DeviceKeyMesh &mesh,
+            const std::vector<cl::Event> *events,
+            cl::Event *event) const
+{
+    std::size_t bytes = mesh.getHostBytes();
+
+    boost::shared_ptr<typename OutGroup::WorkItem> item = outGroup.get(tworker, bytes);
+    item->work.mesh = HostKeyMesh(item->alloc.get(), mesh);
+    std::vector<cl::Event> wait(3);
+    enqueueReadMesh(queue, mesh, item->work.mesh, events, &wait[0], &wait[1], &wait[2]);
+    CLH::enqueueMarkerWithWaitList(queue, &wait, event);
+
+    item->work.chunkId = chunkId;
+    item->work.hasEvents = true;
+    item->work.verticesEvent = wait[0];
+    item->work.vertexKeysEvent = wait[1];
+    item->work.trianglesEvent = wait[2];
+    outGroup.push(tworker, item);
+}
+
+template<typename T>
+DeviceWorkerGroup::OutputGenerator makeOutputGenerator(T &outGroup)
+{
+    return OutputGeneratorBuilder<T>(outGroup);
+}
 
 #endif /* !WORKERS_H */

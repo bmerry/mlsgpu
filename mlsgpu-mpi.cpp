@@ -170,63 +170,6 @@ private:
     CircularBuffer meshBuffer;
 };
 
-// TODO: this duplicates almost all the code in MesherGroup::outputFunc
-class OutputFunctor
-{
-private:
-    GatherGroup &outGroup;
-    ChunkId chunkId;
-    Timeplot::Worker &tworker;
-
-public:
-    typedef void result_type;
-
-    OutputFunctor(GatherGroup &outGroup, const ChunkId &chunkId, Timeplot::Worker &tworker)
-        : outGroup(outGroup), chunkId(chunkId), tworker(tworker)
-    {
-    }
-
-    void operator()(
-        const cl::CommandQueue &queue,
-        const DeviceKeyMesh &mesh,
-        const std::vector<cl::Event> *events,
-        cl::Event *event)
-    {
-        std::size_t bytes = mesh.getHostBytes();
-
-        boost::shared_ptr<GatherGroup::WorkItem> item = outGroup.get(tworker, bytes);
-        item->work.mesh = HostKeyMesh(item->alloc.get(), mesh);
-        std::vector<cl::Event> wait(3);
-        enqueueReadMesh(queue, mesh, item->work.mesh, events, &wait[0], &wait[1], &wait[2]);
-        CLH::enqueueMarkerWithWaitList(queue, &wait, event);
-
-        item->work.chunkId = chunkId;
-        item->work.hasEvents = true;
-        item->work.verticesEvent = wait[0];
-        item->work.vertexKeysEvent = wait[1];
-        item->work.trianglesEvent = wait[2];
-        outGroup.push(tworker, item);
-    }
-};
-
-class GetOutputFunctor
-{
-private:
-    GatherGroup &outGroup;
-public:
-    typedef Marching::OutputFunctor result_type;
-
-    explicit GetOutputFunctor(GatherGroup &outGroup)
-        : outGroup(outGroup)
-    {
-    }
-
-    result_type operator()(const ChunkId &chunkId, Timeplot::Worker &tworker) const
-    {
-        return OutputFunctor(outGroup, chunkId, tworker);
-    }
-};
-
 Scatter::Scatter(MPI_Comm comm, Timeplot::Worker &tworker) :
     comm(comm),
     tworker(tworker),
@@ -297,7 +240,7 @@ void Slave::operator()() const
     prepareInputs(splats, vm, smooth, maxRadius);
 
     GatherGroup gatherGroup(gatherComm, gatherRoot, memGather);
-    SlaveWorkers slaveWorkers(tworker, vm, devices, GetOutputFunctor(gatherGroup));
+    SlaveWorkers slaveWorkers(tworker, vm, devices, makeOutputGenerator(gatherGroup));
 
     Grid grid;
     /* If the slave shares a node with the master, then OpenMPI busy-waits

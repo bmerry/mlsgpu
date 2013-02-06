@@ -84,7 +84,9 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
 
             Log::log[Log::info] << "Initializing...\n";
             MesherGroup mesherGroup(memMesh);
-            SlaveWorkers slaveWorkers(mainWorker, vm, devices, boost::bind(&MesherGroup::getOutputFunctor, &mesherGroup, _1, _2));
+            SlaveWorkers slaveWorkers(
+                mainWorker, vm, devices,
+                makeOutputGenerator(mesherGroup));
             BucketCollector collector(maxLoadSplats, boost::ref(*slaveWorkers.loader));
 
             Splats splats("mem.blobData");
