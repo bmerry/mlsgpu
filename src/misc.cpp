@@ -7,15 +7,53 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#define __STDC_LIMIT_MACROS 1
 #include "misc.h"
+#include "errors.h"
 #include <stdexcept>
 #include <string>
 #include <errno.h>
+#include <climits>
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 #include <boost/exception/all.hpp>
 
 static boost::filesystem::path tmpFileDir;
+
+DownDivider::DownDivider(std::tr1::uint32_t d)
+{
+    MLSGPU_ASSERT(d > 0, std::invalid_argument);
+    shift = 0;
+    std::tr1::int64_t k2 = 1; // 2^shift
+    while (k2 / d <= INT32_MAX / 2)
+    {
+        shift++;
+        k2 <<= 1;
+    }
+    if (k2 % d == 0)
+    {
+        // d is a power of 2
+        negAdd = false;
+        posAdd = false;
+        inverse = 1;
+        shift = 0;
+        while (1U << shift != d)
+            shift++;
+    }
+    else if (k2 % d <= d / 2)
+    {
+        inverse = k2 / d;
+        posAdd = true;
+        negAdd = false;
+    }
+    else
+    {
+        inverse = k2 / d + 1;
+        posAdd = false;
+        negAdd = true;
+    }
+}
 
 void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &out)
 {

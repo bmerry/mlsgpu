@@ -102,6 +102,40 @@ static inline S divDown(S a, T b)
 }
 
 /**
+ * Performs precomputations on a 32-bit unsigned number to allow other 32-bit signed values to be
+ * divided by it and rounded down.
+ *
+ * It relies on two's complement arithmetic, and in particular on
+ * right-shifting a negative value with sign extension.
+ */
+class DownDivider
+{
+private:
+    bool negAdd; ///< Whether to add 1 to inputs less than -1
+    bool posAdd; ///< Whether to add 1 to inputs greater than or equal to 0
+    std::tr1::int32_t inverse;  ///< Multiplier
+    int shift;
+
+public:
+    typedef std::tr1::int32_t result_type;
+
+    /**
+     * Constructor.
+     * @param d   Value to divide by
+     * @pre @a d != 0
+     */
+    explicit DownDivider(std::tr1::uint32_t d);
+
+    result_type operator()(std::tr1::int32_t x) const
+    {
+        std::tr1::int64_t xl = x; // avoids overflow when incrementing
+        if ((negAdd && xl < -1) || (posAdd && xl >= 0))
+            xl++;
+        return (xl * inverse) >> shift;
+    }
+};
+
+/**
  * Obtain the raw bits from a floating-point number.
  */
 static inline std::tr1::uint32_t floatToBits(float x)

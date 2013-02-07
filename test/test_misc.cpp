@@ -159,6 +159,70 @@ void TestDivDown::testOverflow()
     }
 }
 
+/// Tests for @ref DownDivider
+class TestDownDivider : public CppUnit::TestFixture
+{
+public:
+    CPPUNIT_TEST_SUITE(TestDownDivider);
+    CPPUNIT_TEST(testNormal);
+    CPPUNIT_TEST(testDivZero);
+    CPPUNIT_TEST_SUITE_END();
+
+private:
+    /// Test a single division
+    void testHelper(std::tr1::int32_t x, std::tr1::uint32_t d);
+    void testNormal();    ///< Test a number of test cases
+    void testDivZero();   ///< Test constructor with zero dividend
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestDownDivider, TestSet::perBuild());
+
+void TestDownDivider::testHelper(std::tr1::int32_t x, std::tr1::uint32_t d)
+{
+    DownDivider div(d);
+    std::tr1::int64_t q = div(x);
+    std::tr1::int64_t dl = d;
+    CPPUNIT_ASSERT(q * dl <= x && (q + 1) * dl > x);
+}
+
+void TestDownDivider::testNormal()
+{
+    const std::tr1::uint32_t ds[] =
+    {
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000,
+        32767, 32768, 32769,
+        65535, 65536, 65537,
+        2147483647U, 2147483648U, 2147483649U,
+        3000000000U,
+        4294967294U, 4294967295U
+    };
+    const std::tr1::int32_t xs[] =
+    {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000,
+        32767, 32768, 32769,
+        65535, 65536, 65537,
+        1073741823, 1073741824, 1073741825,
+        2147483645, 2147483646, 2147483647
+    };
+
+    for (std::size_t i = 0; i < sizeof(ds) / sizeof(ds[0]); i++)
+    {
+        for (std::size_t j = 0; j < sizeof(xs) / sizeof(xs[0]); j++)
+        {
+            testHelper(xs[j], ds[i]);
+            testHelper(-xs[j], ds[i]);
+        }
+        if (ds[i] != 1)
+            testHelper(INT32_MIN, ds[i]); // overflows if d == 1
+    }
+}
+
+void TestDownDivider::testDivZero()
+{
+    CPPUNIT_ASSERT_THROW(DownDivider(0), std::invalid_argument);
+}
+
 /// Tests for @ref floatToBits.
 class TestFloatToBits : public CppUnit::TestFixture
 {
