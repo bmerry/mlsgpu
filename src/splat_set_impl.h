@@ -30,6 +30,7 @@
 #include "splat_set.h"
 #include "thread_name.h"
 #include "timeplot.h"
+#include "misc.h"
 
 namespace SplatSet
 {
@@ -470,7 +471,7 @@ void splatToBuckets(const Splat &splat,
  *
  * @param      splat         Input splat
  * @param      spacing       Grid spacing
- * @param      bucketSize    Size of buckets in cells
+ * @param      bucketDivider Divider constructed with the bucket size in cells
  * @param[out] lower         Lower bound coordinates (inclusive)
  * @param[out] upper         Upper bound coordinates (inclusive)
  *
@@ -479,7 +480,7 @@ void splatToBuckets(const Splat &splat,
  * - @a bucketSize &gt; 0
  */
 void splatToBuckets(const Splat &splat,
-                    float spacing, Grid::size_type bucketSize,
+                    float spacing, const DownDivider &bucketDivider,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper);
 
@@ -540,6 +541,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     Statistics::Registry &registry = Statistics::Registry::getInstance();
+    const DownDivider bucketDivider(bucketSize);
 
     blobData.clear();
     internalBucketSize = bucketSize;
@@ -603,7 +605,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 {
                     const Splat &splat = buffer[i];
                     BlobInfo blob;
-                    detail::splatToBuckets(splat, spacing, bucketSize, blob.lower, blob.upper);
+                    detail::splatToBuckets(splat, spacing, bucketDivider, blob.lower, blob.upper);
                     blob.firstSplat = bufferIds[i];
                     blob.lastSplat = blob.firstSplat + 1;
                     threadBbox += splat;

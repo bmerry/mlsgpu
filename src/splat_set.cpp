@@ -53,7 +53,7 @@ void splatToBuckets(const Splat &splat,
 }
 
 void splatToBuckets(const Splat &splat,
-                    float spacing, Grid::size_type bucketSize,
+                    float spacing, const DownDivider &bucketDivider,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper)
 {
@@ -65,8 +65,8 @@ void splatToBuckets(const Splat &splat,
         float hiWorld = splat.position[i] + splat.radius;
         Grid::difference_type loCell = Grid::RoundDown::convert(loWorld / spacing);
         Grid::difference_type hiCell = Grid::RoundDown::convert(hiWorld / spacing);
-        lower[i] = divDown(loCell, bucketSize);
-        upper[i] = divDown(hiCell, bucketSize);
+        lower[i] = bucketDivider(loCell);
+        upper[i] = bucketDivider(hiCell);
     }
 }
 
