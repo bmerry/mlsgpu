@@ -60,27 +60,49 @@ private:
     class MySplatStream : public SplatStream
     {
     public:
-        virtual Splat operator*() const
+        virtual std::size_t read(Splat *splats, splat_id *splatIds, std::size_t count)
         {
-            return owner.at(cur >> scanIdShift).at(cur & splatIdMask);
-        }
+            std::size_t oldCount = count;
+            while (count > 0)
+            {
+                if (curRange == lastRange || cur >> scanIdShift >= owner.size())
+                    return oldCount - count;
 
-        virtual SplatStream &operator++()
-        {
-            MLSGPU_ASSERT(!empty(), std::length_error);
-            cur++;
-            refill();
-            return *this;
-        }
+retry:
+                if (cur >= curRange->second)
+                {
+                    ++curRange;
+                    if (curRange == lastRange)
+                        return oldCount - count;
+                    cur = curRange->first;
+                    goto retry;
+                }
+                std::size_t scan = cur >> scanIdShift;
+                splat_id scanEnd = owner[scan].size() + (splat_id(scan) << scanIdShift);
+                if (cur >= scanEnd)
+                {
+                    scan++;
+                    if (scan >= owner.size())
+                        return oldCount - count;
+                    cur = splat_id(scan) << scanIdShift;
+                    goto retry;
+                }
 
-        virtual bool empty() const
-        {
-            return curRange == lastRange;
-        }
-
-        virtual splat_id currentId() const
-        {
-            return cur;
+                std::size_t n = std::min(splat_id(count), scanEnd - cur);
+                std::size_t pos = cur & splatIdMask;
+                for (std::size_t i = 0; i < n; i++)
+                {
+                    splats[i] = owner[scan][pos + i];
+                    if (splatIds != NULL)
+                        splatIds[i] = cur + i;
+                }
+                splats += n;
+                if (splatIds != NULL)
+                    splatIds += n;
+                count -= n;
+                cur += n;
+            }
+            return oldCount - count;
         }
 
         MySplatStream(const VectorsSet &owner, RangeIterator firstRange, RangeIterator lastRange)
@@ -88,46 +110,12 @@ private:
         {
             if (curRange != lastRange)
                 cur = curRange->first;
-            refill();
         }
 
     private:
         const VectorsSet &owner;
         splat_id cur;
         RangeIterator curRange, lastRange;
-
-        /// Find the next usable element from the current range, if any
-        bool refillRange()
-        {
-            std::size_t scan = cur >> scanIdShift;
-            while (cur < curRange->second && scan < owner.size())
-            {
-                splat_id scanEnd = (scan << scanIdShift) + owner.at(scan).size();
-                if (curRange->second < scanEnd)
-                    scanEnd = curRange->second;
-                while (cur < scanEnd)
-                {
-                    if (owner.at(scan).at(cur & splatIdMask).isFinite())
-                        return true;
-                    cur++;
-                }
-                scan++;
-                cur = scan << scanIdShift;
-            }
-            return false;
-        }
-
-        void refill()
-        {
-            while (curRange != lastRange)
-            {
-                if (refillRange())
-                    return;
-                ++curRange;
-                if (curRange != lastRange)
-                    cur = curRange->first;
-            }
-        }
     };
 };
 

@@ -21,6 +21,7 @@
 BucketLoader::BucketLoader(
     std::size_t maxItemSplats, CopyGroup &outGroup, Timeplot::Worker &tworker)
     :
+    maxItemSplats(maxItemSplats),
     outGroup(outGroup),
     tworker(tworker),
     super(NULL),
@@ -52,17 +53,15 @@ void BucketLoader::operator()(const Statistics::Container::vector<BucketCollecto
 
     {
         Timeplot::Action timer("load", tworker, loadStat);
-        std::size_t pos = 0;
         boost::scoped_ptr<SplatSet::SplatStream> splatStream(super->makeSplatStream(ranges.begin(), ranges.end()));
         float invSpacing = 1.0f / fullGrid.getSpacing();
-        while (!splatStream->empty())
+        std::size_t numRead = splatStream->read(&splatBuffer[0], NULL, maxItemSplats);
+        for (std::size_t i = 0; i < numRead; i++)
         {
-            Splat splat = **splatStream;
+            Splat &splat = splatBuffer[i];
             /* Transform the splats into the grid's coordinate system */
             fullGrid.worldToVertex(splat.position, splat.position);
             splat.radius *= invSpacing;
-            splatBuffer[pos++] = splat;
-            ++*splatStream;
         }
     }
 

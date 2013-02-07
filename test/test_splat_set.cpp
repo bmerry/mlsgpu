@@ -525,15 +525,22 @@ void TestSplatSet<SetType>::testSplatStream()
         boost::scoped_ptr<SplatStream> stream(set->makeSplatStream());
         std::vector<Splat> actual;
         std::vector<splat_id> ids;
-        while (!stream->empty())
+        const std::size_t count = 5; // there are files bigger, smaller and exactly this size
+        Splat buffer[count];
+        splat_id bufferIds[count];
+        while (true)
         {
-            actual.push_back(**stream);
-            ids.push_back(stream->currentId());
-            ++*stream;
+            std::size_t n = stream->read(buffer, bufferIds, count);
+            if (n == 0)
+                break;
+            for (std::size_t i = 0; i < n; i++)
+            {
+                actual.push_back(buffer[i]);
+                ids.push_back(bufferIds[i]);
+            }
         }
         validateSplats(flatSplats, actual, ids);
-        CPPUNIT_ASSERT_THROW(**stream, std::out_of_range);
-        CPPUNIT_ASSERT_THROW(++*stream, std::out_of_range);
+        MLSGPU_ASSERT_EQUAL(0, stream->read(buffer, bufferIds, count));
     }
     else
         CPPUNIT_ASSERT(flatSplats.empty()); // some classes don't allow empty sets
@@ -649,28 +656,35 @@ void TestSplatSubsettable<SetType>::testSplatStreamSeekHelper(RangeIterator firs
     for (RangeIterator curRange = firstRange; curRange != lastRange; ++curRange)
     {
         boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream());
-        while (!splatStream->empty())
+        Splat splat;
+        splat_id id;
+        while (splatStream->read(&splat, &id, 1) != 0)
         {
-            splat_id id = splatStream->currentId();
             if (id >= curRange->first && id < curRange->second)
             {
-                expected.push_back(**splatStream);
+                expected.push_back(splat);
                 expectedIds.push_back(id);
             }
-            ++*splatStream;
         }
     }
 
     {
         boost::scoped_ptr<SplatStream> splatStream(set->makeSplatStream(firstRange, lastRange));
-        while (!splatStream->empty())
+        const std::size_t count = 3;
+        while (true)
         {
-            actual.push_back(**splatStream);
-            actualIds.push_back(splatStream->currentId());
-            ++*splatStream;
+            Splat buffer[count];
+            splat_id bufferIds[count];
+            std::size_t n = splatStream->read(buffer, bufferIds, count);
+            if (n == 0)
+                break;
+            for (std::size_t i = 0; i < n; i++)
+            {
+                actual.push_back(buffer[i]);
+                actualIds.push_back(bufferIds[i]);
+            }
         }
-        CPPUNIT_ASSERT_THROW(**splatStream, std::out_of_range);
-        CPPUNIT_ASSERT_THROW(++*splatStream, std::out_of_range);
+        MLSGPU_ASSERT_EQUAL(0, splatStream->read(NULL, NULL, 1));
     }
 
     CPPUNIT_ASSERT_EQUAL(expected.size(), actual.size());

@@ -70,28 +70,24 @@ void splatToBuckets(const Splat &splat,
     }
 }
 
-std::size_t loadBuffer(SplatStream *splats, Statistics::Container::vector<std::pair<Splat, splat_id> > &buffer)
-{
-    std::size_t nBuffer = 0;
-    while (nBuffer < buffer.size() && !splats->empty())
-    {
-        buffer[nBuffer].first = **splats;
-        buffer[nBuffer].second = splats->currentId();
-        nBuffer++;
-        ++*splats;
-    }
-    return nBuffer;
-}
-
 } // namespace detail
 
 BlobInfo SimpleBlobStream::operator*() const
 {
+    MLSGPU_ASSERT(!empty(), state_error);
     BlobInfo ans;
-    ans.firstSplat = splatStream->currentId();
-    ans.lastSplat = ans.firstSplat + 1;
-    detail::splatToBuckets(**splatStream, grid, bucketSize, ans.lower, ans.upper);
+    ans.firstSplat = currentId;
+    ans.lastSplat = currentId + 1;
+    detail::splatToBuckets(current, grid, bucketSize, ans.lower, ans.upper);
     return ans;
+}
+
+BlobStream &SimpleBlobStream::operator++()
+{
+    std::size_t n = splatStream->read(&current, &currentId, 1);
+    if (n == 0)
+        current.radius = -1.0f; //sentinel to mark the stream as empty
+    return *this;
 }
 
 const unsigned int FileSet::scanIdShift = 40;
@@ -133,67 +129,79 @@ void FileSet::ReaderThreadBase::drain()
 FileSet::MySplatStream::MySplatStream(
     const FileSet &owner, ReaderThreadBase *reader, bool useOMP)
 :
-    owner(owner), buffer("mem.FileSet.MySplatStream.buffer"),
+    owner(owner), curItem(), pos(0),
     readerThread(reader), thread(boost::ref(*readerThread)),
     useOMP(useOMP)
 {
-    isEmpty = false;
-    bufferCur = 0;
-    firstId = 0;
-    refill();
+}
+
+std::size_t FileSet::MySplatStream::read(Splat *splats, splat_id *splatIds, std::size_t count)
+{
+    std::size_t oldCount = count;
+    while (count > 0)
+    {
+        while (curItem.ptr == NULL || pos == curItem.last)
+        {
+            readerThread->free(curItem);
+            curItem = readerThread->pop();
+            if (curItem.ptr == NULL)
+                return oldCount - count; // end of stream
+            pos = curItem.first;
+        }
+
+        const std::size_t fileId = curItem.first >> scanIdShift;
+        const FastPly::ReaderBase &file = owner.files[fileId];
+
+        // Try a parallel load + decode, and fall back if there are non-finites
+        const std::size_t n = std::min(curItem.last - pos, (splat_id) count);
+        const std::size_t offset = pos - curItem.first;
+        bool nonFinite = false;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) if (useOMP && n > 16384) reduction(||:nonFinite) shared(file, splats, splatIds) default(none)
+#endif
+        for (std::size_t i = 0; i < n; i++)
+        {
+            splats[i] = file.decode(curItem.ptr, offset + i);
+            if (splatIds != NULL)
+                splatIds[i] = pos + i;
+            nonFinite = nonFinite || !splats[i].isFinite();
+        }
+
+        std::size_t p;
+        if (nonFinite)
+        {
+            /* Need to compact out the non-finite ones. This could also be parallelised
+             * by keeping a per-thread count and prefix summing it, but it's a rare
+             * event so is probably not worth the cost.
+             */
+            p = 0;
+            for (std::size_t i = 0; i < n; i++)
+            {
+                if (splats[i].isFinite())
+                {
+                    splats[p] = splats[i];
+                    splatIds[p] = splatIds[i];
+                    p++;
+                }
+            }
+        }
+        else
+            p = n;
+
+        pos += n;
+        splats += p;
+        if (splatIds != NULL)
+            splatIds += p;
+        count -= p;
+    }
+    return oldCount - count;
 }
 
 FileSet::MySplatStream::~MySplatStream()
 {
-    if (!isEmpty)
-        readerThread->drain();
+    readerThread->free(curItem);
+    readerThread->drain();
     thread.join();
-}
-
-SplatStream &FileSet::MySplatStream::operator++()
-{
-    MLSGPU_ASSERT(bufferCur < buffer.size() || !isEmpty, std::out_of_range);
-    bufferCur++;
-    refill();
-    return *this;
-}
-
-void FileSet::MySplatStream::refill()
-{
-    while (true)
-    {
-        while (bufferCur == buffer.size())
-        {
-            if (isEmpty)
-                return;
-            const ReaderThreadBase::Item item = readerThread->pop();
-            if (item.ptr == NULL)
-            {
-                isEmpty = true;
-                return;
-            }
-
-            bufferCur = 0;
-            buffer.resize(item.numSplats());
-            firstId = item.first;
-            const std::size_t fileId = item.first >> scanIdShift;
-#ifdef _OPENMP
-#pragma omp parallel for default(none) schedule(static) if(useOMP && item.numSplats() >= 4096)
-#endif
-            for (std::size_t i = 0; i < item.numSplats(); i++)
-            {
-                buffer[i] = owner.files[fileId].decode(item.ptr, i);
-                // Test finiteness inside the parallel loop, so that we
-                // can quick skip over non-finite elements.
-                if (!buffer[i].isFinite())
-                    buffer[i].radius = -1.0;
-            }
-            readerThread->free(item);
-        }
-        if (buffer[bufferCur].radius >= 0.0)
-            return;
-        bufferCur++;
-    }
 }
 
 void SubsetBase::flush()

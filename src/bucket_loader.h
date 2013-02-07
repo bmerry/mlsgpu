@@ -44,6 +44,7 @@ public:
     /// Callback for @ref BucketCollector
     void operator()(const Statistics::Container::vector<BucketCollector::Bin> &bins);
 private:
+    const std::size_t maxItemSplats;
     CopyGroup &outGroup;
     Grid fullGrid;
     Timeplot::Worker &tworker;

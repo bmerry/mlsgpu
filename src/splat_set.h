@@ -91,18 +91,10 @@ struct BlobInfo
 };
 
 /**
- * Polymorphic interface for iteration over a sequence of splats. This is based
- * on the STXXL stream interface. The splats returns must all be finite.
- *
- * The general pattern of implementations is to maintain some form of pointer
- * to the next splat to return. Both during construction and after advancing
- * the pointer, it will pre-emptively skip over non-finite splats until a
- * finite one is found or the end is reached.
- *
- * In some cases the collection is really a collection-of-collections under
- * the hood. Again, as soon as the pointer is advanced to the end of a
- * sub-collection it is preemptively advanced until the pointer becomes valid
- * again or the end is reached. This is done in a method calls @c refill.
+ * Polymorphic interface for iteration over a sequence of splats. It is designed
+ * to pull splats out in large chunks rather than one at a time. This amortises
+ * the cost of the virtual function calls, and avoids the need for internal
+ * buffering. The splats returned must all be finite.
  *
  * @see @ref SetConcept
  */
@@ -115,28 +107,16 @@ public:
     virtual ~SplatStream() {}
 
     /**
-     * Advance to the next splat in the stream.
-     * @pre <code>!empty()</code>
+     * Read some number of splats from the stream. The buffer will always be
+     * filled, unless there are insufficient splats to do so. A short return
+     * value thus always indicates end-of-stream.
+     *
+     * @param[out] splats      Buffer to hold output splats
+     * @param[out] ids         Ids of the splats read (may be @c NULL)
+     * @param      count       Maximum number of splats to read
+     * @return The number of splats actually read.
      */
-    virtual SplatStream &operator++() = 0;
-
-    /**
-     * Return the currently pointed-to splat.
-     * @pre <code>!empty()</code>
-     */
-    virtual Splat operator*() const = 0;
-
-    /**
-     * Determines whether there are any more splats to advance over.
-     */
-    virtual bool empty() const = 0;
-
-    /**
-     * Returns an ID for the current splat (the one that would be returned by
-     * <code>operator *</code>).
-     * @pre <code>!empty()</code>
-     */
-    virtual splat_id currentId() const = 0;
+    virtual std::size_t read(Splat *splats, splat_id *ids, std::size_t count) = 0;
 };
 
 /**
@@ -251,32 +231,38 @@ extern const std::pair<splat_id, splat_id> rangeAll;
 
 /**
  * Implementation of @ref BlobStream that just has one blob for each splat. It
- * is created by passing the underlying splat stream to the constructor.
+ * is created by passing the underlying splat stream to the constructor. The
+ * blob stream takes over ownership of the splat stream and will free it on
+ * destruction.
  */
 class SimpleBlobStream : public BlobStream
 {
 public:
     virtual BlobInfo operator*() const;
 
-    virtual BlobStream &operator++()
-    {
-        ++*splatStream;
-        return *this;
-    }
+    virtual BlobStream &operator++();
 
     virtual bool empty() const
     {
-        return splatStream->empty();
+        return current.radius < 0.0f;
     }
 
     SimpleBlobStream(SplatStream *splatStream, const Grid &grid, Grid::size_type bucketSize)
         : splatStream(splatStream), grid(grid), bucketSize(bucketSize)
     {
         MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+        ++*this; // primes the 1-element buffer
     }
 
 private:
     boost::scoped_ptr<SplatStream> splatStream;
+    /**
+     * Current splat to return as a blob. If the blob stream is empty it will
+     * have a negative radius to signal this.
+     */
+    Splat current;
+    /// ID corresponding to @ref current
+    splat_id currentId;
     const Grid grid;
     Grid::size_type bucketSize;
 };
@@ -344,29 +330,7 @@ private:
     class MySplatStream : public SplatStream
     {
     public:
-        virtual Splat operator*() const
-        {
-            MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return *(ownerFirst + cur);
-        }
-
-        virtual SplatStream &operator++()
-        {
-            MLSGPU_ASSERT(!empty(), std::out_of_range);
-            cur++;
-            refill();
-            return *this;
-        }
-
-        virtual bool empty() const
-        {
-            return curRange == lastRange;
-        }
-
-        virtual splat_id currentId() const
-        {
-            return cur;
-        }
+        virtual std::size_t read(Splat *splats, splat_id *splatIds, std::size_t count);
 
         MySplatStream(Iterator ownerFirst, Iterator ownerLast,
                       RangeIterator firstRange, RangeIterator lastRange)
@@ -375,7 +339,6 @@ private:
         {
             if (curRange != lastRange)
                 cur = curRange->first;
-            refill();
         }
 
     private:
@@ -607,9 +570,6 @@ private:
 
     /**
      * Thread class that does reads and provides the data for the stream.
-     *
-     * @todo Optimize so that multiple ranges can share a buffer slot.
-     * @todo Optimize to make fewer reads overall
      */
     template<typename RangeIterator>
     class ReaderThread : public ReaderThreadBase
@@ -629,42 +589,18 @@ private:
     class MySplatStream : public SplatStream
     {
     public:
-        virtual Splat operator*() const
-        {
-            MLSGPU_ASSERT(!empty(), std::out_of_range);
-            return buffer[bufferCur];
-        }
-
-        virtual SplatStream &operator++();
-
-        virtual bool empty() const
-        {
-            return isEmpty && bufferCur == buffer.size();
-        }
-
-        virtual splat_id currentId() const
-        {
-            return firstId + bufferCur;
-        }
+        virtual std::size_t read(Splat *splats, splat_id *splatIds, std::size_t count);
 
         MySplatStream(const FileSet &owner, ReaderThreadBase *reader, bool useOMP);
         virtual ~MySplatStream();
 
     private:
         const FileSet &owner;           ///< Owning set
-        std::size_t bufferCur;          ///< First position in @ref buffer with data
-        Statistics::Container::vector<Splat> buffer;  ///< Current buffer
-        splat_id firstId;               ///< Id of first splat in buffer
-        bool isEmpty;                   ///< Set to true once sentinel item is seen
+        ReaderThreadBase::Item curItem; ///< Item currently being read (NULL pointer if none)
+        splat_id pos;                   ///< Position for reading within @ref curItem
         boost::scoped_ptr<ReaderThreadBase> readerThread;
         boost::thread thread;
         const bool useOMP;              ///< Whether to use OpenMP for acceleration
-
-        /**
-         * Advance the stream until empty or a finite splat is reached. This
-         * will refill the buffer if necessary.
-         */
-        void refill();
     };
 
     /// Backing store of files

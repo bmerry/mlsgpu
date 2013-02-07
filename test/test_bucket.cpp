@@ -312,11 +312,12 @@ void TestBucket::bucketFunc(
     block.numRanges = splats.numRanges();
     block.grid = grid;
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-    while (!splatStream->empty())
+    Splat splat;
+    SplatSet::splat_id id;
+    while (splatStream->read(&splat, &id, 1) != 0)
     {
-        block.splatIds.push_back(splatStream->currentId());
-        block.splats.push_back(**splatStream);
-        ++*splatStream;
+        block.splatIds.push_back(id);
+        block.splats.push_back(splat);
     }
 }
 
@@ -409,10 +410,10 @@ void TestBucket::validate(
 
     /* Check that each splat is fully covered */
     boost::scoped_ptr<SplatSet::SplatStream> splatStream(splats.makeSplatStream());
-    while (!splatStream->empty())
+    Splat splat;
+    SplatSet::splat_id id;
+    while (splatStream->read(&splat, &id, 1) != 0)
     {
-        Splat splat = **splatStream;
-
         boost::array<Grid::difference_type, 3> lower, upper;
         SplatSet::detail::splatToBuckets(splat, fullGrid, 1, lower, upper);
         std::tr1::uint64_t area = 1;
@@ -421,8 +422,7 @@ void TestBucket::validate(
                 area *= upper[k] - lower[k] + 1;
             else
                 area = 0;
-        CPPUNIT_ASSERT_EQUAL(area, areas[splatStream->currentId()]);
-        ++*splatStream;
+        CPPUNIT_ASSERT_EQUAL(area, areas[id]);
     }
 }
 

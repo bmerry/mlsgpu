@@ -36,28 +36,37 @@ namespace SplatSet
 
 template<typename Iterator>
 template<typename RangeIterator>
-void SequenceSet<Iterator>::MySplatStream<RangeIterator>::refill()
+std::size_t SequenceSet<Iterator>::MySplatStream<RangeIterator>::read(
+    Splat *splats, splat_id *splatIds, std::size_t count)
 {
-    if (curRange != lastRange)
+    std::size_t oldCount = count;
+    while (count > 0 && curRange != lastRange)
     {
-        while (true)
-        {
-            splat_id end = curRange->second;
-            splat_id ownerSize = ownerLast - ownerFirst;
-            if (ownerSize < end)
-                end = ownerSize;
-            while (cur < end && !(ownerFirst + cur)->isFinite())
-                cur++;
-            if (cur < end)
-                return;
+        splat_id end = curRange->second;
+        splat_id ownerSize = ownerLast - ownerFirst;
+        if (ownerSize < end)
+            end = ownerSize;
 
+        while (cur < end && count > 0)
+        {
+            Iterator x = ownerFirst + cur;
+            if (x->isFinite())
+            {
+                *splats++ = *x;
+                if (splatIds != NULL)
+                    *splatIds++ = cur;
+                count--;
+            }
+            cur++;
+        }
+        if (cur >= end)
+        {
             ++curRange;
             if (curRange != lastRange)
                 cur = curRange->first;
-            else
-                return;
         }
     }
+    return oldCount - count;
 }
 
 
@@ -474,19 +483,7 @@ void splatToBuckets(const Splat &splat,
                     boost::array<Grid::difference_type, 3> &lower,
                     boost::array<Grid::difference_type, 3> &upper);
 
-/**
- * Loads splats from a stream into a buffer.
- * The maximum number of splats to read is given by the size of the buffer (which will not
- * be resized). This number will be read unless the splat stream runs out. Each splat is
- * stored as the splat data and splat ID.
- *
- * @param splats      Stream from which to extract splats.
- * @param buffer      Buffer to assign splats in.
- * @return The number of splats read.
- */
-std::size_t loadBuffer(SplatStream *splats, Statistics::Container::vector<std::pair<Splat, splat_id> > &buffer);
-
-}
+} // namespace detail
 
 template<typename Base, typename BlobVector>
 void FastBlobSet<Base, BlobVector>::addBlob(Statistics::Container::vector<BlobData> &blobData, const BlobInfo &prevBlob, const BlobInfo &curBlob)
@@ -566,16 +563,19 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     nSplats = 0;
 
     static const std::size_t BUFFER_SIZE = 128 * 1024;
-    Statistics::Container::vector<std::pair<Splat, splat_id> > buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
+    Statistics::Container::vector<Splat> buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
+    Statistics::Container::vector<splat_id> bufferIds("mem.computeBlobs.buffer", BUFFER_SIZE);
 
     std::tr1::uint64_t nBlobs = 0;
 
-    while (!splats->empty())
+    while (true)
     {
-        const std::size_t nBuffer = detail::loadBuffer(splats.get(), buffer);
+        const std::size_t nBuffer = splats->read(&buffer[0], &bufferIds[0], BUFFER_SIZE);
+        if (nBuffer == 0)
+            break;
 
 #ifdef _OPENMP
-#pragma omp parallel shared(buffer, bbox, nBlobs) default(none)
+#pragma omp parallel shared(buffer, bufferIds, bbox, nBlobs) default(none)
 #endif
         {
             const int nThreads = omp_get_num_threads();
@@ -601,10 +601,10 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 // of subchunks chosen.
                 for (std::size_t i = first; i < last; i++)
                 {
-                    const Splat &splat = buffer[i].first;
+                    const Splat &splat = buffer[i];
                     BlobInfo blob;
                     detail::splatToBuckets(splat, spacing, bucketSize, blob.lower, blob.upper);
-                    blob.firstSplat = buffer[i].second;
+                    blob.firstSplat = bufferIds[i];
                     blob.lastSplat = blob.firstSplat + 1;
                     threadBbox += splat;
 
