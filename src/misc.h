@@ -133,6 +133,11 @@ public:
             xl++;
         return (xl * inverse) >> shift;
     }
+
+    std::tr1::int32_t getNegAdd() const { return negAdd; }
+    std::tr1::int32_t getPosAdd() const { return posAdd; }
+    std::tr1::int32_t getInverse() const { return inverse; }
+    std::tr1::int32_t getShift() const { return shift; }
 };
 
 /**

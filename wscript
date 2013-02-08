@@ -113,7 +113,7 @@ def configure_variant_gcc(conf):
     if not conf.env['symbols']:
         conf.env.append_value('LINKFLAGS', '-s')
     if conf.env['DEST_CPU'] == 'x86':
-        # Avoids precision weirdness due to 80-bit 8087 registers
+        # Avoids precision weirdness due to 80-bit 8087 registers, and makes SSE2 available
         ccflags.extend(['-mfpmath=sse', '-msse2'])
     lto = conf.env['lto']
     if lto:
@@ -123,6 +123,9 @@ def configure_variant_gcc(conf):
     if lto:
         # -flto requires compilation flags to be provided at link time
         conf.env.append_value('LINKFLAGS', ccflags)
+
+    # The -Wno-unknown-pragmas is because we also use #pragma STDC FENV_ACCESS
+    conf.env.append_value('CXXFLAGS_ROUNDING_MATH', ['-frounding-math', '-Wno-unknown-pragmas'])
 
 def configure_variant_msvc(conf):
     # Wall is not enable since boost vomits up zillions of warnings
@@ -246,6 +249,8 @@ def configure(conf):
     conf.check_cxx(header_name = 'tr1/cstdint', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_map', mandatory = False)
     conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
+    conf.check_cxx(header_name = 'xmmintrin.h', mandatory = False)
+    conf.check_cxx(header_name = 'emmintrin.h', mandatory = False)
 
     # Detect which timer implementation to use
     # We have to provide a fragment because with the default one the
@@ -354,6 +359,12 @@ def build(bld):
             target = 'src/kernels.cpp')
     make_kernels.post() # To allow dep tracker to find the target
 
+    splat_set_sse = bld(
+        features = ['cxx'],
+        source = 'src/splat_set_sse.cpp',
+        name = 'splat_set_sse',
+        use = 'ROUNDING_MATH')
+
     core_sources = [
             'src/bucket.cpp',
             'src/bucket_collector.cpp',
@@ -399,7 +410,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = core_sources,
             target = 'mls_core',
-            use = 'STXXL TIMER BOOST',
+            use = 'STXXL TIMER BOOST splat_set_sse',
             name = 'libmls_core')
     bld(
             features = ['cxx', 'cxxstlib'],

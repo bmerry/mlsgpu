@@ -78,17 +78,19 @@ void Grid::getVertex(difference_type x, difference_type y, difference_type z, fl
 
 void Grid::worldToVertex(const float world[3], float out[3]) const
 {
+    float invSpacing = 1.0f / spacing;
     for (unsigned int i = 0; i < 3; i++)
     {
-        out[i] = (world[i] - reference[i]) / spacing - extents[i].first;
+        out[i] = (world[i] - reference[i]) * invSpacing - extents[i].first;
     }
 }
 
 void Grid::worldToCell(const float world[3], difference_type out[3]) const
 {
+    float invSpacing = 1.0f / spacing;
     for (unsigned int i = 0; i < 3; i++)
     {
-        float raw = (world[i] - reference[i]) / spacing;
+        float raw = (world[i] - reference[i]) * invSpacing;
         // boost::numeric_cast doesn't catch NaNs
         if (!(std::tr1::isfinite(raw)))
             throw boost::numeric::bad_numeric_cast();

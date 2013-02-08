@@ -52,21 +52,28 @@ void splatToBuckets(const Splat &splat,
     }
 }
 
-void splatToBuckets(const Splat &splat,
-                    float spacing, const DownDivider &bucketDivider,
-                    boost::array<Grid::difference_type, 3> &lower,
-                    boost::array<Grid::difference_type, 3> &upper)
+#if !BLOBS_USE_SSE2
+SplatToBuckets::SplatToBuckets(float spacing, Grid::size_type bucketSize)
+    : invSpacing(1.0f / spacing), divider(bucketSize)
+{
+}
+
+void SplatToBuckets::operator()(
+    const Splat &splat,
+    boost::array<Grid::difference_type, 3> &lower,
+    boost::array<Grid::difference_type, 3> &upper) const
 {
     for (unsigned int i = 0; i < 3; i++)
     {
         float loWorld = splat.position[i] - splat.radius;
         float hiWorld = splat.position[i] + splat.radius;
-        Grid::difference_type loCell = Grid::RoundDown::convert(loWorld / spacing);
-        Grid::difference_type hiCell = Grid::RoundDown::convert(hiWorld / spacing);
-        lower[i] = bucketDivider(loCell);
-        upper[i] = bucketDivider(hiCell);
+        Grid::difference_type loCell = Grid::RoundDown::convert(loWorld * invSpacing);
+        Grid::difference_type hiCell = Grid::RoundDown::convert(hiWorld * invSpacing);
+        lower[i] = divider(loCell);
+        upper[i] = divider(hiCell);
     }
 }
+#endif
 
 } // namespace detail
 

@@ -7,6 +7,12 @@
 #ifndef SPLAT_SET_IMPL_H
 #define SPLAT_SET_IMPL_H
 
+#if HAVE_XMMINTRIN_H && HAVE_EMMINTRIN_H
+# define BLOBS_USE_SSE2 1
+#else
+# define BLOBS_USE_SSE2 0
+#endif
+
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
@@ -31,6 +37,10 @@
 #include "thread_name.h"
 #include "timeplot.h"
 #include "misc.h"
+#if BLOBS_USE_SSE2
+# include <xmmintrin.h>
+# include <emmintrin.h>
+#endif
 
 namespace SplatSet
 {
@@ -463,26 +473,53 @@ void splatToBuckets(const Splat &splat,
 
 /**
  * Computes the range of buckets that will be occupied by a splat's bounding
- * box. See @ref BlobInfo for the definition of buckets. This is an overload
- * that is specialised for a grid based at the origin.
+ * box. See @ref BlobInfo for the definition of buckets. This is a version that
+ * is optimized and specialized for a grid based at the origin.
  *
  * The coordinates are given in units of buckets, with (0,0,0) being the bucket
  * overlapping cell (0,0,0).
- *
- * @param      splat         Input splat
- * @param      spacing       Grid spacing
- * @param      bucketDivider Divider constructed with the bucket size in cells
- * @param[out] lower         Lower bound coordinates (inclusive)
- * @param[out] upper         Upper bound coordinates (inclusive)
- *
- * @pre
- * - <code>splat.isFinite()</code>
- * - @a bucketSize &gt; 0
  */
-void splatToBuckets(const Splat &splat,
-                    float spacing, const DownDivider &bucketDivider,
-                    boost::array<Grid::difference_type, 3> &lower,
-                    boost::array<Grid::difference_type, 3> &upper);
+class SplatToBuckets
+{
+private:
+#if BLOBS_USE_SSE2
+    __m128i negAdd;
+    __m128i posAdd;
+    __m128 invSpacing;
+    std::tr1::int64_t inverse;
+    int shift;
+
+    inline void divide(__m128i in, boost::array<Grid::difference_type, 3> &out) const;
+
+#else
+    float invSpacing;
+    DownDivider divider;
+#endif
+
+public:
+    typedef void result_type;
+
+    /**
+     * Perform the conversion.
+     * @param      splat         Input splat
+     * @param[out] lower         Lower bound coordinates (inclusive)
+     * @param[out] upper         Upper bound coordinates (inclusive)
+     *
+     * @pre splat.isFinite().
+     */
+    void operator()(
+        const Splat &splat,
+        boost::array<Grid::difference_type, 3> &lower,
+        boost::array<Grid::difference_type, 3> &upper) const;
+
+    /**
+     * Constructor.
+     * @param      spacing       Grid spacing
+     * @param      bucketSize    Bucket size in cells
+     * @pre @a bucketSize &gt; 0
+     */
+    SplatToBuckets(float spacing, Grid::size_type bucketSize);
+};
 
 } // namespace detail
 
@@ -541,7 +578,6 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
 
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     Statistics::Registry &registry = Statistics::Registry::getInstance();
-    const DownDivider bucketDivider(bucketSize);
 
     blobData.clear();
     internalBucketSize = bucketSize;
@@ -564,11 +600,12 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
     boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
     nSplats = 0;
 
-    static const std::size_t BUFFER_SIZE = 128 * 1024;
+    static const std::size_t BUFFER_SIZE = 64 * 1024;
     Statistics::Container::vector<Splat> buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
     Statistics::Container::vector<splat_id> bufferIds("mem.computeBlobs.buffer", BUFFER_SIZE);
 
     std::tr1::uint64_t nBlobs = 0;
+    const detail::SplatToBuckets toBuckets(spacing, bucketSize);
 
     while (true)
     {
@@ -605,7 +642,7 @@ void FastBlobSet<Base, BlobVector>::computeBlobs(
                 {
                     const Splat &splat = buffer[i];
                     BlobInfo blob;
-                    detail::splatToBuckets(splat, spacing, bucketDivider, blob.lower, blob.upper);
+                    toBuckets(splat, blob.lower, blob.upper);
                     blob.firstSplat = bufferIds[i];
                     blob.lastSplat = blob.firstSplat + 1;
                     threadBbox += splat;
