@@ -26,6 +26,8 @@ DownDivider::DownDivider(std::tr1::uint32_t d)
     MLSGPU_ASSERT(d > 0, std::invalid_argument);
     shift = 0;
     std::tr1::int64_t k2 = 1; // 2^shift
+    negAdd = INT32_MIN; // never matches
+    posAdd = INT32_MAX; // never matches
     while (k2 / d <= INT32_MAX / 2)
     {
         shift++;
@@ -34,8 +36,6 @@ DownDivider::DownDivider(std::tr1::uint32_t d)
     if (k2 % d == 0)
     {
         // d is a power of 2
-        negAdd = false;
-        posAdd = false;
         inverse = 1;
         shift = 0;
         while (1U << shift != d)
@@ -44,14 +44,12 @@ DownDivider::DownDivider(std::tr1::uint32_t d)
     else if (k2 % d <= d / 2)
     {
         inverse = k2 / d;
-        posAdd = true;
-        negAdd = false;
+        posAdd = -1;
     }
     else
     {
         inverse = k2 / d + 1;
-        posAdd = false;
-        negAdd = true;
+        negAdd = -1;
     }
 }
 

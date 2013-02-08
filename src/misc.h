@@ -111,8 +111,8 @@ static inline S divDown(S a, T b)
 class DownDivider
 {
 private:
-    bool negAdd; ///< Whether to add 1 to inputs less than -1
-    bool posAdd; ///< Whether to add 1 to inputs greater than or equal to 0
+    std::tr1::int32_t negAdd;  ///< Add 1 to inputs if they're less than this
+    std::tr1::int32_t posAdd;  ///< Add 1 to inputs if they're greater than this
     std::tr1::int32_t inverse;  ///< Multiplier
     int shift;
 
@@ -129,7 +129,7 @@ public:
     result_type operator()(std::tr1::int32_t x) const
     {
         std::tr1::int64_t xl = x; // avoids overflow when incrementing
-        if ((negAdd && xl < -1) || (posAdd && xl >= 0))
+        if (x < negAdd || x > posAdd)
             xl++;
         return (xl * inverse) >> shift;
     }
