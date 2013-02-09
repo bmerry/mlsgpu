@@ -255,13 +255,17 @@ void Slave::operator()() const
             boost::this_thread::sleep(boost::posix_time::milliseconds(200));
         } while (!flag);
     }
+
+    SplatSet::splat_id numSplats; // Total space on the progress meter
     Serialize::recv(grid, controlComm, controlRoot);
+    MPI_Recv(&numSplats, 1, Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
+             controlRoot, MLSGPU_TAG_WORK, controlComm, MPI_STATUS_IGNORE);
 
     /* NB: this does not yet support multi-pass algorithms. Currently there
      * are none, however.
      */
 
-    ProgressMPI progress(NULL, grid.numCells(), progressComm, progressRoot);
+    ProgressMPI progress(NULL, numSplats, progressComm, progressRoot);
     slaveWorkers.start(splats, grid, &progress);
     gatherGroup.start();
 
@@ -379,7 +383,12 @@ static void run(
                 for (int i = 0; i < size; i++)
                 {
                     if (slaveMask[i])
+                    {
                         Serialize::send(grid, comm, i);
+                        SplatSet::splat_id numSplats = splats.numSplats();
+                        MPI_Send(&numSplats, 1, Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
+                                 i, MLSGPU_TAG_WORK, comm);
+                    }
                 }
 
                 for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
@@ -389,8 +398,8 @@ static void run(
                     passName << "pass" << pass + 1 << ".time";
                     Statistics::Timer timer(passName.str());
 
-                    ProgressDisplay progress(grid.numCells(), Log::log[Log::info]);
-                    ProgressMPI progressMPI(&progress, grid.numCells(), progressComm, 0);
+                    ProgressDisplay progress(splats.numSplats(), Log::log[Log::info]);
+                    ProgressMPI progressMPI(&progress, splats.numSplats(), progressComm, 0);
 
                     mesherGroup.setInputFunctor(mesher->functor(pass));
 
