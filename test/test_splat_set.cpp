@@ -184,6 +184,65 @@ void TestSplatToBuckets::testZero()
     CPPUNIT_ASSERT_THROW(SplatSet::detail::splatToBuckets(s, grid, 0, lower, upper), std::invalid_argument);
 }
 
+/// Tests for @ref SplatSet::detail::SplatToBuckets (the fast-path class)
+class TestSplatToBucketsClass : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestSplatToBucketsClass);
+    CPPUNIT_TEST(testSimple);
+    CPPUNIT_TEST(testFloatRounding);
+    CPPUNIT_TEST(testIntRounding);
+    CPPUNIT_TEST_SUITE_END();
+
+public:
+    void testSimple();          ///< Test case that tests a bit of everything
+    void testFloatRounding();   ///< Test the rounding on the float operations
+    void testIntRounding();     ///< Test the rounding on the integer division
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSplatToBucketsClass, TestSet::perBuild());
+
+void TestSplatToBucketsClass::testSimple()
+{
+    SplatSet::detail::SplatToBuckets s2b(4.0f, 10);
+    boost::array<Grid::difference_type, 3> lower, upper;
+    s2b(makeSplat(-9.0f, 100.0f, -125.0f, 5.0f), lower, upper);
+    MLSGPU_ASSERT_EQUAL(-1, lower[0]);
+    MLSGPU_ASSERT_EQUAL(2, lower[1]);
+    MLSGPU_ASSERT_EQUAL(-4, lower[2]);
+    MLSGPU_ASSERT_EQUAL(-1, upper[0]);
+    MLSGPU_ASSERT_EQUAL(2, upper[1]);
+    MLSGPU_ASSERT_EQUAL(-3, upper[2]);
+}
+
+void TestSplatToBucketsClass::testFloatRounding()
+{
+    SplatSet::detail::SplatToBuckets s2b(8.0f, 1);
+    boost::array<Grid::difference_type, 3> lower, upper;
+    // Radius is big to give positive and negative values.
+    // x rounds by more than 1/2, y by less than half, z by exactly half
+    s2b(makeSplat(-1.0f, -13.0f, -12.0f, 32.0f), lower, upper);
+    MLSGPU_ASSERT_EQUAL(-5, lower[0]);
+    MLSGPU_ASSERT_EQUAL(-6, lower[1]);
+    MLSGPU_ASSERT_EQUAL(-6, lower[2]);
+    MLSGPU_ASSERT_EQUAL(3, upper[0]);
+    MLSGPU_ASSERT_EQUAL(2, upper[1]);
+    MLSGPU_ASSERT_EQUAL(2, upper[2]);
+}
+
+void TestSplatToBucketsClass::testIntRounding()
+{
+    SplatSet::detail::SplatToBuckets s2b(1.0f, 80);
+    boost::array<Grid::difference_type, 3> lower, upper;
+    // Radius is big to give positive and negative values.
+    // x rounds by more than 1/2, y by less than half, z by exactly half
+    s2b(makeSplat(-10.0f, -130.0f, -120.0f, 320.0f), lower, upper);
+    MLSGPU_ASSERT_EQUAL(-5, lower[0]);
+    MLSGPU_ASSERT_EQUAL(-6, lower[1]);
+    MLSGPU_ASSERT_EQUAL(-6, lower[2]);
+    MLSGPU_ASSERT_EQUAL(3, upper[0]);
+    MLSGPU_ASSERT_EQUAL(2, upper[1]);
+    MLSGPU_ASSERT_EQUAL(2, upper[2]);
+}
+
 /// Base class for testing models of @ref SplatSet::SetConcept.
 template<typename SetType>
 class TestSplatSet : public CppUnit::TestFixture
