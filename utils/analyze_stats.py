@@ -2,7 +2,6 @@
 from __future__ import division, print_function
 import sys
 import re
-from collections import OrderedDict
 
 def is_time_key(key):
     time_suffices = [
