@@ -81,7 +81,7 @@ void BucketLoader::operator()(const Statistics::Container::vector<BucketCollecto
             subGrid.setExtent(i, low, high);
         }
 
-        boost::shared_ptr<typename CopyGroup::WorkItem> item = outGroup.get(tworker, bin.ranges.numSplats());
+        boost::shared_ptr<CopyGroup::WorkItem> item = outGroup.get(tworker, bin.ranges.numSplats());
         item->chunkId = bin.chunkId;
         item->grid = subGrid;
 

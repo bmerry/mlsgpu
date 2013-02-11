@@ -113,8 +113,8 @@ public:
 void send(const Grid &grid, MPI_Comm comm, int dest);
 void recv(Grid &grid, MPI_Comm comm, int source);
 
-void send(const ChunkId &chunkId, MPI_Comm comm, int dest);
-void recv(ChunkId &chunkId, MPI_Comm comm, int source);
+void send(const ChunkIdPod &chunkId, MPI_Comm comm, int dest);
+void recv(ChunkIdPod &chunkId, MPI_Comm comm, int source);
 
 void send(const Splat *splats, std::size_t numSplats, MPI_Comm comm, int dest);
 void recv(Splat *splats, std::size_t numSplats, MPI_Comm comm, int source);

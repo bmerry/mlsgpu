@@ -14,15 +14,10 @@
 #include "tr1_cstdint.h"
 
 /**
- * Unique ID for an output file chunk. It consists of a @em generation number,
- * which is increased monotonically, and a set of @em coordinates which are used
- * to name the file.
- *
- * Comparison of generation numbers does not necessarily correspond to
- * lexicographical ordering of coordinates, but there is a one-to-one
- * relationship that is preserved across passes.
+ * Base struct for @ref ChunkId. It contains all the data fields but is POD
+ * so that @c offsetof can legally be used on it.
  */
-struct ChunkId
+struct ChunkIdPod
 {
     typedef std::tr1::uint32_t gen_type;
 
@@ -33,10 +28,23 @@ struct ChunkId
      * give the position within the grid, starting from (0,0,0).
      */
     boost::array<Grid::size_type, 3> coords;
+};
 
+/**
+ * Unique ID for an output file chunk. It consists of a @em generation number,
+ * which is increased monotonically, and a set of @em coordinates which are used
+ * to name the file.
+ *
+ * Comparison of generation numbers does not necessarily correspond to
+ * lexicographical ordering of coordinates, but there is a one-to-one
+ * relationship that is preserved across passes.
+ */
+struct ChunkId : public ChunkIdPod
+{
     /// Default constructor (does zero initialization)
-    ChunkId() : gen(0)
+    ChunkId()
     {
+        gen = 0;
         for (unsigned int i = 0; i < 3; i++)
             coords[i] = 0;
     }

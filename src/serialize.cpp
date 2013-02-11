@@ -104,14 +104,14 @@ static void registerChunkIdType()
     MPI_Aint displacements[4] =
     {
         0,
-        offsetof(ChunkId, gen),
-        offsetof(ChunkId, coords),
-        sizeof(ChunkId)
+        offsetof(ChunkIdPod, gen),
+        offsetof(ChunkIdPod, coords),
+        sizeof(ChunkIdPod)
     };
     MPI_Datatype types[4] =
     {
         MPI_LB,
-        Serialize::mpi_type_traits<ChunkId::gen_type>::type(),
+        Serialize::mpi_type_traits<ChunkIdPod::gen_type>::type(),
         Serialize::mpi_type_traits<Grid::size_type>::type(),
         MPI_UB
     };
@@ -186,12 +186,12 @@ void recv(Grid &grid, MPI_Comm comm, int source)
                 raw.extents[4], raw.extents[5]);
 }
 
-void send(const ChunkId &chunkId, MPI_Comm comm, int dest)
+void send(const ChunkIdPod &chunkId, MPI_Comm comm, int dest)
 {
-    MPI_Send(const_cast<ChunkId *>(&chunkId), 1, chunkIdType, dest, MLSGPU_TAG_WORK, comm);
+    MPI_Send(const_cast<ChunkIdPod *>(&chunkId), 1, chunkIdType, dest, MLSGPU_TAG_WORK, comm);
 }
 
-void recv(ChunkId &chunkId, MPI_Comm comm, int source)
+void recv(ChunkIdPod &chunkId, MPI_Comm comm, int source)
 {
     MPI_Recv(&chunkId, 1, chunkIdType, source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
