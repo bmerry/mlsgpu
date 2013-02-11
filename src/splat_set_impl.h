@@ -7,7 +7,10 @@
 #ifndef SPLAT_SET_IMPL_H
 #define SPLAT_SET_IMPL_H
 
-#if HAVE_XMMINTRIN_H && HAVE_EMMINTRIN_H
+/* We exclude clang/llvm because one of them doesn't take into account that
+ * _mm_setcsr shouldn't be reordered with respect to other instructions.
+ */
+#if HAVE_XMMINTRIN_H && HAVE_EMMINTRIN_H && !defined(__clang__) && !defined(__llvm__)
 # define BLOBS_USE_SSE2 1
 #else
 # define BLOBS_USE_SSE2 0
