@@ -363,9 +363,9 @@ BlobInfo FastBlobSet<Base, BlobVector>::MyBlobStream::operator*() const
     ans.firstSplat = curBlob.firstSplat;
     ans.lastSplat = curBlob.lastSplat;
     for (unsigned int i = 0; i < 3; i++)
-        ans.lower[i] = divDown(curBlob.lower[i] - offset[i], bucketRatio);
+        ans.lower[i] = bucketDivider(curBlob.lower[i] - offset[i]);
     for (unsigned int i = 0; i < 3; i++)
-        ans.upper[i] = divDown(curBlob.upper[i] - offset[i], bucketRatio);
+        ans.upper[i] = bucketDivider(curBlob.upper[i] - offset[i]);
     return ans;
 }
 
@@ -373,13 +373,14 @@ template<typename Base, typename BlobVector>
 FastBlobSet<Base, BlobVector>::MyBlobStream::MyBlobStream(
     const FastBlobSet<Base, BlobVector> &owner, const Grid &grid,
     Grid::size_type bucketSize)
-: owner(owner)
+:
+    owner(owner),
+    bucketDivider(bucketSize / owner.internalBucketSize)
 {
     MLSGPU_ASSERT(bucketSize > 0 && owner.internalBucketSize > 0
                   && bucketSize % owner.internalBucketSize == 0, std::invalid_argument);
     for (unsigned int i = 0; i < 3; i++)
         offset[i] = grid.getExtent(i).first / Grid::difference_type(owner.internalBucketSize);
-    bucketRatio = bucketSize / owner.internalBucketSize;
     nextPtr = 0;
     refill();
 }

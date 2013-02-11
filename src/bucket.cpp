@@ -290,7 +290,8 @@ BucketStateSet::BucketStateSet(
     Grid::size_type microSize,
     int macroLevels)
     : Statistics::Container::multi_array<boost::shared_ptr<BucketState>, 3>("mem.BucketStateSet", chunks),
-    chunkRatio(chunkCells / microSize)
+    chunkRatio(chunkCells / microSize),
+    chunkDivider(chunkRatio)
 {
     MLSGPU_ASSERT(chunkCells % microSize == 0, std::invalid_argument);
     boost::array<Grid::difference_type, 3> chunkCoord;

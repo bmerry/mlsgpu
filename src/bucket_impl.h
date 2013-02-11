@@ -309,7 +309,10 @@ public:
     void processBlob(const SplatSet::BlobInfo &blob, const F &func);
 
 private:
-    const Grid::difference_type chunkRatio;
+    /// Ratio between blob buckets and chunks
+    const Grid::size_type chunkRatio;
+    /// Divides by chunkRatio
+    const DownDivider chunkDivider;
 };
 
 template<typename F>
@@ -318,8 +321,8 @@ void BucketStateSet::processBlob(const SplatSet::BlobInfo &blob, const F &func)
     boost::array<Grid::difference_type, 3> chunkLower, chunkUpper;
     for (unsigned int i = 0; i < 3; i++)
     {
-        Grid::difference_type l = divDown(blob.lower[i], chunkRatio);
-        Grid::difference_type u = divDown(blob.upper[i], chunkRatio);
+        Grid::difference_type l = chunkDivider(blob.lower[i]);
+        Grid::difference_type u = chunkDivider(blob.upper[i]);
         chunkLower[i] = std::max(l, Grid::difference_type(0));
         chunkUpper[i] = std::min(u, Grid::difference_type(shape()[i] - 1));
     }

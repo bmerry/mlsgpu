@@ -707,8 +707,11 @@ public:
 
     private:
         const FastBlobSet<Base, BlobVector> &owner;
-        /// The stream blob size over the blob size used to construct the blob data
-        Grid::size_type bucketRatio;
+        /**
+         * Divides by the ratio between the stream blob size and the blob size
+         * used to construct the blob data.
+         */
+        DownDivider bucketDivider;
         /**
          * Offset between the stream grid and the grid used to construct the
          * blob data, in units of @a owner.internalBucketSize.
