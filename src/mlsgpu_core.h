@@ -64,6 +64,7 @@ namespace Option
     const char * const deviceThreads = "device-threads";
     const char * const reader = "reader";
     const char * const writer = "writer";
+    const char * const ompThreads = "omp-threads";
     const char * const decache = "decache";
 
     const char * const memLoadSplats = "mem-load-splats";

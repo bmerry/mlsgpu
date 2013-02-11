@@ -19,6 +19,7 @@
 #include <boost/system/error_code.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/ref.hpp>
+#include <boost/thread/thread.hpp>
 #include <memory>
 #include <string>
 #include <iterator>
@@ -94,6 +95,9 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
         (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
         (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)")
+#ifdef _OPENMP
+        (Option::ompThreads,   po::value<int>(), "Number of threads for OpenMP")
+#endif
         (Option::decache,      "Try to evict input files from OS cache for benchmarking");
     opts.add(advanced);
 }
@@ -205,6 +209,20 @@ po::variables_map processOptions(int argc, char **argv, bool isMPI)
         {
             setTmpFileDir(vm[Option::tmpDir].as<boost::filesystem::path::string_type>());
         }
+
+#ifdef _OPENMP
+        int ompThreads;
+        if (vm.count(Option::ompThreads))
+            ompThreads = vm[Option::ompThreads].as<int>();
+        else
+        {
+            // Subtract one to avoid starving reader/writer threads
+            ompThreads = boost::thread::hardware_concurrency() - 1;
+        }
+        if (ompThreads <= 0)
+            ompThreads = 1;
+        omp_set_num_threads(ompThreads);
+#endif
 
         return vm;
     }
