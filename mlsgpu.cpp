@@ -23,7 +23,6 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
-#include <stxxl.h>
 #include "src/misc.h"
 #include "src/clh.h"
 #include "src/logging.h"
@@ -64,7 +63,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                  const std::string &out,
                  const po::variables_map &vm)
 {
-    typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
+    typedef SplatSet::FastBlobSet<SplatSet::FileSet> Splats;
 
     const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
@@ -89,7 +88,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 makeOutputGenerator(mesherGroup));
             BucketCollector collector(maxLoadSplats, boost::ref(*slaveWorkers.loader));
 
-            Splats splats("mem.blobData");
+            Splats splats;
             Grid grid;
             unsigned int chunkCells;
             prepareGrid(mainWorker, vm, splats, grid, chunkCells);

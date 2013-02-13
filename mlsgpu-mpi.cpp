@@ -26,7 +26,6 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
-#include <stxxl.h>
 #include <mpi.h>
 #include "src/misc.h"
 #include "src/clh.h"
@@ -347,7 +346,7 @@ static void run(
 
     if (rank == root)
     {
-        typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > Splats;
+        typedef SplatSet::FastBlobSet<SplatSet::FileSet> Splats;
 
         const int numSlaves = accumulate(slaveMask.begin(), slaveMask.end(), 0);
 
@@ -373,7 +372,7 @@ static void run(
                 Scatter scatter(scatterComm, mainWorker);
                 BucketCollector collector(maxLoadSplats, scatter);
 
-                Splats splats("mem.blobData");
+                Splats splats;
                 Grid grid;
                 unsigned int chunkCells;
                 prepareGrid(mainWorker, vm, splats, grid, chunkCells);

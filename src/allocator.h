@@ -14,7 +14,7 @@
 #include <new>
 #include <vector>
 #include <string>
-#include <stxxl.h>
+#include <list>
 #include <boost/multi_array.hpp>
 #include "tr1_unordered_map.h"
 #include "tr1_unordered_set.h"
@@ -328,33 +328,6 @@ public:
                 const ExtentList &sizes,
                 const typename BaseType::storage_order_type &store = boost::c_storage_order())
         : BaseType(sizes, store, makeAllocator<Alloc>(allocName)) {}
-};
-
-template<
-    typename Tp_,
-    unsigned int PgSz_ = 4,
-    typename PgTp_ = stxxl::lru_pager<8>,
-    unsigned BlkSize_ = STXXL_DEFAULT_BLOCK_SIZE(Tp_),
-    typename AllocStr_ = STXXL_DEFAULT_ALLOC_STRATEGY,
-    typename SzTp_ = stxxl::uint64,
-    typename Alloc = Allocator<std::allocator<Tp_> > >
-class stxxl_vector : public stxxl::vector<Tp_, PgSz_, PgTp_, BlkSize_, AllocStr_, SzTp_>
-{
-private:
-    typedef stxxl::vector<Tp_, PgSz_, PgTp_, BlkSize_, AllocStr_, SzTp_> BaseType;
-    Alloc alloc;
-
-public:
-    explicit stxxl_vector(const std::string &allocName)
-        : BaseType(), alloc(makeAllocator<Alloc>(allocName)) 
-    {
-        alloc.recordAllocate(PgSz_ * BlkSize_ * PgTp_::n_pages);
-    }
-
-    ~stxxl_vector()
-    {
-        alloc.recordDeallocate(PgSz_ * BlkSize_ * PgTp_::n_pages);
-    }
 };
 
 } // namespace Container

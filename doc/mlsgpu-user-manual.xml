@@ -75,8 +75,6 @@
                     </itemizedlist>
                 </listitem>
                 <listitem><para><ulink
-                            url="http://stxxl.sourceforge.net/">STXXL</ulink> 1.3.1</para></listitem>
-                <listitem><para><ulink
                             url="http://clogs.sourceforge.net/">clogs</ulink> 1.0.2</para></listitem>
                 <listitem><para><ulink
                             url="http://www.stack.nl/~dimitri/doxygen/">Doxygen</ulink> 1.7.4</para></listitem>
@@ -121,7 +119,6 @@ libboost-math-dev
 libboost-program-options-dev
 libboost-thread-dev
 libcppunit-dev
-libstxxl-dev
 g++
 libgl1-mesa-dev</screen>
         </section>
@@ -154,20 +151,6 @@ libgl1-mesa-dev</screen>
             <para>
                 Once configuration is complete, running
                 <userinput>./waf</userinput> will perform the compilation.
-            </para>
-        </section>
-        <section id="installation.stxxl">
-            <title>Configuring STXXL</title>
-            <para>
-                STXXL is a library that manages large data sets by using
-                temporary storage on disk. At present only a relatively small
-                amount of data is managed with STXXL, and its default
-                configuration may suffice. Nevertheless, you may need to or
-                wish to configure it manually.
-                See the <ulink
-                    url="http://algo2.iti.kit.edu/stxxl/tags/1.3.1/installation_linux_gcc.html">STXXL
-                    documentation</ulink> for instructions on configuring
-                STXXL's on-disk storage.
             </para>
         </section>
         <section id="installation.install">
@@ -303,7 +286,8 @@ libgl1-mesa-dev</screen>
                 <para>
                     The temporary files are deleted at the end of a successful
                     run, but if the program crashes or is killed, the
-                    temporary files will remain on disk.
+                    temporary files will remain on disk and need to be manually
+                    removed to recover the space.
                 </para>
             </section>
             <section id="running.commandline.response">

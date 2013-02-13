@@ -256,7 +256,7 @@ private:
         std::vector<Splat> splats;
     };
 
-    typedef SplatSet::FastBlobSet<SplatSet::VectorsSet, std::vector<SplatSet::BlobData> > Splats;
+    typedef SplatSet::FastBlobSet<SplatSet::VectorsSet> Splats;
     Splats splats;
 
     void setupSimple();

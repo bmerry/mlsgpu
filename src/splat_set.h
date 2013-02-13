@@ -29,6 +29,8 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/optional.hpp>
+#include <boost/filesystem/path.hpp>
+#include <boost/filesystem/fstream.hpp>
 #include "grid.h"
 #include "misc.h"
 #include "splat.h"
@@ -614,13 +616,6 @@ private:
 };
 
 /**
- * Internal data stored in @ref FastBlobSet. This class is not accessed
- * directly by the user, but is in the namespace so that the user can generate
- * the type for the second template parameter to @ref FastBlobSet.
- */
-typedef std::tr1::uint32_t BlobData;
-
-/**
  * Subsettable splat set with accelerated blob interface. This class takes a
  * model of the blobbed interface and extends it by precomputing information
  * about splats for a specific bucket size so that iteration using that bucket
@@ -679,7 +674,7 @@ typedef std::tr1::uint32_t BlobData;
  *
  * @param Base A model of @ref SubsettableConcept.
  */
-template<typename Base, typename BlobVector>
+template<typename Base>
 class FastBlobSet : public Base
 #ifdef DOXYGEN_FAKE_CODE
 , public SubsettableConcept
@@ -702,11 +697,11 @@ public:
             return curBlob.firstSplat > curBlob.lastSplat;
         }
 
-        MyBlobStream(const FastBlobSet<Base, BlobVector> &owner, const Grid &grid,
+        MyBlobStream(const FastBlobSet<Base> &owner, const Grid &grid,
                      Grid::size_type bucketSize);
 
     private:
-        const FastBlobSet<Base, BlobVector> &owner;
+        const FastBlobSet<Base> &owner;
         /**
          * Divides by the ratio between the stream blob size and the blob size
          * used to construct the blob data.
@@ -717,8 +712,8 @@ public:
          * blob data, in units of @a owner.internalBucketSize.
          */
         Grid::difference_type offset[3];
-        /// Index into owner's blobData for the blob after curInfo is extracted
-        typename BlobVector::size_type nextPtr;
+        /// Number of blobs still in the iostream
+        std::tr1::uint64_t remaining;
         /**
          * A blob to return from operator*, but prior to adjustment for @ref
          * offset and @ref bucketRatio. It is also the base for differential
@@ -727,17 +722,19 @@ public:
          * In the special case firstSplat > lastSplat, the stream is empty.
          */
         BlobInfo curBlob;
+        /// Input stream over the blob file
+        boost::filesystem::ifstream stream;
 
         void refill(); ///< Load curBlob from the stream
     };
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
+    /// Remove the temporary file holding the blobs, if set
+    void eraseBlobFile();
+
     FastBlobSet();
     ~FastBlobSet();
-
-    template<typename T>
-    explicit FastBlobSet(const T &blobVectorArg);
 
     /**
      * Generate the internal acceleration structures and compute bounding box.
@@ -777,6 +774,11 @@ public:
 
 private:
     /**
+     * Internal data stored in @ref FastBlobSet.
+     */
+    typedef std::tr1::uint32_t BlobData;
+
+    /**
      * The bucket size used to generate the blob data. It is initially zero
      * when the class is constructed, and is populated by @ref computeBlobs.
      */
@@ -786,10 +788,14 @@ private:
      */
     Grid boundingGrid;
     /**
-     * Blob metadata computed by @ref computeBlobs. It is initially empty.
+     * File holding the blobs. This is initially an empty string.
+     * The file is deleted by the destructor.
      */
-    BlobVector blobData;
-    std::size_t nSplats;  ///< Exact splat count computed during blob generation
+    boost::filesystem::path blobPath;
+
+    std::tr1::uint64_t nBlobs; ///< Number of blobs generated
+
+    splat_id nSplats;  ///< Exact splat count computed during blob generation
 
     /**
      * Determines whether the given @a grid and @a bucketSize can use the

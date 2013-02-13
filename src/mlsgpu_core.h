@@ -139,7 +139,7 @@ void prepareInputs(SplatSet::FileSet &files, const boost::program_options::varia
  */
 void reportException(std::exception &e);
 
-typedef SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > BlobSplats;
+typedef SplatSet::FastBlobSet<SplatSet::FileSet> BlobSplats;
 
 /**
  * Load the inputs and compute the bounding box and chunk size.

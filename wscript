@@ -131,27 +131,6 @@ def configure_variant_msvc(conf):
     # Wall is not enable since boost vomits up zillions of warnings
     ccflags = ['/W1', '/EHsc', '/MD']
 
-    # For STXXL
-    conf.env.append_value('CXXFLAGS_STXXL', [
-        '/EHs',
-        '/F', '16777216',
-        '/wd4820', '/wd4217', '/wd4668', '/wd4619',
-        '/wd4625', '/wd4626', '/wd4355', '/wd4996'])
-    conf.env.append_value('DEFINES_STXXL', [
-        '_SCL_SECURE_NO_DEPRECATE',
-        '_FILE_OFFSET_BITS=64',
-        '_LARGEFILE_SOURCE',
-        '_LARGEFILE64_SOURCE',
-        '_RTLDLL',
-        'BOOST_LIB_DIAGNOSTIC',
-        'STXXL_BOOST_TIMESTAMP',
-        'STXXL_BOOST_CONFIG',
-        'STXXL_BOOST_FILESYSTEM',
-        'STXXL_BOOST_THREADS',
-        'STXXL_BOOST_RANDOM'])
-    conf.env.append_value('LINKFLAGS_STXXL', '/STACK:16777216')
-    conf.env['LIB_STXXL'] = 'libstxxl'
-
     # Autolinked, so no need to detect or link
     conf.env['LIB_BOOST'] = []
     conf.env['LIB_BOOST_MATH'] = []
@@ -188,7 +167,6 @@ def configure(conf):
     configure_variant(conf)
 
     # Defaults that may be overridden per compiler
-    conf.env['LIB_STXXL'] = 'stxxl'
     conf.env['LIB_BOOST_MATH'] = [
         'boost_math_c99-mt',
         'boost_math_c99f-mt']
@@ -240,11 +218,6 @@ def configure(conf):
         use = 'OPENCL',
         uselib_store = 'CLOGS',
         msg = 'Checking for clogs')
-    conf.check_cxx(
-        features = ['cxx', 'cxxprogram'],
-        header_name = 'stxxl.h',
-        use = 'STXXL',
-        msg = 'Checking for STXXL')
 
     conf.env['extras'] = conf.options.enable_extras
 
@@ -391,7 +364,6 @@ def build(bld):
             'src/statistics.cpp',
             'src/splat.cpp',
             'src/splat_set.cpp',
-            'src/stxxl_log.cpp',
             'src/thread_name.cpp',
             'src/timeplot.cpp',
             'src/timer.cpp']
@@ -421,13 +393,13 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = core_sources,
             target = 'mls_core',
-            use = 'STXXL TIMER BOOST splat_set_sse',
+            use = 'TIMER BOOST splat_set_sse',
             name = 'libmls_core')
     bld(
             features = ['cxx', 'cxxstlib'],
             source = cl_sources,
             target = 'mls_cl',
-            use = 'OPENCL CLOGS STXXL BOOST libmls_core',
+            use = 'OPENCL CLOGS BOOST libmls_core',
             name = 'libmls_cl')
     bld.program(
             source = 'mlsgpu.cpp',

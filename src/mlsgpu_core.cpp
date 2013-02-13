@@ -31,7 +31,6 @@
 #include <cstdlib>
 #include <cassert>
 #include <limits>
-#include <stxxl.h>
 #include "mlsgpu_core.h"
 #include "options.h"
 #include "mls.h"
@@ -319,7 +318,6 @@ void writeStatistics(const po::variables_map &vm, bool force)
                 out->precision(15);
                 *out << Statistics::Registry::getInstance();
             }
-            *out << *stxxl::stats::get_instance();
         }
         catch (std::ios::failure &e)
         {
@@ -567,7 +565,7 @@ void reportException(std::exception &e)
 void prepareGrid(
     Timeplot::Worker &tworker,
     const po::variables_map &vm,
-    SplatSet::FastBlobSet<SplatSet::FileSet, Statistics::Container::stxxl_vector<SplatSet::BlobData> > &splats,
+    SplatSet::FastBlobSet<SplatSet::FileSet> &splats,
     Grid &grid,
     unsigned int &chunkCells)
 {

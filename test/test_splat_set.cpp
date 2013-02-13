@@ -409,9 +409,9 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSequenceSet, TestSet::perBuild());
 
 /// Tests for @ref SplatSet::FastBlobSet.
 template<typename BaseType>
-class TestFastBlobSet : public TestSplatSubsettable<FastBlobSet<BaseType, Statistics::Container::vector<BlobData> > >
+class TestFastBlobSet : public TestSplatSubsettable<FastBlobSet<BaseType> >
 {
-    typedef TestSplatSubsettable<FastBlobSet<BaseType, Statistics::Container::vector<BlobData> > > BaseFixture;
+    typedef TestSplatSubsettable<FastBlobSet<BaseType> > BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestFastBlobSet<BaseType>, BaseFixture);
     CPPUNIT_TEST(testBoundingGrid);
     CPPUNIT_TEST(testAddBlob);
@@ -482,10 +482,10 @@ public:
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMerge, TestSet::perBuild());
 
 /// Tests for @ref SplatSet::Subset
-class TestSubset : public TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > >
+class TestSubset : public TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *> > > >
 {
-    typedef FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > Super;
-    typedef TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > > BaseFixture;
+    typedef FastBlobSet<SequenceSet<const Splat *> > Super;
+    typedef TestSplatSet<Subset<FastBlobSet<SequenceSet<const Splat *> > > > BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestSubset, BaseFixture);
     CPPUNIT_TEST_SUITE_END();
 private:
@@ -893,7 +893,7 @@ void TestFastBlobSet<BaseType>::testBoundingGrid()
 template<typename BaseType>
 void TestFastBlobSet<BaseType>::testAddBlob()
 {
-    Statistics::Container::vector<BlobData> blobData("mem.test.blobData");
+    Statistics::Container::vector<typename FastBlobSet<BaseType>::BlobData> blobData("mem.test.blobData");
     BlobInfo prevBlob, curBlob;
 
     // Full encoding
@@ -935,8 +935,14 @@ void TestFastBlobSet<BaseType>::testAddBlob()
     CPPUNIT_ASSERT_EQUAL(UINT32_C(0xFFFFFF3C), blobData[10]);
 
     // Make sure the decoding works
-    Set set("mem.test.blobData");
-    set.blobData = blobData;
+    Set set;
+    {
+        boost::filesystem::ofstream out;
+        createTmpFile(set.blobPath, out);
+        out.exceptions(std::ios::failbit | std::ios::badbit);
+        out.write(reinterpret_cast<const char *>(&blobData[0]), blobData.size() * sizeof(blobData[0]));
+    }
+    set.nBlobs = 2;
     set.internalBucketSize = 1;
 
     BlobInfo blob;
@@ -952,13 +958,13 @@ void TestFastBlobSet<BaseType>::testAddBlob()
     CPPUNIT_ASSERT(stream->empty());
 }
 
-FastBlobSet<FileSet, Statistics::Container::vector<BlobData> > *TestFastFileSet::setFactory(
+FastBlobSet<FileSet> *TestFastFileSet::setFactory(
     const std::vector<std::vector<Splat> > &splatData,
     float spacing, Grid::size_type bucketSize)
 {
     if (splatData.empty())
         return NULL; // otherwise computeBlobs will throw
-    std::auto_ptr<Set> set(new Set("mem.test.blobData"));
+    std::auto_ptr<Set> set(new Set);
     TestFileSet::populate(*set, splatData, store);
     set->computeBlobs(spacing, bucketSize, NULL, false);
     return set.release();
@@ -966,13 +972,13 @@ FastBlobSet<FileSet, Statistics::Container::vector<BlobData> > *TestFastFileSet:
 
 void TestFastFileSet::testEmpty()
 {
-    boost::scoped_ptr<Set> set(new Set("mem.test.blobData"));
+    boost::scoped_ptr<Set> set(new Set);
     CPPUNIT_ASSERT_THROW(set->computeBlobs(2.5f, 5, NULL, false), std::runtime_error);
 }
 
 void TestFastFileSet::testProgress()
 {
-    boost::scoped_ptr<Set> set(new Set("mem.test.blobData"));
+    boost::scoped_ptr<Set> set(new Set);
     TestFileSet::populate(*set, splatData, store);
 
     boost::iostreams::null_sink nullSink;
@@ -980,19 +986,19 @@ void TestFastFileSet::testProgress()
     set->computeBlobs(2.5f, 5, &nullStream, false);
 }
 
-FastBlobSet<SequenceSet<const Splat *>, Statistics::Container::vector<BlobData> > *TestFastSequenceSet::setFactory(
+FastBlobSet<SequenceSet<const Splat *> > *TestFastSequenceSet::setFactory(
     const std::vector<std::vector<Splat> > &splatData,
     float spacing, Grid::size_type bucketSize)
 {
     if (splatData.empty())
         return NULL;
-    std::auto_ptr<Set> set(new Set("mem.test.blobData"));
+    std::auto_ptr<Set> set(new Set);
     TestSequenceSet::populate(*set, splatData, store);
     set->computeBlobs(spacing, bucketSize, NULL, false);
     return set.release();
 }
 
-Subset<FastBlobSet<SequenceSet<const Splat *>, std::vector<BlobData> > > *
+Subset<FastBlobSet<SequenceSet<const Splat *> > > *
 TestSubset::setFactory(const std::vector<std::vector<Splat> > &splatData,
                        float spacing, Grid::size_type bucketSize)
 {
