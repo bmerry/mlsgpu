@@ -607,11 +607,6 @@ void FastBlobSet<Base>::computeBlobs(
     boost::filesystem::ofstream out;
     createTmpFile(blobPath, out);
     out.exceptions(std::ios::failbit | std::ios::badbit);
-    // GCC defaults to quite a small internal buffer. Give it a bigger one
-    Statistics::Container::PODBuffer<char> ioBuffer("mem.blob.ioBuffer");
-    const std::size_t ioBufferSize = 8 * 1024 * 1024;
-    ioBuffer.reserve(ioBufferSize);
-    out.rdbuf()->pubsetbuf(&ioBuffer[0], ioBufferSize);
 
     internalBucketSize = bucketSize;
 
