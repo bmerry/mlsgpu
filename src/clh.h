@@ -26,6 +26,12 @@ namespace Statistics
 namespace CLH
 {
 
+#if HAVE_CL_LOCAL
+#define CLH_LOCAL(arg) (cl::Local(arg))
+#else
+#define CLH_LOCAL(arg) (cl::__local(arg))
+#endif
+
 /**
  * Exception thrown when an OpenCL device cannot be used.
  */

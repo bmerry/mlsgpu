@@ -222,6 +222,8 @@ def configure(conf):
                 features = ['cxx', 'cxxprogram'],
                 header_name = 'cppunit/Test.h', lib = ['cppunit', 'dl'], uselib_store = 'CPPUNIT',
                 msg = 'Checking for cppunit')
+
+    conf.define('CL_USE_DEPRECATED_OPENCL_1_1_APIS', 1, quote = False)
     if conf.options.cl_headers:
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     else:
@@ -323,6 +325,15 @@ int main() {
             defines = ['_POSIX_C_SOURCE=200809L'],
             msg = 'Checking for ' + f,
             mandatory = False)
+
+    conf.check_cxx(fragment = '''
+#include <CL/cl.hpp>
+
+static int dummy = sizeof(cl::Local);
+''',
+        features = ['cxx'], msg = 'Checking for cl::Local',
+        define = 'HAVE_CL_LOCAL',
+        mandatory = False)
 
     for l in conf.env['LIB_BOOST'] + conf.env['LIB_BOOST_TEST']:
         conf.check_cxx(lib = l)

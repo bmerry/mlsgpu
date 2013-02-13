@@ -755,7 +755,7 @@ void Marching::generate(
 
     generateElementsKernel.setArg(9, swathe.zStride);
     generateElementsKernel.setArg(11, keyOffset);
-    generateElementsKernel.setArg(13, cl::__local(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
+    generateElementsKernel.setArg(13, CLH_LOCAL(NUM_EDGES * wgsCompacted * sizeof(cl_float3)));
 
     Grid::size_type shipOuts = 0;
     for (Grid::size_type z = 0; z < depth; z += maxSwathe)
