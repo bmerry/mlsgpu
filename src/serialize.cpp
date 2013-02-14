@@ -13,6 +13,7 @@
 #endif
 #include <mpi.h>
 #include <cassert>
+#include <boost/filesystem/path.hpp>
 #include "grid.h"
 #include "bucket.h"
 #include "tags.h"
@@ -160,6 +161,25 @@ public:
     static void send(const SplatSet::SubsetBase &subset, MPI_Comm comm, int dest);
     static void recv(SplatSet::SubsetBase &subset, MPI_Comm comm, int source);
 };
+
+void send(const boost::filesystem::path &path, MPI_Comm comm, int dest)
+{
+    std::size_t length = path.native().size();
+    MPI_Send(&length, 1, mpi_type_traits<std::size_t>::type(), dest, MLSGPU_TAG_WORK, comm);
+    MPI_Send((void *) path.c_str(), length, mpi_type_traits<boost::filesystem::path::value_type>::type(),
+             dest, MLSGPU_TAG_WORK, comm);
+}
+
+void recv(boost::filesystem::path &path, MPI_Comm comm, int source)
+{
+    std::size_t length;
+    MPI_Recv(&length, 1, mpi_type_traits<std::size_t>::type(),
+             source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+    std::vector<boost::filesystem::path::value_type> chars(length);
+    MPI_Recv(&chars[0], length, mpi_type_traits<boost::filesystem::path::value_type>::type(),
+             source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+    path = chars;
+}
 
 void send(const Grid &grid, MPI_Comm comm, int dest)
 {

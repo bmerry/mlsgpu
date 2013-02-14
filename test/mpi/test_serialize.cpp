@@ -39,6 +39,7 @@
 class TestSerialize : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSerialize);
+    SERIALIZE_TEST(testPath);
     SERIALIZE_TEST(testGrid);
     SERIALIZE_TEST(testChunkId);
     SERIALIZE_TEST(testSubset);
@@ -53,6 +54,8 @@ private:
         void (TestSerialize::* sender)(MPI_Comm, int),
         void (TestSerialize::* receiver)(MPI_Comm, int));
 
+    void testPathSend(MPI_Comm comm, int dest);
+    void testPathRecv(MPI_Comm comm, int source);
     void testGridSend(MPI_Comm comm, int dest);
     void testGridRecv(MPI_Comm comm, int source);
     void testChunkIdSend(MPI_Comm comm, int dest);
@@ -74,6 +77,19 @@ void TestSerialize::serializeTest(
         (this->*sender)(MPI_COMM_WORLD, 0);
     else if (rank == 0)
         (this->*receiver)(MPI_COMM_WORLD, 1);
+}
+
+void TestSerialize::testPathSend(MPI_Comm comm, int dest)
+{
+    const boost::filesystem::path path("hello.txt");
+    Serialize::send(path, comm, dest);
+}
+
+void TestSerialize::testPathRecv(MPI_Comm comm, int source)
+{
+    boost::filesystem::path path;
+    Serialize::recv(path, comm, source);
+    CPPUNIT_ASSERT_EQUAL(path.string(), std::string("hello.txt"));
 }
 
 void TestSerialize::testGridSend(MPI_Comm comm, int dest)

@@ -39,9 +39,9 @@ public:
         return total;
     }
 
-    SplatStream *makeSplatStream() const
+    SplatStream *makeSplatStream(bool useOMP = true) const
     {
-        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1, useOMP);
     }
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const
@@ -50,8 +50,9 @@ public:
     }
 
     template<typename RangeIterator>
-    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange, bool useOMP = false) const
     {
+        (void) useOMP;
         return new MySplatStream<RangeIterator>(*this, firstRange, lastRange);
     }
 

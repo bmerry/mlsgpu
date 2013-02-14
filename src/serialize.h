@@ -10,6 +10,7 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+#include <boost/filesystem/path.hpp>
 #include <mpi.h>
 #include "bucket_collector.h"
 
@@ -109,6 +110,23 @@ class mpi_type_traits<double>
 public:
     static MPI_Datatype type() { return MPI_DOUBLE; }
 };
+
+template<>
+class mpi_type_traits<char>
+{
+public:
+    static MPI_Datatype type() { return MPI_CHAR; }
+};
+
+template<>
+class mpi_type_traits<wchar_t>
+{
+public:
+    static MPI_Datatype type() { return MPI_WCHAR; }
+};
+
+void send(const boost::filesystem::path &path, MPI_Comm comm, int dest);
+void recv(boost::filesystem::path &path, MPI_Comm comm, int source);
 
 void send(const Grid &grid, MPI_Comm comm, int dest);
 void recv(Grid &grid, MPI_Comm comm, int source);

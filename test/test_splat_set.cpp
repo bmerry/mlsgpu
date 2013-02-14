@@ -936,13 +936,14 @@ void TestFastBlobSet<BaseType>::testAddBlob()
 
     // Make sure the decoding works
     Set set;
+    set.blobFiles.push_back(typename FastBlobSet<BaseType>::BlobFile());
     {
         boost::filesystem::ofstream out;
-        createTmpFile(set.blobPath, out);
+        createTmpFile(set.blobFiles[0].path, out);
         out.exceptions(std::ios::failbit | std::ios::badbit);
         out.write(reinterpret_cast<const char *>(&blobData[0]), blobData.size() * sizeof(blobData[0]));
     }
-    set.nBlobs = 2;
+    set.blobFiles[0].nBlobs = 2;
     set.internalBucketSize = 1;
 
     BlobInfo blob;
