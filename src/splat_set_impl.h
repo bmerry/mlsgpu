@@ -37,6 +37,7 @@
 #include <boost/smart_ptr/make_shared.hpp>
 #include <boost/next_prior.hpp>
 #include <boost/exception/all.hpp>
+#include <boost/foreach.hpp>
 #include "allocator.h"
 #include "errors.h"
 #include "splat_set.h"
@@ -320,53 +321,66 @@ BlobStream &FastBlobSet<Base>::MyBlobStream::operator++()
 template<typename Base>
 void FastBlobSet<Base>::MyBlobStream::refill()
 {
-    if (remaining == 0)
+    while (remaining == 0)
     {
-        curBlob.firstSplat = 1;
-        curBlob.lastSplat = 0;
+        if (stream.is_open())
+        {
+            stream.close();
+            curFile++;
+        }
+        if (curFile >= owner.blobFiles.size())
+        {
+            curBlob.firstSplat = 1;
+            curBlob.lastSplat = 0;
+            return;
+        }
+        else
+        {
+            stream.open(owner.blobFiles[curFile].path, std::ios::binary);
+            stream.exceptions(std::ios::failbit | std::ios::badbit);
+            remaining = owner.blobFiles[curFile].nBlobs;
+        }
     }
-    else
+
+    try
     {
-        try
+        std::tr1::uint32_t data;
+        stream.read(reinterpret_cast<char *>(&data), sizeof(data));
+        if (data & UINT32_C(0x80000000))
         {
-            std::tr1::uint32_t data;
-            stream.read(reinterpret_cast<char *>(&data), sizeof(data));
-            if (data & UINT32_C(0x80000000))
+            // Differential record
+            for (unsigned int i = 0; i < 3; i++)
             {
-                // Differential record
-                for (unsigned int i = 0; i < 3; i++)
-                {
-                    curBlob.lower[i] = curBlob.upper[i] + extractSigned(data, i * 4, i * 4 + 3);
-                    curBlob.upper[i] = curBlob.lower[i] + extractUnsigned(data, i * 4 + 3, i * 4 + 4);
-                }
-                curBlob.firstSplat = curBlob.lastSplat;
-                curBlob.lastSplat = curBlob.firstSplat + extractUnsigned(data, 12, 31);
+                curBlob.lower[i] = curBlob.upper[i] + extractSigned(data, i * 4, i * 4 + 3);
+                curBlob.upper[i] = curBlob.lower[i] + extractUnsigned(data, i * 4 + 3, i * 4 + 4);
             }
-            else
-            {
-                // Full record
-                std::tr1::uint32_t buffer[9];
-                stream.read(reinterpret_cast<char *>(&buffer), sizeof(buffer));
-                std::tr1::uint64_t firstHi = data;
-                std::tr1::uint64_t firstLo = buffer[0];
-                std::tr1::uint64_t lastHi = buffer[1];
-                std::tr1::uint64_t lastLo = buffer[2];
-                curBlob.firstSplat = (firstHi << 32) | firstLo;
-                curBlob.lastSplat = (lastHi << 32) | lastLo;
-                for (unsigned int i = 0; i < 3; i++)
-                {
-                    curBlob.lower[i] = static_cast<std::tr1::int32_t>(buffer[3 + 2 * i]);
-                    curBlob.upper[i] = static_cast<std::tr1::int32_t>(buffer[4 + 2 * i]);
-                }
-            }
-            remaining--;
+            curBlob.firstSplat = curBlob.lastSplat;
+            curBlob.lastSplat = curBlob.firstSplat + extractUnsigned(data, 12, 31);
         }
-        catch (std::ios::failure &e)
+        else
         {
-            throw boost::enable_error_info(e)
-                << boost::errinfo_errno(errno)
-                << boost::errinfo_file_name(owner.blobPath.string());
+            // Full record
+            std::tr1::uint32_t buffer[9];
+            stream.read(reinterpret_cast<char *>(&buffer), sizeof(buffer));
+            std::tr1::uint64_t firstHi = data;
+            std::tr1::uint64_t firstLo = buffer[0];
+            std::tr1::uint64_t lastHi = buffer[1];
+            std::tr1::uint64_t lastLo = buffer[2];
+            curBlob.firstSplat = (firstHi << 32) | firstLo;
+            curBlob.lastSplat = (lastHi << 32) | lastLo;
+            for (unsigned int i = 0; i < 3; i++)
+            {
+                curBlob.lower[i] = static_cast<std::tr1::int32_t>(buffer[3 + 2 * i]);
+                curBlob.upper[i] = static_cast<std::tr1::int32_t>(buffer[4 + 2 * i]);
+            }
         }
+        remaining--;
+    }
+    catch (std::ios::failure &e)
+    {
+        throw boost::enable_error_info(e)
+            << boost::errinfo_errno(errno)
+            << boost::errinfo_file_name(owner.blobFiles[curFile].path.string());
     }
 }
 
@@ -385,6 +399,7 @@ BlobInfo FastBlobSet<Base>::MyBlobStream::operator*() const
     return ans;
 }
 
+
 template<typename Base>
 FastBlobSet<Base>::MyBlobStream::MyBlobStream(
     const FastBlobSet<Base> &owner, const Grid &grid,
@@ -392,41 +407,42 @@ FastBlobSet<Base>::MyBlobStream::MyBlobStream(
 :
     owner(owner),
     bucketDivider(bucketSize / owner.internalBucketSize),
-    stream(owner.blobPath, std::ios::binary)
+    remaining(0),
+    curFile(0)
 {
     MLSGPU_ASSERT(bucketSize > 0 && owner.internalBucketSize > 0
                   && bucketSize % owner.internalBucketSize == 0, std::invalid_argument);
     for (unsigned int i = 0; i < 3; i++)
         offset[i] = grid.getExtent(i).first / Grid::difference_type(owner.internalBucketSize);
-    remaining = owner.nBlobs;
-    stream.exceptions(std::ios::failbit | std::ios::badbit);
     refill();
 }
 
 template<typename Base>
 FastBlobSet<Base>::FastBlobSet()
-: Base(), internalBucketSize(0), nBlobs(0), nSplats(0)
+: Base(), internalBucketSize(0), nSplats(0)
 {
 }
 
 template<typename Base>
-void FastBlobSet<Base>::eraseBlobFile()
+void FastBlobSet<Base>::eraseBlobFiles()
 {
-    if (!blobPath.empty())
+    BOOST_FOREACH(const BlobFile &bf, blobFiles)
     {
-        boost::system::error_code ec;
-        remove(blobPath, ec);
-        if (ec)
-            Log::log[Log::warn] << "Could not delete " << blobPath.string() << ": " << ec.message() << std::endl;
+        if (!bf.path.empty())
+        {
+            boost::system::error_code ec;
+            remove(bf.path, ec);
+            if (ec)
+                Log::log[Log::warn] << "Could not delete " << bf.path.string() << ": " << ec.message() << std::endl;
+        }
     }
-    blobPath = "";
-    nBlobs = 0;
+    blobFiles.clear();
 }
 
 template<typename Base>
 FastBlobSet<Base>::~FastBlobSet()
 {
-    eraseBlobFile();
+    eraseBlobFiles();
 }
 
 template<typename Base>
@@ -595,46 +611,28 @@ void FastBlobSet<Base>::addBlob(Statistics::Container::vector<BlobData> &blobDat
 }
 
 template<typename Base>
-void FastBlobSet<Base>::computeBlobs(
-    const float spacing, const Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
+void FastBlobSet<Base>::computeBlobsRange(
+    splat_id first, splat_id last,
+    const detail::SplatToBuckets &toBuckets,
+    detail::Bbox &bbox, BlobFile &bf, splat_id &nSplats,
+    ProgressMeter *progress)
 {
-    const float ref[3] = {0.0f, 0.0f, 0.0f};
-
-    MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    eraseBlobFile();
-    boost::filesystem::ofstream out;
-    createTmpFile(blobPath, out);
-    out.exceptions(std::ios::failbit | std::ios::badbit);
+    std::pair<splat_id, splat_id> ranges(first, last);
 
-    internalBucketSize = bucketSize;
-
-    // Reference point will be 0,0,0. Extents are set after reading all the splats.
-    boundingGrid.setSpacing(spacing);
-    boundingGrid.setReference(ref);
-    for (unsigned int i = 0; i < 3; i++)
-        boundingGrid.setExtent(i, 0, 1);
-
-    boost::scoped_ptr<ProgressDisplay> progress;
-    if (progressStream != NULL)
-    {
-        *progressStream << "Computing bounding box\n";
-        progress.reset(new ProgressDisplay(Base::maxSplats(), *progressStream));
-    }
-
-    detail::Bbox bbox;
-
-    boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream());
+    bbox = detail::Bbox();
     nSplats = 0;
+    bf.nBlobs = 0;
+    boost::filesystem::ofstream out;
+    createTmpFile(bf.path, out);
+    out.exceptions(std::ios::failbit | std::ios::badbit);
 
     static const std::size_t BUFFER_SIZE = 64 * 1024;
     Statistics::Container::vector<Splat> buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
     Statistics::Container::vector<splat_id> bufferIds("mem.computeBlobs.buffer", BUFFER_SIZE);
 
-    nBlobs = 0;
-    const detail::SplatToBuckets toBuckets(spacing, bucketSize);
-
+    boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream(&ranges, &ranges + 1, true));
     while (true)
     {
         const std::size_t nBuffer = splats->read(&buffer[0], &bufferIds[0], BUFFER_SIZE);
@@ -642,7 +640,7 @@ void FastBlobSet<Base>::computeBlobs(
             break;
 
 #ifdef _OPENMP
-#pragma omp parallel shared(out, buffer, bufferIds, bbox) default(none)
+#pragma omp parallel shared(out, buffer, bufferIds, bbox, bf, toBuckets) default(none)
 #endif
         {
             const int nThreads = omp_get_num_threads();
@@ -704,7 +702,7 @@ void FastBlobSet<Base>::computeBlobs(
                 {
                     // Write the blobs for this subrange out to file
                     bbox += threadBbox;
-                    nBlobs += threadBlobs;
+                    bf.nBlobs += threadBlobs;
                     out.write(reinterpret_cast<const char *>(&threadBlobData[0]), threadBlobData.size() * sizeof(threadBlobData[0]));
                 }
             }
@@ -715,19 +713,24 @@ void FastBlobSet<Base>::computeBlobs(
             *progress += nBuffer;
     }
 
-    assert(nSplats <= Base::maxSplats());
-    splat_id nonFinite = Base::maxSplats() - nSplats;
-    if (nonFinite > 0)
-    {
-        if (progress != NULL)
-            *progress += nonFinite;
-        if (warnNonFinite)
-            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
-    }
-    registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
+    registry.getStatistic<Statistics::Variable>("blobset.blobs").add(bf.nBlobs);
+    registry.getStatistic<Statistics::Variable>("blobset.blobs.size").add(
+        out.tellp() * sizeof(BlobData));
+}
 
+template<typename Base>
+Grid FastBlobSet<Base>::makeBoundingGrid(float spacing, Grid::size_type bucketSize, const detail::Bbox &bbox)
+{
     if (bbox.bboxMin[0] > bbox.bboxMax[0])
         throw std::runtime_error("Must be at least one splat");
+
+    Grid boundingGrid;
+    // Reference point will be 0,0,0. Extents are set after reading all the splats.
+    const float ref[3] = {0.0f, 0.0f, 0.0f};
+    boundingGrid.setSpacing(spacing);
+    boundingGrid.setReference(ref);
+    for (unsigned int i = 0; i < 3; i++)
+        boundingGrid.setExtent(i, 0, 1);
 
     for (unsigned int i = 0; i < 3; i++)
     {
@@ -743,10 +746,6 @@ void FastBlobSet<Base>::computeBlobs(
 
         boundingGrid.setExtent(i, lo, hi);
     }
-    registry.getStatistic<Statistics::Variable>("blobset.blobs").add(nBlobs);
-    registry.getStatistic<Statistics::Variable>("blobset.blobs.size").add(
-        out.tellp() * sizeof(BlobData));
-
     const char * const names[3] =
     {
         "blobset.bboxX",
@@ -756,8 +755,54 @@ void FastBlobSet<Base>::computeBlobs(
 
     for (int i = 0; i < 3; i++)
     {
-        registry.getStatistic<Statistics::Variable>(names[i]).add(bbox.bboxMax[i] - bbox.bboxMin[i]);
+        Statistics::getStatistic<Statistics::Variable>(names[i]).add(bbox.bboxMax[i] - bbox.bboxMin[i]);
     }
+
+    return boundingGrid;
+}
+
+template<typename Base>
+void FastBlobSet<Base>::computeBlobs(
+    const float spacing, const Grid::size_type bucketSize, std::ostream *progressStream, bool warnNonFinite)
+{
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+
+    MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
+
+    eraseBlobFiles();
+    blobFiles.push_back(BlobFile());
+
+    internalBucketSize = bucketSize;
+
+    boost::scoped_ptr<ProgressDisplay> progress;
+    if (progressStream != NULL)
+    {
+        *progressStream << "Computing bounding box\n";
+        progress.reset(new ProgressDisplay(Base::maxSplats(), *progressStream));
+    }
+
+    detail::Bbox globalBbox, bbox;
+    nSplats = 0;
+
+    const detail::SplatToBuckets toBuckets(spacing, bucketSize);
+    computeBlobsRange(
+        detail::rangeAll.first, detail::rangeAll.second,
+        toBuckets,
+        bbox, blobFiles.back(), nSplats,
+        progress.get());
+
+    assert(nSplats <= Base::maxSplats());
+    splat_id nonFinite = Base::maxSplats() - nSplats;
+    if (nonFinite > 0)
+    {
+        if (progress != NULL)
+            *progress += nonFinite;
+        if (warnNonFinite)
+            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
+    }
+    registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
+
+    boundingGrid = makeBoundingGrid(spacing, bucketSize, bbox);
 }
 
 template<typename Base>

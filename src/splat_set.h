@@ -190,8 +190,10 @@ public:
 
     /**
      * Returns a stream that iterates over all (finite) splats in the set.
+     *
+     * @param useOMP        If true, the implementation is permitted to use OpenMP to speed up loading
      */
-    SplatStream *makeSplatStream() const;
+    SplatStream *makeSplatStream(bool useOMP = true) const;
 
     /**
      * Returns a stream that iterates over all blobs in the set.
@@ -215,7 +217,7 @@ public:
      * @warning The iterators are accessed while the stream is walked, so the backing storage
      * for them must remain intact and unaltered until the stream is destroyed.
      */
-    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const;
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange, bool useOMP = false) const;
 };
 
 #endif // DOXYGEN_FAKE_CODE
@@ -228,6 +230,9 @@ namespace detail
 
 /// Range of [0, max splat id), so back a reader over the entire set
 extern const std::pair<splat_id, splat_id> rangeAll;
+
+class SplatToBuckets;
+struct Bbox;
 
 } // namespace detail
 
@@ -285,14 +290,15 @@ class SequenceSet
 public:
     splat_id maxSplats() const { return last - first; }
 
-    SplatStream *makeSplatStream() const
+    SplatStream *makeSplatStream(bool useOMP = true) const
     {
-        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1);
+        return makeSplatStream(&detail::rangeAll, &detail::rangeAll + 1, useOMP);
     }
 
     template<typename RangeIterator>
-    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange) const
+    SplatStream *makeSplatStream(RangeIterator firstRange, RangeIterator lastRange, bool useOMP = false) const
     {
+        (void) useOMP;
         return new MySplatStream<RangeIterator>(first, last, firstRange, lastRange);
     }
 
@@ -722,16 +728,24 @@ public:
          * In the special case firstSplat > lastSplat, the stream is empty.
          */
         BlobInfo curBlob;
-        /// Input stream over the blob file
+        /**
+         * Input stream over the blob file. This may be a closed stream at
+         * the start and end of the blob stream.
+         */
         boost::filesystem::ifstream stream;
+        /**
+         * Index corresponding to @ref stream. If @ref stream is closed, this
+         * is the number of the next file to read.
+         */
+        std::size_t curFile;
 
         void refill(); ///< Load curBlob from the stream
     };
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
 
-    /// Remove the temporary file holding the blobs, if set
-    void eraseBlobFile();
+    /// Remove the temporary files holding the blobs, if any
+    void eraseBlobFiles();
 
     FastBlobSet();
     ~FastBlobSet();
@@ -772,6 +786,22 @@ public:
 
     splat_id maxSplats() const { return numSplats(); }
 
+protected:
+    /// A disk file containing a portion of the blobs;
+    struct BlobFile
+    {
+        boost::filesystem::path path;  ///< Path to the file
+        std::tr1::uint64_t nBlobs;     ///< Number of blobs in the file
+    };
+
+    static Grid makeBoundingGrid(float spacing, Grid::size_type bucketSize, const detail::Bbox &bbox);
+
+    void computeBlobsRange(
+        splat_id first, splat_id last,
+        const detail::SplatToBuckets &toBuckets,
+        detail::Bbox &bbox, BlobFile &bf, splat_id &nSplats,
+        ProgressMeter *progress);
+
 private:
     /**
      * Internal data stored in @ref FastBlobSet.
@@ -787,13 +817,9 @@ private:
      * Bounding grid computed by @ref computeBlobs. It is initially undefined.
      */
     Grid boundingGrid;
-    /**
-     * File holding the blobs. This is initially an empty string.
-     * The file is deleted by the destructor.
-     */
-    boost::filesystem::path blobPath;
 
-    std::tr1::uint64_t nBlobs; ///< Number of blobs generated
+    /// Files holding the blobs (deleted by the destructor)
+    std::vector<BlobFile> blobFiles;
 
     splat_id nSplats;  ///< Exact splat count computed during blob generation
 
@@ -1000,9 +1026,9 @@ class Subset : public SubsetBase
 #endif
 {
 public:
-    SplatStream *makeSplatStream() const
+    SplatStream *makeSplatStream(bool useOMP = true) const
     {
-        return super.makeSplatStream(begin(), end());
+        return super.makeSplatStream(begin(), end(), useOMP);
     }
 
     BlobStream *makeBlobStream(const Grid &grid, Grid::size_type bucketSize) const;
