@@ -110,6 +110,46 @@ void FileSet::addFile(FastPly::ReaderBase *file)
     nSplats += file->size();
 }
 
+/**
+ * Computes a * b / c with reduced risk of overflowing.
+ *
+ * @pre
+ * - 0 &lt;= @a b &lt;= @a c
+ * - @a c &gt; 0
+ */
+static splat_id mulDiv(splat_id a, splat_id b, splat_id c)
+{
+    return a / c * b + (a % c) * b / c;
+}
+
+std::pair<splat_id, splat_id> FileSet::partition(int rank, int size) const
+{
+    // First determine the rank as indices into the list of splats. There are
+    // not IDs because IDs are not contiguous
+    splat_id pos[2] =
+    {
+        mulDiv(nSplats, rank, size),
+        mulDiv(nSplats, rank + 1, size)
+    };
+
+    // Now turn the positions into IDs
+    splat_id ans[2];
+    for (int i = 0; i < 2; i++)
+    {
+        splat_id curFile = 0;
+        while (curFile < files.size() && pos[i] > files[curFile].size())
+        {
+            pos[i] -= files[curFile].size();
+            curFile++;
+        }
+        if (curFile >= files.size())
+            ans[i] = std::numeric_limits<splat_id>::max();
+        else
+            ans[i] = (curFile << scanIdShift) + pos[i];
+    }
+    return std::make_pair(ans[0], ans[1]);
+}
+
 FileSet::ReaderThreadBase::ReaderThreadBase(const FileSet &owner) :
     owner(owner), outQueue(), buffer("mem.FileSet.ReaderThread.buffer", owner.bufferSize),
     tworker("reader")

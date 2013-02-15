@@ -445,7 +445,7 @@ def build(bld):
         if not bld.options.no_tests:
             test_features += ' test'
         nonmpi_sources = bld.path.ant_glob('test/test_*.cpp') + ['test/testmain.cpp']
-        mpi_sources = bld.path.ant_glob('test/mpi/*.cpp')
+        mpi_sources = bld.path.ant_glob('test/mpi/*.cpp') + ['test/test_splat_set.cpp']
         common_sources = [
                 'test/manifold.cpp',
                 'test/memory_reader.cpp',

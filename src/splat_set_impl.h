@@ -428,7 +428,7 @@ void FastBlobSet<Base>::eraseBlobFiles()
 {
     BOOST_FOREACH(const BlobFile &bf, blobFiles)
     {
-        if (!bf.path.empty())
+        if (bf.owner && !bf.path.empty())
         {
             boost::system::error_code ec;
             remove(bf.path, ec);
@@ -768,11 +768,11 @@ void FastBlobSet<Base>::computeBlobs(
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     MLSGPU_ASSERT(bucketSize > 0, std::invalid_argument);
-
-    eraseBlobFiles();
-    blobFiles.push_back(BlobFile());
-
     internalBucketSize = bucketSize;
+    eraseBlobFiles();
+    nSplats = 0;
+
+    blobFiles.push_back(BlobFile());
 
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
@@ -781,8 +781,7 @@ void FastBlobSet<Base>::computeBlobs(
         progress.reset(new ProgressDisplay(Base::maxSplats(), *progressStream));
     }
 
-    detail::Bbox globalBbox, bbox;
-    nSplats = 0;
+    detail::Bbox bbox;
 
     const detail::SplatToBuckets toBuckets(spacing, bucketSize);
     computeBlobsRange(

@@ -486,6 +486,14 @@ public:
     splat_id maxSplats() const { return nSplats; }
 
     /**
+     * Partitions the range of splats into roughly equal-sized subranges.
+     * Calling this function with a fixed @a size and values of @a rank in
+     * [0, @a size) will return a sequence of ranges which together will
+     * cover all the splats, in sequence and without overlaps.
+     */
+    std::pair<splat_id, splat_id> partition(int rank, int size) const;
+
+    /**
      * Set the buffer size that is used by the reader thread. It is not safe
      * to call this function at the same time as another thread creates a
      * stream, but it can be called while streams exist and they will each
@@ -787,26 +795,20 @@ public:
     splat_id maxSplats() const { return numSplats(); }
 
 protected:
+    /**
+     * Internal data stored in @ref FastBlobSet.
+     */
+    typedef std::tr1::uint32_t BlobData;
+
     /// A disk file containing a portion of the blobs;
     struct BlobFile
     {
         boost::filesystem::path path;  ///< Path to the file
         std::tr1::uint64_t nBlobs;     ///< Number of blobs in the file
+        bool owner;                    ///< If true, the file will be deleted on destruction
+
+        BlobFile() : nBlobs(0), owner(true) {}
     };
-
-    static Grid makeBoundingGrid(float spacing, Grid::size_type bucketSize, const detail::Bbox &bbox);
-
-    void computeBlobsRange(
-        splat_id first, splat_id last,
-        const detail::SplatToBuckets &toBuckets,
-        detail::Bbox &bbox, BlobFile &bf, splat_id &nSplats,
-        ProgressMeter *progress);
-
-private:
-    /**
-     * Internal data stored in @ref FastBlobSet.
-     */
-    typedef std::tr1::uint32_t BlobData;
 
     /**
      * The bucket size used to generate the blob data. It is initially zero
@@ -823,6 +825,15 @@ private:
 
     splat_id nSplats;  ///< Exact splat count computed during blob generation
 
+    static Grid makeBoundingGrid(float spacing, Grid::size_type bucketSize, const detail::Bbox &bbox);
+
+    void computeBlobsRange(
+        splat_id first, splat_id last,
+        const detail::SplatToBuckets &toBuckets,
+        detail::Bbox &bbox, BlobFile &bf, splat_id &nSplats,
+        ProgressMeter *progress);
+
+private:
     /**
      * Determines whether the given @a grid and @a bucketSize can use the
      * pre-generated blob data.
