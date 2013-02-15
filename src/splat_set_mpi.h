@@ -91,7 +91,8 @@ void FastBlobSetMPI<Base>::computeBlobs(
         }
         // On non-root node this will pass a NULL upstream, which is correct
         progress.reset(new ProgressMPI(progressDisplay.get(), Base::maxSplats(), comm, root));
-        progressThread.reset(new boost::thread(boost::ref(*progress)));
+        if (rank == root)
+            progressThread.reset(new boost::thread(boost::ref(*progress)));
     }
 
     typename FastBlobSet<Base>::BlobFile blobFile; // TODO: exception safety
