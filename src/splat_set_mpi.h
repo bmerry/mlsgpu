@@ -97,7 +97,7 @@ void FastBlobSetMPI<Base>::computeBlobs(
     typename FastBlobSet<Base>::BlobFile blobFile; // TODO: exception safety
     const detail::SplatToBuckets toBuckets(spacing, bucketSize);
     std::pair<splat_id, splat_id> range = Base::partition(rank, size);
-    computeBlobsRange(
+    this->computeBlobsRange(
         range.first, range.second,
         toBuckets,
         bbox, blobFile, this->nSplats,
