@@ -562,19 +562,16 @@ void reportException(std::exception &e)
         std::cerr << e.what() << std::endl;
 }
 
-void prepareGrid(
+void doComputeBlobs(
     Timeplot::Worker &tworker,
     const po::variables_map &vm,
-    SplatSet::FastBlobSet<SplatSet::FileSet> &splats,
-    Grid &grid,
-    unsigned int &chunkCells)
+    SplatSet::FileSet &splats,
+    boost::function<void(float, unsigned int)> computeBlobs)
 {
     const float spacing = vm[Option::fitGrid].as<double>();
     const float smooth = vm[Option::fitSmooth].as<double>();
     const float maxRadius = vm.count(Option::maxRadius)
         ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
-    const bool split = vm.count(Option::split);
-    const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
 
     const int subsampling = vm[Option::subsampling].as<int>();
     const int levels = vm[Option::levels].as<int>();
@@ -587,13 +584,16 @@ void prepareGrid(
     try
     {
         Timeplot::Action timer("bbox", tworker, "bbox.time");
-        splats.computeBlobs(spacing, microCells, &Log::log[Log::info]);
+        computeBlobs(spacing, microCells);
     }
     catch (std::length_error &e) // TODO: push this down to splat_set_impl
     {
         throw std::runtime_error("At least one input point is required");
     }
-    grid = splats.getBoundingGrid();
+}
+
+unsigned int postprocessGrid(const po::variables_map &vm, const Grid &grid)
+{
     for (unsigned int i = 0; i < 3; i++)
     {
         double size = grid.numCells(i) * grid.getSpacing();
@@ -607,7 +607,9 @@ void prepareGrid(
         }
     }
 
-    chunkCells = 0;
+    const bool split = vm.count(Option::split);
+    const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+    unsigned int chunkCells = 0;
     if (split)
     {
         /* Determine a chunk size from splitSize. We assume that a chunk will be
@@ -626,12 +628,13 @@ void prepareGrid(
         chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
         if (chunkCells == 0) chunkCells = 1;
     }
+    return chunkCells;
 }
 
 void doBucket(
     Timeplot::Worker &tworker,
     const po::variables_map &vm,
-    const BlobSplats &splats,
+    const SplatSet::FastBlobSet<SplatSet::FileSet> &splats,
     const Grid &grid,
     Grid::size_type chunkCells,
     BucketCollector &collector)
@@ -720,7 +723,7 @@ SlaveWorkers::SlaveWorkers(
     loader.reset(new BucketLoader(maxLoadSplats, *copyGroup, tworker));
 }
 
-void SlaveWorkers::start(SplatSet::FileSet &splats, Grid &grid, ProgressMeter *progress)
+void SlaveWorkers::start(SplatSet::FileSet &splats, const Grid &grid, ProgressMeter *progress)
 {
     for (std::size_t i = 0; i < deviceWorkerGroups.size(); i++)
         deviceWorkerGroups[i].setProgress(progress);

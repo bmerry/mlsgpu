@@ -20,6 +20,7 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/date_time/posix_time/posix_time_types.hpp>
+#include <boost/bind.hpp>
 #include "src/tr1_unordered_map.h"
 #include <iostream>
 #include <map>
@@ -39,7 +40,7 @@
 #include "src/mls.h"
 #include "src/mesher.h"
 #include "src/options.h"
-#include "src/splat_set.h"
+#include "src/splat_set_mpi.h"
 #include "src/bucket.h"
 #include "src/provenance.h"
 #include "src/statistics.h"
@@ -78,6 +79,8 @@ std::size_t sizeItem(const MesherGroup::WorkItem &item)
     return item.work.mesh.getHostBytes();
 }
 
+typedef SplatSet::FastBlobSetMPI<SplatSet::FileSet> Splats;
+
 namespace
 {
 
@@ -90,6 +93,7 @@ class Slave
 private:
     const std::vector<std::pair<cl::Context, cl::Device> > &devices;
     const po::variables_map &vm;
+    Splats &splats;
     MPI_Comm controlComm;
     int controlRoot;
     MPI_Comm scatterComm;
@@ -102,11 +106,12 @@ private:
 public:
     Slave(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
           const po::variables_map &vm,
+          Splats &splats,
           MPI_Comm controlComm, int controlRoot,
           MPI_Comm scatterComm, int scatterRoot,
           MPI_Comm gatherComm, int gatherRoot,
           MPI_Comm progressComm, int progressRoot)
-        : devices(devices), vm(vm),
+        : devices(devices), vm(vm), splats(splats),
         controlComm(controlComm), controlRoot(controlRoot),
         scatterComm(scatterComm), scatterRoot(scatterRoot),
         gatherComm(gatherComm), gatherRoot(gatherRoot),
@@ -230,42 +235,17 @@ void Slave::operator()() const
     Statistics::Variable &popStat = Statistics::getStatistic<Statistics::Variable>("slave.pop");
     Statistics::Variable &recvStat = Statistics::getStatistic<Statistics::Variable>("slave.recv");
 
-    const float smooth = vm[Option::fitSmooth].as<double>();
-    const float maxRadius = vm.count(Option::maxRadius)
-        ? vm[Option::maxRadius].as<double>() : std::numeric_limits<float>::infinity();
     const std::size_t memGather = vm[Option::memGather].as<Capacity>();
-
-    SplatSet::FileSet splats;
-    prepareInputs(splats, vm, smooth, maxRadius);
 
     GatherGroup gatherGroup(gatherComm, gatherRoot, memGather);
     SlaveWorkers slaveWorkers(tworker, vm, devices, makeOutputGenerator(gatherGroup));
-
-    Grid grid;
-    /* If the slave shares a node with the master, then OpenMPI busy-waits
-     * here which takes CPU cycles away from the bounding box pass. Rather
-     * sleep until something happens.
-     */
-    {
-        int flag;
-        do
-        {
-            MPI_Iprobe(controlRoot, MPI_ANY_TAG, controlComm, &flag, MPI_STATUS_IGNORE);
-            boost::this_thread::sleep(boost::posix_time::milliseconds(200));
-        } while (!flag);
-    }
-
-    SplatSet::splat_id numSplats; // Total space on the progress meter
-    Serialize::recv(grid, controlComm, controlRoot);
-    MPI_Recv(&numSplats, 1, Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
-             controlRoot, MLSGPU_TAG_WORK, controlComm, MPI_STATUS_IGNORE);
 
     /* NB: this does not yet support multi-pass algorithms. Currently there
      * are none, however.
      */
 
-    ProgressMPI progress(NULL, numSplats, progressComm, progressRoot);
-    slaveWorkers.start(splats, grid, &progress);
+    ProgressMPI progress(NULL, splats.numSplats(), progressComm, progressRoot);
+    slaveWorkers.start(splats, splats.getBoundingGrid(), &progress);
     gatherGroup.start();
 
     bool first = true;
@@ -330,65 +310,54 @@ static void run(
     MPI_Comm_dup(comm, &scatterComm);
     MPI_Comm_dup(comm, &gatherComm);
     MPI_Comm_dup(comm, &progressComm);
+
+    Timeplot::Worker mainWorker("main");
+    boost::scoped_ptr<Statistics::Timer> grandTotalTimer;
+    if (rank == root)
+        grandTotalTimer.reset(new Statistics::Timer("run.time"));
+
     /* Work out how many slaves there will be */
     int isSlave = devices.empty() ? 0 : 1;
     vector<int> slaveMask(size);
     MPI_Gather(&isSlave, 1, MPI_INT, &slaveMask[0], 1, MPI_INT, root, comm);
 
+    Splats splats;
+    doComputeBlobs(mainWorker, vm, splats,
+                   boost::bind(&SplatSet::FastBlobSetMPI<SplatSet::FileSet>::computeBlobs,
+                               &splats, comm, root, _1, _2, &Log::log[Log::info], true));
+
     boost::scoped_ptr<boost::thread> slaveThread;
     if (!devices.empty())
     {
         slaveThread.reset(new boost::thread(Slave(
-                    devices, vm,
+                    devices, vm, splats,
                     comm, root, scatterComm, root, gatherComm, root,
                     progressComm, root)));
     }
 
     if (rank == root)
     {
-        typedef SplatSet::FastBlobSet<SplatSet::FileSet> Splats;
-
         const int numSlaves = accumulate(slaveMask.begin(), slaveMask.end(), 0);
-
         const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
         const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
 
-        Timeplot::Worker mainWorker("main");
+        const Grid grid = splats.getBoundingGrid();
+        const unsigned int chunkCells = postprocessGrid(vm, grid);
 
         {
-            Statistics::Timer grandTotalTimer("run.time");
-
             boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
             boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
             {
                 // Open a scope so that objects will be released before finalization
-
                 boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
 
-                Log::log[Log::info] << "Initializing...\n";
                 MesherGroup mesherGroup(memMesh);
                 ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
                 Scatter scatter(scatterComm, mainWorker);
                 BucketCollector collector(maxLoadSplats, scatter);
 
-                Splats splats;
-                Grid grid;
-                unsigned int chunkCells;
-                prepareGrid(mainWorker, vm, splats, grid, chunkCells);
-
                 initTimer.reset();
-
-                for (int i = 0; i < size; i++)
-                {
-                    if (slaveMask[i])
-                    {
-                        Serialize::send(grid, comm, i);
-                        SplatSet::splat_id numSplats = splats.numSplats();
-                        MPI_Send(&numSplats, 1, Serialize::mpi_type_traits<SplatSet::splat_id>::type(),
-                                 i, MLSGPU_TAG_WORK, comm);
-                    }
-                }
 
                 for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
                 {
@@ -439,7 +408,7 @@ static void run(
             }
 
             mesher->write(mainWorker, &Log::log[Log::info]);
-        } // ends scope for grandTotalTimer
+        }
 
         for (int slave = 0; slave < size; slave++)
             if (slaveMask[slave])

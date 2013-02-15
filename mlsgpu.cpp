@@ -89,9 +89,10 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
             BucketCollector collector(maxLoadSplats, boost::ref(*slaveWorkers.loader));
 
             Splats splats;
-            Grid grid;
-            unsigned int chunkCells;
-            prepareGrid(mainWorker, vm, splats, grid, chunkCells);
+            doComputeBlobs(mainWorker, vm, splats,
+                           boost::bind(&Splats::computeBlobs, &splats, _1, _2, &Log::log[Log::info], true));
+            Grid grid = splats.getBoundingGrid();
+            unsigned int chunkCells = postprocessGrid(vm, grid);
 
             initTimer.reset();
 

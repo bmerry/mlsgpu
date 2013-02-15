@@ -16,6 +16,8 @@
 #include <memory>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/filesystem/path.hpp>
+#include <boost/thread/thread.hpp>
+#include <boost/ref.hpp>
 #include "grid.h"
 #include "splat_set.h"
 #include "progress.h"
@@ -79,6 +81,7 @@ void FastBlobSetMPI<Base>::computeBlobs(
 
     boost::scoped_ptr<ProgressDisplay> progressDisplay;
     boost::scoped_ptr<ProgressMPI> progress;
+    boost::scoped_ptr<boost::thread> progressThread;
     if (progressStream != NULL)
     {
         if (rank == root)
@@ -88,6 +91,7 @@ void FastBlobSetMPI<Base>::computeBlobs(
         }
         // On non-root node this will pass a NULL upstream, which is correct
         progress.reset(new ProgressMPI(progressDisplay.get(), Base::maxSplats(), comm, root));
+        progressThread.reset(new boost::thread(boost::ref(*progress)));
     }
 
     typename FastBlobSet<Base>::BlobFile blobFile; // TODO: exception safety
@@ -104,15 +108,21 @@ void FastBlobSetMPI<Base>::computeBlobs(
     MPI_Allreduce(MPI_IN_PLACE, &bbox.bboxMax[0], 3, MPI_FLOAT, MPI_MAX, comm);
 
     assert(this->nSplats <= Base::maxSplats());
+    if (progress)
+        progress->sync();
     if (rank == root)
     {
         splat_id nonFinite = Base::maxSplats() - this->nSplats;
-        if (nonFinite > 0)
+        if (progressThread)
         {
-            if (progress)
-                *progress += nonFinite;
-            if (warnNonFinite)
-                Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
+            *progress += nonFinite;
+            progress->sync();
+            progressThread->join();
+            progressThread.reset();
+        }
+        if (nonFinite > 0 && warnNonFinite)
+        {
+            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
         }
         registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
     }

@@ -13,6 +13,7 @@
 #include <boost/program_options.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/function.hpp>
 #include <ostream>
 #include <exception>
 #include <vector>
@@ -139,26 +140,33 @@ void prepareInputs(SplatSet::FileSet &files, const boost::program_options::varia
  */
 void reportException(std::exception &e);
 
-typedef SplatSet::FastBlobSet<SplatSet::FileSet> BlobSplats;
-
 /**
- * Load the inputs and compute the bounding box and chunk size.
+ * Load the inputs and compute the blobs and chunk size.
  *
  * @param tworker          Worker to attribute time for bounding box calculation
  * @param vm               Command-line options
  * @param[out] splats      The input files (must be initially empty)
- * @param[out] grid        Bound box grid
- * @param[out] chunkCells  Chunk size for output, in cells
+ * @param computeBlobs     Callback to do the low-level computation
  *
  * @throw boost::exception   if there was a problem reading the files.
  * @throw std::runtime_error if there are too many or too few files or splats.
  */
-void prepareGrid(
+void doComputeBlobs(
     Timeplot::Worker &tworker,
     const boost::program_options::variables_map &vm,
-    BlobSplats &splats,
-    Grid &grid,
-    unsigned int &chunkCells);
+    SplatSet::FileSet &splats,
+    boost::function<void(float, unsigned int)> computeBlobs);
+
+/**
+ * Validate the grid size and compute the chunk size.
+ * @param vm               Command-line options
+ * @param grid             Bounding box grid
+ * @return Chunk size for output, in cells
+ * @throw std::runtime_error if the grid is too large
+ */
+unsigned int postprocessGrid(
+    const boost::program_options::variables_map &vm,
+    const Grid &grid);
 
 /**
  * An all-in-one helper to call @ref Bucket::bucket with appropriate parameters.
@@ -173,7 +181,7 @@ void prepareGrid(
 void doBucket(
     Timeplot::Worker &tworker,
     const boost::program_options::variables_map &vm,
-    const BlobSplats &splats,
+    const SplatSet::FastBlobSet<SplatSet::FileSet> &splats,
     const Grid &grid,
     Grid::size_type chunkCells,
     BucketCollector &collector);
@@ -213,7 +221,7 @@ public:
         const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         const DeviceWorkerGroup::OutputGenerator &outputGenerator);
 
-    void start(SplatSet::FileSet &splats, Grid &grid, ProgressMeter *progress);
+    void start(SplatSet::FileSet &splats, const Grid &grid, ProgressMeter *progress);
 
     void stop();
 };
