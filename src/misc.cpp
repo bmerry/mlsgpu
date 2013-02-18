@@ -60,7 +60,7 @@ void createTmpFile(boost::filesystem::path &path, boost::filesystem::ofstream &o
         path = boost::filesystem::temp_directory_path();
     boost::filesystem::path name = boost::filesystem::unique_path("mlsgpu-tmp-%%%%-%%%%-%%%%-%%%%");
     path /= name; // appends
-    out.open(path);
+    out.open(path, std::ios::binary);
     if (!out)
     {
         int e = errno;
