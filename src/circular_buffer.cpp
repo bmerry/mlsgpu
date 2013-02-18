@@ -35,7 +35,7 @@ CircularBufferBase::Allocation::Allocation(
 }
 
 CircularBufferBase::Allocation::Allocation()
-    : point(0)
+    : point()
 {
 }
 
