@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * Test code for @ref FastBlobSetMPI.
+ * Test code for @ref SplatSet::FastBlobSetMPI.
  */
 
 #if HAVE_CONFIG_H

@@ -1,7 +1,7 @@
 /**
  * @file
  *
- * SSE implementation of @ref splatToBuckets.
+ * SSE implementation of @ref SplatSet::detail::SplatToBuckets.
  */
 
 #if HAVE_CONFIG_H

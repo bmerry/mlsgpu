@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * Registers the tests defined in test_splat_set.cpp for execution.
  */
 #if HAVE_CONFIG_H

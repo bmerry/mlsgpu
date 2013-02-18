@@ -213,6 +213,7 @@ public:
      * Create a splat stream that can be used to pull a collection of ranges.
      *
      * @param firstRange,lastRange   A sequence of instances of <code>std::pair<splat_id, splat_id></code>, each a range of splat IDs
+     * @param useOMP                 If true, OpenMP may be used to parallelise decoding
      *
      * @warning The iterators are accessed while the stream is walked, so the backing storage
      * for them must remain intact and unaltered until the stream is destroyed.
@@ -730,7 +731,7 @@ public:
         std::tr1::uint64_t remaining;
         /**
          * A blob to return from operator*, but prior to adjustment for @ref
-         * offset and @ref bucketRatio. It is also the base for differential
+         * offset and @ref bucketDivider. It is also the base for differential
          * encoding of the next blob.
          *
          * In the special case firstSplat > lastSplat, the stream is empty.
@@ -800,7 +801,7 @@ protected:
      */
     typedef std::tr1::uint32_t BlobData;
 
-    /// A disk file containing a portion of the blobs;
+    /// A disk file containing a portion of the blobs
     struct BlobFile
     {
         boost::filesystem::path path;  ///< Path to the file
@@ -820,7 +821,11 @@ protected:
      */
     Grid boundingGrid;
 
-    /// Files holding the blobs (deleted by the destructor)
+    /**
+     * Files holding the blobs. They are deleted by the destructor. In this
+     * class there will only ever be one such file, but @ref FastBlobSetMPI
+     * produces one file per rank.
+     */
     std::vector<BlobFile> blobFiles;
 
     splat_id nSplats;  ///< Exact splat count computed during blob generation
@@ -828,8 +833,29 @@ protected:
     /// Erase a temporary file, if it is owned
     static void eraseBlobFile(const BlobFile &bf);
 
+    /**
+     * Compute a bounding grid from a bounding box. Unlike the bounding box,
+     * the returned grid is guaranteed to be aligned to a size of
+     * @a spacing <code>*</code> @a bucketSize. It will entirely contain
+     * the bounding box and have a spacing of @a spacing.
+     */
     static Grid makeBoundingGrid(float spacing, Grid::size_type bucketSize, const detail::Bbox &bbox);
 
+    /**
+     * Generate a blob file for a contiguous range of splats.
+     *
+     * @param first, last        First and past-the-end IDs for the range to process.
+     * @param toBuckets          Functor for converting splats to their blob ranges
+     * @param[out] bbox          Bounding box for the processed splats.
+     * @param[out] bf            Blob file produced.
+     * @param[out] nSplats       Number of finite splats encountered in the range.
+     * @param progress           Optional progress meter, incremented once per finite splat.
+     *
+     * @post
+     * - @a bf.owner is @c true
+     * - @a bf.nBlobs has been set correctly
+     * - @a bf.path is non-empty
+     */
     void computeBlobsRange(
         splat_id first, splat_id last,
         const detail::SplatToBuckets &toBuckets,
@@ -844,7 +870,7 @@ private:
     bool fastPath(const Grid &grid, Grid::size_type bucketSize) const;
 
     /**
-     * Append a blob to @ref blobData.
+     * Append a blob to @a blobData.
      * @param blobData The list of encoded blobs to append to.
      * @param prevBlob The value @a curBlob had on previous call.
      * @param curBlob  The blob to append.

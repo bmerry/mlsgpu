@@ -174,8 +174,8 @@ unsigned int postprocessGrid(
  * @param tworker          Worker to which the bucketing time is allocated
  * @param vm               Command-line options
  * @param splats           Splats to bucket
- * @param grid             Bounding box grid from @ref prepareGrid
- * @param chunkCells       Chunk side length from @ref prepareGrid
+ * @param grid             Bounding box grid from @ref doComputeBlobs
+ * @param chunkCells       Chunk side length from @ref postprocessGrid
  * @param collector        Bucket processor passed to @ref Bucket::bucket
  */
 void doBucket(
