@@ -88,7 +88,8 @@ void TestCircularBuffer::testStatistics()
     CircularBuffer buffer("test", 1000);
 
     std::size_t newMem = allStat.get();
-    CPPUNIT_ASSERT_EQUAL(oldMem + 1000, newMem);
+	// Can't make this an exact test, because the linked list can also allocate
+    CPPUNIT_ASSERT(newMem >= oldMem + 1000);
 }
 
 void TestCircularBuffer::testTooLarge()
