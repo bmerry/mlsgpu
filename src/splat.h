@@ -40,16 +40,4 @@ struct Splat
     }
 };
 
-/**
- * Comparator that orders splats by position to give good spatial
- * locality.
- */
-class CompareSplatsMorton
-{
-public:
-    bool operator()(const Splat &a, const Splat &b) const;
-    Splat min_value() const;
-    Splat max_value() const;
-};
-
 #endif /* !SPLAT_H */

@@ -362,7 +362,6 @@ def build(bld):
             'src/options.cpp',
             'src/progress.cpp',
             'src/statistics.cpp',
-            'src/splat.cpp',
             'src/splat_set.cpp',
             'src/thread_name.cpp',
             'src/timeplot.cpp',
