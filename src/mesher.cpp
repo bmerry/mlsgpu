@@ -376,7 +376,7 @@ void OOCMesher::updateLocalClumps(
                 std::pair<Chunk::vertex_id_map_type::iterator, bool> added;
                 added = chunk.vertexIdMap.insert(
                     std::make_pair(mesh.vertexKeys[vid - numInternalVertices],
-                                   ~chunk.numExternalVertices));
+                                   (std::tr1::uint32_t) ~chunk.numExternalVertices));
                 if (added.second)
                 {
                     chunk.numExternalVertices++;
