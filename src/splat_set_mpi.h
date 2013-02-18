@@ -96,62 +96,73 @@ void FastBlobSetMPI<Base>::computeBlobs(
     }
 
     typename FastBlobSet<Base>::BlobFile blobFile; // TODO: exception safety
-    const detail::SplatToBuckets toBuckets(spacing, bucketSize);
-    std::pair<splat_id, splat_id> range = Base::partition(rank, size);
-    this->computeBlobsRange(
-        range.first, range.second,
-        toBuckets,
-        bbox, blobFile, this->nSplats,
-        progress.get());
-
-    MPI_Allreduce(MPI_IN_PLACE, &this->nSplats, 1, Serialize::mpi_type_traits<splat_id>::type(), MPI_SUM, comm);
-    MPI_Allreduce(MPI_IN_PLACE, &bbox.bboxMin[0], 3, MPI_FLOAT, MPI_MIN, comm);
-    MPI_Allreduce(MPI_IN_PLACE, &bbox.bboxMax[0], 3, MPI_FLOAT, MPI_MAX, comm);
-
-    assert(this->nSplats <= Base::maxSplats());
-    if (progress)
-        progress->sync();
-    if (rank == root)
+    try
     {
-        splat_id nonFinite = Base::maxSplats() - this->nSplats;
-        if (progressThread)
-        {
-            *progress += nonFinite;
+        const detail::SplatToBuckets toBuckets(spacing, bucketSize);
+        std::pair<splat_id, splat_id> range = Base::partition(rank, size);
+        this->computeBlobsRange(
+            range.first, range.second,
+            toBuckets,
+            bbox, blobFile, this->nSplats,
+            progress.get());
+
+        MPI_Allreduce(MPI_IN_PLACE, &this->nSplats, 1, Serialize::mpi_type_traits<splat_id>::type(), MPI_SUM, comm);
+        MPI_Allreduce(MPI_IN_PLACE, &bbox.bboxMin[0], 3, MPI_FLOAT, MPI_MIN, comm);
+        MPI_Allreduce(MPI_IN_PLACE, &bbox.bboxMax[0], 3, MPI_FLOAT, MPI_MAX, comm);
+
+        assert(this->nSplats <= Base::maxSplats());
+        if (progress)
             progress->sync();
-            progressThread->join();
-            progressThread.reset();
-        }
-        if (nonFinite > 0 && warnNonFinite)
+        if (rank == root)
         {
-            Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
+            splat_id nonFinite = Base::maxSplats() - this->nSplats;
+            if (progressThread)
+            {
+                *progress += nonFinite;
+                progress->sync();
+                progressThread->join();
+                progressThread.reset();
+            }
+            if (nonFinite > 0 && warnNonFinite)
+            {
+                Log::log[Log::warn] << "Input contains " << nonFinite << " splat(s) with non-finite values\n";
+            }
+            registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
         }
-        registry.getStatistic<Statistics::Variable>("blobset.nonfinite").add(nonFinite);
-    }
-    this->boundingGrid = this->makeBoundingGrid(spacing, bucketSize, bbox);
+        this->boundingGrid = this->makeBoundingGrid(spacing, bucketSize, bbox);
 
-    /* Distribute the filenames. This is not done with MPI_Alltoall since that requires
-     * placing all the filenames in a single buffer.
-     */
-    for (int i = 0; i < size; i++)
-    {
-        std::tr1::uint64_t nBlobs = blobFile.nBlobs;
-        MPI_Bcast(&nBlobs, 1, Serialize::mpi_type_traits<std::tr1::uint64_t>::type(),
-                  i, comm);
-        std::size_t len = blobFile.path.native().size();
-        MPI_Bcast(&len, 1, Serialize::mpi_type_traits<std::size_t>::type(),
-                  i, comm);
-        std::vector<boost::filesystem::path::value_type> chars(len);
-        if (rank == i)
+        /* Distribute the filenames. This is not done with MPI_Alltoall since that requires
+         * placing all the filenames in a single buffer.
+         */
+        for (int i = 0; i < size; i++)
         {
-            boost::filesystem::path::string_type str = blobFile.path.native();
-            std::copy(str.begin(), str.end(), chars.begin());
+            std::tr1::uint64_t nBlobs = blobFile.nBlobs;
+            MPI_Bcast(&nBlobs, 1, Serialize::mpi_type_traits<std::tr1::uint64_t>::type(),
+                      i, comm);
+            std::size_t len = blobFile.path.native().size();
+            MPI_Bcast(&len, 1, Serialize::mpi_type_traits<std::size_t>::type(),
+                      i, comm);
+            std::vector<boost::filesystem::path::value_type> chars(len);
+            if (rank == i)
+            {
+                boost::filesystem::path::string_type str = blobFile.path.native();
+                std::copy(str.begin(), str.end(), chars.begin());
+            }
+            MPI_Bcast(&chars[0], len, Serialize::mpi_type_traits<boost::filesystem::path::value_type>::type(),
+                      i, comm);
+            this->blobFiles.push_back(typename FastBlobSet<Base>::BlobFile());
+            this->blobFiles.back().path = chars;
+            this->blobFiles.back().nBlobs = nBlobs;
+            this->blobFiles.back().owner = (rank == root);
+            MPI_Barrier(comm); // ensures that the master takes ownership before the worker releases it
+            if (i == rank)
+                blobFile.owner = false;
         }
-        MPI_Bcast(&chars[0], len, Serialize::mpi_type_traits<boost::filesystem::path::value_type>::type(),
-                  i, comm);
-        this->blobFiles.push_back(typename FastBlobSet<Base>::BlobFile());
-        this->blobFiles.back().path = chars;
-        this->blobFiles.back().nBlobs = nBlobs;
-        this->blobFiles.back().owner = (rank == root);
+    }
+    catch (std::exception &e)
+    {
+        eraseBlobFile(blobFile);
+        throw e;
     }
 }
 

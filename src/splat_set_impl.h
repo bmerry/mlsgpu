@@ -424,17 +424,23 @@ FastBlobSet<Base>::FastBlobSet()
 }
 
 template<typename Base>
+void FastBlobSet<Base>::eraseBlobFile(const BlobFile &bf)
+{
+    if (bf.owner && !bf.path.empty())
+    {
+        boost::system::error_code ec;
+        remove(bf.path, ec);
+        if (ec)
+            Log::log[Log::warn] << "Could not delete " << bf.path.string() << ": " << ec.message() << std::endl;
+    }
+}
+
+template<typename Base>
 void FastBlobSet<Base>::eraseBlobFiles()
 {
     BOOST_FOREACH(const BlobFile &bf, blobFiles)
     {
-        if (bf.owner && !bf.path.empty())
-        {
-            boost::system::error_code ec;
-            remove(bf.path, ec);
-            if (ec)
-                Log::log[Log::warn] << "Could not delete " << bf.path.string() << ": " << ec.message() << std::endl;
-        }
+        eraseBlobFile(bf);
     }
     blobFiles.clear();
 }

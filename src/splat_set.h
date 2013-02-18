@@ -825,6 +825,9 @@ protected:
 
     splat_id nSplats;  ///< Exact splat count computed during blob generation
 
+    /// Erase a temporary file, if it is owned
+    static void eraseBlobFile(const BlobFile &bf);
+
     static Grid makeBoundingGrid(float spacing, Grid::size_type bucketSize, const detail::Bbox &bbox);
 
     void computeBlobsRange(
