@@ -57,7 +57,7 @@ static void addCommonOptions(po::options_description &opts)
         ("quiet,q",               "Do not show informational messages")
         (Option::debug,           "Show debug messages")
         (Option::responseFile,    po::value<std::string>(), "Read options from file")
-        (Option::tmpDir,          po::value<boost::filesystem::path::string_type>(), "Directory to store temporary files");
+        (Option::tmpDir,          po::value<std::string>(), "Directory to store temporary files");
 }
 
 static void addFitOptions(po::options_description &opts)
