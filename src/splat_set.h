@@ -892,9 +892,9 @@ private:
 class SubsetBase
 {
 public:
-	typedef std::pair<splat_id, splat_id> value_type;
-	typedef std::pair<splat_id, splat_id> &reference;
-	typedef const std::pair<splat_id, splat_id> &const_reference;
+    typedef std::pair<splat_id, splat_id> value_type;
+    typedef std::pair<splat_id, splat_id> &reference;
+    typedef const std::pair<splat_id, splat_id> &const_reference;
 
     /**
      * Forward iterator type that enumerates the splat ranges
@@ -936,8 +936,6 @@ public:
     public:
         const_iterator() : prev(0) {}
     };
-
-    typedef const std::pair<splat_id, splat_id> &const_reference;
 
     /**
      * Add a range to the subset.
