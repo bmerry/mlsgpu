@@ -38,6 +38,7 @@
 #include <boost/next_prior.hpp>
 #include <boost/exception/all.hpp>
 #include <boost/foreach.hpp>
+#include <cerrno>
 #include "allocator.h"
 #include "errors.h"
 #include "splat_set.h"
@@ -632,91 +633,116 @@ void FastBlobSet<Base>::computeBlobsRange(
     bf.nBlobs = 0;
     boost::filesystem::ofstream out;
     createTmpFile(bf.path, out);
-    out.exceptions(std::ios::failbit | std::ios::badbit);
 
-    static const std::size_t BUFFER_SIZE = 64 * 1024;
-    Statistics::Container::vector<Splat> buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
-    Statistics::Container::vector<splat_id> bufferIds("mem.computeBlobs.buffer", BUFFER_SIZE);
-
-    boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream(&ranges, &ranges + 1, true));
-    while (true)
+    int err = 0;
+    try
     {
-        const std::size_t nBuffer = splats->read(&buffer[0], &bufferIds[0], BUFFER_SIZE);
-        if (nBuffer == 0)
-            break;
+        static const std::size_t BUFFER_SIZE = 64 * 1024;
+        Statistics::Container::vector<Splat> buffer("mem.computeBlobs.buffer", BUFFER_SIZE);
+        Statistics::Container::vector<splat_id> bufferIds("mem.computeBlobs.buffer", BUFFER_SIZE);
+
+        boost::scoped_ptr<SplatStream> splats(Base::makeSplatStream(&ranges, &ranges + 1, true));
+        while (true)
+        {
+            const std::size_t nBuffer = splats->read(&buffer[0], &bufferIds[0], BUFFER_SIZE);
+            if (nBuffer == 0)
+                break;
 
 #ifdef _OPENMP
-#pragma omp parallel shared(out, buffer, bufferIds, bbox, bf, toBuckets) default(none)
+#pragma omp parallel shared(out, buffer, bufferIds, bbox, bf, toBuckets, err) default(none)
 #endif
-        {
-            const int nThreads = omp_get_num_threads();
-            /* Divide the splats into subblocks, based on an estimate of how many threads
-             * will be involved. We have to manually strip-mine the loop to guarantee that
-             * the distribution is in contiguous chunks.
-             */
+            {
+                const int nThreads = omp_get_num_threads();
+                /* Divide the splats into subblocks, based on an estimate of how many threads
+                 * will be involved. We have to manually strip-mine the loop to guarantee that
+                 * the distribution is in contiguous chunks.
+                 */
 #ifdef _OPENMP
 #pragma omp for schedule(static,1) ordered
 #endif
-            for (int tid = 0; tid < nThreads; tid++)
-            {
-                std::size_t first = tid * nBuffer / nThreads;
-                std::size_t last = (tid + 1) * nBuffer / nThreads;
-                detail::Bbox threadBbox;
-                Statistics::Container::vector<BlobData> threadBlobData("mem.computeBlobs.threadBlobData");
-                BlobInfo curBlob, prevBlob;
-                bool haveCurBlob = false;
-                std::tr1::uint64_t threadBlobs = 0;
-
-                // Compute the blobs for a single subrange. The first blob will always
-                // be a non-differential encoding, so the encoding depends on the number
-                // of subchunks chosen.
-                for (std::size_t i = first; i < last; i++)
+                for (int tid = 0; tid < nThreads; tid++)
                 {
-                    const Splat &splat = buffer[i];
-                    BlobInfo blob;
-                    toBuckets(splat, blob.lower, blob.upper);
-                    blob.firstSplat = bufferIds[i];
-                    blob.lastSplat = blob.firstSplat + 1;
-                    threadBbox += splat;
+                    std::size_t first = tid * nBuffer / nThreads;
+                    std::size_t last = (tid + 1) * nBuffer / nThreads;
+                    detail::Bbox threadBbox;
+                    Statistics::Container::vector<BlobData> threadBlobData("mem.computeBlobs.threadBlobData");
+                    BlobInfo curBlob, prevBlob;
+                    bool haveCurBlob = false;
+                    std::tr1::uint64_t threadBlobs = 0;
 
-                    if (!haveCurBlob)
+                    // Compute the blobs for a single subrange. The first blob will always
+                    // be a non-differential encoding, so the encoding depends on the number
+                    // of subchunks chosen.
+                    for (std::size_t i = first; i < last; i++)
                     {
-                        curBlob = blob;
-                        haveCurBlob = true;
+                        const Splat &splat = buffer[i];
+                        BlobInfo blob;
+                        toBuckets(splat, blob.lower, blob.upper);
+                        blob.firstSplat = bufferIds[i];
+                        blob.lastSplat = blob.firstSplat + 1;
+                        threadBbox += splat;
+
+                        if (!haveCurBlob)
+                        {
+                            curBlob = blob;
+                            haveCurBlob = true;
+                        }
+                        else if (curBlob.lower == blob.lower
+                                 && curBlob.upper == blob.upper
+                                 && curBlob.lastSplat == blob.firstSplat)
+                            curBlob.lastSplat++;
+                        else
+                        {
+                            addBlob(threadBlobData, prevBlob, curBlob);
+                            threadBlobs++;
+                            prevBlob = curBlob;
+                            curBlob = blob;
+                        }
                     }
-                    else if (curBlob.lower == blob.lower
-                             && curBlob.upper == blob.upper
-                             && curBlob.lastSplat == blob.firstSplat)
-                        curBlob.lastSplat++;
-                    else
+                    if (haveCurBlob)
                     {
                         addBlob(threadBlobData, prevBlob, curBlob);
                         threadBlobs++;
-                        prevBlob = curBlob;
-                        curBlob = blob;
                     }
-                }
-                if (haveCurBlob)
-                {
-                    addBlob(threadBlobData, prevBlob, curBlob);
-                    threadBlobs++;
-                }
 
 #ifdef _OPENMP
 #pragma omp ordered
 #endif
-                {
-                    // Write the blobs for this subrange out to file
-                    bbox += threadBbox;
-                    bf.nBlobs += threadBlobs;
-                    out.write(reinterpret_cast<const char *>(&threadBlobData[0]), threadBlobData.size() * sizeof(threadBlobData[0]));
+                    {
+                        // Write the blobs for this subrange out to file
+                        bbox += threadBbox;
+                        bf.nBlobs += threadBlobs;
+                        out.write(reinterpret_cast<const char *>(&threadBlobData[0]), threadBlobData.size() * sizeof(threadBlobData[0]));
+                        if (!out && err == 0)
+                            err = errno;
+                    }
                 }
             }
-        }
 
-        nSplats += nBuffer;
-        if (progress != NULL)
-            *progress += nBuffer;
+            if (!out)
+                throw std::ios::failure("");
+
+            nSplats += nBuffer;
+            if (progress != NULL)
+                *progress += nBuffer;
+        }
+        out.close();
+        if (!out)
+        {
+            if (err == 0)
+                err = errno;
+            throw std::ios::failure("");
+        }
+    }
+    catch (std::ios::failure &e)
+    {
+        if (err != 0)
+            throw boost::enable_error_info(e)
+                << boost::errinfo_errno(err)
+                << boost::errinfo_file_name(bf.path.string());
+        else
+            throw boost::enable_error_info(e)
+                << boost::errinfo_file_name(bf.path.string());
     }
 
     registry.getStatistic<Statistics::Variable>("blobset.blobs").add(bf.nBlobs);

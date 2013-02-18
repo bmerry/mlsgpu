@@ -855,6 +855,9 @@ protected:
      * - @a bf.owner is @c true
      * - @a bf.nBlobs has been set correctly
      * - @a bf.path is non-empty
+     *
+     * @warning If an exception is thrown, it is the caller's responsibility to erase
+     * the temporary file.
      */
     void computeBlobsRange(
         splat_id first, splat_id last,

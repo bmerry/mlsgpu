@@ -162,7 +162,7 @@ void FastBlobSetMPI<Base>::computeBlobs(
     catch (std::exception &e)
     {
         eraseBlobFile(blobFile);
-        throw e;
+        throw;
     }
 }
 
