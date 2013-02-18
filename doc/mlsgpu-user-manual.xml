@@ -9,6 +9,7 @@
         </author>
         <copyright>
             <year>2012</year>
+            <year>2013</year>
             <holder>University of Cape Town</holder>
         </copyright>
         <!-- Stylesheet replaces this empty element with a version number -->
@@ -37,23 +38,23 @@
         <section id="installation.dependencies">
             <title>Dependencies</title>
             <para>
-                MLSGPU requires a POSIX operating system such as a GNU/Linux
-                system. At present only Ubuntu 11.10 has been tested, but other
-                variants are expected to work. It is also highly recommended
-                that you use a 64-bit operating system. It should still be possible to
-                use a 32-bit OS, but it is untested and there may be problems
-                with large data sets.
+                MLSGPU requires either Microsoft Windows, or a POSIX operating
+                system such as a GNU/Linux system. At present only Ubuntu 12.04
+                is tested, but other variants are expected to work. It is also
+                highly recommended that you use a 64-bit operating system. It
+                should still be possible to use a 32-bit OS, but it is untested
+                and there may be problems with large data sets.
             </para>
             <para>
-                MLSGPU dependends on the following software to compile and run.
+                MLSGPU depends on the following software to compile and run.
                 Versions listed are the ones that have been tested; older
                 or newer versions will often work too.
             </para>
             <itemizedlist>
-                <listitem><para>A C++ compiler. GCC 4.4 and 4.6, and clang 2.9
-                        have been tested.</para></listitem>
+                <listitem><para>A C++ compiler. GCC 4.6 and 4.7, Clang 3.0 and
+                        MSVC 2010 have been tested.</para></listitem>
                 <listitem><para><ulink
-                            url="http://www.boost.org/">Boost</ulink> 1.46,
+                            url="http://www.boost.org/">Boost</ulink> 1.48,
                         including the following runtime libraries:</para>
                     <itemizedlist>
                         <listitem><para><systemitem
@@ -75,7 +76,7 @@
                     </itemizedlist>
                 </listitem>
                 <listitem><para><ulink
-                            url="http://clogs.sourceforge.net/">clogs</ulink> 1.0.2</para></listitem>
+                            url="http://clogs.sourceforge.net/">clogs</ulink> 1.1</para></listitem>
                 <listitem><para><ulink
                             url="http://www.stack.nl/~dimitri/doxygen/">Doxygen</ulink> 1.7.4</para></listitem>
                 <listitem><para><ulink
@@ -86,7 +87,7 @@
                             url="http://docbook.sf.net/">DocBook</ulink> 4.3 stylesheets</para></listitem>
                 <listitem><para>An implementation of OpenCL 1.1. GPU device
                         drivers will normally include this. It has been tested
-                        with NVIDIA GPU drivers and with the AMD APP SDK 2.6
+                        with NVIDIA GPU drivers and with the AMD APP SDK 2.7
                         on a CPU. The device must support images.</para></listitem>
             </itemizedlist>
             <para>
@@ -100,7 +101,7 @@
                         suite.</para></listitem>
             </itemizedlist>
             <para>
-                The following list of packages should suffice on Ubuntu 11.10 (although it has
+                The following list of packages should suffice on Ubuntu 12.04 (although it has
                 not been tested against a clean installation), with the
                 exception of <systemitem class="library">clogs</systemitem> which has not been
                 packaged for Ubuntu. When configuring <systemitem
@@ -126,7 +127,7 @@ libgl1-mesa-dev</screen>
             <title>Compiling</title>
             <para>
                 Before actually compiling, the build must be configured. This can be
-                done by running <userinput>./waf configure</userinput>. This
+                done by running <userinput>python waf configure</userinput>. This
                 will check that the required libraries are present. If
                 configuration fails, you can find more detailed error
                 information in <filename>build/config.log</filename>. The
@@ -135,7 +136,7 @@ libgl1-mesa-dev</screen>
                 environment variable before doing the configuration.
             </para>
             <para>
-                The installation directories should be chosen at configure
+                The installation directories are chosen at configure
                 time. The default is to install files into subdirectories of
                 <filename class="directory">/usr/local</filename>, but this
                 can be overridden with
@@ -145,18 +146,18 @@ libgl1-mesa-dev</screen>
                 There are also other command-line options that can be given to
                 affect the configured build. They are intended mainly for
                 developer rather than end-user use, so they are not documented
-                here.  Running <userinput>./waf configure --help</userinput>
+                here.  Running <userinput>python waf configure --help</userinput>
                 will show a full list.
             </para>
             <para>
                 Once configuration is complete, running
-                <userinput>./waf</userinput> will perform the compilation.
+                <userinput>python waf</userinput> will perform the compilation.
             </para>
         </section>
         <section id="installation.install">
             <title>Installing</title>
             <para>
-                Once compilation is complete, run <userinput>./waf
+                Once compilation is complete, run <userinput>python waf
                     install</userinput> to install MLSGPU. If you used the
                 default installation paths on the POSIX system, you may need
                 to be root to do this.
@@ -224,7 +225,7 @@ libgl1-mesa-dev</screen>
                 output file will contain just vertex positions and triangles;
                 all other metadata from the input is discarded. MLSGPU can
                 either write the entire output mesh to a single PLY file, or
-                break the bounding box up into a regular grid and output a
+                break the volume up into a regular grid and output a
                 separate PLY file for each non-empty grid cell. In the latter
                 case, the vertices at the boundaries between files will be
                 duplicated in both files, so that neighboring files can be
@@ -295,7 +296,9 @@ libgl1-mesa-dev</screen>
                 <para>
                     Operating systems sometimes place a limit on the length of a
                     command-line, which can be difficult if there are a very large
-                    number of input files. To work around this, a
+                    number of input files (although the option to specify a
+                    directory instead of a file is usually sufficient). To
+                    work around this, a
                     <firstterm>response file</firstterm> can be used to place the
                     command-line arguments in a file. First create a file with the
                     command-line arguments. The arguments can be separated by
@@ -341,9 +344,12 @@ libgl1-mesa-dev</screen>
                     may need to be adjusted if the output files are too big or
                     too small. This can be done by passing
                     <option>--split-size=<replaceable>size</replaceable></option>,
-                    where <replaceable>size</replaceable> is a target size in
-                    MiB. Use <option>--help</option> to see what the default
-                    value is and then adjust accordingly.
+                    where <replaceable>size</replaceable> is a target size. 
+                    Use <option>--help</option> to see
+                    what the default value is and then adjust accordingly.
+                    You can use a suffix of <literal>K</literal>,
+                    <literal>M</literal> or <literal>G</literal> to specify
+                    kibibytes, mebibytes or gibibytes respectively. 
                 </para>
             </section>
             <section id="running.commandline.opencl">
@@ -364,7 +370,7 @@ libgl1-mesa-dev</screen>
                     i.e., any device that matches any of the command-line
                     selectors will be used. The <option>--cl-cpu</option> and
                     <option>--cl-gpu</option> options take no arguments, and
-                    simple enable all CPU or GPU devices.
+                    simply enable all CPU or GPU devices.
                 </para>
                 <para>
                     The <option>--cl-device</option> option can be used in two
@@ -486,7 +492,8 @@ libgl1-mesa-dev</screen>
                         finer than 1mm.</para></listitem>
             </itemizedlist>
             <para>
-                Two runs of MLSGPU will generally not produce exactly the same
+                When using multiple GPUs, two runs of MLSGPU will generally not
+                produce exactly the same
                 stream of bytes, even with identical arguments. However, the
                 only difference should be the order in which the vertices and
                 triangles appear in the files, and the geometry should be
@@ -530,11 +537,12 @@ libgl1-mesa-dev</screen>
                         even though I use the same options.
                 </para></question>
                 <answer><para>
-                        This is normal behavior. The geometry is (or should be) the same every
+                        This is normal behavior when using multiple GPUs. The
+                        geometry is (or should be) the same every
                         time. Only the order of the vertices and triangles are
                         changing. If for some reason you need the exact same files
-                        each time, try passing <option>--bucket-threads=1</option>
-                        on the command line. This will slow MLSGPU down.
+                        each time, try using <option>--cl-device</option> to
+                        restrict execution to a signle device.
                 </para></answer>
             </qandaentry>
             <qandaentry>
@@ -542,11 +550,15 @@ libgl1-mesa-dev</screen>
                         MLSGPU is using too much CPU memory.
                 </para></question>
                 <answer><para>
-                        You can reduce the amount used by passing a lower value for
-                        <option>--max-host-splats</option> or for
-                        <option>--bucket-threads</option>. Both will affect
-                        performance, but in very system-dependent ways and so it is
-                        not possible to say which one is better to change.
+                        Run <userinput><command>mlsgpu</command>
+                            <option>--help</option></userinput> to get a list
+                        of options affecting memory usage with their default
+                        values, and try decreasing them. If you are only using
+                        one GPU it is possible to reduce the
+                        <option>--mem-order</option> value very substantially without having
+                        much effect on performance. If that isn't sufficient, try decreasing
+                        <option>--mem-host-splats</option> and
+                        <option>--mem-load-splats</option> proportionally.
                 </para></answer>
                 <answer><para>
                         Check whether <option>--fit-grid</option> was specified
@@ -563,12 +575,11 @@ libgl1-mesa-dev</screen>
                         an OpenCL device.
                 </para></question>
                 <answer><para>
-                        The first thing to try is to increase
-                        <option>--subsampling</option> by 1. If that fails, try
-                        reducing <option>--levels</option> by 1. If it still
-                        fails, experiment with decreasing
-                        <option>--max-device-splats</option>. It should be quite
-                        safe to halve it. If it still fails, repeat.
+                        Firstly try reducing the value of
+                        <option>--mem-bucket-splats</option>. If this affects
+                        performance too badly, try increasing
+                        <option>--subsampling</option> by 1, or reducing
+                        <option>--levels</option> by 1.
                 </para></answer>
             </qandaentry>
             <qandaentry>
@@ -580,7 +591,10 @@ libgl1-mesa-dev</screen>
                         This usually indicates that the value of
                         <option>--fit-grid</option> is far too high. This can
                         happen if it is specified in millimetres when the input
-                        data is specified in metres, for example.
+                        data is specified in metres, for example. It can also
+                        occur if trying to perform too coarse a reconstruction.
+                        If it is only slightly too large, it might be resolved by
+                        increasing <option>--mem-bucket-splats</option>.
                 </para></answer>
             </qandaentry>
             <qandaentry>
