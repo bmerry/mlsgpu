@@ -81,6 +81,8 @@ retry:
                     goto retry;
                 }
                 std::size_t scan = cur >> scanIdShift;
+                if (scan >= owner.size())
+                    return oldCount - count;
                 splat_id scanEnd = owner[scan].size() + (splat_id(scan) << scanIdShift);
                 if (cur >= scanEnd)
                 {
