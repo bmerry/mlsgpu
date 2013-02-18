@@ -137,7 +137,7 @@ po::variables_map processOptions(int argc, char **argv, bool isMPI)
     desc.add_options()
         ("output-file,o",   po::value<std::string>()->required(), "output file")
         (Option::split,     "split output across multiple files")
-        (Option::splitSize, po::value<unsigned int>()->default_value(100), "approximate size of output chunks (MiB)");
+        (Option::splitSize, po::value<Capacity>()->default_value(100 * 1024 * 1024), "approximate size of output chunks (MiB)");
 
     po::options_description clopts("OpenCL options");
     CLH::addOptions(clopts);
@@ -608,7 +608,7 @@ unsigned int postprocessGrid(const po::variables_map &vm, const Grid &grid)
     }
 
     const bool split = vm.count(Option::split);
-    const unsigned int splitSize = vm[Option::splitSize].as<unsigned int>();
+    const unsigned int splitSize = vm[Option::splitSize].as<Capacity>();
     unsigned int chunkCells = 0;
     if (split)
     {
@@ -625,7 +625,7 @@ unsigned int postprocessGrid(const po::variables_map &vm, const Grid &grid)
          *
          * TODO: move this function to mlsgpu_core.
          */
-        chunkCells = (unsigned int) ceil(sqrt((1024.0 * 1024.0 / 760.0) * splitSize));
+        chunkCells = (unsigned int) ceil(sqrt(splitSize / 760.0));
         if (chunkCells == 0) chunkCells = 1;
     }
     return chunkCells;

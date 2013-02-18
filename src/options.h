@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
+#include "tr1_cstdint.h"
 
 /**
  * Wraps an enum so that it can be used with @c boost::program_options.
@@ -44,17 +45,17 @@ private:
 };
 
 /**
- * Wraps a @c size_t to allow it to be specified with a B/K/M/G suffix
+ * Wraps a 64-bit integer to allow it to be specified with a B/K/M/G suffix
  * to compactly write the value.
  */
 class Capacity
 {
 public:
     Capacity() : value(0) {}
-    Capacity(std::size_t value) : value(value) {}
-    operator std::size_t() const { return value; }
+    Capacity(std::tr1::uint64_t value) : value(value) {}
+    operator std::tr1::uint64_t() const { return value; }
 private:
-    std::size_t value;
+    std::tr1::uint64_t value;
 };
 
 /**
