@@ -36,6 +36,8 @@ using std::uint64_t;
 using std::int64_t;
 using std::uintmax_t;
 using std::intmax_t;
+using std::uintptr_t;
+using std::intptr_t;
 
 }} // end namespace std::tr1
 #endif
