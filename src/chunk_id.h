@@ -11,6 +11,7 @@
 # include <config.h>
 #endif
 #include <boost/array.hpp>
+#include <boost/serialization/serialization.hpp>
 #include "tr1_cstdint.h"
 
 /**
@@ -47,6 +48,14 @@ struct ChunkId : public ChunkIdPod
         gen = 0;
         for (unsigned int i = 0; i < 3; i++)
             coords[i] = 0;
+    }
+
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int)
+    {
+        ar & gen;
+        for (unsigned int i = 0; i < 3; i++)
+            ar & coords[i];
     }
 
     /// Comparison by generation number

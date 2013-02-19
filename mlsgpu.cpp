@@ -76,66 +76,80 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
         boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
+        if (vm.count(Option::resume))
         {
-            // Open a scope so that objects will be released before finalization
-
-            boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
-
-            Log::log[Log::info] << "Initializing...\n";
-            MesherGroup mesherGroup(memMesh);
-            SlaveWorkers slaveWorkers(
-                mainWorker, vm, devices,
-                makeOutputGenerator(mesherGroup));
-            BucketCollector collector(maxLoadSplats, boost::ref(*slaveWorkers.loader));
-
-            Splats splats;
-            doComputeBlobs(mainWorker, vm, splats,
-                           boost::bind(&Splats::computeBlobs, &splats, _1, _2, &Log::log[Log::info], true));
-            Grid grid = splats.getBoundingGrid();
-            unsigned int chunkCells = postprocessGrid(vm, grid);
-
-            initTimer.reset();
-
-            for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
+            boost::filesystem::path path(vm[Option::resume].as<std::string>());
+            mesher->resume(mainWorker, path, &Log::log[Log::info]);
+        }
+        else
+        {
             {
-                Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
-                ostringstream passName;
-                passName << "pass" << pass + 1 << ".time";
-                Statistics::Timer timer(passName.str());
+                // Open a scope so that objects will be released before finalization
 
-                ProgressDisplay progress(splats.numSplats(), Log::log[Log::info]);
+                boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
 
-                mesherGroup.setInputFunctor(mesher->functor(pass));
+                Log::log[Log::info] << "Initializing...\n";
+                MesherGroup mesherGroup(memMesh);
+                SlaveWorkers slaveWorkers(
+                    mainWorker, vm, devices,
+                    makeOutputGenerator(mesherGroup));
+                BucketCollector collector(maxLoadSplats, boost::ref(*slaveWorkers.loader));
 
-                // Start threads
-                slaveWorkers.start(splats, grid, &progress);
-                mesherGroup.start();
+                Splats splats;
+                doComputeBlobs(mainWorker, vm, splats,
+                               boost::bind(&Splats::computeBlobs, &splats, _1, _2, &Log::log[Log::info], true));
+                Grid grid = splats.getBoundingGrid();
+                unsigned int chunkCells = postprocessGrid(vm, grid);
 
-                try
+                initTimer.reset();
+
+                for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
                 {
-                    doBucket(mainWorker, vm, splats, grid, chunkCells, collector);
-                }
-                catch (...)
-                {
-                    // This can't be handled using unwinding, because that would operate in
-                    // the wrong order
+                    Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
+                    ostringstream passName;
+                    passName << "pass" << pass + 1 << ".time";
+                    Statistics::Timer timer(passName.str());
+
+                    ProgressDisplay progress(splats.numSplats(), Log::log[Log::info]);
+
+                    mesherGroup.setInputFunctor(mesher->functor(pass));
+
+                    // Start threads
+                    slaveWorkers.start(splats, grid, &progress);
+                    mesherGroup.start();
+
+                    try
+                    {
+                        doBucket(mainWorker, vm, splats, grid, chunkCells, collector);
+                    }
+                    catch (...)
+                    {
+                        // This can't be handled using unwinding, because that would operate in
+                        // the wrong order
+                        collector.flush();
+                        slaveWorkers.stop();
+                        mesherGroup.stop();
+                        throw;
+                    }
+
+                    /* Shut down threads. Note that it has to be done in forward order to
+                     * satisfy the requirement that stop() is only called after producers
+                     * are terminated.
+                     */
                     collector.flush();
                     slaveWorkers.stop();
                     mesherGroup.stop();
-                    throw;
                 }
-
-                /* Shut down threads. Note that it has to be done in forward order to
-                 * satisfy the requirement that stop() is only called after producers
-                 * are terminated.
-                 */
-                collector.flush();
-                slaveWorkers.stop();
-                mesherGroup.stop();
             }
-        }
 
-        mesher->write(mainWorker, &Log::log[Log::info]);
+            if (vm.count(Option::checkpoint))
+            {
+                const boost::filesystem::path path(vm[Option::checkpoint].as<std::string>());
+                mesher->checkpoint(mainWorker, path);
+            }
+            else
+                mesher->write(mainWorker, &Log::log[Log::info]);
+        }
     } // ends scope for grandTotalTimer
 
     Statistics::finalizeEventTimes();

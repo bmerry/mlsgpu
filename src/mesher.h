@@ -30,6 +30,12 @@
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
 #include <boost/filesystem/fstream.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/serialization/serialization.hpp>
+#include <boost/serialization/base_object.hpp>
+#include <boost/serialization/split_free.hpp>
+#include <boost/serialization/vector.hpp>
 #include "tr1_unordered_map.h"
 #include "tr1_unordered_set.h"
 #include "marching.h"
@@ -44,6 +50,40 @@
 #include "chunk_id.h"
 
 class TestTmpWriterWorkerGroup;
+
+namespace boost
+{
+namespace serialization
+{
+
+template<typename Archive, typename T, typename Alloc>
+inline void serialize(Archive &ar, Statistics::Container::vector<T, Alloc> &v, const unsigned int)
+{
+    ar & boost::serialization::base_object<std::vector<T, Alloc> >(v);
+}
+
+template<typename Archive>
+inline void save(Archive &ar, const boost::filesystem::path &path, const unsigned int)
+{
+    ar << path.string();
+}
+
+template<typename Archive>
+inline void load(Archive &ar, boost::filesystem::path &path, const unsigned int)
+{
+    boost::filesystem::path::string_type s;
+    ar >> s;
+    path = s;
+}
+
+template<typename Archive>
+inline void serialize(Archive &ar, boost::filesystem::path &path, const unsigned int version)
+{
+    boost::serialization::split_free(ar, path, version);
+}
+
+} // namespace serialization
+} // namespace boost
 
 /**
  * Enumeration of the supported mesher types
@@ -212,6 +252,22 @@ public:
     virtual InputFunctor functor(unsigned int pass) = 0;
 
     /**
+     * Instead of calling @ref write, one may instead call this function. It will
+     * serialize the state necessary to complete the writing into @a path. Later
+     * (usually in a separate process), call @ref resume on a newly constructed
+     * mesher of the same class with the same filename to complete the write operation.
+     */
+    virtual void checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path) = 0;
+
+    /**
+     * Write the output files after a checkpoint.
+     *
+     * @see @ref checkpoint
+     */
+    virtual void resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
+                        std::ostream *progressStream = NULL) = 0;
+
+    /**
      * Performs any final file I/O.
      *
      * @param tworker         Timeplot worker for the current thread
@@ -270,6 +326,7 @@ private:
 class OOCMesher : public MesherBase
 {
     friend class ::TestTmpWriterWorkerGroup;
+    friend class boost::serialization::access;
 public:
     typedef boost::array<float, 3> vertex_type;
     typedef boost::array<cl_uint, 3> triangle_type;
@@ -327,6 +384,23 @@ private:
                 globalId(globalId)
             {
             }
+
+        private:
+            friend class boost::serialization::access;
+
+            /// Constructor used only by serialization
+            Clump() {}
+
+            template<typename Archive>
+            void serialize(Archive &ar, const unsigned int)
+            {
+                ar & firstVertex;
+                ar & numInternalVertices;
+                ar & numExternalVertices;
+                ar & firstTriangle;
+                ar & numTriangles;
+                ar & globalId;
+            }
         };
 
         typedef Statistics::Container::unordered_map<cl_ulong, std::tr1::uint32_t> vertex_id_map_type;
@@ -349,6 +423,15 @@ private:
             bufferedClumps("mem.mesher.chunk.bufferedClumps"),
             vertexIdMap("mem.mesher.vertexIdMap"),
             numExternalVertices(0) {}
+
+        template<typename Archive>
+        void serialize(Archive &ar, const unsigned int)
+        {
+            ar & chunkId;
+            ar & clumps;
+            ar & numExternalVertices;
+            // bufferedClumps and vertexIdMap are not needed
+        }
     };
 
     /**
@@ -378,6 +461,20 @@ private:
          */
         Clump(std::tr1::uint64_t numVertices) : vertices(numVertices), triangles(0)
         {
+        }
+
+    private:
+        friend class boost::serialization::access;
+
+        /// Constructor used only for serialization
+        Clump() {}
+
+        template<typename Archive>
+        void serialize(Archive &ar, const unsigned int)
+        {
+            ar & boost::serialization::base_object<UnionFind::Node<clump_id> >(*this);
+            ar & vertices;
+            ar & triangles;
         }
     };
 
@@ -438,6 +535,7 @@ private:
     class TmpWriterWorkerGroup : public WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>
     {
         friend class ::TestTmpWriterWorkerGroup;
+        friend class boost::serialization::access;
     private:
         /// File to which vertices are written
         boost::filesystem::ofstream verticesFile;
@@ -452,6 +550,13 @@ private:
         CircularBufferBase itemAllocator;
         /// Backing store of items
         std::vector<boost::shared_ptr<TmpWriterItem> > itemPool;
+
+        template<typename Archive>
+        void serialize(Archive &ar, const unsigned int)
+        {
+            ar & verticesPath;
+            ar & trianglesPath;
+        }
     public:
         /**
          * Constructor.
@@ -512,6 +617,8 @@ private:
     std::tr1::uint64_t writtenVerticesTmp;
     /// Total number of triangles written to temporary file
     std::tr1::uint64_t writtenTrianglesTmp;
+    /// If set to true, will not delete the temporary files
+    bool retainFiles;
 
     /**
      * Reorder buffer. Initially only the vertices and triangles are placed
@@ -612,6 +719,22 @@ private:
     /// Implementation of the functor
     void add(MesherWork &work, Timeplot::Worker &worker);
 
+    /**
+     * Flush out any temporary data to the temporary file writer then shut it down
+     */
+    void finalize(Timeplot::Worker &tworker);
+
+    /**
+     * Serialize just enough data that @ref write can be run on the reconstituted structure
+     */
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int)
+    {
+        ar & tmpWriter;
+        ar & chunks;
+        ar & clumps;
+    }
+
 public:
     /**
      * @copydoc MesherBase::MesherBase
@@ -623,6 +746,9 @@ public:
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
     virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
+    virtual void checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path);
+    virtual void resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
+                        std::ostream *progressStream = NULL);
 };
 
 /**

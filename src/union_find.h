@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <boost/static_assert.hpp>
 #include <boost/type_traits/is_signed.hpp>
+#include <boost/serialization/serialization.hpp>
 
 #if UNIT_TESTS
 class TestUnionFind;
@@ -41,6 +42,7 @@ namespace UnionFind
 template<typename Size>
 class Node
 {
+    friend class boost::serialization::access;
 public:
     typedef Size size_type;     ///< Type used to store either parent index or node size
 
@@ -109,6 +111,12 @@ private:
         BOOST_STATIC_ASSERT(boost::is_signed<size_type>::value);
         assert(s > 0);
         parentSize = -s;
+    }
+
+    template<typename Archive>
+    void serialize(Archive &ar, const unsigned int)
+    {
+        ar & parentSize;
     }
 
 protected:

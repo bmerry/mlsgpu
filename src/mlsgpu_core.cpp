@@ -97,7 +97,9 @@ static void addAdvancedOptions(po::options_description &opts)
 #ifdef _OPENMP
         (Option::ompThreads,   po::value<int>(), "Number of threads for OpenMP")
 #endif
-        (Option::decache,      "Try to evict input files from OS cache for benchmarking");
+        (Option::decache,      "Try to evict input files from OS cache for benchmarking")
+        (Option::checkpoint,   po::value<std::string>(), "Checkpoint state prior to writing output")
+        (Option::resume,       po::value<std::string>(), "Restart from checkpoint");
     opts.add(advanced);
 }
 

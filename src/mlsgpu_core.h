@@ -67,6 +67,8 @@ namespace Option
     const char * const writer = "writer";
     const char * const ompThreads = "omp-threads";
     const char * const decache = "decache";
+    const char * const checkpoint = "checkpoint";
+    const char * const resume = "resume";
 
     const char * const memLoadSplats = "mem-load-splats";
     const char * const memHostSplats = "mem-host-splats";

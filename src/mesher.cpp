@@ -34,6 +34,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/iostreams/positioning.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
 #include "tr1_unordered_map.h"
 #include <cassert>
 #include <cstdlib>
@@ -161,6 +163,7 @@ OOCMesher::OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
     tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
     tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
     tmpWriter(reorderSlots),
+    retainFiles(false),
     chunks("mem.OOCMesher::chunks"),
     clumps("mem.OOCMesher::clumps"),
     clumpIdMap("mem.OOCMesher::clumpIdMap")
@@ -172,21 +175,24 @@ OOCMesher::~OOCMesher()
     if (tmpWriter.running())
         tmpWriter.stop();
 
-    boost::filesystem::path verticesTmpPath = tmpWriter.getVerticesPath();
-    boost::filesystem::path trianglesTmpPath = tmpWriter.getTrianglesPath();
-    if (!verticesTmpPath.empty())
+    if (!retainFiles)
     {
-        boost::system::error_code ec;
-        remove(verticesTmpPath, ec);
-        if (ec)
-            Log::log[Log::warn] << "Could not delete " << verticesTmpPath.string() << ": " << ec.message() << std::endl;
-    }
-    if (!trianglesTmpPath.empty())
-    {
-        boost::system::error_code ec;
-        remove(trianglesTmpPath, ec);
-        if (ec)
-            Log::log[Log::warn] << "Could not delete " << trianglesTmpPath.string() << ": " << ec.message() << std::endl;
+        boost::filesystem::path verticesTmpPath = tmpWriter.getVerticesPath();
+        boost::filesystem::path trianglesTmpPath = tmpWriter.getTrianglesPath();
+        if (!verticesTmpPath.empty())
+        {
+            boost::system::error_code ec;
+            remove(verticesTmpPath, ec);
+            if (ec)
+                Log::log[Log::warn] << "Could not delete " << verticesTmpPath.string() << ": " << ec.message() << std::endl;
+        }
+        if (!trianglesTmpPath.empty())
+        {
+            boost::system::error_code ec;
+            remove(trianglesTmpPath, ec);
+            if (ec)
+                Log::log[Log::warn] << "Could not delete " << trianglesTmpPath.string() << ": " << ec.message() << std::endl;
+        }
     }
 }
 
@@ -454,15 +460,20 @@ MesherBase::InputFunctor OOCMesher::functor(unsigned int pass)
     return boost::bind(&OOCMesher::add, this, _1, _2);
 }
 
+void OOCMesher::finalize(Timeplot::Worker &tworker)
+{
+    flushBuffer(tworker);
+    if (tmpWriter.running())
+        tmpWriter.stop();
+}
+
 void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
     Timeplot::Action writeAction("write", tworker, "finalize.time");
     FastPly::WriterBase &writer = getWriter();
-
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
-    flushBuffer(tworker);
-    tmpWriter.stop();
+    finalize(tworker);
 
     boost::filesystem::ifstream verticesTmpRead(
         tmpWriter.getVerticesPath(), std::ios::in | std::ios::binary);
@@ -672,6 +683,52 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
             }
         }
     }
+}
+
+void OOCMesher::checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path)
+{
+    retainFiles = true;
+    finalize(tworker);
+
+    try
+    {
+        boost::filesystem::ofstream dump(path);
+        if (!dump)
+            throw std::ios::failure("Could not open file");
+        boost::archive::text_oarchive archive(dump);
+        archive << *this;
+        dump.close();
+    }
+    catch (std::ios::failure &e)
+    {
+        throw boost::enable_error_info(e)
+            << boost::errinfo_errno(errno)
+            << boost::errinfo_file_name(path.string());
+    }
+}
+
+void OOCMesher::resume(
+    Timeplot::Worker &tworker,
+    const boost::filesystem::path &path,
+    std::ostream *progressStream)
+{
+    retainFiles = true; // to allow resume to be re-run
+    try
+    {
+        boost::filesystem::ifstream dump(path);
+        if (!dump)
+            throw std::ios::failure("Could not open file");
+        boost::archive::text_iarchive archive(dump);
+        archive >> *this;
+        dump.close();
+    }
+    catch (std::ios::failure &e)
+    {
+        throw boost::enable_error_info(e)
+            << boost::errinfo_errno(errno)
+            << boost::errinfo_file_name(path.string());
+    }
+    write(tworker, progressStream);
 }
 
 namespace
