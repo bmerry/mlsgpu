@@ -529,6 +529,8 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
     registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
     registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
     registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
+    Statistics::Variable &readVerticesStat = registry.getStatistic<Statistics::Variable>("write.readVertices.time");
+    Statistics::Variable &readTrianglesStat = registry.getStatistic<Statistics::Variable>("write.readTriangles.time");
 
     boost::scoped_ptr<ProgressDisplay> progress;
     if (progressStream != NULL)
@@ -603,8 +605,11 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                         {
                             std::size_t numVertices = cc.numInternalVertices + cc.numExternalVertices;
                             vertices.reserve(numVertices, false);
-                            verticesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstVertex * sizeof(vertex_type)));
-                            verticesTmpRead.read(reinterpret_cast<char *>(vertices.data()), numVertices * sizeof(vertex_type));
+                            {
+                                Statistics::Timer timer(readVerticesStat);
+                                verticesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstVertex * sizeof(vertex_type)));
+                                verticesTmpRead.read(reinterpret_cast<char *>(vertices.data()), numVertices * sizeof(vertex_type));
+                            }
                             writer.writeVertices(writtenVertices, numVertices, &vertices[0][0]);
 
                             writtenVertices += cc.numInternalVertices;
@@ -643,8 +648,11 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                         {
                             triangles.reserve(cc.numTriangles, false);
                             trianglesRaw.reserve(cc.numTriangles * FastPly::WriterBase::triangleSize, false);
-                            trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
-                            trianglesTmpRead.read(reinterpret_cast<char *>(triangles.data()), cc.numTriangles * sizeof(triangle_type));
+                            {
+                                Statistics::Timer timer(readTrianglesStat);
+                                trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
+                                trianglesTmpRead.read(reinterpret_cast<char *>(triangles.data()), cc.numTriangles * sizeof(triangle_type));
+                            }
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
 #endif
