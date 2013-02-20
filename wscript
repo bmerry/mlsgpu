@@ -350,6 +350,7 @@ def build(bld):
         use = 'ROUNDING_MATH')
 
     core_sources = [
+            'src/binary_io.cpp',
             'src/bucket.cpp',
             'src/bucket_collector.cpp',
             'src/circular_buffer.cpp',
