@@ -56,6 +56,7 @@
 #include "clh.h"
 #include "misc.h"
 #include "circular_buffer.h"
+#include "binary_io.h"
 
 std::map<std::string, MesherType> MesherTypeWrapper::getNameMap()
 {
@@ -475,24 +476,10 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 
     finalize(tworker);
 
-    boost::filesystem::ifstream verticesTmpRead(
-        tmpWriter.getVerticesPath(), std::ios::in | std::ios::binary);
-    if (!verticesTmpRead)
-    {
-        int e = errno;
-        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
-            << boost::errinfo_file_name(tmpWriter.getVerticesPath().string())
-            << boost::errinfo_errno(e);
-    }
-    boost::filesystem::ifstream
-        trianglesTmpRead(tmpWriter.getTrianglesPath(), std::ios::in | std::ios::binary);
-    if (!trianglesTmpRead)
-    {
-        int e = errno;
-        throw boost::enable_error_info(std::runtime_error("Could not open temporary file"))
-            << boost::errinfo_file_name(tmpWriter.getTrianglesPath().string())
-            << boost::errinfo_errno(e);
-    }
+    boost::scoped_ptr<BinaryReader> verticesTmpRead(createReader(SYSCALL_READER));
+    verticesTmpRead->open(tmpWriter.getVerticesPath());
+    boost::scoped_ptr<BinaryReader> trianglesTmpRead(createReader(SYSCALL_READER));
+    trianglesTmpRead->open(tmpWriter.getTrianglesPath());
 
     // Number of vertices in the mesh, not double-counting chunk boundaries
     std::tr1::uint64_t totalVertices = 0;
@@ -607,8 +594,10 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                             vertices.reserve(numVertices, false);
                             {
                                 Statistics::Timer timer(readVerticesStat);
-                                verticesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstVertex * sizeof(vertex_type)));
-                                verticesTmpRead.read(reinterpret_cast<char *>(vertices.data()), numVertices * sizeof(vertex_type));
+                                verticesTmpRead->read(
+                                    vertices.data(),
+                                    numVertices * sizeof(vertex_type),
+                                    cc.firstVertex * sizeof(vertex_type));
                             }
                             writer.writeVertices(writtenVertices, numVertices, &vertices[0][0]);
 
@@ -650,8 +639,10 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                             trianglesRaw.reserve(cc.numTriangles * FastPly::Writer::triangleSize, false);
                             {
                                 Statistics::Timer timer(readTrianglesStat);
-                                trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
-                                trianglesTmpRead.read(reinterpret_cast<char *>(triangles.data()), cc.numTriangles * sizeof(triangle_type));
+                                trianglesTmpRead->read(
+                                    triangles.data(),
+                                    cc.numTriangles * sizeof(triangle_type),
+                                    cc.firstTriangle * sizeof(triangle_type));
                             }
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
