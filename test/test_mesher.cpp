@@ -39,6 +39,7 @@
 #include "../src/fast_ply.h"
 #include "../src/mesher.h"
 #include "test_clh.h"
+#include "memory_reader.h"
 #include "memory_writer.h"
 
 using namespace std;
@@ -124,9 +125,9 @@ private:
         std::tr1::uint32_t idx2) const;
 
 protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer) = 0;
+    virtual MesherBase *mesherFactory(FastPly::Writer &writer, const MesherBase::Namer &namer) = 0;
 
-    MesherBase *mesherFactory(FastPly::WriterBase &writer)
+    MesherBase *mesherFactory(FastPly::Writer &writer)
     {
         return mesherFactory(writer, TrivialNamer(""));
     }
@@ -158,8 +159,7 @@ protected:
         size_t numVertices, size_t numIndices,
         const boost::array<cl_float, 3> *expectedVertices,
         const cl_uint *expectedIndices,
-        const MemoryWriter::Output &actual) const;
-
+        const std::string &actualRaw) const;
 
     /**
      * @name
@@ -382,10 +382,13 @@ void TestMesherBase::checkIsomorphic(
     size_t numVertices, size_t numIndices,
     const boost::array<cl_float, 3> *expectedVertices,
     const cl_uint *expectedIndices,
-    const MemoryWriter::Output &actual) const
+    const std::string &actualRaw) const
 {
-    const vector<boost::array<float, 3> > &actualVertices = actual.vertices;
-    const vector<boost::array<std::tr1::uint32_t, 3> > &actualTriangles = actual.triangles;
+    vector<boost::array<float, 3> > actualVertices;
+    vector<boost::array<std::tr1::uint32_t, 3> > actualTriangles;
+
+    MemoryWriterPly::parse(actualRaw, actualVertices, actualTriangles);
+
     CPPUNIT_ASSERT_EQUAL(numVertices, actualVertices.size());
     CPPUNIT_ASSERT_EQUAL(numIndices, 3 * actualTriangles.size());
 
@@ -472,7 +475,8 @@ void TestMesherBase::testSimple()
         9, 12, 11
     };
 
-    MemoryWriter writer;
+    MemoryWriterPly writer;
+
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
@@ -513,7 +517,7 @@ void TestMesherBase::testSimple()
     mesher->write(tworker);
 
     // Check that boost::size really works on these arrays
-    CPPUNIT_ASSERT_EQUAL(5, int(boost::size(internalVertices0)));
+    MLSGPU_ASSERT_EQUAL(5, boost::size(internalVertices0));
 
     checkIsomorphic(boost::size(expectedVertices), boost::size(expectedIndices),
                     expectedVertices, expectedIndices, writer.getOutput(""));
@@ -549,7 +553,8 @@ void TestMesherBase::testNoInternal()
         4, 4, 5
     };
 
-    MemoryWriter writer;
+    MemoryWriterPly writer;
+
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
@@ -602,7 +607,8 @@ void TestMesherBase::testNoExternal()
         7, 6, 5
     };
 
-    MemoryWriter writer;
+    MemoryWriterPly writer;
+
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
@@ -627,7 +633,8 @@ void TestMesherBase::testEmpty()
 {
     Timeplot::Worker tworker("test");
 
-    MemoryWriter writer;
+    MemoryWriterPly writer;
+
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
@@ -682,7 +689,8 @@ void TestMesherBase::testWeld()
         13, 6, 7
     };
 
-    MemoryWriter writer;
+    MemoryWriterPly writer;
+
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     unsigned int passes = mesher->numPasses();
     for (unsigned int i = 0; i < passes; i++)
@@ -859,7 +867,8 @@ void TestMesherBase::testPrune()
         6, 10, 8
     };
 
-    MemoryWriter writer;
+    MemoryWriterPly writer;
+
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer));
     // There are 22 vertices total, and we want a threshold of 6
     mesher->setPruneThreshold(6.5 / 22.0);
@@ -915,7 +924,7 @@ void TestMesherBase::testChunk()
     };
 
     ChunkNamer namer("chunk");
-    MemoryWriter writer;
+    MemoryWriterPly writer;
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer, namer));
     unsigned int passes = mesher->numPasses();
 
@@ -1136,7 +1145,7 @@ void TestMesherBase::testRandom()
 
     /* Now the actual testing */
     ChunkNamer namer("chunk");
-    MemoryWriter writer;
+    MemoryWriterPly writer;
     boost::scoped_ptr<MesherBase> mesher(mesherFactory(writer, namer));
     mesher->setPruneThreshold(pruneThreshold);
     unsigned int passes = mesher->numPasses();
@@ -1190,7 +1199,7 @@ class TestOOCMesher : public TestMesherBase
     CPPUNIT_TEST_SUB_SUITE(TestOOCMesher, TestMesherBase);
     CPPUNIT_TEST_SUITE_END();
 protected:
-    virtual MesherBase *mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer);
+    virtual MesherBase *mesherFactory(FastPly::Writer &writer, const MesherBase::Namer &namer);
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOOCMesher, TestSet::perBuild());
 
@@ -1349,7 +1358,7 @@ class TestOOCMesherSlow : public TestOOCMesher
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestOOCMesherSlow, TestSet::perCommit());
 
-MesherBase *TestOOCMesher::mesherFactory(FastPly::WriterBase &writer, const MesherBase::Namer &namer)
+MesherBase *TestOOCMesher::mesherFactory(FastPly::Writer &writer, const MesherBase::Namer &namer)
 {
     return new OOCMesher(writer, namer);
 }

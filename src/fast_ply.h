@@ -12,15 +12,6 @@
 # include <config.h>
 #endif
 
-#if HAVE_OPEN && HAVE_CLOSE && HAVE_PREAD
-# define SYSCALL_READER_POSIX 1
-#elif HAVE_CREATEFILE && HAVE_CLOSEHANDLE && HAVE_READFILE
-# define SYSCALL_READER_WIN32 1
-# include <windows.h>
-#else
-# error "Insufficient support for SyscallReader"
-#endif
-
 #include <string>
 #include <cstddef>
 #include <stdexcept>
@@ -33,9 +24,8 @@
 #include <algorithm>
 #include <utility>
 #include "tr1_cstdint.h"
-#include <boost/iostreams/device/mapped_file.hpp>
-#include <boost/iostreams/device/file.hpp>
-#include <boost/iostreams/stream.hpp>
+#include <boost/filesystem/path.hpp>
+#include <boost/function.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/type_traits/is_pointer.hpp>
@@ -44,8 +34,9 @@
 #include "splat.h"
 #include "errors.h"
 #include "allocator.h"
+#include "binary_io.h"
 
-class TestFastPlyReaderBase;
+class TestFastPlyReader;
 
 /**
  * Classes and functions for efficient access to PLY files in a narrow
@@ -53,36 +44,6 @@ class TestFastPlyReaderBase;
  */
 namespace FastPly
 {
-
-/// Enumeration of the subclasses of @ref FastPly::ReaderBase
-enum ReaderType
-{
-    MMAP_READER,
-    SYSCALL_READER
-};
-
-/// Enumeration of the subclasses of @ref FastPly::WriterBase
-enum WriterType
-{
-    MMAP_WRITER,
-    STREAM_WRITER
-};
-
-/// Wrapper around @ref ReaderType for use with @ref Choice.
-class ReaderTypeWrapper
-{
-public:
-    typedef ReaderType type;
-    static std::map<std::string, ReaderType> getNameMap();
-};
-
-/// Wrapper around @ref WriterType for use with @ref Choice.
-class WriterTypeWrapper
-{
-public:
-    typedef WriterType type;
-    static std::map<std::string, WriterType> getNameMap();
-};
 
 /**
  * An exception that is thrown when an invalid PLY file is encountered.
@@ -104,65 +65,48 @@ public:
  * - The x, y, z, nx, ny, nz, radius elements must all be present and FLOAT32.
  * - The vertex element must not contain any lists.
  *
- * This is a virtual base class that provides the interfaces and handles the
- * header, but the actual movement of data is down to the subclasses.
- *
  * An instance of this class just holds the metadata, but no OS resources or
- * buffers. To actually read the data, one calls @ref createHandle() to create
- * a handle, at which point the file is opened.
+ * buffers. To actually read the data, one creates a @ref Handle,
+ * at which point the file is opened.
  */
-class ReaderBase
+class Reader
 {
-    friend class ::TestFastPlyReaderBase;
+    friend class ::TestFastPlyReader;
 public:
     /// Size capable of holding maximum supported file size
-    typedef std::tr1::uint64_t size_type;
+    typedef BinaryReader::offset_type size_type;
     typedef Splat value_type;
 
     /**
-     * A file handle to a PLY file, used for reading. This is a virtual base
-     * class which is overloaded by each type of reader to provide the mechanisms
-     * for accessing the file.
+     * A file handle to a PLY file, used for reading.
      *
-     * A word about thread safety. Two threads must not simultaneously access the
-     * same handle, because it is possible that handles encode an OS-level file
-     * position. It is safe to simultaneously access two handles that reference
-     * the same underlying file.
+     * It is safe for two threads to simultaneously read from the same handle.
      */
     class Handle : public boost::noncopyable
     {
     protected:
         /// The reader whose file we're reading
-        const ReaderBase &owner;
-
-    protected:
-        /// Constructor
-        Handle(const ReaderBase &owner);
+        const Reader &owner;
+        /// Low-level handle
+        boost::scoped_ptr<BinaryReader> reader;
 
     public:
+        /// Constructor
+        Handle(const Reader &owner);
+
         /**
-         * Method implemented in subclasses to back the read. It must copy the specified
-         * vertices to @a buffer, in exactly the form they exist in the file i.e. just
-         * a byte-level copy of the relevant data, without selecting the required fields.
+         * Low-level read access. The vertices are copied to @a buffer, in
+         * exactly the form they exist in the file i.e. just a byte-level copy
+         * of the relevant data, without selecting the required fields.
          *
          * @param first,last      %Range of vertices to read.
-         * @param buffer          Output buffer, or @c NULL if no buffer created.
+         * @param buffer          Output buffer.
          * @return A pointer to the data.
          *
          * @pre @a first &lt;= @a last &lt;= @ref size().
          * @pre @a buffer is not @c NULL and has at least <code>(last - first) * owner.getVertexSize() bytes</code>.
          */
-        virtual void readRaw(size_type first, size_type last, char *buffer) const = 0;
-
-        /**
-         * A hint that a range will be read in the near future. The subclass
-         * may pass this hint to the OS, or it may ignore it.
-         */
-        virtual void prefetch(size_type first, size_type last) const
-        {
-            (void) first;
-            (void) last;
-        }
+        void readRaw(size_type first, size_type last, char *buffer) const;
 
         /**
          * Convenience wrapper around @ref Reader::decode.
@@ -189,8 +133,6 @@ public:
          */
         template<typename OutputIterator>
             OutputIterator read(size_type first, size_type last, OutputIterator out) const;
-
-        virtual ~Handle() {}
     };
 
     /**
@@ -209,13 +151,40 @@ public:
     size_type getVertexSize() const { return vertexSize; }
 
     /**
-     * Open the file and return a @ref FastPly::ReaderBase::Handle for reading it.
+     * Construct from a file.
+     *
+     * This will open the file to parse the header and then close it again.
+     * If an exception is thrown, it will have the filename stored in it
+     * using @c boost::errinfo_file_name.
+     *
+     * @param readerType       Type to use for binary file access
+     * @param path             File to open.
+     * @param smooth           Scale factor applied to radii as they're read.
+     * @param maxRadius        Cap for radius (prior to scaling by @a smooth).
+     * @throw FormatError if the header is malformed.
+     * @throw std::ios::failure if there was an I/O error.
      */
-    virtual Handle *createHandle() const = 0;
+    Reader(
+        ReaderType readerType,
+        const boost::filesystem::path &path,
+        float smooth, float maxRadius);
 
-    virtual ~ReaderBase() {}
+    /**
+     * Construct from a filename, using a custom factory to generate the
+     * underlying @ref BinaryReader.
+     */
+    Reader(
+        boost::function<BinaryReader *()> readerFactory,
+        const boost::filesystem::path &path,
+        float smooth, float maxRadius);
 
 private:
+    /// Factory to generate file handles for low-level file access
+    boost::function<BinaryReader *()> readerFactory;
+
+    /// Path to the file
+    boost::filesystem::path path;
+
     /// Scale factor for radii
     float smooth;
 
@@ -235,33 +204,6 @@ private:
     size_type vertexCount;             ///< Number of vertices
     size_type offsets[numProperties];  ///< Byte offsets of each property within a vertex
 
-protected:
-    /**
-     * Construct from a file.
-     *
-     * This will open the file to parse the header and then close it again.
-     * If an exception is thrown, it will have the filename stored in it
-     * using @c boost::errinfo_file_name.
-     *
-     * @param filename         File to open.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @param maxRadius        Cap for radius (prior to scaling by @a smooth).
-     * @throw FormatError if the header is malformed.
-     * @throw std::ios::failure if there was an I/O error.
-     */
-    ReaderBase(const std::string &filename, float smooth, float maxRadius);
-
-    /**
-     * Construct from an arbitrary stream.
-     *
-     * This is a more generic constructor that does not require the header
-     * to be stored in a file. The subclass @em must call @ref readHeader
-     * to load the header.
-     *
-     * @see @ref readHeader
-     */
-    ReaderBase(float smooth, float maxRadius);
-
     /**
      * Does the heavy lifting of parsing the header. This is called by
      * the constructor if it takes a file, otherwise by the subclass
@@ -274,89 +216,33 @@ protected:
 };
 
 /**
- * Reader that uses a memory mapping to access the file.
- * It must be possible to mmap the entire file (thus, a 64-bit
- * address space is needed to handle very large files).
- */
-class MmapReader : public ReaderBase
-{
-private:
-    class MmapHandle : public ReaderBase::Handle
-    {
-    private:
-        /// The memory mapping
-        boost::iostreams::mapped_file_source mapping;
-
-        /// Pointer to the first vertex.
-        const char *vertexPtr;
-
-    public:
-        virtual void readRaw(size_type first, size_type last, char *buffer) const;
-        virtual void prefetch(size_type first, size_type last) const;
-
-        explicit MmapHandle(const MmapReader &owner, const std::string &filename);
-    };
-
-public:
-    /**
-     * @copydoc ReaderBase::ReaderBase(const std::string &, float, float)
-     */
-    explicit MmapReader(const std::string &filename, float smooth, float maxRadius);
-
-    virtual Handle *createHandle() const;
-
-private:
-    const std::string filename;
-};
-
-/**
- * Reader that uses @c read or equivalent OS-level functionality.
+ * PLY file writer that only supports one format.
+ * The supported format has:
+ *  - Binary format with host endianness;
+ *  - Vertices with x, y, z as 32-bit floats (no normals);
+ *  - Faces with 32-bit unsigned integer indices;
+ *  - 3 indices per face;
+ *  - Arbitrary user-provided comments.
  *
- * @todo Port to Windows
+ * Writing a file is done in phases:
+ *  -# Set comments with @ref addComment and indicate the number of
+ *     vertices and indices with @ref setNumVertices and @ref setNumTriangles.
+ *  -# Write the header using @ref open.
+ *  -# Use @ref writeVertices and @ref writeTriangles to write the data.
+ *
+ * The requirement for knowing the number of vertices and indices up front is a
+ * limitation of the PLY format. If it is not possible to know this up front, you
+ * will need to dump the vertices and indices to raw temporary files and stitch
+ * it all together later.
+ *
+ * The final phase (writing of vertices and indices) is thread-safe, provided
+ * that each thread is writing to a disjoint section of the file.
  */
-class SyscallReader : public ReaderBase
-{
-private:
-    class SyscallHandle : public ReaderBase::Handle
-    {
-    private:
-#if SYSCALL_READER_POSIX
-        int fd;
-#elif SYSCALL_READER_WIN32
-        HANDLE fd;
-#endif
-
-    public:
-        /**
-         * @copydoc ReaderBase::Handle::Handle(const ReaderBase &)
-         */
-        SyscallHandle(const SyscallReader &owner);
-
-        virtual void readRaw(size_type first, size_type last, char *buffer) const;
-        virtual void prefetch(size_type first, size_type last) const;
-
-        virtual ~SyscallHandle();
-    };
-
-    std::string filename;
-
-public:
-    /**
-     * @copydoc ReaderBase::ReaderBase(const std::string &, float, float)
-     */
-    SyscallReader(const std::string &filename, float smooth, float maxRadius);
-
-    virtual Handle *createHandle() const;
-};
-
-/// Common code shared by @ref MmapWriter and @ref StreamWriter
-class WriterBase
+class Writer
 {
 public:
     /// Size capable of holding maximum supported file size
-    typedef std::tr1::uint64_t size_type;
-
-    virtual ~WriterBase();
+    typedef BinaryWriter::offset_type size_type;
 
     /**
      * Determines whether @ref open has been successfully called.
@@ -385,17 +271,7 @@ public:
      * Create the file and write the header.
      * @pre @ref open has not yet been successfully called.
      */
-    virtual void open(const std::string &filename) = 0;
-
-    /**
-     * Allocate storage in memory and write the header to it.
-     * This version is primarily aimed at testing, to avoid
-     * writing to file and reading back in.
-     *
-     * The memory is allocated with <code>new[]</code>, and
-     * the caller is responsible for freeing it with <code>delete[]</code>.
-     */
-    virtual std::pair<char *, size_type> open() = 0;
+    void open(const std::string &filename);
 
     /**
      * Flush all data to the file and close it.
@@ -403,7 +279,7 @@ public:
      * After doing this, it is possible to open a new file, although the
      * comments will not be reset.
      */
-    virtual void close() = 0;
+    void close();
 
     /**
      * Write a range of vertices.
@@ -412,7 +288,7 @@ public:
      * @param data           Array of <code>float[3]</code> values.
      * @pre @a first + @a count <= @a numVertices.
      */
-    virtual void writeVertices(size_type first, size_type count, const float *data) = 0;
+    void writeVertices(size_type first, size_type count, const float *data);
 
     /**
      * Write a range of triangles.
@@ -421,7 +297,7 @@ public:
      * @param data           Array of <code>uint32_t[3]</code> values containing indices.
      * @pre @a first + @a count <= @a numTriangles.
      */
-    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data) = 0;
+    void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
 
     /**
      * Write a range of triangles which have been pre-encoded. Each triangle must contain
@@ -431,12 +307,10 @@ public:
      *
      * @see TriangleBuffer
      */
-    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data) = 0;
+    void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
 
-    /**
-     * Whether the class supports writing the data out-of-order.
-     */
-    virtual bool supportsOutOfOrder() const = 0;
+    size_type getNumVertices() const;
+    size_type getNumTriangles() const;
 
     /**
      * Class that allows triangles to be submitted one at a time, and which writes the
@@ -453,7 +327,7 @@ public:
          * @param capacity    Bytes to allocate for the buffer. The number of triangles supported
          *                    will be 1/13th of this.
          */
-        explicit TriangleBuffer(WriterBase &writer, size_type offset, std::size_t capacity);
+        explicit TriangleBuffer(Writer &writer, size_type offset, std::size_t capacity);
 
         /**
          * Flush the buffer.
@@ -478,7 +352,7 @@ public:
         std::tr1::uint8_t *bufferEnd;
 
         /// Writer to write to.
-        WriterBase &writer;
+        Writer &writer;
         /// Index of first triangle in the buffer
         size_type nextTriangle;
 
@@ -490,132 +364,40 @@ public:
     /// Bytes per triangle
     static const size_type triangleSize = 1 + 3 * sizeof(std::tr1::uint32_t);
 
+    /// Constructor
+    explicit Writer(WriterType writerType);
+
+    /**
+     * Constructor with a custom low-level writer.
+     * This class takes over ownership of the handle.
+     */
+    explicit Writer(BinaryWriter *handle);
+
 protected:
+    BinaryWriter *getHandle() const { return handle.get(); }
+
+private:
     Statistics::Variable &writeVerticesTime;
     Statistics::Variable &writeTrianglesTime;
 
-    WriterBase();
+    /// File handle (always non-NULL)
+    boost::scoped_ptr<BinaryWriter> handle;
 
-    size_type getNumVertices() const;
-    size_type getNumTriangles() const;
-
-    /// Returns the header based on stored values
-    std::string makeHeader();
-
-    /// Sets the flag indicating whether the file is open
-    void setOpen(bool open);
-
-private:
     /// Storage for comments until they can be written by @ref open.
     std::vector<std::string> comments;
     size_type numVertices;              ///< Number of vertices (defaults to zero)
     size_type numTriangles;             ///< Number of triangles (defaults to zero)
-    bool isOpen_;                       ///< Whether the file has been opened
+
+    BinaryWriter::offset_type vertexStart;   ///< Offset in file to start of vertices
+    BinaryWriter::offset_type triangleStart; ///< Offset in file to start of triangles
+
+    /// Returns the header based on stored values
+    std::string makeHeader();
 };
 
-/**
- * PLY file writer that only supports one format.
- * The supported format has:
- *  - Binary format with host endianness;
- *  - Vertices with x, y, z as 32-bit floats (no normals);
- *  - Faces with 32-bit unsigned integer indices;
- *  - 3 indices per face;
- *  - Arbitrary user-provided comments.
- * At present, the entire file is memory-mapped, which may significantly
- * limit the file size when using a 32-bit address space.
- *
- * Writing a file is done in phases:
- *  -# Set comments with @ref addComment and indicate the number of
- *     vertices and indices with @ref setNumVertices and @ref setNumTriangles.
- *  -# Write the header using @ref open.
- *  -# Use @ref writeVertices and @ref writeTriangles to write the data.
- *
- * The requirement for knowing the number of vertices and indices up front is a
- * limitation of the PLY format. If it is not possible to know this up front, you
- * will need to dump the vertices and indices to raw temporary files and stitch
- * it all together later.
- *
- * The final phase (writing of vertices and indices) is thread-safe, provided
- * that each thread is writing to a disjoint section of the file.
- *
- * @bug Due to the way Boost creates the file, it will have the executable bit
- * set on POSIX systems.
- */
-class MmapWriter : public WriterBase
-{
-public:
-    /// Constructor
-    MmapWriter();
-
-    virtual void open(const std::string &filename);
-    virtual std::pair<char *, size_type> open();
-    virtual void close();
-    virtual void writeVertices(size_type first, size_type count, const float *data);
-    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
-    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
-    virtual bool supportsOutOfOrder() const;
-
-private:
-    char *vertexPtr;                    /// Pointer to storage for the first vertex
-    char *trianglePtr;                  /// Pointer to storage for the first triangle
-
-    /**
-     * The memory mapping backed by the output file. When using the in-memory
-     * version, the pointer is NULL.
-     */
-    boost::scoped_ptr<boost::iostreams::mapped_file_sink> mapping;
-};
-
-/**
- * PLY file writer that only supports one format.
- * This class has exactly the same interface as @ref MmapWriter, and allows for
- * out-of-order writing. The advantage over @ref MmapWriter is that it does not
- * require a large virtual address space. However, it is potentially less
- * efficient.
- */
-class StreamWriter : public WriterBase
-{
-public:
-    /// Constructor
-    StreamWriter() {}
-
-    virtual void open(const std::string &filename);
-    virtual std::pair<char *, size_type> open();
-    virtual void close();
-    virtual void writeVertices(size_type first, size_type count, const float *data);
-    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
-    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
-    virtual bool supportsOutOfOrder() const;
-
-private:
-    /// Code shared by both @c open methods.
-    void openCommon(const std::string &header);
-
-    /**
-     * Output stream. It is wrapped in a smart pointer because the type depends
-     * on which open function was used.
-     */
-    boost::scoped_ptr<std::ostream> file;
-
-    /// Position in file where vertices start
-    boost::iostreams::stream_offset vertexOffset;
-    /// Position in file where triangles start
-    boost::iostreams::stream_offset triangleOffset;
-};
-
-
-/**
- * Factory function to create a new reader of the specified type.
- */
-ReaderBase *createReader(ReaderType type, const std::string &filename, float smooth, float maxRadius);
-
-/**
- * Factory function to create a new writer of the specified type.
- */
-WriterBase *createWriter(WriterType type);
 
 template<typename OutputIterator>
-OutputIterator ReaderBase::Handle::read(size_type first, size_type last, OutputIterator out) const
+OutputIterator Reader::Handle::read(size_type first, size_type last, OutputIterator out) const
 {
     MLSGPU_ASSERT(first <= last && last <= owner.size(), std::out_of_range);
 

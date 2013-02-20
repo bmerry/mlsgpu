@@ -7,90 +7,100 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
-#include <stdexcept>
 #include <string>
-#include <boost/array.hpp>
-#include "../src/tr1_cstdint.h"
-#include <limits>
-#include <cstring>
-#include "../src/errors.h"
-#include "../src/fast_ply.h"
+#include <algorithm>
+#include <locale>
+#include <sstream>
+#include <boost/lexical_cast.hpp>
+#include "../src/binary_io.h"
+#include "memory_reader.h"
 #include "memory_writer.h"
 
 MemoryWriter::MemoryWriter() : curOutput(NULL)
 {
 }
 
-void MemoryWriter::open(const std::string &filename)
+void MemoryWriter::openImpl(const boost::filesystem::path &filename)
 {
-    MLSGPU_ASSERT(!isOpen(), state_error);
-
-    // NaN is tempting, but violates the Strict Weak Ordering requirements used to
-    // check for isometry.
-    const boost::array<float, 3> badVertex = {{ -1000.0f, -1000.0f, -1000.0f }};
-    const boost::array<std::tr1::uint32_t, 3> badTriangle = {{ UINT32_MAX, UINT32_MAX, UINT32_MAX }};
-
-    curOutput = &outputs[filename];
+    curOutput = &outputs[filename.string()];
     // Clear any previous data that might have been written
-    curOutput->vertices.clear();
-    curOutput->triangles.clear();
-    curOutput->vertices.resize(getNumVertices(), badVertex);
-    curOutput->triangles.resize(getNumTriangles(), badTriangle);
-    setOpen(true);
+    curOutput->clear();
 }
 
-std::pair<char *, MemoryWriter::size_type> MemoryWriter::open()
+void MemoryWriter::closeImpl()
 {
-    open("");
-    return std::make_pair((char *) NULL, size_type(0));
-}
-
-void MemoryWriter::close()
-{
-    setOpen(false);
     curOutput = NULL;
 }
 
-void MemoryWriter::writeVertices(size_type first, size_type count, const float *data)
+std::size_t MemoryWriter::writeImpl(const void *buffer, std::size_t count, offset_type offset) const
 {
-    MLSGPU_ASSERT(isOpen(), state_error);
-    MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
+    if (curOutput->size() < count + offset)
+        curOutput->resize(count + offset);
 
-    std::memcpy(&curOutput->vertices[first][0], data, count * 3 * sizeof(float));
+    const char *p = (const char *) buffer;
+    std::copy(p, p + count, curOutput->begin() + offset);
+    return count;
 }
 
-void MemoryWriter::writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data)
+void MemoryWriter::resizeImpl(offset_type size) const
 {
-    MLSGPU_ASSERT(isOpen(), state_error);
-    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-
-    /* MemoryWriter does not use a PLY format, so we have to strip out the
-     * polygon length part again.
-     */
-    const std::tr1::uint8_t *ptr = data + 1;
-    for (size_type i = first; i < first + count; i++, ptr += triangleSize)
-    {
-        std::memcpy(&curOutput->triangles[i][0], ptr, 3 * sizeof(std::tr1::uint32_t));
-    }
+    curOutput->resize(size);
 }
 
-void MemoryWriter::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
+const std::string &MemoryWriter::getOutput(const std::string &filename) const
 {
-    MLSGPU_ASSERT(isOpen(), state_error);
-    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
-
-    std::memcpy(&curOutput->triangles[first][0], data, count * 3 * sizeof(std::tr1::uint32_t));
-}
-
-bool MemoryWriter::supportsOutOfOrder() const
-{
-    return true;
-}
-
-const MemoryWriter::Output &MemoryWriter::getOutput(const std::string &filename) const
-{
-    std::tr1::unordered_map<std::string, Output>::const_iterator pos = outputs.find(filename);
+    std::tr1::unordered_map<std::string, std::string>::const_iterator pos = outputs.find(filename);
     if (pos == outputs.end())
         throw std::invalid_argument("No such output file `" + filename + "'");
     return pos->second;
+}
+
+MemoryWriterPly::MemoryWriterPly()
+    : FastPly::Writer(new MemoryWriter)
+{
+}
+
+const std::string &MemoryWriterPly::getOutput(const std::string &filename)
+{
+    return static_cast<MemoryWriter *>(getHandle())->getOutput(filename);
+}
+
+void MemoryWriterPly::parse(
+    const std::string &content,
+    std::vector<boost::array<float, 3> > &vertices,
+    std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles)
+{
+    std::istringstream in(content);
+    in.imbue(std::locale::classic());
+    std::string line;
+    const std::string vertexPrefix = "element vertex ";
+    const std::string trianglePrefix = "element face ";
+
+    std::size_t numVertices = 0, numTriangles = 0;
+    std::size_t headerSize = 0;
+    while (getline(in, line))
+    {
+        if (line.substr(0, vertexPrefix.size()) == vertexPrefix)
+            numVertices = boost::lexical_cast<std::size_t>(line.substr(vertexPrefix.size()));
+        else if (line.substr(0, trianglePrefix.size()) == trianglePrefix)
+            numTriangles = boost::lexical_cast<std::size_t>(line.substr(trianglePrefix.size()));
+        else if (line == "end_header")
+        {
+            headerSize = in.tellg();
+            break;
+        }
+    }
+
+    MemoryReader handle(content.data(), content.size());
+    handle.open("memory"); // filename is irrelevant
+    vertices.resize(numVertices);
+    handle.read(&vertices[0][0], numVertices * sizeof(vertices[0]), headerSize);
+
+    triangles.resize(numTriangles);
+    BinaryReader::offset_type pos = headerSize + numVertices * sizeof(vertices[0]);
+    for (std::size_t i = 0; i < numTriangles; i++)
+    {
+        handle.read(&triangles[i][0], sizeof(triangles[i]), pos + 1);
+        pos += 1 + sizeof(triangles[i]);
+    }
 }

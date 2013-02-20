@@ -33,9 +33,9 @@
 #include "../src/fast_ply.h"
 #include "../src/splat.h"
 #include "memory_reader.h"
+#include "memory_writer.h"
 #include "testutil.h"
 
-using namespace std;
 using namespace FastPly;
 
 /**
@@ -50,7 +50,7 @@ public:
         : CppUnit::ExceptionTestCaseDecorator<ExpectedException>(test), filename(filename) {}
 
 private:
-    const string filename;
+    const std::string filename;
 
     virtual void checkException(ExpectedException &e)
     {
@@ -68,14 +68,14 @@ private:
                 &TestFixtureType::testMethod,                        \
                 context.makeFixture()), filename)))
 
-static const string testFilename = "test_fast_ply.ply";
+static const std::string testFilename = "test_fast_ply.ply";
 
 /**
- * Abstract base class for testing subclasses of @ref FastPly::ReaderBase.
+ * Tests for @ref FastPly::Reader.
  */
-class TestFastPlyReaderBase : public CppUnit::TestFixture
+class TestFastPlyReader : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUITE(TestFastPlyReaderBase);
+    CPPUNIT_TEST_SUITE(TestFastPlyReader);
     TEST_EXCEPTION_FILENAME(testEmpty, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadSignature, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadFormatFormat, FormatError, testFilename);
@@ -104,10 +104,10 @@ class TestFastPlyReaderBase : public CppUnit::TestFixture
     CPPUNIT_TEST(testRead);
     CPPUNIT_TEST(testReadZero);
     CPPUNIT_TEST(testReadIterator);
-    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+    CPPUNIT_TEST_SUITE_END();
 
 private:
-    string content;                    ///< Convenience data store for the file content
+    std::string content;                    ///< Convenience data store for the file content
 
 protected:
     /// Populates content with some useful data for a read test
@@ -123,38 +123,21 @@ protected:
     void verify(int offset, ForwardIterator first, ForwardIterator last);
 
     /**
-     * Create an instance of a reader for the appropriate subclass. This
-     * simply creates the file and then calls
-     * #factory(const string &, float, float) const.
+     * Create an instance of a reader. The reader uses @ref MemoryReader as the
+     * backend.
      *
      * @param fileContent     Data to place in the file
-     * @param filename        Filename to be used for the file, if a file is written
+     * @param filename        Filename to be used for the file
      * @param smooth          Smoothing factor to pass to the constructor
      * @param maxRadius       Max radius to pass to the constructor
      *
      * @return A reader that will read @a fileContent.
      * @throw boost::exception if the header is invalid.
      */
-    ReaderBase *factory(const string &fileContent,
-                        const string &filename = testFilename,
-                        float smooth = 1.0f,
-                        float maxRadius = std::numeric_limits<float>::infinity()) const;
-
-    /**
-     * Create an instance of a reader for the appropriate subclass. If an
-     * exception is thrown, it must contain the filename as a @c
-     * boost::errinfo_file_name attached to the exception. If the subclass is
-     * not file-based, the factory function itself must ensure this.
-     *
-     * @param filename        Filename to be used for the file, if a file is written
-     * @param smooth          Smoothing factor to pass to the constructor
-     * @param maxRadius       Max radius to pass to the constructor
-     *
-     * @return A reader that will read fileContext.
-     * @throw boost::exception if the header is invalid.
-     */
-    virtual ReaderBase *factory(const string &filename,
-                                float smooth, float maxRadius) const = 0;
+    Reader *factory(const std::string &fileContent,
+                    const std::string &filename = testFilename,
+                    float smooth = 1.0f,
+                    float maxRadius = std::numeric_limits<float>::infinity()) const;
 
 public:
     /**
@@ -193,9 +176,9 @@ public:
      * @{
      */
     void testReadHeader();             ///< Checks that header-related fields are set properly
-    void testRead();                   ///< Tests @ref FastPly::ReaderBase::Handle::read with a pointer
+    void testRead();                   ///< Tests @ref FastPly::Reader::Handle::read with a pointer
     void testReadZero();               ///< Tests a zero-splat read
-    void testReadIterator();           ///< Tests @ref FastPly::ReaderBase::Handle::read with an output iterator
+    void testReadIterator();           ///< Tests @ref FastPly::Reader::Handle::read with an output iterator
     /** @} */
 
     /**
@@ -203,140 +186,136 @@ public:
      * @a payloadBytes defaults to a medium-sized value so that the negative tests can be
      * sure that a format error is not due to a short file.
      */
-    void setContent(const string &header, size_t payloadBytes = 256);
+    void setContent(const std::string &header, size_t payloadBytes = 256);
 
     /**
      * Retrieves the content stored with @ref setContent.
      */
     const std::string &getContent() { return content; }
 };
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyReader, TestSet::perBuild());
 
-void TestFastPlyReaderBase::setContent(const string &header, size_t payloadBytes)
+void TestFastPlyReader::setContent(const std::string &header, size_t payloadBytes)
 {
-    content = header + string(payloadBytes, '\0');
+    content = header + std::string(payloadBytes, '\0');
 }
 
-ReaderBase *TestFastPlyReaderBase::factory(
-    const string &content, const string &filename,
+Reader *TestFastPlyReader::factory(
+    const std::string &content, const std::string &filename,
     float smooth, float maxRadius) const
 {
-    ofstream out(filename.c_str(), ios::out | ios::binary);
-    out.write(content.data(), content.size());
-    out.close();
-    CPPUNIT_ASSERT(out);
-
-    return factory(filename, smooth, maxRadius);
+    return new Reader(MemoryReaderFactory(content), filename, smooth, maxRadius);
 }
 
-void TestFastPlyReaderBase::testEmpty()
+void TestFastPlyReader::testEmpty()
 {
     setContent("");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadSignature()
+void TestFastPlyReader::testBadSignature()
 {
     setContent("ply no not really");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadFormatFormat()
+void TestFastPlyReader::testBadFormatFormat()
 {
     setContent("ply\nformat binary_little_endiannotreally 1.0\nelement vertex 1\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadFormatVersion()
+void TestFastPlyReader::testBadFormatVersion()
 {
     setContent("ply\nformat binary_little_endian 1.01\nelement vertex 1\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadFormatLength()
+void TestFastPlyReader::testBadFormatLength()
 {
     setContent("ply\nformat\nelement vertex 1\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadElementCount()
+void TestFastPlyReader::testBadElementCount()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex -1\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadElementOverflow()
+void TestFastPlyReader::testBadElementOverflow()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 123456789012345678901234567890\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadElementHex()
+void TestFastPlyReader::testBadElementHex()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0xDEADBEEF\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadElementLength()
+void TestFastPlyReader::testBadElementLength()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadPropertyLength()
+void TestFastPlyReader::testBadPropertyLength()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int int int x\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadPropertyListLength()
+void TestFastPlyReader::testBadPropertyListLength()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty list int x\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadPropertyListType()
+void TestFastPlyReader::testBadPropertyListType()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty list float int x\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadPropertyType()
+void TestFastPlyReader::testBadPropertyType()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int1 x\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadPropertyLine()
+void TestFastPlyReader::testBadPropertyLine()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testBadHeaderToken()
+void TestFastPlyReader::testBadHeaderToken()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nfoo\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testEarlyProperty()
+void TestFastPlyReader::testEarlyProperty()
 {
     setContent("ply\nformat binary_little_endian 1.0\nproperty int x\nelement vertex 0\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testDuplicateProperty()
+void TestFastPlyReader::testDuplicateProperty()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty float x\nproperty float x\nend_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testMissingEnd()
+void TestFastPlyReader::testMissingEnd()
 {
     setContent("ply\nformat binary_little_endian 1.0\nelement vertex 0\nproperty int x\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testShortFile()
+void TestFastPlyReader::testShortFile()
 {
     setContent(
         "ply\n"
@@ -351,14 +330,14 @@ void TestFastPlyReaderBase::testShortFile()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n", 29 * 5 - 1);
-    boost::scoped_ptr<ReaderBase> r(factory(content));
-    boost::scoped_ptr<ReaderBase::Handle> handle(r->createHandle());
+    boost::scoped_ptr<Reader> r(factory(content));
+    Reader::Handle handle(*r);
 
     Splat splats[5];
-    handle->read(0, 5, &splats[0]);
+    handle.read(0, 5, &splats[0]);
 }
 
-void TestFastPlyReaderBase::testList()
+void TestFastPlyReader::testList()
 {
     setContent(
         "ply\n"
@@ -373,10 +352,10 @@ void TestFastPlyReaderBase::testList()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testNotFloat()
+void TestFastPlyReader::testNotFloat()
 {
     setContent(
         "ply\n"
@@ -391,10 +370,10 @@ void TestFastPlyReaderBase::testNotFloat()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testFormatAscii()
+void TestFastPlyReader::testFormatAscii()
 {
     setContent(
         "ply\n"
@@ -409,10 +388,10 @@ void TestFastPlyReaderBase::testFormatAscii()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testFormatMissing()
+void TestFastPlyReader::testFormatMissing()
 {
     setContent(
         "ply\n"
@@ -426,12 +405,12 @@ void TestFastPlyReaderBase::testFormatMissing()
         "property float32 radius\n"
         "property uint8 foo\n"
         "end_header\n");
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
 }
 
-void TestFastPlyReaderBase::testReadHeader()
+void TestFastPlyReader::testReadHeader()
 {
-    const string header = 
+    const std::string header = 
         "ply\n"
         "format binary_little_endian 1.0\n"
         "element vertex 5\n"
@@ -446,32 +425,32 @@ void TestFastPlyReaderBase::testReadHeader()
         "property uint8 foo\n"
         "end_header\n";
     setContent(header);
-    boost::scoped_ptr<ReaderBase> r(factory(content));
+    boost::scoped_ptr<Reader> r(factory(content));
     CPPUNIT_ASSERT_EQUAL(31, int(r->vertexSize));
     CPPUNIT_ASSERT_EQUAL(5, int(r->vertexCount));
 
-    CPPUNIT_ASSERT_EQUAL(8, int(r->offsets[ReaderBase::X]));
-    CPPUNIT_ASSERT_EQUAL(4, int(r->offsets[ReaderBase::Y]));
-    CPPUNIT_ASSERT_EQUAL(0, int(r->offsets[ReaderBase::Z]));
-    CPPUNIT_ASSERT_EQUAL(14, int(r->offsets[ReaderBase::NX]));
-    CPPUNIT_ASSERT_EQUAL(18, int(r->offsets[ReaderBase::NY]));
-    CPPUNIT_ASSERT_EQUAL(22, int(r->offsets[ReaderBase::NZ]));
-    CPPUNIT_ASSERT_EQUAL(26, int(r->offsets[ReaderBase::RADIUS]));
+    CPPUNIT_ASSERT_EQUAL(8, int(r->offsets[Reader::X]));
+    CPPUNIT_ASSERT_EQUAL(4, int(r->offsets[Reader::Y]));
+    CPPUNIT_ASSERT_EQUAL(0, int(r->offsets[Reader::Z]));
+    CPPUNIT_ASSERT_EQUAL(14, int(r->offsets[Reader::NX]));
+    CPPUNIT_ASSERT_EQUAL(18, int(r->offsets[Reader::NY]));
+    CPPUNIT_ASSERT_EQUAL(22, int(r->offsets[Reader::NZ]));
+    CPPUNIT_ASSERT_EQUAL(26, int(r->offsets[Reader::RADIUS]));
 
     CPPUNIT_ASSERT_EQUAL(int(header.size()), int(r->getHeaderSize()));
 }
 
-void TestFastPlyReaderBase::setupRead(int numVertices)
+void TestFastPlyReader::setupRead(int numVertices)
 {
     boost::scoped_array<float> vertices(new float[numVertices * 7]);
     for (int i = 0; i < numVertices; i++)
         for (int j = 0; j < 7; j++)
             vertices[i * 7 + j] = i * 100.0f + j;
-    string header =
+    std::string header =
         "ply\n"
         "format binary_little_endian 1.0\n"
         "element vertex ";
-    header += boost::lexical_cast<string>(numVertices);
+    header += boost::lexical_cast<std::string>(numVertices);
     header += "\n"
         "property float32 y\n"
         "property float32 z\n"
@@ -488,7 +467,7 @@ void TestFastPlyReaderBase::setupRead(int numVertices)
 }
 
 template<typename ForwardIterator>
-void TestFastPlyReaderBase::verify(int offset, ForwardIterator first, ForwardIterator last)
+void TestFastPlyReader::verify(int offset, ForwardIterator first, ForwardIterator last)
 {
     int pos = offset;
     for (ForwardIterator i = first; i != last; ++i, ++pos)
@@ -503,185 +482,106 @@ void TestFastPlyReaderBase::verify(int offset, ForwardIterator first, ForwardIte
     }
 }
 
-void TestFastPlyReaderBase::testRead()
+void TestFastPlyReader::testRead()
 {
     setupRead(5);
 
-    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f, 250.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
+    boost::scoped_ptr<Reader> r(factory(content, testFilename, 2.0f, 250.0f));
+    Reader::Handle h(*r);
 
     Splat out[4] = {};
-    h->read(1, 4, out);
+    h.read(1, 4, out);
     CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting
     verify(1, out, out + 3);
 
-    CPPUNIT_ASSERT_THROW(h->read(1, 6, out), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(h.read(1, 6, out), std::out_of_range);
 }
 
-void TestFastPlyReaderBase::testReadZero()
+void TestFastPlyReader::testReadZero()
 {
     setupRead(5);
 
-    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
+    boost::scoped_ptr<Reader> r(factory(content, testFilename, 2.0f));
+    Reader::Handle h(*r);
 
     Splat out[4] = {};
-    h->read(1, 1, out);
+    h.read(1, 1, out);
     CPPUNIT_ASSERT_EQUAL(0.0f, out[0].position[0]); // check for overwriting
 }
 
-void TestFastPlyReaderBase::testReadIterator()
+void TestFastPlyReader::testReadIterator()
 {
     setupRead(10000);
 
-    boost::scoped_ptr<ReaderBase> r(factory(content, testFilename, 2.0f, 250.0f));
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
+    boost::scoped_ptr<Reader> r(factory(content, testFilename, 2.0f, 250.0f));
+    Reader::Handle h(*r);
 
-    vector<Splat> out;
-    h->read(2, 9500, back_inserter(out));
+    std::vector<Splat> out;
+    h.read(2, 9500, back_inserter(out));
     CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
     verify(2, out.begin(), out.end());
 
-    CPPUNIT_ASSERT_THROW(h->read(1, 10001, back_inserter(out)), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(h.read(1, 10001, back_inserter(out)), std::out_of_range);
 }
 
 /**
- * Tests for @ref FastPly::ReaderBase for subclasses that really use files
+ * Tests error handling for @ref FastPly::Reader when file errors occur
  */
-class TestFastPlyReaderBaseFile : public TestFastPlyReaderBase
+class TestFastPlyReaderFile : public TestFastPlyReader
 {
-    CPPUNIT_TEST_SUB_SUITE(TestFastPlyReaderBaseFile, TestFastPlyReaderBase);
+    CPPUNIT_TEST_SUITE(TestFastPlyReaderFile);
     TEST_EXCEPTION_FILENAME(testFileNotFound, std::ios_base::failure, "not_a_real_file.ply");
     TEST_EXCEPTION_FILENAME(testFileRemoved, std::ios_base::failure, testFilename);
-    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+    CPPUNIT_TEST_SUITE_END();
 
 public:
     void testFileNotFound();           ///< PLY file does not exist
     void testFileRemoved();            ///< File removed after the header is read
 };
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyReaderFile, TestSet::perBuild());
 
-void TestFastPlyReaderBaseFile::testFileNotFound()
+void TestFastPlyReaderFile::testFileNotFound()
 {
     // Make sure it didn't get created by accident
     boost::filesystem::remove("not_a_real_file.ply");
-    boost::scoped_ptr<ReaderBase> r(factory("not_a_real_file.ply", 1.0f, 1000.0f));
+    Reader r(SYSCALL_READER, "not_a_real_file.ply", 1.0f, 1000.0f);
 }
 
-void TestFastPlyReaderBaseFile::testFileRemoved()
+void TestFastPlyReaderFile::testFileRemoved()
 {
     setupRead(5);
 
-    boost::scoped_ptr<ReaderBase> r(factory(getContent(), testFilename, 2.0f, 1000.0f));
+    Reader r(SYSCALL_READER, testFilename, 1.0f, 1000.0f);
     boost::filesystem::remove(testFilename);
-    boost::scoped_ptr<ReaderBase::Handle> h(r->createHandle());
+    Reader::Handle handle(r);
 }
 
 /**
- * Tests for @ref FastPly::MmapReader
+ * Tests for @ref FastPly::Writer.
  */
-class TestFastPlyMmapReader : public TestFastPlyReaderBaseFile
+class TestFastPlyWriter : public CppUnit::TestFixture
 {
-    CPPUNIT_TEST_SUB_SUITE(TestFastPlyMmapReader, TestFastPlyReaderBaseFile);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual ReaderBase *factory(const string &filename, float smooth, float maxRadius) const;
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyMmapReader, TestSet::perBuild());
-
-ReaderBase *TestFastPlyMmapReader::factory(const string &filename,
-                                           float smooth, float maxRadius) const
-{
-    return new MmapReader(filename, smooth, maxRadius);
-}
-
-/**
- * Tests for @ref FastPly::SyscallReader
- */
-class TestFastPlySyscallReader : public TestFastPlyReaderBaseFile
-{
-    CPPUNIT_TEST_SUB_SUITE(TestFastPlySyscallReader, TestFastPlyReaderBaseFile);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    using TestFastPlyReaderBase::factory;
-
-    virtual ReaderBase *factory(const string &filename, float smooth, float maxRadius) const;
-
-public:
-    void testBufferTooSmall();         ///< Handle created with too small a buffer for one splat
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlySyscallReader, TestSet::perBuild());
-
-ReaderBase *TestFastPlySyscallReader::factory(
-    const string &filename, float smooth, float maxRadius) const
-{
-    return new SyscallReader(filename, smooth, maxRadius);
-}
-
-
-/**
- * Tests for @ref MemoryReader
- */
-class TestFastPlyMemoryReader : public TestFastPlyReaderBase
-{
-    CPPUNIT_TEST_SUB_SUITE(TestFastPlyMemoryReader, TestFastPlyReaderBase);
-    CPPUNIT_TEST_SUITE_END();
-protected:
-    virtual ReaderBase *factory(const string &filename, float smooth, float maxRadius) const;
-
-private:
-    mutable string fileData; ///< Backing store for the data read from @ref factory.
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyMemoryReader, TestSet::perBuild());
-
-ReaderBase *TestFastPlyMemoryReader::factory(
-    const string &filename, float smooth, float maxRadius) const
-{
-    // Suck the data back into memory
-    ifstream in(filename.c_str(), ios::in | ios::binary);
-    in.exceptions(ios::failbit);
-    ostringstream buf;
-    buf << in.rdbuf();
-    fileData = buf.str();
-
-    try
-    {
-        return new MemoryReader(fileData.data(), fileData.size(), smooth, maxRadius);
-    }
-    catch (boost::exception &e)
-    {
-        e << boost::errinfo_file_name(filename);
-        throw;
-    }
-}
-
-/**
- * Abstract base class for testing the writers in the FastPly namespace.
- */
-template<typename Writer>
-class TestFastPlyWriterBase : public CppUnit::TestFixture
-{
-    CPPUNIT_TEST_SUITE(TestFastPlyWriterBase<Writer>);
-    CPPUNIT_TEST_EXCEPTION(testBadFilename, std::ios_base::failure);
+    CPPUNIT_TEST_SUITE(TestFastPlyWriter);
+    TEST_EXCEPTION_FILENAME(testBadFilename, std::ios_base::failure, "/not_a_valid_filename/");
     CPPUNIT_TEST(testSimple);
     CPPUNIT_TEST(testState);
     CPPUNIT_TEST(testOverrun);
-    CPPUNIT_TEST_SUITE_END_ABSTRACT();
+    CPPUNIT_TEST_SUITE_END();
 public:
     void testBadFilename();   ///< Try to write to an invalid filename, check for error
     void testSimple();        ///< Test normal operation
     void testState();         ///< Test assertions that the file is/is not open
     void testOverrun();       ///< Test writing beyond the end of the file
 };
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastPlyWriter, TestSet::perBuild());
 
-template<typename Writer>
-void TestFastPlyWriterBase<Writer>::testBadFilename()
+void TestFastPlyWriter::testBadFilename()
 {
-    Writer w;
+    Writer w(SYSCALL_WRITER);
     w.open("/not_a_valid_filename/");
 }
 
-template<typename Writer>
-void TestFastPlyWriterBase<Writer>::testSimple()
+void TestFastPlyWriter::testSimple()
 {
     const float vertices[4 * 3] =
     {
@@ -716,109 +616,76 @@ void TestFastPlyWriterBase<Writer>::testSimple()
         "property list uint8 uint32 vertex_indices\n"
         "comment padding:XX\n"
         "end_header\n";
-    const typename Writer::size_type headerSize = expectedHeader.size();
+    const typename std::size_t headerSize = expectedHeader.size();
 
-    Writer w;
+    MemoryWriterPly w;
+
     w.addComment("my comment 1");
     w.addComment("my comment 23");
     w.setNumVertices(4);
     w.setNumTriangles(3);
 
-    pair<char *, typename Writer::size_type> range = w.open();
-    boost::scoped_array<char> data(range.first);
-    typename Writer::size_type size = range.second;
-    CPPUNIT_ASSERT(data.get() != NULL);
-    CPPUNIT_ASSERT_EQUAL(headerSize + 87, size);
+    w.open("file");
+    MLSGPU_ASSERT_EQUAL(headerSize + 87, w.getOutput("file").size());
 
-    if (w.supportsOutOfOrder())
-    {
-        w.writeVertices(1, 2, vertices + 1 * 3);
-        w.writeTriangles(1, 2, indices + 1 * 3);
-        w.writeVertices(0, 1, vertices);
-        w.writeTriangles(0, 1, indices);
-        w.writeVertices(3, 1, vertices + 3 * 3);
-    }
-    else
-    {
-        w.writeVertices(0, 1, vertices);
-        w.writeVertices(1, 2, vertices + 1 * 3);
-        w.writeVertices(3, 1, vertices + 3 * 3);
-        w.writeTriangles(0, 1, indices);
-        w.writeTriangles(1, 2, indices + 1 * 3);
-    }
+    w.writeVertices(1, 2, vertices + 1 * 3);
+    w.writeTriangles(1, 2, indices + 1 * 3);
+    w.writeVertices(0, 1, vertices);
+    w.writeTriangles(0, 1, indices);
+    w.writeVertices(3, 1, vertices + 3 * 3);
     w.close();
 
-    CPPUNIT_ASSERT_EQUAL(expectedHeader, std::string(data.get(), headerSize));
-    CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize, vertices, sizeof(vertices)));
-    CPPUNIT_ASSERT_EQUAL(3, int(data[headerSize + 48]));
-    CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize + 49, indices + 0, 12));
-    CPPUNIT_ASSERT_EQUAL(3, int(data[headerSize + 61]));
-    CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize + 62, indices + 3, 12));
-    CPPUNIT_ASSERT_EQUAL(3, int(data[headerSize + 74]));
-    CPPUNIT_ASSERT(0 == memcmp(data.get() + headerSize + 75, indices + 6, 12));
+    MLSGPU_ASSERT_EQUAL(headerSize + 87, w.getOutput("file").size());
+    const char *data = w.getOutput("file").data();
+    MLSGPU_ASSERT_EQUAL(expectedHeader, std::string(data, headerSize));
+    CPPUNIT_ASSERT(0 == memcmp(data + headerSize, vertices, sizeof(vertices)));
+    MLSGPU_ASSERT_EQUAL(3, data[headerSize + 48]);
+    CPPUNIT_ASSERT(0 == memcmp(data + headerSize + 49, indices + 0, 12));
+    MLSGPU_ASSERT_EQUAL(3, data[headerSize + 61]);
+    CPPUNIT_ASSERT(0 == memcmp(data + headerSize + 62, indices + 3, 12));
+    MLSGPU_ASSERT_EQUAL(3, data[headerSize + 74]);
+    CPPUNIT_ASSERT(0 == memcmp(data + headerSize + 75, indices + 6, 12));
 }
 
-template<typename Writer>
-void TestFastPlyWriterBase<Writer>::testState()
+void TestFastPlyWriter::testState()
 {
-    Writer w;
+    MemoryWriterPly w;
 
     w.setNumVertices(2);
     w.setNumTriangles(2);
 
     CPPUNIT_ASSERT_THROW(w.writeVertices(0, 1, NULL), state_error);
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(0, 1, NULL), state_error);
+    CPPUNIT_ASSERT_THROW(w.writeTrianglesRaw(0, 1, NULL), state_error);
 
-    pair<char *, typename Writer::size_type> range = w.open();
-    boost::scoped_array<char> data(range.first);
+    w.open("file");
 
-    CPPUNIT_ASSERT_THROW(w.open(), state_error);
+    CPPUNIT_ASSERT_THROW(w.open("foo"), state_error);
     CPPUNIT_ASSERT_THROW(w.setNumVertices(3), state_error);
     CPPUNIT_ASSERT_THROW(w.setNumTriangles(3), state_error);
 }
 
-template<typename Writer>
-void TestFastPlyWriterBase<Writer>::testOverrun()
+void TestFastPlyWriter::testOverrun()
 {
     const float vertices[4 * 3] = {}; // content does not matter
     const std::tr1::uint32_t indices[9] = {};
 
-    Writer w;
+    MemoryWriterPly w;
     w.setNumVertices(4);
     w.setNumTriangles(3);
 
-    pair<char *, typename Writer::size_type> range = w.open();
-    boost::scoped_array<char> data(range.first);
+    w.open("file");
 
-    /* Just to check that normal writes work, and to
-     * to position a streaming writer.
-     */
+    /* Just to check that normal writes work */
     w.writeVertices(0, 1, vertices);
 
     /* The real test */
     CPPUNIT_ASSERT_THROW(w.writeVertices(1, 4, vertices), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(w.writeVertices(2, MmapWriter::size_type(-1), vertices), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(w.writeVertices(MmapWriter::size_type(-1), 2, vertices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeVertices(2, Writer::size_type(-1), vertices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeVertices(Writer::size_type(-1), 2, vertices), std::out_of_range);
     w.writeVertices(1, 3, vertices);
 
     w.writeTriangles(0, 2, indices);
     CPPUNIT_ASSERT_THROW(w.writeTriangles(1, 3, indices), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(2, MmapWriter::size_type(-1), indices), std::out_of_range);
-    CPPUNIT_ASSERT_THROW(w.writeTriangles(MmapWriter::size_type(-1), 2, indices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(2, Writer::size_type(-1), indices), std::out_of_range);
+    CPPUNIT_ASSERT_THROW(w.writeTriangles(Writer::size_type(-1), 2, indices), std::out_of_range);
 }
-
-class TestMmapWriter : public TestFastPlyWriterBase<MmapWriter>
-{
-    CPPUNIT_TEST_SUB_SUITE(TestMmapWriter, TestFastPlyWriterBase<MmapWriter>);
-    CPPUNIT_TEST_SUITE_END();
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMmapWriter, TestSet::perBuild());
-
-class TestStreamWriter : public TestFastPlyWriterBase<StreamWriter>
-{
-    CPPUNIT_TEST_SUB_SUITE(TestStreamWriter, TestFastPlyWriterBase<StreamWriter>);
-    CPPUNIT_TEST_SUITE_END();
-public:
-    void testSequence();      ///< Test writing things out of order
-};
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestStreamWriter, TestSet::perBuild());

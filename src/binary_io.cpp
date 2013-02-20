@@ -22,26 +22,37 @@
 #include <boost/iostreams/device/mapped_file.hpp>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
+#include <boost/iostreams/positioning.hpp>
 #include <boost/exception/all.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
 #include "errors.h"
 #include "binary_io.h"
 
-#if SYSCALL_READER_POSIX
+#if HAVE_OPEN && HAVE_CLOSE && HAVE_PREAD && HAVE_PWRITE
+# define SYSCALL_IO_POSIX 1
+#elif HAVE_CREATEFILE && HAVE_CLOSEHANDLE && HAVE_READFILE
+# define SYSCALL_IO_WIN32 1
+#else
+# error "No platform support for SyscallReader/SyscallWriter"
+#endif
+
+#if SYSCALL_IO_POSIX
 # include <fcntl.h>
 # include <sys/types.h>
 # include <sys/stat.h>
 #endif
 
-#if SYSCALL_READER_WIN32
+#if SYSCALL_IO_WIN32
 # include <windows.h>
 #endif
 
+BinaryIO::BinaryIO() : isOpen_(false)
+{
+}
+
 BinaryIO::~BinaryIO()
 {
-    if (!isOpen_)
-        close();
 }
 
 void BinaryIO::open(const boost::filesystem::path &filename)
@@ -102,12 +113,40 @@ std::size_t BinaryReader::read(void *buf, std::size_t count, offset_type offset)
     }
 }
 
+BinaryIO::offset_type BinaryReader::size() const
+{
+    MLSGPU_ASSERT(isOpen(), state_error);
+    try
+    {
+        return sizeImpl();
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename());
+        throw;
+    }
+}
+
 std::size_t BinaryWriter::write(const void *buf, std::size_t count, offset_type offset) const
 {
     MLSGPU_ASSERT(isOpen(), state_error);
     try
     {
         return writeImpl(buf, count, offset);
+    }
+    catch (boost::exception &e)
+    {
+        e << boost::errinfo_file_name(filename());
+        throw;
+    }
+}
+
+void BinaryWriter::resize(offset_type size) const
+{
+    MLSGPU_ASSERT(isOpen(), state_error);
+    try
+    {
+        resizeImpl(size);
     }
     catch (boost::exception &e)
     {
@@ -128,6 +167,7 @@ private:
     virtual void openImpl(const boost::filesystem::path &path);
     virtual void closeImpl();
     virtual std::size_t readImpl(void *buf, std::size_t count, offset_type offset) const;
+    virtual offset_type sizeImpl() const;
 };
 
 class StreamWriter : public BinaryWriter
@@ -139,6 +179,7 @@ private:
     virtual void openImpl(const boost::filesystem::path &path);
     virtual void closeImpl();
     virtual std::size_t writeImpl(const void *buf, std::size_t count, offset_type offset) const;
+    virtual void resizeImpl(offset_type size) const;
 };
 
 void StreamReader::openImpl(const boost::filesystem::path &path)
@@ -191,6 +232,23 @@ std::size_t StreamWriter::writeImpl(const void *buf, std::size_t count, offset_t
     return fb.sputn((const char *) buf, count);
 };
 
+BinaryIO::offset_type StreamReader::sizeImpl() const
+{
+    boost::unique_lock<boost::mutex> lock(mutex);
+    std::streampos pos = fb.pubseekoff(0, std::ios_base::end, std::ios_base::in);
+    if (pos == -1)
+        throw boost::enable_error_info(std::ios::failure("Seek failed"));
+    return boost::iostreams::position_to_offset(pos);
+}
+
+void StreamWriter::resizeImpl(offset_type size) const
+{
+    boost::unique_lock<boost::mutex> lock(mutex);
+    std::streampos pos = fb.pubseekpos(size, std::ios_base::in);
+    if (pos != (std::streampos) size)
+        throw boost::enable_error_info(std::ios::failure("Seek failed"));
+}
+
 class MmapReader : public BinaryReader
 {
 private:
@@ -199,6 +257,7 @@ private:
     virtual void openImpl(const boost::filesystem::path &path);
     virtual void closeImpl();
     virtual std::size_t readImpl(void *buf, std::size_t count, offset_type offset) const;
+    virtual offset_type sizeImpl() const;
 };
 
 void MmapReader::openImpl(const boost::filesystem::path &path)
@@ -227,39 +286,66 @@ std::size_t MmapReader::readImpl(void *buf, std::size_t count, offset_type offse
     return count;
 }
 
+BinaryIO::offset_type MmapReader::sizeImpl() const
+{
+    return mapping.size();
+}
+
 class SyscallReader : public BinaryReader
 {
 private:
-#if SYSCALL_READER_POSIX
+#if SYSCALL_IO_POSIX
     int fd;
-#elif SYSCALL_READER_WIN32
+#endif
+#if SYSCALL_IO_WIN32
     HANDLE fd;
 #endif
 
     virtual void openImpl(const boost::filesystem::path &path);
     virtual void closeImpl();
     virtual std::size_t readImpl(void *buf, std::size_t count, offset_type offset) const;
+    virtual offset_type sizeImpl() const;
+
+public:
+    virtual ~SyscallReader();
 };
 
 class SyscallWriter : public BinaryWriter
 {
 private:
-#if SYSCALL_READER_POSIX
+#if SYSCALL_IO_POSIX
     int fd;
-#elif SYSCALL_READER_WIN32
+#endif
+#if SYSCALL_IO_WIN32
     HANDLE fd;
 #endif
 
     virtual void openImpl(const boost::filesystem::path &path);
     virtual void closeImpl();
     virtual std::size_t writeImpl(const void *buf, std::size_t count, offset_type offset) const;
+    virtual void resizeImpl(offset_type type) const;
+
+public:
+    virtual ~SyscallWriter();
 };
 
-#if SYSCALL_READER_POSIX
+SyscallReader::~SyscallReader()
+{
+    if (isOpen())
+        close();
+}
+
+SyscallWriter::~SyscallWriter()
+{
+    if (isOpen())
+        close();
+}
+
+#if SYSCALL_IO_POSIX
 
 void SyscallReader::openImpl(const boost::filesystem::path &path)
 {
-    fd = open(path.c_str(), O_RDONLY);
+    fd = ::open(path.c_str(), O_RDONLY);
     if (fd < 0)
     {
         throw boost::enable_error_info(std::ios::failure("Could not open file"))
@@ -269,7 +355,7 @@ void SyscallReader::openImpl(const boost::filesystem::path &path)
 
 void SyscallWriter::openImpl(const boost::filesystem::path &path)
 {
-    fd = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+    fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (fd < 0)
     {
         throw boost::enable_error_info(std::ios::failure("Could not open file"))
@@ -289,6 +375,15 @@ void SyscallWriter::closeImpl()
     if (::close(fd) != 0)
         throw boost::enable_error_info(std::ios::failure("Could not close file"))
             << boost::errinfo_errno(errno);
+}
+
+BinaryIO::offset_type SyscallReader::sizeImpl() const
+{
+    struct stat buf;
+    if (fstat(fd, &buf) != 0)
+        throw boost::enable_error_info(std::ios::failure("fstat failed"))
+            << boost::errinfo_errno(errno);
+    return buf.st_size;
 }
 
 std::size_t SyscallReader::readImpl(void *buf, size_t count, offset_type offset) const
@@ -315,9 +410,10 @@ std::size_t SyscallReader::readImpl(void *buf, size_t count, offset_type offset)
             remain -= bytes;
         }
     }
+    return count;
 }
 
-std::size_t SyscallReader::writeImpl(void *buf, size_t count, offset_type offset) const
+std::size_t SyscallWriter::writeImpl(const void *buf, size_t count, offset_type offset) const
 {
     size_t remain = count;
     while (remain > 0)
@@ -344,9 +440,16 @@ std::size_t SyscallReader::writeImpl(void *buf, size_t count, offset_type offset
     return count;
 }
 
-#endif // SYSCALL_READER_POSIX
+void SyscallWriter::resizeImpl(offset_type size) const
+{
+    if (ftruncate(fd, size) != 0)
+        throw boost::enable_error_info(std::ios::failure("ftruncate failed"))
+            << boost::errinfo_errno(errno);
+}
 
-#if SYSCALL_READER_WIN32
+#endif // SYSCALL_IO_POSIX
+
+#if SYSCALL_IO_WIN32
 
 void SyscallReader::openImpl(const boost::filesystem::path &path)
 {
@@ -392,6 +495,15 @@ void SyscallWriter::closeImpl()
     if (!CloseHandle(fd))
         throw boost::enable_error_info(std::ios::failure("Could not close file"))
             << boost::errinfo_errno(GetLastError());
+}
+
+BinaryIO::offset_type SyscallReader::sizeImpl() const
+{
+    LARGE_INTEGER size;
+    if (!GetFileSizeEx(fd, &size))
+        throw boost::enable_error_info(std::ios::failure("GetFileSizeEx failed"))
+            << boost::errinfo_errno(GetLastError());
+    return size.QuadPart;
 }
 
 std::size_t SyscallReader::readImpl(void *buf, size_t count, offset_type offset) const
@@ -460,9 +572,85 @@ std::size_t SyscallReader::write(const void *buf, size_t count, offset_type offs
     return count;
 }
 
-#endif // SYSCALL_READER_WIN32
+void SyscallWriter::resizeImpl(offset_type size) const
+{
+    // SetEndOfFile works with the file position
+    LARGE_INTEGER target;
+    target.QuadPart = size;
+    LARGE_INTEGER result;
+
+    if (!SetFilePointerEx(fd, target, &result, FILE_BEGIN) || result.QuadPart != size)
+    {
+        throw boost::enable_error_info(std::ios::failure("SetFilePointerEx failed"))
+            << boost::errinfo_errno(GetLastError());
+    }
+
+    if (!SetEndOfFile(fd))
+        throw boost::enable_error_info(std::ios::failure("SetEndOfFile failed"))
+            << boost::errinfo_errno(GetLastError());
+}
+
+#endif // SYSCALL_IO_WIN32
 
 } // anonymous namespace
+
+BinaryReaderSource::BinaryReaderSource(const BinaryReader &reader)
+    : reader(reader), offset(0)
+{
+}
+
+std::streamsize BinaryReaderSource::read(char *buffer, std::streamsize count)
+{
+    std::size_t n = reader.read(buffer, count, offset);
+    offset += n;
+    if (n == 0)
+        return -1; // boost::iostreams uses -1 to signal EOF
+    else
+        return n;
+}
+
+std::streamsize BinaryReaderSource::write(const char *buf, std::streamsize count)
+{
+    (void) buf;
+    (void) count;
+    return -1; // not actually supported, but required by the SeekableDevice concept
+}
+
+std::streampos BinaryReaderSource::seek(boost::iostreams::stream_offset offset, std::ios_base::seekdir way)
+{
+    switch (way)
+    {
+    case std::ios_base::beg:
+        this->offset = offset;
+        break;
+    case std::ios_base::cur:
+        this->offset += offset;
+        break;
+    case std::ios_base::end:
+        this->offset = reader.size() + offset;
+        break;
+    default:
+        return -1;
+    }
+    return boost::iostreams::offset_to_position(this->offset);
+}
+
+std::map<std::string, ReaderType> ReaderTypeWrapper::getNameMap()
+{
+    std::map<std::string, ReaderType> ans;
+    ans["stream"] = STREAM_READER;
+    ans["mmap"] = MMAP_READER;
+    ans["syscall"] = SYSCALL_READER;
+    return ans;
+}
+
+std::map<std::string, WriterType> WriterTypeWrapper::getNameMap()
+{
+    std::map<std::string, WriterType> ans;
+    ans["stream"] = STREAM_WRITER;
+    ans["stream"] = STREAM_WRITER;
+    return ans;
+}
 
 BinaryReader *createReader(ReaderType type)
 {

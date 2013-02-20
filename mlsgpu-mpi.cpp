@@ -345,7 +345,7 @@ static void run(
         const unsigned int chunkCells = postprocessGrid(vm, grid);
 
         {
-            boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
+            boost::scoped_ptr<FastPly::Writer> writer(doCreateWriter(vm));
             boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
             {

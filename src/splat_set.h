@@ -372,7 +372,7 @@ private:
     struct FileRange
     {
         std::size_t fileId;  ///< Index into list of files
-        FastPly::ReaderBase::size_type start, end;  ///< Indices within @ref fileId
+        FastPly::Reader::size_type start, end;  ///< Indices within @ref fileId
     };
 
     /**
@@ -399,7 +399,7 @@ private:
          * ID, not file- or range-relative.
          */
         splat_id first;
-        FastPly::ReaderBase::size_type maxSize;  ///< Maximum range size (bytes)
+        FastPly::Reader::size_type maxSize;  ///< Maximum range size (bytes)
 
         friend class boost::iterator_core_access;
 
@@ -427,7 +427,7 @@ private:
          * Begin iterator.
          * @pre @a maxSize is at least as big as any single vertex.
          */
-        FileRangeIterator(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange, FastPly::ReaderBase::size_type maxSize);
+        FileRangeIterator(const FileSet &owner, RangeIterator firstRange, RangeIterator lastRange, FastPly::Reader::size_type maxSize);
 
         /// End iterator
         explicit FileRangeIterator(const FileSet &owner, RangeIterator lastRange);
@@ -462,7 +462,7 @@ public:
      * Append a new file to the set. The set takes over ownership of the file.
      * This must not be called while a stream is in progress.
      */
-    void addFile(FastPly::ReaderBase *file);
+    void addFile(FastPly::Reader *file);
 
     SplatStream *makeSplatStream(bool useOMP = true) const
     {
@@ -621,7 +621,7 @@ private:
     };
 
     /// Backing store of files
-    boost::ptr_vector<FastPly::ReaderBase> files;
+    boost::ptr_vector<FastPly::Reader> files;
 
     /// Number of splats stored in the files (including non-finites)
     splat_id nSplats;

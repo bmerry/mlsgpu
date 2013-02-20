@@ -205,7 +205,7 @@ public:
      * @param writer         Writer that will be used to emit output files.
      * @param namer          Callback function to assign names to output files.
      */
-    MesherBase(FastPly::WriterBase &writer, const Namer &namer)
+    MesherBase(FastPly::Writer &writer, const Namer &namer)
         : pruneThreshold(0.0), reorderCapacity(4 * 1024 * 1024), writer(writer), namer(namer) {}
 
     /// Virtual destructor to allow destruction via base class pointer
@@ -279,7 +279,7 @@ public:
     virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL) = 0;
 
 protected:
-    FastPly::WriterBase &getWriter() const { return writer; }
+    FastPly::Writer &getWriter() const { return writer; }
     std::string getOutputName(const ChunkId &id) const { return namer(id); }
 
 private:
@@ -288,7 +288,7 @@ private:
     /// Capacity set by @ref setReorderCapacity
     std::size_t reorderCapacity;
 
-    FastPly::WriterBase &writer;   ///< Writer for output files
+    FastPly::Writer &writer;       ///< Writer for output files
     const Namer namer;             ///< Output file namer
 };
 
@@ -739,7 +739,7 @@ public:
     /**
      * @copydoc MesherBase::MesherBase
      */
-    OOCMesher(FastPly::WriterBase &writer, const Namer &namer);
+    OOCMesher(FastPly::Writer &writer, const Namer &namer);
 
     ~OOCMesher();
 
@@ -757,7 +757,7 @@ public:
  * @param writer, namer     Parameters to @ref MesherBase::MesherBase.
  * @param type              The type of mesher to create.
  */
-MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer);
+MesherBase *createMesher(MesherType type, FastPly::Writer &writer, const MesherBase::Namer &namer);
 
 /**
  * Creates an adapter between @ref MesherBase::InputFunctor and @ref Marching::OutputFunctor

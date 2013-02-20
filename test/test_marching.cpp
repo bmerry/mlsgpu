@@ -547,7 +547,7 @@ void TestMarching::testGenerate(
     /*** Pass 1: write to file ***/
 
     {
-        FastPly::StreamWriter writer;
+        FastPly::Writer writer(STREAM_WRITER);
         OOCMesher mesher(writer, TrivialNamer(filename));
         marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId(), tworker), size, keyOffset, NULL);
         mesher.write(tworker);
@@ -556,14 +556,17 @@ void TestMarching::testGenerate(
     /*** Pass 2: write to memory and validate ***/
 
     {
-        MemoryWriter writer;
+        MemoryWriterPly writer;
         OOCMesher mesher(writer, TrivialNamer(filename));
         marching.generate(queue, generator, deviceMesher(mesher.functor(0), ChunkId(), tworker), size, keyOffset, NULL);
         mesher.write(tworker);
 
-        const MemoryWriter::Output output = writer.getOutput(filename);
-        const std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles = output.triangles;
-        std::string reason = Manifold::isManifold(output.vertices.size(), triangles.begin(), triangles.end());
+        const std::string &output = writer.getOutput(filename);
+        std::vector<boost::array<float, 3> > vertices;
+        std::vector<boost::array<std::tr1::uint32_t, 3> > triangles;
+        writer.parse(output, vertices, triangles);
+
+        std::string reason = Manifold::isManifold(vertices.size(), triangles.begin(), triangles.end());
         CPPUNIT_ASSERT_EQUAL(string(""), reason);
     }
 }

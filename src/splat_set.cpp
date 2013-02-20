@@ -104,7 +104,7 @@ const std::size_t FileSet::maxFiles = std::size_t(1) << (std::numeric_limits<spl
  */
 const std::size_t FileSet::maxFileSplats = FileSet::splatIdMask;
 
-void FileSet::addFile(FastPly::ReaderBase *file)
+void FileSet::addFile(FastPly::Reader *file)
 {
     files.push_back(file);
     nSplats += file->size();
@@ -195,7 +195,7 @@ std::size_t FileSet::MySplatStream::read(Splat *splats, splat_id *splatIds, std:
         }
 
         const std::size_t fileId = curItem.first >> scanIdShift;
-        const FastPly::ReaderBase &file = owner.files[fileId];
+        const FastPly::Reader &file = owner.files[fileId];
 
         // Try a parallel load + decode, and fall back if there are non-finites
         const std::size_t n = std::min(curItem.last - pos, (splat_id) count);

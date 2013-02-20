@@ -11,41 +11,33 @@
 # include <config.h>
 #endif
 
-#include <utility>
-#include <vector>
 #include <string>
+#include <vector>
+#include <boost/filesystem/path.hpp>
+#include <boost/array.hpp>
 #include "../src/tr1_cstdint.h"
 #include "../src/tr1_unordered_map.h"
-#include <boost/array.hpp>
+#include "../src/binary_io.h"
 #include "../src/fast_ply.h"
 
 /**
- * An implementation of the @ref FastPly::WriterBase
+ * An implementation of the @ref BinaryWriter
  * interface that does not actually write to file, but merely saves
  * a copy of the data in memory. It is aimed specifically at testing.
  *
  * Since a writer can be opened and closed multiple times, the results
  * are stored in a map indexed by the provided filename.
  */
-class MemoryWriter : public FastPly::WriterBase
+class MemoryWriter : public BinaryWriter
 {
 public:
-    struct Output
-    {
-        std::vector<boost::array<float, 3> > vertices;
-        std::vector<boost::array<std::tr1::uint32_t, 3> > triangles;
-    };
-
     /// Constructor
     MemoryWriter();
 
-    virtual void open(const std::string &filename);
-    virtual std::pair<char *, size_type> open();
-    virtual void close();
-    virtual void writeVertices(size_type first, size_type count, const float *data);
-    virtual void writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data);
-    virtual void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
-    virtual bool supportsOutOfOrder() const;
+    virtual void openImpl(const boost::filesystem::path &filename);
+    virtual void closeImpl();
+    virtual std::size_t writeImpl(const void *buffer, std::size_t count, offset_type offset) const;
+    virtual void resizeImpl(offset_type size) const;
 
     /**
      * Returns a previously written output. It is legal to retrieve an output that is in
@@ -54,18 +46,47 @@ public:
      * @param filename               The filename provided when the writer was opened.
      * @throw std::invalid_argument  if no such output exists.
      */
-    const Output &getOutput(const std::string &filename) const;
+    const std::string &getOutput(const std::string &filename) const;
 
 private:
     /**
      * Output file currently being written. It is @c NULL when the writer is closed.
      */
-    Output *curOutput;
+    std::string *curOutput;
 
     /**
      * Outputs organised by filename.
      */
-    std::tr1::unordered_map<std::string, Output> outputs;
+    std::tr1::unordered_map<std::string, std::string> outputs;
+};
+
+/**
+ * Combined a @ref MemoryWriter with a @ref FastPly::Writer, with additional
+ * helper routines to decode output.
+ */
+class MemoryWriterPly : public FastPly::Writer
+{
+public:
+    MemoryWriterPly();
+
+    /**
+     * Quick-and-dirty extraction of the vertices and triangles from the PLY file.
+     * It's a @em long way from being a full PLY parser. It handles only the sorts
+     * of files produced by FastPly::Writer.
+     *
+     * @param text           File contents
+     * @param[out] vertices  Vertices
+     * @param[out] triangles Triangles
+     */
+    static void parse(
+        const std::string &content,
+        std::vector<boost::array<float, 3> > &vertices,
+        std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles);
+
+    /**
+     * Wraps @ref MemoryWriter::getOutput.
+     */
+    const std::string &getOutput(const std::string &filename);
 };
 
 #endif /* !MEMORY_WRITER_H */

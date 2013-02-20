@@ -12,50 +12,54 @@
 #endif
 
 #include <cstddef>
-#include "../src/fast_ply.h"
+#include <string>
+#include <boost/filesystem/path.hpp>
+#include "../src/binary_io.h"
 
 /**
  * A reader that processes a range of existing memory.
  *
  * This is primarily intended for test code.
  */
-class MemoryReader : public FastPly::ReaderBase
+class MemoryReader : public BinaryReader
 {
 private:
-    class MemoryHandle : public FastPly::ReaderBase::Handle
-    {
-    private:
-        /// Pointer to the first vertex
-        const char *vertexPtr;
+    const char *data_;
+    std::size_t size_;
 
-    public:
-        virtual void readRaw(size_type first, size_type last, char *buffer) const;
-
-        /**
-         * Constructor.
-         * @param owner     The creating reader.
-         * @param data      Pointer to the start of the file (the header, not the vertices).
-         */
-        explicit MemoryHandle(const MemoryReader &owner, const char *data);
-    };
+    virtual void openImpl(const boost::filesystem::path &path);
+    virtual void closeImpl();
+    virtual std::size_t readImpl(void *buffer, std::size_t count, offset_type offset) const;
+    virtual offset_type sizeImpl() const;
 
 public:
     /**
      * Construct from an existing memory range.
      * @param data             Start of memory region.
      * @param size             Bytes in memory region.
-     * @param smooth           Scale factor applied to radii as they're read.
-     * @param maxRadius        Cap for radius (prior to scaling by @a smooth).
-     * @throw FormatError if the file was malformed
      * @note The memory range must not be deleted or modified until the object
      * is destroyed.
      */
-    MemoryReader(const char *data, std::size_t size, float smooth, float maxRadius);
+    MemoryReader(const char *data, std::size_t size);
+};
 
-    virtual Handle *createHandle() const;
+/**
+ * Satisfies the requirements for a reader factory in @ref FastPly::Reader.
+ */
+class MemoryReaderFactory
+{
+public:
+    typedef BinaryReader *result_type;
+
+    BinaryReader *operator()() const
+    {
+        return new MemoryReader(content.data(), content.size());
+    }
+
+    MemoryReaderFactory(const std::string &content) : content(content) {}
 
 private:
-    const char *data;
+    std::string content;
 };
 
 #endif /* !MEMORY_READER_H */

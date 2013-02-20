@@ -153,7 +153,7 @@ void OOCMesher::TmpWriterWorkerGroup::freeItem(boost::shared_ptr<TmpWriterItem> 
 
 const int OOCMesher::reorderSlots = 3;
 
-OOCMesher::OOCMesher(FastPly::WriterBase &writer, const Namer &namer)
+OOCMesher::OOCMesher(FastPly::Writer &writer, const Namer &namer)
     : MesherBase(writer, namer),
     tmpNodes("mem.OOCMesher::tmpNodes"),
     tmpClumpId("mem.OOCMesher::tmpClumpId"),
@@ -470,7 +470,7 @@ void OOCMesher::finalize(Timeplot::Worker &tworker)
 void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
     Timeplot::Action writeAction("write", tworker, "finalize.time");
-    FastPly::WriterBase &writer = getWriter();
+    FastPly::Writer &writer = getWriter();
     Statistics::Registry &registry = Statistics::Registry::getInstance();
 
     finalize(tworker);
@@ -638,7 +638,7 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                     std::tr1::uint32_t externalBoundary = ~externalRemap.size();
 
                     // Now write out the triangles
-                    FastPly::WriterBase::size_type writtenTriangles = 0;
+                    FastPly::Writer::size_type writtenTriangles = 0;
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
@@ -647,7 +647,7 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             triangles.reserve(cc.numTriangles, false);
-                            trianglesRaw.reserve(cc.numTriangles * FastPly::WriterBase::triangleSize, false);
+                            trianglesRaw.reserve(cc.numTriangles * FastPly::Writer::triangleSize, false);
                             {
                                 Statistics::Timer timer(readTrianglesStat);
                                 trianglesTmpRead.seekg(boost::iostreams::offset_to_position(cc.firstTriangle * sizeof(triangle_type)));
@@ -670,8 +670,8 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                                     else
                                         t[k] += offset;
                                 }
-                                trianglesRaw[i * FastPly::WriterBase::triangleSize] = 3;
-                                std::memcpy(trianglesRaw.data() + i * FastPly::WriterBase::triangleSize + 1, &t, sizeof(t));
+                                trianglesRaw[i * FastPly::Writer::triangleSize] = 3;
+                                std::memcpy(trianglesRaw.data() + i * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
                             }
                             writer.writeTrianglesRaw(writtenTriangles, cc.numTriangles, trianglesRaw.data());
                             writtenTriangles += cc.numTriangles;
@@ -788,7 +788,7 @@ Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in, const C
     return DeviceMesher(in, chunkId, tworker);
 }
 
-MesherBase *createMesher(MesherType type, FastPly::WriterBase &writer, const MesherBase::Namer &namer)
+MesherBase *createMesher(MesherType type, FastPly::Writer &writer, const MesherBase::Namer &namer)
 {
     switch (type)
     {

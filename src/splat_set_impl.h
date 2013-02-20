@@ -153,7 +153,7 @@ FileSet::FileRange FileSet::FileRangeIterator<RangeIterator>::dereference() cons
     assert(ans.fileId < owner->files.size());
     ans.end = owner->files[ans.fileId].size();
     if ((curRange->second >> scanIdShift) == ans.fileId)
-        ans.end = std::min(ans.end, FastPly::ReaderBase::size_type(curRange->second & splatIdMask));
+        ans.end = std::min(ans.end, FastPly::Reader::size_type(curRange->second & splatIdMask));
     const std::size_t vertexSize = owner->files[ans.fileId].getVertexSize();
     if ((ans.end - ans.start) * vertexSize > maxSize)
         ans.end = ans.start + maxSize / vertexSize;
@@ -165,7 +165,7 @@ FileSet::FileRangeIterator<RangeIterator>::FileRangeIterator(
     const FileSet &owner,
     RangeIterator firstRange,
     RangeIterator lastRange,
-    FastPly::ReaderBase::size_type maxSize)
+    FastPly::Reader::size_type maxSize)
 : owner(&owner), curRange(firstRange), lastRange(lastRange), first(0), maxSize(maxSize)
 {
     MLSGPU_ASSERT(maxSize > 0, std::invalid_argument);
@@ -200,7 +200,7 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
     Statistics::Variable &readRangeStat = Statistics::getStatistic<Statistics::Variable>("files.read.splats");
     Statistics::Variable &readMergedStat = Statistics::getStatistic<Statistics::Variable>("files.read.merged");
 
-    boost::scoped_ptr<FastPly::ReaderBase::Handle> handle;
+    boost::scoped_ptr<FastPly::Reader::Handle> handle;
     std::size_t handleId = 0;
     FileRangeIterator<RangeIterator> first(owner, firstRange, lastRange, maxChunk);
     FileRangeIterator<RangeIterator> last(owner, lastRange);
@@ -220,12 +220,12 @@ void FileSet::ReaderThread<RangeIterator>::operator()()
                 throw std::runtime_error("Far too many bytes per vertex");
             }
             handle.reset(); // close the old handle
-            handle.reset(owner.files[range.fileId].createHandle());
+            handle.reset(new FastPly::Reader::Handle(owner.files[range.fileId]));
             handleId = range.fileId;
         }
 
-        const FastPly::ReaderBase::size_type start = range.start;
-        FastPly::ReaderBase::size_type end = range.end;
+        const FastPly::Reader::size_type start = range.start;
+        FastPly::Reader::size_type end = range.end;
         /* Request merging */
         FileRangeIterator<RangeIterator> next = cur;
         ++next;

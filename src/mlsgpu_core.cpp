@@ -92,8 +92,8 @@ static void addAdvancedOptions(po::options_description &opts)
         (Option::maxSplit,     po::value<int>()->default_value(1024 * 1024 * 1024), "Maximum fan-out in partitioning")
         (Option::leafCells,    po::value<int>()->default_value(63), "Leaf size for initial histogram")
         (Option::deviceThreads, po::value<int>()->default_value(1), "Number of threads per device for submitting OpenCL work")
-        (Option::reader,       po::value<Choice<FastPly::ReaderTypeWrapper> >()->default_value(FastPly::SYSCALL_READER), "File reader class (mmap | syscall)")
-        (Option::writer,       po::value<Choice<FastPly::WriterTypeWrapper> >()->default_value(FastPly::STREAM_WRITER), "File writer class (mmap | stream)")
+        (Option::reader,       po::value<Choice<ReaderTypeWrapper> >()->default_value(SYSCALL_READER), "File reader class (syscall | stream | mmap)")
+        (Option::writer,       po::value<Choice<WriterTypeWrapper> >()->default_value(SYSCALL_WRITER), "File writer class (syscall | stream)")
 #ifdef _OPENMP
         (Option::ompThreads,   po::value<int>(), "Number of threads for OpenMP")
 #endif
@@ -275,10 +275,10 @@ static std::string makeOptions(const po::variables_map &vm)
                 opts << param.as<std::size_t>();
             else if (value.type() == typeid(Choice<MesherTypeWrapper>))
                 opts << param.as<Choice<MesherTypeWrapper> >();
-            else if (value.type() == typeid(Choice<FastPly::WriterTypeWrapper>))
-                opts << param.as<Choice<FastPly::WriterTypeWrapper> >();
-            else if (value.type() == typeid(Choice<FastPly::ReaderTypeWrapper>))
-                opts << param.as<Choice<FastPly::ReaderTypeWrapper> >();
+            else if (value.type() == typeid(Choice<WriterTypeWrapper>))
+                opts << param.as<Choice<WriterTypeWrapper> >();
+            else if (value.type() == typeid(Choice<ReaderTypeWrapper>))
+                opts << param.as<Choice<ReaderTypeWrapper> >();
             else if (value.type() == typeid(Choice<MlsShapeWrapper>))
                 opts << param.as<Choice<MlsShapeWrapper> >();
             else if (value.type() == typeid(Capacity))
@@ -518,7 +518,7 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
             paths.push_back(name);
     }
 
-    const FastPly::ReaderType readerType = vm[Option::reader].as<Choice<FastPly::ReaderTypeWrapper> >();
+    const ReaderType readerType = vm[Option::reader].as<Choice<ReaderTypeWrapper> >();
     if (paths.size() > SplatSet::FileSet::maxFiles)
     {
         std::ostringstream msg;
@@ -531,7 +531,7 @@ void prepareInputs(SplatSet::FileSet &files, const po::variables_map &vm, float 
     {
         if (vm.count(Option::decache))
             decache(path.string());
-        std::auto_ptr<FastPly::ReaderBase> reader(FastPly::createReader(readerType, path.string(), smooth, maxRadius));
+        std::auto_ptr<FastPly::Reader> reader(new FastPly::Reader(readerType, path.string(), smooth, maxRadius));
         if (reader->size() > SplatSet::FileSet::maxFileSplats)
         {
             std::ostringstream msg;
@@ -657,17 +657,17 @@ void doBucket(
                    boost::ref(collector));
 }
 
-FastPly::WriterBase *doCreateWriter(const po::variables_map &vm)
+FastPly::Writer *doCreateWriter(const po::variables_map &vm)
 {
-    const FastPly::WriterType writerType = vm[Option::writer].as<Choice<FastPly::WriterTypeWrapper> >();
-    std::auto_ptr<FastPly::WriterBase> writer(FastPly::createWriter(writerType));
+    const WriterType writerType = vm[Option::writer].as<Choice<WriterTypeWrapper> >();
+    std::auto_ptr<FastPly::Writer> writer(new FastPly::Writer(writerType));
     writer->addComment("mlsgpu version: " + provenanceVersion());
     writer->addComment("mlsgpu variant: " + provenanceVariant());
     writer->addComment("mlsgpu options:" + makeOptions(vm));
     return writer.release();
 }
 
-MesherBase *doCreateMesher(const po::variables_map &vm, FastPly::WriterBase &writer, const std::string &out)
+MesherBase *doCreateMesher(const po::variables_map &vm, FastPly::Writer &writer, const std::string &out)
 {
     const MesherType mesherType = OOC_MESHER;
     const bool split = vm.count(Option::split);

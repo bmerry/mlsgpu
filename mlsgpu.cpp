@@ -73,7 +73,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     {
         Statistics::Timer grandTotalTimer("run.time");
 
-        boost::scoped_ptr<FastPly::WriterBase> writer(doCreateWriter(vm));
+        boost::scoped_ptr<FastPly::Writer> writer(doCreateWriter(vm));
         boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
 
         if (vm.count(Option::resume))

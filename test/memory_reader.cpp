@@ -10,38 +10,37 @@
 
 #include <cstddef>
 #include <cstring>
-#include <boost/iostreams/device/array.hpp>
-#include <boost/iostreams/stream.hpp>
-#include "../src/fast_ply.h"
+#include "../src/binary_io.h"
 #include "memory_reader.h"
 
-using FastPly::ReaderBase;
-
-MemoryReader::MemoryHandle::MemoryHandle(const MemoryReader &owner, const char *data)
-    : ReaderBase::Handle(owner), vertexPtr(data + owner.getHeaderSize())
+void MemoryReader::openImpl(const boost::filesystem::path &path)
 {
+    (void) path;
+    // No action required
 }
 
-void MemoryReader::MemoryHandle::readRaw(size_type first, size_type last, char *buffer) const
+void MemoryReader::closeImpl()
 {
-    MLSGPU_ASSERT(first <= last, std::invalid_argument);
-    MLSGPU_ASSERT(buffer != NULL, std::invalid_argument);
-
-    const std::size_t vertexSize = owner.getVertexSize();
-    std::memcpy(buffer, vertexPtr + first * vertexSize, (last - first) * vertexSize);
+    // No action required
 }
 
-MemoryReader::MemoryReader(const char *data, std::size_t size, float smooth, float maxRadius)
-    : ReaderBase(smooth, maxRadius), data(data)
+std::size_t MemoryReader::readImpl(
+    void *buffer, std::size_t count, offset_type offset) const
 {
-    boost::iostreams::array_source source(data, size);
-    boost::iostreams::stream<boost::iostreams::array_source> in(source);
-    readHeader(in);
-    if ((size - getHeaderSize()) / getVertexSize() < this->size())
-        throw boost::enable_error_info(FastPly::FormatError("Input source is too small to contain its vertices"));
+    if (offset >= size_)
+        return 0; // past the EOF
+    if (count > size_ - offset)
+        count = size_ - offset; // Clamp
+    std::memcpy(buffer, data_ + offset, count);
+    return count;
 }
 
-ReaderBase::Handle *MemoryReader::createHandle() const
+MemoryReader::offset_type MemoryReader::sizeImpl() const
 {
-    return new MemoryHandle(*this, data);
+    return size_;
+}
+
+MemoryReader::MemoryReader(const char *data, std::size_t size)
+    : data_(data), size_(size)
+{
 }

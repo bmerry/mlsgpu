@@ -291,7 +291,7 @@ int main() {
             function_name = f, header_name = 'windows.h',
             msg = 'Checking for ' + f,
             mandatory = False)
-    for f in ['open', 'pread', 'close', 'posix_fadvise']:
+    for f in ['open', 'pread', 'pwrite', 'close', 'posix_fadvise']:
         conf.check_cxx(
             features = ['cxx', 'cxxprogram'],
             function_name = f, header_name = ['fcntl.h', 'sys/types.h', 'unistd.h'],

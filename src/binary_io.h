@@ -11,7 +11,12 @@
 # include <config.h>
 #endif
 #include <cstddef>
+#include <map>
+#include <string>
+#include <boost/noncopyable.hpp>
 #include <boost/filesystem/path.hpp>
+#include <boost/iostreams/positioning.hpp>
+#include <boost/iostreams/categories.hpp>
 #include "tr1_cstdint.h"
 
 /// Enumeration of the types of binary reader
@@ -29,10 +34,26 @@ enum WriterType
     SYSCALL_WRITER
 };
 
+/// Wrapper around @ref ReaderType for use with @ref Choice.
+class ReaderTypeWrapper
+{
+public:
+    typedef ReaderType type;
+    static std::map<std::string, ReaderType> getNameMap();
+};
+
+/// Wrapper around @ref WriterType for use with @ref Choice.
+class WriterTypeWrapper
+{
+public:
+    typedef WriterType type;
+    static std::map<std::string, WriterType> getNameMap();
+};
+
 /**
  * Base class that handles both reading and writing.
  */
-class BinaryIO
+class BinaryIO : public boost::noncopyable
 {
 public:
     /// Type used to represent positions in files.
@@ -54,6 +75,13 @@ public:
      */
     void close();
 
+    BinaryIO();
+
+    /**
+     * Virtual destructor to allow for polymorphism. Note that all concrete
+     * subclasses are responsible for closing the file themselves. It cannot
+     * be done from here as the subclass will have already been destroyed.
+     */
     virtual ~BinaryIO();
 
     /**
@@ -104,12 +132,27 @@ public:
      */
     std::size_t read(void *buf, std::size_t count, offset_type offset) const;
 
+    /**
+     * Return the size of the file.
+     *
+     * @throw boost::exception if there was a low-level I/O error
+     *
+     * @pre The file is open.
+     */
+    offset_type size() const;
+
 private:
     /**
      * Implementation of @ref read. It does not need to check whether the file is
      * open or put the filename into exceptions.
      */
     virtual std::size_t readImpl(void *buf, std::size_t count, offset_type offset) const = 0;
+
+    /**
+     * Implementation of @ref size. It does not need to check whether the file is
+     * open or put the filename into exceptions.
+     */
+    virtual offset_type sizeImpl() const = 0;
 };
 
 /**
@@ -131,12 +174,48 @@ public:
      */
     std::size_t write(const void *buf, std::size_t count, offset_type offset) const;
 
+    /**
+     * Resize the file to the given size. It is not guaranteed to be possible to
+     * shrink a file (this depends on the specific subclass). However, creating a new
+     * file and then resizing it to the final desired size will work.
+     *
+     * This function is not guaranteed to be thread-safe.
+     */
+    void resize(offset_type size) const;
+
 private:
     /**
      * Implementation of @ref write. It does not need to check that the file is open or
      * put the filename into exceptions.
      */
     virtual std::size_t writeImpl(const void *buf, std::size_t count, offset_type offset) const = 0;
+
+    /**
+     * Implementation of @ref resize. It does not need to check that the file is open or
+     * put the filename into exceptions.
+     */
+    virtual void resizeImpl(offset_type size) const = 0;
+};
+
+/**
+ * Wraps a @ref BinaryReader in an interface that makes it a source for
+ * @c boost::iostreams.
+ */
+class BinaryReaderSource
+{
+public:
+    typedef char char_type;
+    typedef boost::iostreams::seekable_device_tag category;
+
+    std::streamsize read(char *buffer, std::streamsize count);
+    std::streamsize write(const char *buffer, std::streamsize count);
+    std::streampos seek(boost::iostreams::stream_offset off, std::ios_base::seekdir way);
+
+    explicit BinaryReaderSource(const BinaryReader &reader);
+
+private:
+    const BinaryReader &reader;
+    BinaryReader::offset_type offset;
 };
 
 /**

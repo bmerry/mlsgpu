@@ -189,9 +189,9 @@ void doBucket(
     BucketCollector &collector);
 
 /**
- * An all-in-one helper to wrap @ref FastPly::createWriter and set properties
+ * An all-in-one helper to wrap creation of @ref FastPly::Writer and set properties
  */
-FastPly::WriterBase *doCreateWriter(const boost::program_options::variables_map &vm);
+FastPly::Writer *doCreateWriter(const boost::program_options::variables_map &vm);
 
 /**
  * An all-in-one helper to create a mesher and set properties.
@@ -202,7 +202,7 @@ FastPly::WriterBase *doCreateWriter(const boost::program_options::variables_map 
  */
 MesherBase *doCreateMesher(
     const boost::program_options::variables_map &vm,
-    FastPly::WriterBase &writer,
+    FastPly::Writer &writer,
     const std::string &out);
 
 /**
