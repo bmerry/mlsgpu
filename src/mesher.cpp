@@ -538,8 +538,6 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
     Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.OOCMesher::startVertex");
 
     Statistics::Container::PODBuffer<vertex_type> vertices("mem.OOCMesher::vertices");
-    Statistics::Container::PODBuffer<triangle_type> triangles("mem.OOCMesher::triangles");
-    Statistics::Container::PODBuffer<std::tr1::uint8_t> trianglesRaw("mem.OOCMesher::trianglesRaw");
 
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
@@ -626,48 +624,67 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                     Statistics::Timer trianglesTimer("finalize.triangles.time");
                     std::tr1::uint32_t externalBoundary = ~externalRemap.size();
 
-                    // Now write out the triangles
+                    // Determine where to write the triangles
                     FastPly::Writer::size_type writtenTriangles = 0;
+                    std::vector<FastPly::Writer::size_type> chunkPos;
+                    chunkPos.reserve(chunk.clumps.size());
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
                         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-                        std::tr1::uint32_t offset = startVertex[j];
+                        chunkPos.push_back(writtenTriangles);
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
-                            triangles.reserve(cc.numTriangles, false);
-                            trianglesRaw.reserve(cc.numTriangles * FastPly::Writer::triangleSize, false);
-                            {
-                                Statistics::Timer timer(readTrianglesStat);
-                                trianglesTmpRead->read(
-                                    triangles.data(),
-                                    cc.numTriangles * sizeof(triangle_type),
-                                    cc.firstTriangle * sizeof(triangle_type));
-                            }
-#ifdef _OPENMP
-#pragma omp parallel for schedule(static)
-#endif
-                            for (std::size_t i = 0; i < cc.numTriangles; i++)
-                            {
-                                triangle_type t = triangles[i];
-                                // Convert indices to account for compaction
-                                for (int k = 0; k < 3; k++)
-                                {
-                                    if (t[k] > externalBoundary)
-                                    {
-                                        t[k] = externalRemap[~t[k]];
-                                        assert(t[k] != badIndex);
-                                    }
-                                    else
-                                        t[k] += offset;
-                                }
-                                trianglesRaw[i * FastPly::Writer::triangleSize] = 3;
-                                std::memcpy(trianglesRaw.data() + i * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
-                            }
-                            writer.writeTrianglesRaw(writtenTriangles, cc.numTriangles, trianglesRaw.data());
                             writtenTriangles += cc.numTriangles;
-                            if (progress != NULL)
-                                *progress += cc.numTriangles;
+                        }
+                    }
+
+                    // Now write out the triangles
+#ifdef _OPENMP
+#pragma omp parallel shared(trianglesTmpRead, chunk, readTrianglesStat, externalBoundary, externalRemap, chunkPos, startVertex, writer, progress) default(none)
+#endif
+                    {
+                        Statistics::Container::PODBuffer<triangle_type> triangles("mem.OOCMesher::triangles");
+                        Statistics::Container::PODBuffer<std::tr1::uint8_t> trianglesRaw("mem.OOCMesher::trianglesRaw");
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+                        for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+                        {
+                            const Chunk::Clump &cc = chunk.clumps[j];
+                            clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+                            std::tr1::uint32_t offset = startVertex[j];
+                            if (clumps[cid].vertices >= thresholdVertices)
+                            {
+                                triangles.reserve(cc.numTriangles, false);
+                                trianglesRaw.reserve(cc.numTriangles * FastPly::Writer::triangleSize, false);
+                                {
+                                    Statistics::Timer timer(readTrianglesStat);
+                                    trianglesTmpRead->read(
+                                        triangles.data(),
+                                        cc.numTriangles * sizeof(triangle_type),
+                                        cc.firstTriangle * sizeof(triangle_type));
+                                }
+                                for (std::size_t ti = 0; ti < cc.numTriangles; ti++)
+                                {
+                                    triangle_type t = triangles[ti];
+                                    // Convert indices to account for compaction
+                                    for (int k = 0; k < 3; k++)
+                                    {
+                                        if (t[k] > externalBoundary)
+                                        {
+                                            t[k] = externalRemap[~t[k]];
+                                        }
+                                        else
+                                            t[k] += offset;
+                                    }
+                                    trianglesRaw[ti * FastPly::Writer::triangleSize] = 3;
+                                    std::memcpy(trianglesRaw.data() + ti * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
+                                }
+                                writer.writeTrianglesRaw(chunkPos[j], cc.numTriangles, trianglesRaw.data());
+                                if (progress != NULL)
+                                    *progress += cc.numTriangles;
+                            }
                         }
                     }
                 }
