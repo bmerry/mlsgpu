@@ -206,7 +206,7 @@ po::variables_map processOptions(int argc, char **argv, bool isMPI)
         }
         if (vm.count(Option::tmpDir))
         {
-            setTmpFileDir(vm[Option::tmpDir].as<boost::filesystem::path::string_type>());
+            setTmpFileDir(vm[Option::tmpDir].as<std::string>());
         }
 
 #ifdef _OPENMP
