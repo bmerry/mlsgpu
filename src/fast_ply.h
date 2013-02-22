@@ -27,6 +27,7 @@
 #include <boost/filesystem/path.hpp>
 #include <boost/function.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/type_traits/is_pointer.hpp>
 #include <boost/ref.hpp>
@@ -35,6 +36,8 @@
 #include "errors.h"
 #include "allocator.h"
 #include "binary_io.h"
+#include "async_io.h"
+#include "timeplot.h"
 
 class TestFastPlyReader;
 
@@ -274,10 +277,9 @@ public:
     void open(const std::string &filename);
 
     /**
-     * Flush all data to the file and close it.
-     *
-     * After doing this, it is possible to open a new file, although the
-     * comments will not be reset.
+     * Prepare to write another file. This will usually cause the old file
+     * to be closed, but if it has been used with the asynchronous write
+     * functions it will remain open until there are no remaining references.
      */
     void close();
 
@@ -289,6 +291,22 @@ public:
      * @pre @a first + @a count <= @a numVertices.
      */
     void writeVertices(size_type first, size_type count, const float *data);
+
+    /**
+     * Write vertices asynchronously. The caller must have obtained the item
+     * from the asynchronous writer and populated it.
+     * @param tworker        Worker for accounting the time (possibly unused?)
+     * @param first          Index of first vertex to write.
+     * @param count          Number of vertices to write.
+     * @param data           Array of <code>float[3]</code> values.
+     * @param async          Asynchronous writer that will do the writing.
+     * @pre @a first + @a count <= @a numVertices.
+     */
+    void writeVertices(
+        Timeplot::Worker &tworker,
+        size_type first, size_type count,
+        const boost::shared_ptr<AsyncWriterItem> &data,
+        AsyncWriter &async);
 
     /**
      * Write a range of triangles.
@@ -305,59 +323,31 @@ public:
      * ever supports endian conversion, they must be in the file endianness. In other words,
      * the data must be ready to be written to the file with no further conversions.
      *
-     * @see TriangleBuffer
+     * @param first          Index of first triangle to write.
+     * @param count          Number of triangles to write.
+     * @param data           Raw data, as described above.
+     * @pre @a first + @a count <= @a numTriangles.
      */
     void writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data);
 
+    /**
+     * Write triangles asynchronously.
+     *
+     * @param tworker        Worker for accounting the time (possibly unused?)
+     * @param first          Index of first triangle to write.
+     * @param count          Number of triangles to write.
+     * @param data           Raw data, as for @ref writeTrianglesRaw
+     * @param async          Asynchronous writer that will do the writing.
+     * @pre @a first + @a count <= @a numTriangles.
+     */
+    void writeTrianglesRaw(
+        Timeplot::Worker &tworker,
+        size_type first, size_type count,
+        const boost::shared_ptr<AsyncWriterItem> &item,
+        AsyncWriter &async);
+
     size_type getNumVertices() const;
     size_type getNumTriangles() const;
-
-    /**
-     * Class that allows triangles to be submitted one at a time, and which writes the
-     * data in chunks to the output.
-     */
-    class TriangleBuffer : public boost::noncopyable
-    {
-    public:
-        /**
-         * Constructor.
-         *
-         * @param writer      The writer to which the data will be written
-         * @param offset      The triangle index at which to start appending
-         * @param capacity    Bytes to allocate for the buffer. The number of triangles supported
-         *                    will be 1/13th of this.
-         */
-        explicit TriangleBuffer(Writer &writer, size_type offset, std::size_t capacity);
-
-        /**
-         * Flush the buffer.
-         */
-        ~TriangleBuffer();
-
-        /**
-         * Add a triangle to the buffer, automatically flushing it if full.
-         */
-        void add(const std::tr1::uint32_t *triangle);
-
-    private:
-        /**
-         * The buffer. To avoid growth checks, the size is fixed at the buffer capacity,
-         * and @ref bufferPtr is used to specify the end.
-         */
-        Statistics::Container::vector<std::tr1::uint8_t> buffer;
-
-        /// The end of data in the buffer
-        std::tr1::uint8_t *bufferPtr;
-        /// The end of the buffer itself
-        std::tr1::uint8_t *bufferEnd;
-
-        /// Writer to write to.
-        Writer &writer;
-        /// Index of first triangle in the buffer
-        size_type nextTriangle;
-
-        void flush(); ///< Flush buffer to the writer.
-    };
 
     /// Bytes per vertex
     static const size_type vertexSize = 3 * sizeof(float);
@@ -369,19 +359,29 @@ public:
 
     /**
      * Constructor with a custom low-level writer.
-     * This class takes over ownership of the handle.
      */
-    explicit Writer(BinaryWriter *handle);
-
-protected:
-    BinaryWriter *getHandle() const { return handle.get(); }
+    explicit Writer(boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory);
 
 private:
+    class InternalFactory
+    {
+    private:
+        const WriterType writerType;
+    public:
+        typedef boost::shared_ptr<BinaryWriter> result_type;
+
+        result_type operator()() { return result_type(createWriter(writerType)); }
+        explicit InternalFactory(WriterType writerType) : writerType(writerType) {}
+    };
+
     Statistics::Variable &writeVerticesTime;
     Statistics::Variable &writeTrianglesTime;
 
+    /// Handle factory, used when the file is closed to make a new handle
+    boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory;
+
     /// File handle (always non-NULL)
-    boost::scoped_ptr<BinaryWriter> handle;
+    boost::shared_ptr<BinaryWriter> handle;
 
     /// Storage for comments until they can be written by @ref open.
     std::vector<std::string> comments;

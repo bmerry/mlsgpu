@@ -46,7 +46,7 @@ public:
     void testEmpty();            ///< Test error checking for an empty set
     void testProgress();         ///< Run with a progress stream (does not check output)
 };
-CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastFileSet, TestSet::perBuild());
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestFastFileSetMPI, TestSet::perBuild());
 
 void TestFastFileSetMPI::setUp()
 {

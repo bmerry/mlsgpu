@@ -397,14 +397,21 @@ void Writer::setNumTriangles(size_type numTriangles)
 Writer::Writer(WriterType writerType) : 
     writeVerticesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeVertices.time")),
     writeTrianglesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeTriangles.time")),
-    handle(createWriter(writerType)),
-    comments(), numVertices(0), numTriangles(0) {}
+    handleFactory(InternalFactory(writerType)),
+    comments(), numVertices(0), numTriangles(0)
+{
+    handle = handleFactory();
+}
 
-Writer::Writer(BinaryWriter *handle) : 
+Writer::Writer(boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory) : 
     writeVerticesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeVertices.time")),
     writeTrianglesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeTriangles.time")),
-    handle(handle),
-    comments(), numVertices(0), numTriangles(0) {}
+    handleFactory(handleFactory),
+    handle(handleFactory()),
+    comments(), numVertices(0), numTriangles(0)
+{
+    handle = this->handleFactory();
+}
 
 Writer::size_type Writer::getNumVertices() const
 {
@@ -469,7 +476,7 @@ void Writer::open(const std::string &filename)
 
 void Writer::close()
 {
-    handle->close();
+    handle = handleFactory();
 }
 
 void Writer::writeVertices(size_type first, size_type count, const float *data)
@@ -479,11 +486,31 @@ void Writer::writeVertices(size_type first, size_type count, const float *data)
     handle->write(data, count * vertexSize, vertexStart + first * vertexSize);
 }
 
+void Writer::writeVertices(
+    Timeplot::Worker &tworker,
+    size_type first, size_type count,
+    const boost::shared_ptr<AsyncWriterItem> &data,
+    AsyncWriter &async)
+{
+    MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
+    async.push(tworker, data, handle, count * vertexSize, vertexStart + first * vertexSize);
+}
+
 void Writer::writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data)
 {
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
     Statistics::Timer timer(writeTrianglesTime);
     handle->write(data, count * triangleSize, triangleStart + first * triangleSize);
+}
+
+void Writer::writeTrianglesRaw(
+    Timeplot::Worker &tworker,
+    size_type first, size_type count,
+    const boost::shared_ptr<AsyncWriterItem> &data,
+    AsyncWriter &async)
+{
+    MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
+    async.push(tworker, data, handle, count * triangleSize, triangleStart + first * triangleSize);
 }
 
 void Writer::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
@@ -506,42 +533,6 @@ void Writer::writeTriangles(size_type first, size_type count, const std::tr1::ui
         pos += handle->write(buffer, ptr - buffer, pos);
         count -= triangles;
     }
-}
-
-
-Writer::TriangleBuffer::TriangleBuffer(Writer &writer, size_type offset, std::size_t capacity)
-    : buffer("mem.Writer::TriangleBuffer"), writer(writer), nextTriangle(offset)
-{
-    // Round down to whole triangles
-    capacity = capacity / triangleSize * triangleSize;
-    MLSGPU_ASSERT(capacity > 0, std::invalid_argument);
-    buffer.resize(capacity);
-    bufferPtr = &buffer[0];
-    bufferEnd = bufferPtr + capacity;
-    // Fill in the polygon lengths
-    for (std::tr1::uint8_t *p = bufferPtr; p < bufferEnd; p += triangleSize)
-        *p = 3;
-}
-
-Writer::TriangleBuffer::~TriangleBuffer()
-{
-    flush();
-}
-
-void Writer::TriangleBuffer::flush()
-{
-    std::size_t numTriangles = (bufferPtr - &buffer[0]) / triangleSize;
-    writer.writeTrianglesRaw(nextTriangle, numTriangles, &buffer[0]);
-    nextTriangle += numTriangles;
-    bufferPtr = &buffer[0];
-}
-
-void Writer::TriangleBuffer::add(const std::tr1::uint32_t *data)
-{
-    if (bufferPtr == bufferEnd)
-        flush();
-    std::memcpy(bufferPtr + 1, data, triangleSize - 1);
-    bufferPtr += triangleSize;
 }
 
 } // namespace FastPly

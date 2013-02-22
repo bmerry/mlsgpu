@@ -68,7 +68,7 @@ public:
     public:
         typedef void result_type;
 
-        Worker(MesherGroup &owner);
+        explicit Worker(MesherGroup &owner);
         void operator()(WorkItem &work);
     };
 };

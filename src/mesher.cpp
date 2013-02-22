@@ -509,6 +509,25 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
         }
     }
 
+    // Compute how much space is needed in the buffer for the async writer
+    std::size_t asyncMem = 1;
+    for (std::size_t i = 0; i < chunks.size(); i++)
+    {
+        const Chunk &chunk = chunks[i];
+        for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+        {
+            const Chunk::Clump &cc = chunk.clumps[j];
+            clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+            if (clumps[cid].vertices >= thresholdVertices)
+            {
+                const std::size_t vertices = cc.numInternalVertices + cc.numExternalVertices;
+                asyncMem = std::max(asyncMem, vertices * FastPly::Writer::vertexSize);
+                asyncMem = std::max(asyncMem, cc.numTriangles * FastPly::Writer::triangleSize);
+            }
+        }
+    }
+
+
     registry.getStatistic<Statistics::Variable>("components.vertices.total").add(writtenVerticesTmp);
     registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
     registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
@@ -537,9 +556,9 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
     // Offset to first vertex of each clump in output file
     Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.OOCMesher::startVertex");
 
-    Statistics::Container::PODBuffer<vertex_type> vertices("mem.OOCMesher::vertices");
     Statistics::Container::PODBuffer<triangle_type> triangles("mem.OOCMesher::triangles");
-    Statistics::Container::PODBuffer<std::tr1::uint8_t> trianglesRaw("mem.OOCMesher::trianglesRaw");
+    AsyncWriter asyncWriter(1, asyncMem * 2); // * 2 to allow overlapping
+    asyncWriter.start();
 
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
@@ -591,15 +610,16 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             std::size_t numVertices = cc.numInternalVertices + cc.numExternalVertices;
-                            vertices.reserve(numVertices, false);
+                            boost::shared_ptr<AsyncWriterItem> item = asyncWriter.get(
+                                tworker, numVertices * sizeof(vertex_type));
                             {
                                 Statistics::Timer timer(readVerticesStat);
                                 verticesTmpRead->read(
-                                    vertices.data(),
+                                    item->get(),
                                     numVertices * sizeof(vertex_type),
                                     cc.firstVertex * sizeof(vertex_type));
                             }
-                            writer.writeVertices(writtenVertices, numVertices, &vertices[0][0]);
+                            writer.writeVertices(tworker, writtenVertices, numVertices, item, asyncWriter);
 
                             writtenVertices += cc.numInternalVertices;
                             for (std::size_t i = 0; i < cc.numExternalVertices; i++)
@@ -636,7 +656,9 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             triangles.reserve(cc.numTriangles, false);
-                            trianglesRaw.reserve(cc.numTriangles * FastPly::Writer::triangleSize, false);
+                            boost::shared_ptr<AsyncWriterItem> item = asyncWriter.get(
+                                tworker, cc.numTriangles * FastPly::Writer::triangleSize);
+                            std::tr1::uint8_t *raw = reinterpret_cast<std::tr1::uint8_t *>(item->get());
                             {
                                 Statistics::Timer timer(readTrianglesStat);
                                 trianglesTmpRead->read(
@@ -661,10 +683,10 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                                     else
                                         t[k] += offset;
                                 }
-                                trianglesRaw[i * FastPly::Writer::triangleSize] = 3;
-                                std::memcpy(trianglesRaw.data() + i * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
+                                raw[i * FastPly::Writer::triangleSize] = 3;
+                                std::memcpy(raw + i * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
                             }
-                            writer.writeTrianglesRaw(writtenTriangles, cc.numTriangles, trianglesRaw.data());
+                            writer.writeTrianglesRaw(tworker, writtenTriangles, cc.numTriangles, item, asyncWriter);
                             writtenTriangles += cc.numTriangles;
                             if (progress != NULL)
                                 *progress += cc.numTriangles;
@@ -682,6 +704,7 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
             }
         }
     }
+    asyncWriter.stop();
 }
 
 void OOCMesher::checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path)

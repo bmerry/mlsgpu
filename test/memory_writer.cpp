@@ -16,7 +16,9 @@
 #include "memory_reader.h"
 #include "memory_writer.h"
 
-MemoryWriter::MemoryWriter() : curOutput(NULL)
+MemoryWriter::MemoryWriter(
+    std::tr1::unordered_map<std::string, std::string> &outputs)
+: curOutput(NULL), outputs(outputs)
 {
 }
 
@@ -47,7 +49,8 @@ void MemoryWriter::resizeImpl(offset_type size) const
     curOutput->resize(size);
 }
 
-const std::string &MemoryWriter::getOutput(const std::string &filename) const
+
+const std::string &MemoryWriterPlyBase::getOutput(const std::string &filename) const
 {
     std::tr1::unordered_map<std::string, std::string>::const_iterator pos = outputs.find(filename);
     if (pos == outputs.end())
@@ -55,17 +58,7 @@ const std::string &MemoryWriter::getOutput(const std::string &filename) const
     return pos->second;
 }
 
-MemoryWriterPly::MemoryWriterPly()
-    : FastPly::Writer(new MemoryWriter)
-{
-}
-
-const std::string &MemoryWriterPly::getOutput(const std::string &filename)
-{
-    return static_cast<MemoryWriter *>(getHandle())->getOutput(filename);
-}
-
-void MemoryWriterPly::parse(
+void MemoryWriterPlyBase::parse(
     const std::string &content,
     std::vector<boost::array<float, 3> > &vertices,
     std::vector<boost::array<std::tr1::uint32_t, 3> > &triangles)
@@ -103,4 +96,30 @@ void MemoryWriterPly::parse(
         handle.read(&triangles[i][0], sizeof(triangles[i]), pos + 1);
         pos += 1 + sizeof(triangles[i]);
     }
+}
+
+namespace
+{
+
+class MemoryWriterFactory
+{
+private:
+    std::tr1::unordered_map<std::string, std::string> &outputs;
+public:
+    typedef boost::shared_ptr<BinaryWriter> result_type;
+
+    explicit MemoryWriterFactory(std::tr1::unordered_map<std::string, std::string> &outputs)
+        : outputs(outputs) {}
+
+    result_type operator()()
+    {
+        return boost::make_shared<MemoryWriter>(boost::ref(outputs));
+    }
+};
+
+} // anonymous namespace
+
+MemoryWriterPly::MemoryWriterPly()
+: FastPly::Writer(MemoryWriterFactory(outputs))
+{
 }
