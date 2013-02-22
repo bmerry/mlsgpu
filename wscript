@@ -148,7 +148,8 @@ def configure_variant_msvc(conf):
         ccflags.append('/Zi')
         conf.env.append_value('LINKFLAGS', '/DEBUG')
     if conf.env['lto']:
-        ccflag.append('/Og')
+        ccflags.append('/GL')
+        conf.env.append_value('LINKFLAGS', '/LTCG')
     conf.env.append_value('CFLAGS', ccflags)
     conf.env.append_value('CXXFLAGS', ccflags)
     if 'LIBPATH' in os.environ:
