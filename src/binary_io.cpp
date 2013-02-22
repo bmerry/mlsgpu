@@ -244,9 +244,21 @@ BinaryIO::offset_type StreamReader::sizeImpl() const
 void StreamWriter::resizeImpl(offset_type size) const
 {
     boost::unique_lock<boost::mutex> lock(mutex);
-    std::streampos pos = fb.pubseekpos(size, std::ios_base::in);
-    if (pos != (std::streampos) size)
+    // This is a bit of a hack: seeking alone is insufficient because only
+    // writing after the seek triggers the resize. So we first check the file
+    // size, and write a single zero byte at the end if necessary
+    std::streampos oldSize = fb.pubseekoff(0, std::ios_base::end, std::ios_base::in);
+    if (oldSize == -1)
         throw boost::enable_error_info(std::ios::failure("Seek failed"));
+
+    if ((offset_type) oldSize < size)
+    {
+        std::streampos pos = fb.pubseekpos(size - 1, std::ios_base::in);
+        if (pos != (std::streampos) (size - 1))
+            throw boost::enable_error_info(std::ios::failure("Seek failed"));
+        if (fb.sputc('\0') == EOF)
+            throw boost::enable_error_info(std::ios::failure("Resize failed"));
+    }
 }
 
 class MmapReader : public BinaryReader
