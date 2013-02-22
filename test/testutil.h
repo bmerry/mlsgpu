@@ -14,7 +14,9 @@
 #include <boost/program_options.hpp>
 #include <boost/function.hpp>
 #include <boost/ref.hpp>
+#include <boost/exception/all.hpp>
 #include <cppunit/TestCaller.h>
+#include <cppunit/extensions/ExceptionTestCaseDecorator.h>
 
 const boost::program_options::variables_map &testGetOptions();
 
@@ -26,6 +28,36 @@ std::string perCommit();
 std::string perNightly();
 
 };
+
+/**
+ * Decorator that checks that an exception of a specific type is thrown that also
+ * contains a specific filename encoded using @c boost::errinfo_file_name.
+ */
+template<class ExpectedException>
+class FilenameExceptionTestCaseDecorator : public CppUnit::ExceptionTestCaseDecorator<ExpectedException>
+{
+public:
+    FilenameExceptionTestCaseDecorator(CppUnit::TestCase *test, const std::string &filename)
+        : CppUnit::ExceptionTestCaseDecorator<ExpectedException>(test), filename(filename) {}
+
+private:
+    const std::string filename;
+
+    virtual void checkException(ExpectedException &e)
+    {
+        std::string *exceptionFilename = boost::get_error_info<boost::errinfo_file_name>(e);
+        CPPUNIT_ASSERT(exceptionFilename != NULL);
+        CPPUNIT_ASSERT_EQUAL(filename, *exceptionFilename);
+    }
+};
+
+#define TEST_EXCEPTION_FILENAME(testMethod, ExceptionType, filename) \
+    CPPUNIT_TEST_SUITE_ADD_TEST(                                     \
+        (new FilenameExceptionTestCaseDecorator<ExceptionType>(      \
+            new CppUnit::TestCaller<TestFixtureType>(                \
+                context.getTestNameFor(#testMethod),                 \
+                &TestFixtureType::testMethod,                        \
+                context.makeFixture()), filename)))
 
 /* Generalized test caller that takes any function object.
  */

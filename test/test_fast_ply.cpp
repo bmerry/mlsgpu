@@ -38,36 +38,6 @@
 
 using namespace FastPly;
 
-/**
- * Decorator that checks that an exception of a specific type is thrown that also
- * contains a specific filename encoded using @c boost::errinfo_file_name.
- */
-template<class ExpectedException>
-class FilenameExceptionTestCaseDecorator : public CppUnit::ExceptionTestCaseDecorator<ExpectedException>
-{
-public:
-    FilenameExceptionTestCaseDecorator(CppUnit::TestCase *test, const std::string &filename)
-        : CppUnit::ExceptionTestCaseDecorator<ExpectedException>(test), filename(filename) {}
-
-private:
-    const std::string filename;
-
-    virtual void checkException(ExpectedException &e)
-    {
-        std::string *exceptionFilename = boost::get_error_info<boost::errinfo_file_name>(e);
-        CPPUNIT_ASSERT(exceptionFilename != NULL);
-        CPPUNIT_ASSERT_EQUAL(filename, *exceptionFilename);
-    }
-};
-
-#define TEST_EXCEPTION_FILENAME(testMethod, ExceptionType, filename) \
-    CPPUNIT_TEST_SUITE_ADD_TEST(                                     \
-        (new FilenameExceptionTestCaseDecorator<ExceptionType>(      \
-            new CppUnit::TestCaller<TestFixtureType>(                \
-                context.getTestNameFor(#testMethod),                 \
-                &TestFixtureType::testMethod,                        \
-                context.makeFixture()), filename)))
-
 static const std::string testFilename = "test_fast_ply.ply";
 
 /**
