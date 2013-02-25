@@ -446,32 +446,39 @@ def build(bld):
         test_features = 'cxx cxxprogram'
         if not bld.options.no_tests:
             test_features += ' test'
-        nonmpi_sources = bld.path.ant_glob('test/test_*.cpp') + ['test/testmain.cpp']
-        mpi_sources = bld.path.ant_glob('test/mpi/*.cpp') + ['test/test_splat_set.cpp']
         common_sources = [
                 'test/manifold.cpp',
                 'test/memory_reader.cpp',
                 'test/memory_writer.cpp',
-                'test/testutil.cpp']
+                'test/testutil.cpp',
+                'test/test_splat_set.cpp']
+        nonmpi_sources = bld.path.ant_glob('test/test_*.cpp', excl = common_sources) + ['test/testmain.cpp']
+        mpi_sources = bld.path.ant_glob('test/mpi/*.cpp')
 
         test_use = ['CPPUNIT', 'BOOST_TEST', 'libmls_core', 'libmls_cl']
         if bld.env['extras']:
             nonmpi_sources.extend(bld.path.ant_glob('extras/test_*.cpp'))
             nonmpi_sources.append('extras/ply.cpp')
 
-        # TODO: use a static library for common_sources
+        bld(
+                features = ['cxx', 'cxxstlib'],
+                source = common_sources,
+                target = 'mls_test',
+                use = test_use,
+                name = 'libmls_test')
+
         bld.program(
                 features = test_features,
-                source = nonmpi_sources + common_sources,
+                source = nonmpi_sources,
                 target = 'testmain',
-                use = test_use,
+                use = 'libmls_test',
                 install_path = None)
         if bld.env['mpi']:
             gen = bld.program(
                     features = test_features,
-                    source = mpi_sources + common_sources,
+                    source = mpi_sources,
                     target = 'testmpi',
-                    use = test_use + ['libmls_mpi', 'MPI'],
+                    use = ['libmls_test', 'libmls_mpi', 'MPI'],
                     install_path = None)
             # Find the unit test task and modify it to run through mpirun
             gen.post() # Forces the task to be generated
