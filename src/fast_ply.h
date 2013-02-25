@@ -380,13 +380,14 @@ private:
     /// Handle factory, used when the file is closed to make a new handle
     boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory;
 
-    /// File handle (always non-NULL)
-    boost::shared_ptr<BinaryWriter> handle;
-
     /// Storage for comments until they can be written by @ref open.
     std::vector<std::string> comments;
     size_type numVertices;              ///< Number of vertices (defaults to zero)
     size_type numTriangles;             ///< Number of triangles (defaults to zero)
+
+protected:
+    /// File handle (always non-NULL)
+    boost::shared_ptr<BinaryWriter> handle;
 
     BinaryWriter::offset_type vertexStart;   ///< Offset in file to start of vertices
     BinaryWriter::offset_type triangleStart; ///< Offset in file to start of triangles

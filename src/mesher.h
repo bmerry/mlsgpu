@@ -332,7 +332,7 @@ public:
     typedef boost::array<float, 3> vertex_type;
     typedef boost::array<cl_uint, 3> triangle_type;
 
-private:
+protected:
     static const int reorderSlots;
 
     typedef std::tr1::int32_t clump_id;
@@ -596,6 +596,7 @@ private:
     // Needed to enable the curiously recursive template pattern
     friend class WorkerGroup<TmpWriterItem, TmpWriterWorker, TmpWriterWorkerGroup>;
 
+private:
     /**
      * @name
      * @{
@@ -612,14 +613,10 @@ private:
     Statistics::Container::PODBuffer<std::tr1::int32_t> tmpNextTriangle;
     /** @} */
 
-    /// Writer for temporary data
-    TmpWriterWorkerGroup tmpWriter;
     /// Total number of vertices written to temporary file
     std::tr1::uint64_t writtenVerticesTmp;
     /// Total number of triangles written to temporary file
     std::tr1::uint64_t writtenTrianglesTmp;
-    /// If set to true, will not delete the temporary files
-    bool retainFiles;
 
     /**
      * Reorder buffer. Initially only the vertices and triangles are placed
@@ -632,12 +629,6 @@ private:
      */
     boost::shared_ptr<TmpWriterItem> reorderBuffer;
 
-    /**
-     * All chunks seen so far. This is indexed by the generation number in the
-     * chunk ID. If non-contiguous IDs are found, there will be default-constructed
-     * chunks plugging the holes.
-     */
-    Statistics::Container::vector<Chunk> chunks;
     Statistics::Container::vector<Clump> clumps;  ///< All clumps seen so far
 
     typedef Statistics::Container::unordered_map<cl_ulong, clump_id> clump_id_map_type;
@@ -721,11 +712,6 @@ private:
     void add(MesherWork &work, Timeplot::Worker &worker);
 
     /**
-     * Flush out any temporary data to the temporary file writer then shut it down
-     */
-    void finalize(Timeplot::Worker &tworker);
-
-    /**
      * Serialize just enough data that @ref write can be run on the reconstituted structure
      */
     template<typename Archive>
@@ -737,6 +723,24 @@ private:
     }
 
 protected:
+    /// If set to true, will not delete the temporary files
+    bool retainFiles;
+
+    /// Writer for temporary data
+    TmpWriterWorkerGroup tmpWriter;
+
+    /**
+     * All chunks seen so far. This is indexed by the generation number in the
+     * chunk ID. If non-contiguous IDs are found, there will be default-constructed
+     * chunks plugging the holes.
+     */
+    Statistics::Container::vector<Chunk> chunks;
+
+    /**
+     * Flush out any temporary data to the temporary file writer then shut it down
+     */
+    void finalize(Timeplot::Worker &tworker);
+
     /**
      * Compute the number of components, vertices and triangles retained overall,
      * and update statistics.
@@ -796,7 +800,8 @@ protected:
         const Chunk &chunk,
         std::tr1::uint64_t thresholdVertices,
         const std::tr1::uint32_t *startVertex,
-        ProgressMeter *progress);
+        ProgressMeter *progress,
+        int start = 0, int stride = 1);
 
     void writeChunkTriangles(
         Timeplot::Worker &tworker,
@@ -809,7 +814,8 @@ protected:
         const FastPly::Writer::size_type *startTriangle,
         const std::tr1::uint32_t *externalRemap,
         Statistics::Container::PODBuffer<triangle_type> &triangles,
-        ProgressMeter *progress);
+        ProgressMeter *progress,
+        int start = 0, int stride = 1);
 
 public:
     /**
@@ -826,14 +832,6 @@ public:
     virtual void resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
                         std::ostream *progressStream = NULL);
 };
-
-/**
- * Factory function to create a mesher of the specified type.
- *
- * @param writer, namer     Parameters to @ref MesherBase::MesherBase.
- * @param type              The type of mesher to create.
- */
-MesherBase *createMesher(MesherType type, FastPly::Writer &writer, const MesherBase::Namer &namer);
 
 /**
  * Creates an adapter between @ref MesherBase::InputFunctor and @ref Marching::OutputFunctor

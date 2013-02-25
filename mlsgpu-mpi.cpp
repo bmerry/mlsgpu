@@ -39,6 +39,7 @@
 #include "src/marching.h"
 #include "src/mls.h"
 #include "src/mesher.h"
+#include "src/mesher_mpi.h"
 #include "src/options.h"
 #include "src/splat_set_mpi.h"
 #include "src/bucket.h"
@@ -335,6 +336,11 @@ static void run(
                     progressComm, root)));
     }
 
+    boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI(comm, root));
+    setWriterComments(vm, *writer);
+    boost::scoped_ptr<MesherBase> mesher(new OOCMesherMPI(*writer, getNamer(vm, out), comm, root));
+    setMesherOptions(vm, *mesher);
+
     if (rank == root)
     {
         const int numSlaves = accumulate(slaveMask.begin(), slaveMask.end(), 0);
@@ -345,70 +351,65 @@ static void run(
         const unsigned int chunkCells = postprocessGrid(vm, grid);
 
         {
-            boost::scoped_ptr<FastPly::Writer> writer(doCreateWriter(vm));
-            boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
+            // Open a scope so that objects will be released before finalization
+            boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
 
+            MesherGroup mesherGroup(memMesh);
+            ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
+            Scatter scatter(scatterComm, mainWorker);
+            BucketCollector collector(maxLoadSplats, scatter);
+
+            initTimer.reset();
+
+            for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
             {
-                // Open a scope so that objects will be released before finalization
-                boost::scoped_ptr<Timeplot::Action> initTimer(new Timeplot::Action("init", mainWorker, "init.time"));
+                Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
+                ostringstream passName;
+                passName << "pass" << pass + 1 << ".time";
+                Statistics::Timer timer(passName.str());
 
-                MesherGroup mesherGroup(memMesh);
-                ReceiverGather<MesherGroup::WorkItem, MesherGroup> receiver("receiver", mesherGroup, gatherComm, numSlaves);
-                Scatter scatter(scatterComm, mainWorker);
-                BucketCollector collector(maxLoadSplats, scatter);
+                ProgressDisplay progress(splats.numSplats(), Log::log[Log::info]);
+                ProgressMPI progressMPI(&progress, splats.numSplats(), progressComm, 0);
 
-                initTimer.reset();
+                mesherGroup.setInputFunctor(mesher->functor(pass));
 
-                for (unsigned int pass = 0; pass < mesher->numPasses(); pass++)
+                // Start threads
+                boost::thread receiverThread(boost::ref(receiver));
+                mesherGroup.start();
+                boost::thread progressThread(boost::ref(progressMPI));
+
+                try
                 {
-                    Log::log[Log::info] << "\nPass " << pass + 1 << "/" << mesher->numPasses() << endl;
-                    ostringstream passName;
-                    passName << "pass" << pass + 1 << ".time";
-                    Statistics::Timer timer(passName.str());
-
-                    ProgressDisplay progress(splats.numSplats(), Log::log[Log::info]);
-                    ProgressMPI progressMPI(&progress, splats.numSplats(), progressComm, 0);
-
-                    mesherGroup.setInputFunctor(mesher->functor(pass));
-
-                    // Start threads
-                    boost::thread receiverThread(boost::ref(receiver));
-                    mesherGroup.start();
-                    boost::thread progressThread(boost::ref(progressMPI));
-
-                    try
-                    {
-                        doBucket(mainWorker, vm, splats, grid, chunkCells, collector);
-                    }
-                    catch (...)
-                    {
-                        // This can't be handled using unwinding, because that would operate in
-                        // the wrong order
-                        collector.flush();
-                        scatter.stop(numSlaves);
-                        receiverThread.join();
-                        mesherGroup.stop();
-                        progressMPI.sync();
-                        progressThread.interrupt();
-                        progressThread.join();
-                        throw;
-                    }
-
-                    /* Shut down threads. Note that it has to be done in forward order to
-                     * satisfy the requirement that stop() is only called after producers
-                     * are terminated.
-                     */
+                    doBucket(mainWorker, vm, splats, grid, chunkCells, collector);
+                }
+                catch (...)
+                {
+                    // This can't be handled using unwinding, because that would operate in
+                    // the wrong order
                     collector.flush();
                     scatter.stop(numSlaves);
                     receiverThread.join();
                     mesherGroup.stop();
                     progressMPI.sync();
+                    progressThread.interrupt();
                     progressThread.join();
+                    throw;
                 }
-            }
 
-            mesher->write(mainWorker, &Log::log[Log::info]);
+                /* Shut down threads. Note that it has to be done in forward order to
+                 * satisfy the requirement that stop() is only called after producers
+                 * are terminated.
+                 */
+                collector.flush();
+                scatter.stop(numSlaves);
+                receiverThread.join();
+                mesherGroup.stop();
+                progressMPI.sync();
+                progressThread.join();
+            }
         }
+
+        mesher->write(mainWorker, &Log::log[Log::info]);
 
         for (int slave = 0; slave < size; slave++)
             if (slaveMask[slave])
@@ -433,6 +434,11 @@ static void run(
 
         writeStatistics(vm);
     }
+    else
+    {
+        mesher->write(mainWorker, &Log::log[Log::info]);
+    }
+
 
     if (slaveThread)
         slaveThread->join();

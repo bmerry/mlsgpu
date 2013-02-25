@@ -657,33 +657,28 @@ void doBucket(
                    boost::ref(collector));
 }
 
-FastPly::Writer *doCreateWriter(const po::variables_map &vm)
+void setWriterComments(const po::variables_map &vm, FastPly::Writer &writer)
 {
-    const WriterType writerType = vm[Option::writer].as<Choice<WriterTypeWrapper> >();
-    std::auto_ptr<FastPly::Writer> writer(new FastPly::Writer(writerType));
-    writer->addComment("mlsgpu version: " + provenanceVersion());
-    writer->addComment("mlsgpu variant: " + provenanceVariant());
-    writer->addComment("mlsgpu options:" + makeOptions(vm));
-    return writer.release();
+    writer.addComment("mlsgpu version: " + provenanceVersion());
+    writer.addComment("mlsgpu variant: " + provenanceVariant());
+    writer.addComment("mlsgpu options:" + makeOptions(vm));
 }
 
-MesherBase *doCreateMesher(const po::variables_map &vm, FastPly::Writer &writer, const std::string &out)
+MesherBase::Namer getNamer(const po::variables_map &vm, const std::string &out)
 {
-    const MesherType mesherType = OOC_MESHER;
     const bool split = vm.count(Option::split);
+    if (split)
+        return ChunkNamer(out);
+    else
+        return TrivialNamer(out);
+}
+
+void setMesherOptions(const po::variables_map &vm, MesherBase &mesher)
+{
     const double pruneThreshold = vm[Option::fitPrune].as<double>();
     const std::size_t memReorder = vm[Option::memReorder].as<Capacity>();
-
-    MesherBase::Namer namer;
-    if (split)
-        namer = ChunkNamer(out);
-    else
-        namer = TrivialNamer(out);
-
-    std::auto_ptr<MesherBase> mesher(createMesher(mesherType, writer, namer));
-    mesher->setPruneThreshold(pruneThreshold);
-    mesher->setReorderCapacity(memReorder);
-    return mesher.release();
+    mesher.setPruneThreshold(pruneThreshold);
+    mesher.setReorderCapacity(memReorder);
 }
 
 SlaveWorkers::SlaveWorkers(

@@ -25,6 +25,9 @@ BinaryWriterMPI::~BinaryWriterMPI()
 
 void BinaryWriterMPI::openImpl(const boost::filesystem::path &path)
 {
+    int rank;
+    MPI_Comm_rank(comm, &rank);
+    std::cout << rank << " : " << path << '\n';
     MPI_File_open(comm, const_cast<char *>(path.string().c_str()),
                   MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &handle);
 }

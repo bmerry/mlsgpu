@@ -163,11 +163,11 @@ OOCMesher::OOCMesher(FastPly::Writer &writer, const Namer &namer)
     tmpNextVertex("mem.OOCMesher::tmpNextVertex"),
     tmpFirstTriangle("mem.OOCMesher::tmpFirstTriangle"),
     tmpNextTriangle("mem.OOCMesher::tmpNextTriangle"),
-    tmpWriter(reorderSlots),
-    retainFiles(false),
-    chunks("mem.OOCMesher::chunks"),
     clumps("mem.OOCMesher::clumps"),
-    clumpIdMap("mem.OOCMesher::clumpIdMap")
+    clumpIdMap("mem.OOCMesher::clumpIdMap"),
+    retainFiles(false),
+    tmpWriter(reorderSlots),
+    chunks("mem.OOCMesher::chunks")
 {
 }
 
@@ -645,12 +645,13 @@ void OOCMesher::writeChunkVertices(
     const Chunk &chunk,
     std::tr1::uint64_t thresholdVertices,
     const std::tr1::uint32_t *startVertex,
-    ProgressMeter *progress)
+    ProgressMeter *progress,
+    int start, int stride)
 {
     Statistics::Timer timer("finalize.vertices.time");
     Statistics::Variable &readVerticesStat = Statistics::getStatistic<Statistics::Variable>("write.readVertices.time");
 
-    for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+    for (std::size_t j = start; j < chunk.clumps.size(); j += stride)
     {
         const Chunk::Clump &cc = chunk.clumps[j];
         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
@@ -694,14 +695,15 @@ void OOCMesher::writeChunkTriangles(
     const FastPly::Writer::size_type *startTriangle,
     const std::tr1::uint32_t *externalRemap,
     Statistics::Container::PODBuffer<triangle_type> &triangles,
-    ProgressMeter *progress)
+    ProgressMeter *progress,
+    int start, int stride)
 {
     Statistics::Timer trianglesTimer("finalize.triangles.time");
     Statistics::Variable &readTrianglesStat = Statistics::getStatistic<Statistics::Variable>("write.readTriangles.time");
     std::tr1::uint32_t externalBoundary = ~chunkExternal;
 
     // Now write out the triangles
-    for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+    for (std::size_t j = start; j < chunk.clumps.size(); j += stride)
     {
         const Chunk::Clump &cc = chunk.clumps[j];
         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
@@ -910,13 +912,4 @@ public:
 Marching::OutputFunctor deviceMesher(const MesherBase::InputFunctor &in, const ChunkId &chunkId, Timeplot::Worker &tworker)
 {
     return DeviceMesher(in, chunkId, tworker);
-}
-
-MesherBase *createMesher(MesherType type, FastPly::Writer &writer, const MesherBase::Namer &namer)
-{
-    switch (type)
-    {
-    case OOC_MESHER:  return new OOCMesher(writer, namer);
-    }
-    return NULL; // should never be reached
 }

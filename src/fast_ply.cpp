@@ -407,8 +407,8 @@ Writer::Writer(boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory)
     writeVerticesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeVertices.time")),
     writeTrianglesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeTriangles.time")),
     handleFactory(handleFactory),
-    handle(handleFactory()),
-    comments(), numVertices(0), numTriangles(0)
+    comments(), numVertices(0), numTriangles(0),
+    handle(handleFactory())
 {
     handle = this->handleFactory();
 }

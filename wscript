@@ -386,6 +386,8 @@ def build(bld):
             'src/mlsgpu_core.cpp']
     mpi_sources = [
             'src/binary_io_mpi.cpp',
+            'src/fast_ply_mpi.cpp',
+            'src/mesher_mpi.cpp',
             'src/serialize.cpp',
             'src/progress_mpi.cpp']
     bld(

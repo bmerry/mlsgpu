@@ -73,8 +73,12 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     {
         Statistics::Timer grandTotalTimer("run.time");
 
-        boost::scoped_ptr<FastPly::Writer> writer(doCreateWriter(vm));
-        boost::scoped_ptr<MesherBase> mesher(doCreateMesher(vm, *writer, out));
+        const WriterType writerType = vm[Option::writer].as<Choice<WriterTypeWrapper> >();
+        boost::scoped_ptr<FastPly::Writer> writer(new FastPly::Writer(writerType));
+        setWriterComments(vm, *writer);
+
+        boost::scoped_ptr<MesherBase> mesher(new OOCMesher(*writer, getNamer(vm, out)));
+        setMesherOptions(vm, *mesher);
 
         if (vm.count(Option::resume))
         {
