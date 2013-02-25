@@ -48,6 +48,7 @@
 #include "timeplot.h"
 #include "circular_buffer.h"
 #include "chunk_id.h"
+#include "progress.h"
 
 class TestTmpWriterWorkerGroup;
 
@@ -779,6 +780,36 @@ protected:
         std::tr1::uint32_t offset,
         const triangle_type *inTriangles,
         std::tr1::uint8_t *outTriangles);
+
+    void writeChunkPrepare(
+        const Chunk &chunk,
+        std::tr1::uint64_t thresholdVertices,
+        std::size_t chunkExternal,
+        Statistics::Container::PODBuffer<std::tr1::uint32_t> &startVertex,
+        Statistics::Container::PODBuffer<FastPly::Writer::size_type> &startTriangle,
+        Statistics::Container::PODBuffer<std::tr1::uint32_t> &externalRemap);
+
+    void writeChunkVertices(
+        Timeplot::Worker &tworker,
+        BinaryReader &verticesTmpRead,
+        AsyncWriter &asyncWriter,
+        const Chunk &chunk,
+        std::tr1::uint64_t thresholdVertices,
+        const std::tr1::uint32_t *startVertex,
+        ProgressMeter *progress);
+
+    void writeChunkTriangles(
+        Timeplot::Worker &tworker,
+        BinaryReader &trianglesTmpRead,
+        AsyncWriter &asyncWriter,
+        const Chunk &chunk,
+        std::tr1::uint64_t thresholdVertices,
+        std::size_t chunkExternal,
+        const std::tr1::uint32_t *startVertex,
+        const FastPly::Writer::size_type *startTriangle,
+        const std::tr1::uint32_t *externalRemap,
+        Statistics::Container::PODBuffer<triangle_type> &triangles,
+        ProgressMeter *progress);
 
 public:
     /**
