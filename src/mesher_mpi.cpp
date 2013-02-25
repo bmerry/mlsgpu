@@ -107,10 +107,10 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
 
         if (chunkTriangles > 0)
         {
-            asyncWriter.start();
             const std::string filename = getOutputName(chunk.chunkId);
             try
             {
+                asyncWriter.start();
                 writer.setNumVertices(chunkVertices);
                 writer.setNumTriangles(chunkTriangles);
                 writer.open(filename);
@@ -133,6 +133,7 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
                     rank, size);
 
                 writer.close();
+                asyncWriter.stop();
             }
             catch (std::ios::failure &e)
             {
@@ -140,7 +141,6 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
                     << boost::errinfo_file_name(filename)
                     << boost::errinfo_errno(errno);
             }
-            asyncWriter.stop();
         }
     }
 }
