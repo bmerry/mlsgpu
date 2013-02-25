@@ -130,6 +130,8 @@ public:
     }
 };
 
+} // anonymous namespace
+
 class TestWorkerGroupGather : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestWorkerGroupGather);
@@ -193,5 +195,3 @@ void TestWorkerGroupGather::testStress()
         CPPUNIT_ASSERT_EQUAL(0, failed);
     }
 }
-
-} // anonymous namespace
