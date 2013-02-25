@@ -468,21 +468,18 @@ void OOCMesher::finalize(Timeplot::Worker &tworker)
         tmpWriter.stop();
 }
 
-void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
+void OOCMesher::getStatistics(
+    std::tr1::uint64_t &thresholdVertices,
+    clump_id &keptComponents,
+    std::tr1::uint64_t &keptVertices,
+    std::tr1::uint64_t &keptTriangles) const
 {
-    Timeplot::Action writeAction("write", tworker, "finalize.time");
-    FastPly::Writer &writer = getWriter();
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-
-    finalize(tworker);
-
-    boost::scoped_ptr<BinaryReader> verticesTmpRead(createReader(SYSCALL_READER));
-    verticesTmpRead->open(tmpWriter.getVerticesPath());
-    boost::scoped_ptr<BinaryReader> trianglesTmpRead(createReader(SYSCALL_READER));
-    trianglesTmpRead->open(tmpWriter.getTrianglesPath());
-
-    // Number of vertices in the mesh, not double-counting chunk boundaries
     std::tr1::uint64_t totalVertices = 0;
+    clump_id totalComponents = 0;
+    keptComponents = 0;
+    keptVertices = 0;
+    keptTriangles = 0;
+
     BOOST_FOREACH(const Clump &clump, clumps)
     {
         if (clump.isRoot())
@@ -490,11 +487,8 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
             totalVertices += clump.vertices;
         }
     }
-    const std::tr1::uint64_t thresholdVertices = std::tr1::uint64_t(totalVertices * getPruneThreshold());
+    thresholdVertices = std::tr1::uint64_t(totalVertices * getPruneThreshold());
 
-    clump_id keptComponents = 0, totalComponents = 0;
-    std::tr1::uint64_t keptTriangles = 0;
-    std::tr1::uint64_t keptVertices = 0;
     BOOST_FOREACH(const Clump &clump, clumps)
     {
         if (clump.isRoot())
@@ -509,6 +503,47 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
         }
     }
 
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+    registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
+    registry.getStatistic<Statistics::Variable>("components.vertices.total").add(writtenVerticesTmp);
+    registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
+    registry.getStatistic<Statistics::Variable>("components.triangles.kept").add(keptTriangles);
+    registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
+    registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
+    registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
+}
+
+void OOCMesher::getChunkStatistics(
+    std::tr1::uint64_t thresholdVertices,
+    const Chunk &chunk,
+    std::tr1::uint64_t &keptVertices,
+    std::tr1::uint64_t &keptTriangles,
+    std::tr1::uint64_t &totalExternal) const
+{
+    keptVertices = 0;
+    keptTriangles = 0;
+    totalExternal = 0;
+    for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+    {
+        const Chunk::Clump &cc = chunk.clumps[j];
+        clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
+        if (clumps[cid].vertices >= thresholdVertices)
+        {
+            keptVertices += cc.numInternalVertices + cc.numExternalVertices;
+            keptTriangles += cc.numTriangles;
+        }
+        totalExternal += cc.numExternalVertices;
+    }
+
+    if (keptVertices >= UINT32_MAX)
+    {
+        std::string name = getOutputName(chunk.chunkId);
+        throw std::overflow_error("Too many vertices for " + name);
+    }
+}
+
+std::size_t OOCMesher::getAsyncMem(std::tr1::uint64_t thresholdVertices) const
+{
     // Compute how much space is needed in the buffer for the async writer
     std::size_t asyncMem = 1;
     for (std::size_t i = 0; i < chunks.size(); i++)
@@ -526,15 +561,60 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
             }
         }
     }
+    return asyncMem;
+}
 
+void OOCMesher::rewriteTriangles(
+    std::size_t numTriangles,
+    std::tr1::uint32_t externalBoundary,
+    const std::tr1::uint32_t *externalRemap,
+    std::tr1::uint32_t offset,
+    const triangle_type *inTriangles,
+    std::tr1::uint8_t *outTriangles)
+{
+    const std::tr1::uint32_t badIndex = std::numeric_limits<std::tr1::uint32_t>::max();
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (std::size_t i = 0; i < numTriangles; i++)
+    {
+        triangle_type t = inTriangles[i];
+        // Convert indices to account for compaction
+        for (int k = 0; k < 3; k++)
+        {
+            if (t[k] > externalBoundary)
+            {
+                t[k] = externalRemap[~t[k]];
+                assert(t[k] != badIndex);
+            }
+            else
+                t[k] += offset;
+        }
+        outTriangles[i * FastPly::Writer::triangleSize] = 3;
+        std::memcpy(outTriangles + i * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
+    }
+}
 
-    registry.getStatistic<Statistics::Variable>("components.vertices.total").add(writtenVerticesTmp);
-    registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
-    registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
-    registry.getStatistic<Statistics::Variable>("components.triangles.kept").add(keptTriangles);
-    registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
-    registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
-    registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
+void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
+{
+    Timeplot::Action writeAction("write", tworker, "finalize.time");
+    FastPly::Writer &writer = getWriter();
+    Statistics::Registry &registry = Statistics::Registry::getInstance();
+
+    finalize(tworker);
+
+    boost::scoped_ptr<BinaryReader> verticesTmpRead(createReader(SYSCALL_READER));
+    verticesTmpRead->open(tmpWriter.getVerticesPath());
+    boost::scoped_ptr<BinaryReader> trianglesTmpRead(createReader(SYSCALL_READER));
+    trianglesTmpRead->open(tmpWriter.getTrianglesPath());
+
+    std::tr1::uint64_t thresholdVertices;
+    clump_id keptComponents;
+    std::tr1::uint64_t keptVertices, keptTriangles;
+    getStatistics(thresholdVertices, keptComponents, keptVertices, keptTriangles);
+
+    std::size_t asyncMem = getAsyncMem(thresholdVertices);
+
     Statistics::Variable &readVerticesStat = registry.getStatistic<Statistics::Variable>("write.readVertices.time");
     Statistics::Variable &readTrianglesStat = registry.getStatistic<Statistics::Variable>("write.readTriangles.time");
 
@@ -552,9 +632,11 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
      * although that is not actually used and could be skipped. This is declared
      * outside the loop purely to facilitate memory reuse.
      */
-    Statistics::Container::vector<std::tr1::uint32_t> externalRemap("mem.OOCMesher::externalRemap");
+    Statistics::Container::PODBuffer<std::tr1::uint32_t> externalRemap("mem.OOCMesher::externalRemap");
     // Offset to first vertex of each clump in output file
-    Statistics::Container::vector<std::tr1::uint32_t> startVertex("mem.OOCMesher::startVertex");
+    Statistics::Container::PODBuffer<std::tr1::uint32_t> startVertex("mem.OOCMesher::startVertex");
+    // Offset to first triangle of each clump in output file
+    Statistics::Container::PODBuffer<FastPly::Writer::size_type> startTriangle("mem.OOCMesher::startTriangle");
 
     Statistics::Container::PODBuffer<triangle_type> triangles("mem.OOCMesher::triangles");
     AsyncWriter asyncWriter(1, asyncMem * 2); // * 2 to allow overlapping
@@ -562,30 +644,10 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 
     for (std::size_t i = 0; i < chunks.size(); i++)
     {
-        startVertex.clear();
-        externalRemap.clear();
-
         const Chunk &chunk = chunks[i];
-        std::tr1::uint64_t chunkVertices = 0;
-        std::tr1::uint64_t chunkTriangles = 0;
-        std::size_t chunkExternal = 0;
-        for (std::size_t j = 0; j < chunk.clumps.size(); j++)
-        {
-            const Chunk::Clump &cc = chunk.clumps[j];
-            clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-            if (clumps[cid].vertices >= thresholdVertices)
-            {
-                chunkVertices += cc.numInternalVertices + cc.numExternalVertices;
-                chunkExternal += cc.numExternalVertices;
-                chunkTriangles += cc.numTriangles;
-            }
-        }
-
-        if (chunkVertices >= UINT32_MAX)
-        {
-            std::string name = getOutputName(chunk.chunkId);
-            throw std::overflow_error("Too many vertices for " + name);
-        }
+        std::tr1::uint64_t chunkVertices, chunkTriangles, chunkExternal;
+        // Note: chunkExternal includes discarded clumps, the others exclude them
+        getChunkStatistics(thresholdVertices, chunk, chunkVertices, chunkTriangles, chunkExternal);
 
         if (chunkTriangles > 0)
         {
@@ -598,61 +660,86 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                 Statistics::getStatistic<Statistics::Counter>("output.files").add();
 
                 {
-                    Statistics::Timer verticesTimer("finalize.vertices.time");
+                    // Build startVertex, startTriangle and externalRemap
+                    Statistics::Timer timer("finalize.prepare.time");
 
-                    std::tr1::uint32_t writtenVertices = 0;
-                    // Write out the valid vertices, simultaneously building externalRemap
+                    startVertex.reserve(chunk.clumps.size(), false);
+                    startTriangle.reserve(chunk.clumps.size(), false);
+
+                    externalRemap.reserve(chunkExternal, false);
+                    chunkExternal = 0; // used as a counter
+                    FastPly::Writer::size_type writtenVertices = 0;
+                    FastPly::Writer::size_type writtenTriangles = 0;
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
                         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-                        startVertex.push_back(writtenVertices);
+                        startVertex[j] = writtenVertices;
+                        startTriangle[j] = writtenTriangles;
+                        if (clumps[cid].vertices >= thresholdVertices)
+                        {
+                            writtenVertices += cc.numInternalVertices;
+                            writtenTriangles += cc.numTriangles;
+                            for (std::size_t k = 0; k < cc.numExternalVertices; k++)
+                                externalRemap[chunkExternal + k] = writtenVertices++;
+                        }
+                        else
+                        {
+                            std::fill(
+                                externalRemap.data() + chunkExternal,
+                                externalRemap.data() + chunkExternal + cc.numExternalVertices,
+                                badIndex);
+                        }
+                        chunkExternal += cc.numExternalVertices;
+                    }
+                }
+
+                {
+                    Statistics::Timer verticesTimer("finalize.vertices.time");
+
+                    // Write out the valid vertices
+                    for (std::size_t j = 0; j < chunk.clumps.size(); j++)
+                    {
+                        const Chunk::Clump &cc = chunk.clumps[j];
+                        clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             std::size_t numVertices = cc.numInternalVertices + cc.numExternalVertices;
-                            boost::shared_ptr<AsyncWriterItem> item = asyncWriter.get(
-                                tworker, numVertices * sizeof(vertex_type));
+                            /* This test catches a corner case where a clump
+                             * contains only triangles built from previously emitted
+                             * external vertices.
+                             */
+                            if (numVertices > 0)
                             {
-                                Statistics::Timer timer(readVerticesStat);
-                                verticesTmpRead->read(
-                                    item->get(),
-                                    numVertices * sizeof(vertex_type),
-                                    cc.firstVertex * sizeof(vertex_type));
+                                boost::shared_ptr<AsyncWriterItem> item = asyncWriter.get(
+                                    tworker, numVertices * sizeof(vertex_type));
+                                {
+                                    Statistics::Timer timer(readVerticesStat);
+                                    verticesTmpRead->read(
+                                        item->get(),
+                                        numVertices * sizeof(vertex_type),
+                                        cc.firstVertex * sizeof(vertex_type));
+                                }
+                                writer.writeVertices(tworker, startVertex[j], numVertices, item, asyncWriter);
                             }
-                            writer.writeVertices(tworker, writtenVertices, numVertices, item, asyncWriter);
-
-                            writtenVertices += cc.numInternalVertices;
-                            for (std::size_t i = 0; i < cc.numExternalVertices; i++)
-                            {
-                                externalRemap.push_back(writtenVertices);
-                                ++writtenVertices;
-                            }
-
                             // Yes, numTriangles. That's easier to make add up to the total
                             // than vertices (which share), and still a good indicator
                             // of progress.
                             if (progress != NULL)
                                 *progress += cc.numTriangles;
                         }
-                        else
-                        {
-                            // appends n copies of badIndex
-                            externalRemap.resize(externalRemap.size() + cc.numExternalVertices, badIndex);
-                        }
                     }
                 }
 
                 {
                     Statistics::Timer trianglesTimer("finalize.triangles.time");
-                    std::tr1::uint32_t externalBoundary = ~externalRemap.size();
+                    std::tr1::uint32_t externalBoundary = ~chunkExternal;
 
                     // Now write out the triangles
-                    FastPly::Writer::size_type writtenTriangles = 0;
                     for (std::size_t j = 0; j < chunk.clumps.size(); j++)
                     {
                         const Chunk::Clump &cc = chunk.clumps[j];
                         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
-                        std::tr1::uint32_t offset = startVertex[j];
                         if (clumps[cid].vertices >= thresholdVertices)
                         {
                             triangles.reserve(cc.numTriangles, false);
@@ -666,28 +753,14 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                                     cc.numTriangles * sizeof(triangle_type),
                                     cc.firstTriangle * sizeof(triangle_type));
                             }
-#ifdef _OPENMP
-#pragma omp parallel for schedule(static)
-#endif
-                            for (std::size_t i = 0; i < cc.numTriangles; i++)
-                            {
-                                triangle_type t = triangles[i];
-                                // Convert indices to account for compaction
-                                for (int k = 0; k < 3; k++)
-                                {
-                                    if (t[k] > externalBoundary)
-                                    {
-                                        t[k] = externalRemap[~t[k]];
-                                        assert(t[k] != badIndex);
-                                    }
-                                    else
-                                        t[k] += offset;
-                                }
-                                raw[i * FastPly::Writer::triangleSize] = 3;
-                                std::memcpy(raw + i * FastPly::Writer::triangleSize + 1, &t, sizeof(t));
-                            }
-                            writer.writeTrianglesRaw(tworker, writtenTriangles, cc.numTriangles, item, asyncWriter);
-                            writtenTriangles += cc.numTriangles;
+
+                            rewriteTriangles(
+                                cc.numTriangles,
+                                externalBoundary, &externalRemap[0],
+                                startVertex[j],
+                                triangles.data(), raw);
+
+                            writer.writeTrianglesRaw(tworker, startTriangle[j], cc.numTriangles, item, asyncWriter);
                             if (progress != NULL)
                                 *progress += cc.numTriangles;
                         }

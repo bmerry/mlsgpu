@@ -735,6 +735,51 @@ private:
         ar & clumps;
     }
 
+protected:
+    /**
+     * Compute the number of components, vertices and triangles retained overall,
+     * and update statistics.
+     */
+    void getStatistics(
+        std::tr1::uint64_t &thresholdVertices,
+        clump_id &keptComponents,
+        std::tr1::uint64_t &keptVertices,
+        std::tr1::uint64_t &keptTriangles) const;
+
+    /**
+     * Compute the number of vertices and triangles retained for a chunk.
+     */
+    void getChunkStatistics(
+        std::tr1::uint64_t thresholdVertices,
+        const Chunk &chunk,
+        std::tr1::uint64_t &keptVertices,
+        std::tr1::uint64_t &keptTriangles,
+        std::tr1::uint64_t &totalExternal) const;
+
+    /// Compute minimum number of bytes needed for the async writer
+    std::size_t getAsyncMem(std::tr1::uint64_t thresholdVertices) const;
+
+    /**
+     * Transform triangles from their temporary file form to their output form.
+     * Each output index is compared to @a externalBoundary. If it is greater
+     * (indicating an external vertex), it is bit-wise negated then used as
+     * an index in @a externalRemap. Otherwise, @a offset is added to it.
+     *
+     * @param numTriangles      Number of triangles to transform.
+     * @param externalBoundary  Threshold for separating internal/external vertices
+     * @param externalRemap     Maps external vertex indices to final indices
+     * @param offset            Bias added to internal vertex indices
+     * @param[in] inTriangles   Input triangles
+     * @param[out] outTriangles Output triangles, in raw form for @ref FastPly::Writer
+     */
+    static void rewriteTriangles(
+        std::size_t numTriangles,
+        std::tr1::uint32_t externalBoundary,
+        const std::tr1::uint32_t *externalRemap,
+        std::tr1::uint32_t offset,
+        const triangle_type *inTriangles,
+        std::tr1::uint8_t *outTriangles);
+
 public:
     /**
      * @copydoc MesherBase::MesherBase
