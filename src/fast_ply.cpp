@@ -476,6 +476,7 @@ void Writer::open(const std::string &filename)
 
 void Writer::close()
 {
+    // Note: the handle is not closed, because it may still be accessed by an AsyncWriter
     handle = handleFactory();
 }
 
