@@ -52,10 +52,12 @@ void TestFastFileSetMPI::setUp()
 {
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+    TestFastFileSet::setUp();
 }
 
 void TestFastFileSetMPI::tearDown()
 {
+    TestFastFileSet::tearDown();
     MPI_Comm_free(&comm);
     MPI_Barrier(MPI_COMM_WORLD);
 }
