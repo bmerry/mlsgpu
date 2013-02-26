@@ -27,6 +27,7 @@ void BinaryWriterMPI::openImpl(const boost::filesystem::path &path)
 {
     MPI_File_open(comm, const_cast<char *>(path.string().c_str()),
                   MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &handle);
+    MPI_File_set_atomicity(handle, false);
 }
 
 void BinaryWriterMPI::closeImpl()
@@ -43,4 +44,5 @@ std::size_t BinaryWriterMPI::writeImpl(const void *buf, std::size_t count, offse
 void BinaryWriterMPI::resizeImpl(offset_type size) const
 {
     MPI_File_set_size(handle, size);
+    MPI_File_sync(handle);
 }
