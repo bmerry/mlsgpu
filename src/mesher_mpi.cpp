@@ -11,6 +11,7 @@
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <boost/exception/all.hpp>
+#include <boost/thread/thread.hpp>
 #include "statistics.h"
 #include "allocator.h"
 #include "mesher.h"
@@ -73,7 +74,8 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
     std::size_t asyncMem = getAsyncMem(thresholdVertices);
 
     boost::scoped_ptr<ProgressDisplay> progressDisplay;
-    boost::scoped_ptr<ProgressMeter> progress;
+    boost::scoped_ptr<ProgressMPI> progress;
+    boost::scoped_ptr<boost::thread> progressThread;
     if (progressStream != NULL)
     {
         if (rank == root)
@@ -82,6 +84,8 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
             progressDisplay.reset(new ProgressDisplay(2 * keptTriangles, *progressStream));
         }
         progress.reset(new ProgressMPI(progressDisplay.get(), 2 * keptTriangles, comm, root));
+        if (rank == root)
+            progressThread.reset(new boost::thread(boost::ref(*progress)));
     }
 
     /* Maps from an linear enumeration of all external vertices of a chunk to
@@ -143,4 +147,9 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
             }
         }
     }
+
+    if (progress)
+        progress->sync();
+    if (rank == root)
+        progressThread->join();
 }
