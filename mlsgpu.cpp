@@ -209,8 +209,8 @@ int main(int argc, char **argv)
 
     try
     {
-        if (vm.count("timeplot"))
-            Timeplot::init(vm["timeplot"].as<string>());
+        if (vm.count(Option::timeplot))
+            Timeplot::init(vm[Option::timeplot].as<string>());
 
         run(cd, vm[Option::outputFile].as<string>(), vm);
         unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();

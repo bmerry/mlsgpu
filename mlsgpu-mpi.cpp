@@ -528,10 +528,10 @@ int main(int argc, char **argv)
 
     try
     {
-        if (vm.count("timeplot"))
+        if (vm.count(Option::timeplot))
         {
             ostringstream name;
-            name << vm["timeplot"].as<string>() << "." << rank;
+            name << vm[Option::timeplot].as<string>() << "." << rank;
             Timeplot::init(name.str());
         }
 
