@@ -287,6 +287,32 @@ void Slave::operator()() const
 }
 
 /**
+ * Execution in @c --resume mode
+ *
+ * @param comm            Communicator indicating the group to run on
+ * @param out             Output filename or basename
+ * @param vm              Command-line options
+ */
+static void runResume(
+    MPI_Comm comm, const std::string &out, const po::variables_map &vm)
+{
+    const int root = 0;
+    int rank;
+    MPI_Comm_rank(comm, &rank);
+
+    Timeplot::Worker mainWorker("main");
+    Statistics::Timer grandTotalTimer("run.time");
+
+    boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI(comm, root));
+    setWriterComments(vm, *writer);
+    boost::scoped_ptr<MesherBase> mesher(new OOCMesherMPI(*writer, getNamer(vm, out), comm, root));
+    setMesherOptions(vm, *mesher);
+
+    boost::filesystem::path path(vm[Option::resume].as<std::string>());
+    mesher->resume(mainWorker, path, &Log::log[Log::info]);
+}
+
+/**
  * Main execution.
  *
  * @param comm            Communicator indicating the group to run on
@@ -535,7 +561,11 @@ int main(int argc, char **argv)
             Timeplot::init(name.str());
         }
 
-        run(MPI_COMM_WORLD, cd, vm[Option::outputFile].as<string>(), vm);
+        if (vm.count(Option::resume))
+            runResume(MPI_COMM_WORLD, vm[Option::outputFile].as<string>(), vm);
+        else
+            run(MPI_COMM_WORLD, cd, vm[Option::outputFile].as<string>(), vm);
+
         if (rank == 0)
         {
             unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();
