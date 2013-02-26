@@ -263,10 +263,15 @@ public:
     /**
      * Write the output files after a checkpoint.
      *
+     * @param tworker         Timeplot worker for the current thread.
+     * @param path            Checkpoint file written by @ref checkpoint.
+     * @param progressStream  If non-NULL, a log stream for a progress meter.
+     * @return Number of output files written
+     *
      * @see @ref checkpoint
      */
-    virtual void resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
-                        std::ostream *progressStream = NULL) = 0;
+    virtual std::size_t resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
+                               std::ostream *progressStream = NULL) = 0;
 
     /**
      * Performs any final file I/O.
@@ -276,8 +281,9 @@ public:
      * @throw std::ios_base::failure on I/O failure (including failure to open the file).
      * @throw std::overflow_error if too many connected components were found.
      * @throw std::overflow_error if too many vertices were found in one output chunk.
+     * @return The number of output files written
      */
-    virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL) = 0;
+    virtual std::size_t write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL) = 0;
 
 protected:
     FastPly::Writer &getWriter() const { return writer; }
@@ -827,10 +833,10 @@ public:
 
     virtual unsigned int numPasses() const { return 1; }
     virtual InputFunctor functor(unsigned int pass);
-    virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
+    virtual std::size_t write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
     virtual void checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path);
-    virtual void resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
-                        std::ostream *progressStream = NULL);
+    virtual std::size_t resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
+                               std::ostream *progressStream = NULL);
 };
 
 /**

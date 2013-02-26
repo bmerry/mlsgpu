@@ -734,8 +734,10 @@ void OOCMesher::writeChunkTriangles(
     }
 }
 
-void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
+std::size_t OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
+    std::size_t outputFiles = 0;
+
     Timeplot::Action writeAction("write", tworker, "finalize.time");
     FastPly::Writer &writer = getWriter();
 
@@ -790,7 +792,7 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
                 writer.setNumVertices(chunkVertices);
                 writer.setNumTriangles(chunkTriangles);
                 writer.open(filename);
-                Statistics::getStatistic<Statistics::Counter>("output.files").add();
+                outputFiles++;
 
                 writeChunkPrepare(
                     chunk, thresholdVertices, chunkExternal,
@@ -817,6 +819,8 @@ void OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressStream)
         }
     }
     asyncWriter.stop();
+    Statistics::getStatistic<Statistics::Counter>("output.files").add(outputFiles);
+    return outputFiles;
 }
 
 void OOCMesher::checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path)
@@ -841,7 +845,7 @@ void OOCMesher::checkpoint(Timeplot::Worker &tworker, const boost::filesystem::p
     }
 }
 
-void OOCMesher::resume(
+std::size_t OOCMesher::resume(
     Timeplot::Worker &tworker,
     const boost::filesystem::path &path,
     std::ostream *progressStream)
@@ -862,7 +866,7 @@ void OOCMesher::resume(
             << boost::errinfo_errno(errno)
             << boost::errinfo_file_name(path.string());
     }
-    write(tworker, progressStream);
+    return write(tworker, progressStream);
 }
 
 namespace

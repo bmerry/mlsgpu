@@ -31,10 +31,11 @@ OOCMesherMPI::OOCMesherMPI(
     MPI_Comm_size(comm, &size);
 }
 
-void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream)
+std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
     Timeplot::Action writeAction("write", tworker, "finalize.time");
     FastPly::Writer &writer = getWriter();
+    std::size_t outputFiles = 0;
 
     finalize(tworker);
     if (rank == root)
@@ -118,7 +119,7 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
                 writer.setNumVertices(chunkVertices);
                 writer.setNumTriangles(chunkTriangles);
                 writer.open(filename);
-                Statistics::getStatistic<Statistics::Counter>("output.files").add();
+                outputFiles++;
 
                 writeChunkPrepare(
                     chunk, thresholdVertices, chunkExternal,
@@ -151,5 +152,9 @@ void OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream
     if (progress)
         progress->sync();
     if (rank == root)
+    {
         progressThread->join();
+        Statistics::getStatistic<Statistics::Counter>("output.files").add();
+    }
+    return outputFiles;
 }

@@ -58,15 +58,17 @@ using namespace std;
  * @param devices         List of OpenCL devices to use
  * @param out             Output filename or basename
  * @param vm              Command-line options
+ * @return Number of output files written
  */
-static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
-                 const std::string &out,
-                 const po::variables_map &vm)
+static std::size_t run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
+                       const std::string &out,
+                       const po::variables_map &vm)
 {
     typedef SplatSet::FastBlobSet<SplatSet::FileSet> Splats;
 
     const std::size_t maxLoadSplats = getMaxLoadSplats(vm);
     const std::size_t memMesh = vm[Option::memMesh].as<Capacity>();
+    std::size_t ret = 0;
 
     Timeplot::Worker mainWorker("main");
 
@@ -83,7 +85,7 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
         if (vm.count(Option::resume))
         {
             boost::filesystem::path path(vm[Option::resume].as<std::string>());
-            mesher->resume(mainWorker, path, &Log::log[Log::info]);
+            ret = mesher->resume(mainWorker, path, &Log::log[Log::info]);
         }
         else
         {
@@ -152,12 +154,13 @@ static void run(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
                 mesher->checkpoint(mainWorker, path);
             }
             else
-                mesher->write(mainWorker, &Log::log[Log::info]);
+                ret = mesher->write(mainWorker, &Log::log[Log::info]);
         }
     } // ends scope for grandTotalTimer
 
     Statistics::finalizeEventTimes();
     writeStatistics(vm);
+    return ret;
 }
 
 int main(int argc, char **argv)
@@ -212,8 +215,7 @@ int main(int argc, char **argv)
         if (vm.count(Option::timeplot))
             Timeplot::init(vm[Option::timeplot].as<string>());
 
-        run(cd, vm[Option::outputFile].as<string>(), vm);
-        unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();
+        std::size_t filesWritten = run(cd, vm[Option::outputFile].as<string>(), vm);
         if (filesWritten == 0)
             Log::log[Log::warn] << "Warning: no output files written!\n";
         else if (filesWritten == 1)

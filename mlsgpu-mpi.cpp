@@ -95,8 +95,6 @@ private:
     const std::vector<std::pair<cl::Context, cl::Device> > &devices;
     const po::variables_map &vm;
     Splats &splats;
-    MPI_Comm controlComm;
-    int controlRoot;
     MPI_Comm scatterComm;
     int scatterRoot;
     MPI_Comm gatherComm;
@@ -108,12 +106,10 @@ public:
     Slave(const std::vector<std::pair<cl::Context, cl::Device> > &devices,
           const po::variables_map &vm,
           Splats &splats,
-          MPI_Comm controlComm, int controlRoot,
           MPI_Comm scatterComm, int scatterRoot,
           MPI_Comm gatherComm, int gatherRoot,
           MPI_Comm progressComm, int progressRoot)
         : devices(devices), vm(vm), splats(splats),
-        controlComm(controlComm), controlRoot(controlRoot),
         scatterComm(scatterComm), scatterRoot(scatterRoot),
         gatherComm(gatherComm), gatherRoot(gatherRoot),
         progressComm(progressComm), progressRoot(progressRoot)
@@ -276,14 +272,49 @@ void Slave::operator()() const
     gatherGroup.stop();
     progress.sync();
 
-    /* Gather up the statistics */
     Statistics::finalizeEventTimes();
-    std::ostringstream statsStream;
-    boost::archive::text_oarchive oa(statsStream);
-    oa << Statistics::Registry::getInstance();
-    std::string statsStr = statsStream.str();
-    MPI_Send(const_cast<char *>(statsStr.data()), statsStr.length(), MPI_CHAR,
-             controlRoot, MLSGPU_TAG_WORK, controlComm);
+}
+
+/**
+ * Collect statistics from all nodes
+ */
+static void doStatistics(const po::variables_map &vm, MPI_Comm comm, int root)
+{
+    int rank;
+    int size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    if (rank == root)
+    {
+        for (int slave = 0; slave < size; slave++)
+            if (slave != root)
+            {
+                MPI_Status status;
+                MPI_Probe(MPI_ANY_SOURCE, MLSGPU_TAG_WORK, comm, &status);
+                int length;
+                MPI_Get_count(&status, MPI_CHAR, &length);
+                boost::scoped_array<char> data(new char[length]);
+                MPI_Recv(data.get(), length, MPI_CHAR, status.MPI_SOURCE, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
+
+                std::string statsStr(data.get(), length);
+                std::istringstream statsStream(statsStr);
+                boost::archive::text_iarchive ia(statsStream);
+                Statistics::Registry slaveRegistry;
+                ia >> slaveRegistry;
+                Statistics::Registry::getInstance().merge(slaveRegistry);
+            }
+        writeStatistics(vm);
+    }
+    else
+    {
+        std::ostringstream statsStream;
+        boost::archive::text_oarchive oa(statsStream);
+        oa << Statistics::Registry::getInstance();
+        std::string statsStr = statsStream.str();
+        MPI_Send(const_cast<char *>(statsStr.data()), statsStr.length(), MPI_CHAR,
+                 root, MLSGPU_TAG_WORK, comm);
+    }
 }
 
 /**
@@ -292,24 +323,31 @@ void Slave::operator()() const
  * @param comm            Communicator indicating the group to run on
  * @param out             Output filename or basename
  * @param vm              Command-line options
+ * @return Number of output files written
  */
-static void runResume(
+static std::size_t runResume(
     MPI_Comm comm, const std::string &out, const po::variables_map &vm)
 {
     const int root = 0;
     int rank;
     MPI_Comm_rank(comm, &rank);
+    std::size_t ret = 0;
 
-    Timeplot::Worker mainWorker("main");
-    Statistics::Timer grandTotalTimer("run.time");
+    {
+        Timeplot::Worker mainWorker("main");
+        Statistics::Timer grandTotalTimer("run.time");
 
-    boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI(comm, root));
-    setWriterComments(vm, *writer);
-    boost::scoped_ptr<MesherBase> mesher(new OOCMesherMPI(*writer, getNamer(vm, out), comm, root));
-    setMesherOptions(vm, *mesher);
+        boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI(comm, root));
+        setWriterComments(vm, *writer);
+        boost::scoped_ptr<MesherBase> mesher(new OOCMesherMPI(*writer, getNamer(vm, out), comm, root));
+        setMesherOptions(vm, *mesher);
 
-    boost::filesystem::path path(vm[Option::resume].as<std::string>());
-    mesher->resume(mainWorker, path, &Log::log[Log::info]);
+        boost::filesystem::path path(vm[Option::resume].as<std::string>());
+        ret = mesher->resume(mainWorker, path, &Log::log[Log::info]);
+    }
+
+    doStatistics(vm, comm, root);
+    return ret;
 }
 
 /**
@@ -319,8 +357,9 @@ static void runResume(
  * @param devices         List of OpenCL devices to use
  * @param out             Output filename or basename
  * @param vm              Command-line options
+ * @return Number of output files written
  */
-static void run(
+static std::size_t run(
     MPI_Comm comm,
     const std::vector<std::pair<cl::Context, cl::Device> > &devices,
     const string &out,
@@ -358,7 +397,7 @@ static void run(
     {
         slaveThread.reset(new boost::thread(Slave(
                     devices, vm, splats,
-                    comm, root, scatterComm, root, gatherComm, root,
+                    scatterComm, root, gatherComm, root,
                     progressComm, root)));
     }
 
@@ -434,40 +473,13 @@ static void run(
                 progressThread.join();
             }
         }
-
-        mesher->write(mainWorker, &Log::log[Log::info]);
-
-        for (int slave = 0; slave < size; slave++)
-            if (slaveMask[slave])
-            {
-                MPI_Status status;
-                MPI_Probe(MPI_ANY_SOURCE, MLSGPU_TAG_WORK, comm, &status);
-                int length;
-                MPI_Get_count(&status, MPI_CHAR, &length);
-                boost::scoped_array<char> data(new char[length]);
-                MPI_Recv(data.get(), length, MPI_CHAR, status.MPI_SOURCE, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
-
-                if (slave != root) // root will already share our registry
-                {
-                    std::string statsStr(data.get(), length);
-                    std::istringstream statsStream(statsStr);
-                    boost::archive::text_iarchive ia(statsStream);
-                    Statistics::Registry slaveRegistry;
-                    ia >> slaveRegistry;
-                    Statistics::Registry::getInstance().merge(slaveRegistry);
-                }
-            }
-
-        writeStatistics(vm);
     }
-    else
-    {
-        mesher->write(mainWorker, &Log::log[Log::info]);
-    }
-
-
     if (slaveThread)
         slaveThread->join();
+
+    std::size_t ret = mesher->write(mainWorker, &Log::log[Log::info]);
+    doStatistics(vm, comm, root);
+    return ret;
 }
 
 } // anonymous namespace
@@ -561,14 +573,14 @@ int main(int argc, char **argv)
             Timeplot::init(name.str());
         }
 
+        std::size_t filesWritten;
         if (vm.count(Option::resume))
-            runResume(MPI_COMM_WORLD, vm[Option::outputFile].as<string>(), vm);
+            filesWritten = runResume(MPI_COMM_WORLD, vm[Option::outputFile].as<string>(), vm);
         else
-            run(MPI_COMM_WORLD, cd, vm[Option::outputFile].as<string>(), vm);
+            filesWritten = run(MPI_COMM_WORLD, cd, vm[Option::outputFile].as<string>(), vm);
 
         if (rank == 0)
         {
-            unsigned long long filesWritten = Statistics::getStatistic<Statistics::Counter>("output.files").getTotal();
             if (filesWritten == 0)
                 Log::log[Log::warn] << "Warning: no output files written!\n";
             else if (filesWritten == 1)

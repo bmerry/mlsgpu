@@ -38,7 +38,7 @@ public:
      *
      * @note The @a progressStream will only display progress on the root rank.
      */
-    virtual void write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
+    virtual std::size_t write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
 
 private:
     MPI_Comm comm;
