@@ -154,7 +154,7 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
     if (rank == root)
     {
         progressThread->join();
-        Statistics::getStatistic<Statistics::Counter>("output.files").add();
+        Statistics::getStatistic<Statistics::Counter>("output.files").add(outputFiles);
     }
     return outputFiles;
 }
