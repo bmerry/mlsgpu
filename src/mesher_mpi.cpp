@@ -125,17 +125,20 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
                     chunk, thresholdVertices, chunkExternal,
                     startVertex, startTriangle, externalRemap);
 
+                std::size_t first = rank * chunk.clumps.size() / size;
+                std::size_t last = (rank + 1) * chunk.clumps.size() / size;
+
                 writeChunkVertices(
                     tworker, *verticesTmpRead, asyncWriter, chunk,
                     thresholdVertices, startVertex.data(), progress.get(),
-                    rank, size);
+                    first, last);
 
                 writeChunkTriangles(
                     tworker, *trianglesTmpRead, asyncWriter, chunk,
                     thresholdVertices, chunkExternal,
                     startVertex.data(), startTriangle.data(), externalRemap.data(),
                     triangles, progress.get(),
-                    rank, size);
+                    first, last);
 
                 writer.close();
                 asyncWriter.stop();

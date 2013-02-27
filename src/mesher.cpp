@@ -646,12 +646,12 @@ void OOCMesher::writeChunkVertices(
     std::tr1::uint64_t thresholdVertices,
     const std::tr1::uint32_t *startVertex,
     ProgressMeter *progress,
-    int start, int stride)
+    std::size_t firstClump, std::size_t lastClump)
 {
     Statistics::Timer timer("finalize.vertices.time");
     Statistics::Variable &readVerticesStat = Statistics::getStatistic<Statistics::Variable>("write.readVertices.time");
 
-    for (std::size_t j = start; j < chunk.clumps.size(); j += stride)
+    for (std::size_t j = firstClump; j < lastClump; j++)
     {
         const Chunk::Clump &cc = chunk.clumps[j];
         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
@@ -696,14 +696,14 @@ void OOCMesher::writeChunkTriangles(
     const std::tr1::uint32_t *externalRemap,
     Statistics::Container::PODBuffer<triangle_type> &triangles,
     ProgressMeter *progress,
-    int start, int stride)
+    std::size_t firstClump, std::size_t lastClump)
 {
     Statistics::Timer trianglesTimer("finalize.triangles.time");
     Statistics::Variable &readTrianglesStat = Statistics::getStatistic<Statistics::Variable>("write.readTriangles.time");
     std::tr1::uint32_t externalBoundary = ~chunkExternal;
 
     // Now write out the triangles
-    for (std::size_t j = start; j < chunk.clumps.size(); j += stride)
+    for (std::size_t j = firstClump; j < lastClump; j++)
     {
         const Chunk::Clump &cc = chunk.clumps[j];
         clump_id cid = UnionFind::findRoot(clumps, cc.globalId);
@@ -800,13 +800,15 @@ std::size_t OOCMesher::write(Timeplot::Worker &tworker, std::ostream *progressSt
 
                 writeChunkVertices(
                     tworker, *verticesTmpRead, asyncWriter, chunk,
-                    thresholdVertices, startVertex.data(), progress.get());
+                    thresholdVertices, startVertex.data(), progress.get(),
+                    0, chunk.clumps.size());
 
                 writeChunkTriangles(
                     tworker, *trianglesTmpRead, asyncWriter, chunk,
                     thresholdVertices, chunkExternal,
                     startVertex.data(), startTriangle.data(), externalRemap.data(),
-                    triangles, progress.get());
+                    triangles, progress.get(),
+                    0, chunk.clumps.size());
 
                 writer.close();
             }

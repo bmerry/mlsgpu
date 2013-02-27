@@ -807,7 +807,7 @@ protected:
         std::tr1::uint64_t thresholdVertices,
         const std::tr1::uint32_t *startVertex,
         ProgressMeter *progress,
-        int start = 0, int stride = 1);
+        std::size_t firstChunk, std::size_t lastChunk);
 
     void writeChunkTriangles(
         Timeplot::Worker &tworker,
@@ -821,7 +821,7 @@ protected:
         const std::tr1::uint32_t *externalRemap,
         Statistics::Container::PODBuffer<triangle_type> &triangles,
         ProgressMeter *progress,
-        int start = 0, int stride = 1);
+        std::size_t firstClump, std::size_t lastClump);
 
 public:
     /**
