@@ -75,6 +75,7 @@ public:
      */
     void close();
 
+    /// Constructor
     BinaryIO();
 
     /**
@@ -97,8 +98,8 @@ public:
     bool isOpen() const;
 
 private:
-    bool isOpen_;
-    std::string filename_;   /// Filename for error messages
+    bool isOpen_;            ///< Whether the file is open
+    std::string filename_;   ///< Filename for error messages
 
     /**
      * Implements @ref open. It does not need to do any state checks, nor
@@ -143,13 +144,13 @@ public:
 
 private:
     /**
-     * Implementation of @ref read. It does not need to check whether the file is
+     * Implements @ref read. It does not need to check whether the file is
      * open or put the filename into exceptions.
      */
     virtual std::size_t readImpl(void *buf, std::size_t count, offset_type offset) const = 0;
 
     /**
-     * Implementation of @ref size. It does not need to check whether the file is
+     * Implements @ref size. It does not need to check whether the file is
      * open or put the filename into exceptions.
      */
     virtual offset_type sizeImpl() const = 0;
@@ -185,13 +186,13 @@ public:
 
 private:
     /**
-     * Implementation of @ref write. It does not need to check that the file is open or
+     * Implements @ref write. It does not need to check that the file is open or
      * put the filename into exceptions.
      */
     virtual std::size_t writeImpl(const void *buf, std::size_t count, offset_type offset) const = 0;
 
     /**
-     * Implementation of @ref resize. It does not need to check that the file is open or
+     * Implements @ref resize. It does not need to check that the file is open or
      * put the filename into exceptions.
      */
     virtual void resizeImpl(offset_type size) const = 0;

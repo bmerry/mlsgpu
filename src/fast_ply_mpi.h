@@ -30,6 +30,7 @@ namespace FastPly
 class WriterMPI : public Writer
 {
 public:
+    /// Constructor
     WriterMPI();
 
     using Writer::open;

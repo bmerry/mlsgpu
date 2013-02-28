@@ -27,8 +27,8 @@ public:
     virtual ~BinaryWriterMPI();
 
 private:
-    MPI_Comm comm;
-    MPI_File handle;
+    MPI_Comm comm;    ///< Communicator that will be used to open the file
+    MPI_File handle;  ///< File handle when it is open
 
     virtual void openImpl(const boost::filesystem::path &path);
     virtual void closeImpl();

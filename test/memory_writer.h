@@ -68,7 +68,7 @@ public:
     /**
      * Quick-and-dirty extraction of the vertices and triangles from the PLY file.
      * It's a @em long way from being a full PLY parser. It handles only the sorts
-     * of files produced by FastPly::Writer.
+     * of files produced by @ref FastPly::Writer.
      *
      * @param content        File contents
      * @param[out] vertices  Vertices
@@ -84,7 +84,7 @@ protected:
 };
 
 /**
- * Combined a @ref MemoryWriter with a @ref FastPly::Writer, with additional
+ * Combination of a @ref MemoryWriter with a @ref FastPly::Writer, with additional
  * helper routines to decode output.
  */
 class MemoryWriterPly : public MemoryWriterPlyBase, public FastPly::Writer

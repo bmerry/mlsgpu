@@ -394,7 +394,7 @@ void Writer::setNumTriangles(size_type numTriangles)
     this->numTriangles = numTriangles;
 }
 
-Writer::Writer(WriterType writerType) : 
+Writer::Writer(WriterType writerType) :
     writeVerticesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeVertices.time")),
     writeTrianglesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeTriangles.time")),
     handleFactory(InternalFactory(writerType)),

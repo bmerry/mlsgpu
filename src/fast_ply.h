@@ -346,8 +346,8 @@ public:
         const boost::shared_ptr<AsyncWriterItem> &data,
         AsyncWriter &async);
 
-    size_type getNumVertices() const;
-    size_type getNumTriangles() const;
+    size_type getNumVertices() const;  ///< Return the number of vertices
+    size_type getNumTriangles() const; ///< Return the number of triangles
 
     /// Bytes per vertex
     static const size_type vertexSize = 3 * sizeof(float);
@@ -363,6 +363,9 @@ public:
     explicit Writer(boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory);
 
 private:
+    /**
+     * Generates a new @ref BinaryWriter from a writer type.
+     */
     class InternalFactory
     {
     private:

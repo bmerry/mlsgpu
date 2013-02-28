@@ -147,8 +147,14 @@ void send(const MesherWork &work, MPI_Comm comm, int dest);
  */
 void recv(MesherWork &work, void *ptr, MPI_Comm comm, int source);
 
+/**
+ * Broadcast a string to all ranks (like @c MPI_Bcast).
+ */
 void broadcast(std::string &str, MPI_Comm comm, int root);
 
+/**
+ * Broadcast a path to all ranks (like @c MPI_Bcast).
+ */
 void broadcast(boost::filesystem::path &path, MPI_Comm comm, int root);
 
 /**

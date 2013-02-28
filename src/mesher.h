@@ -750,7 +750,16 @@ protected:
     /**
      * Compute the number of components, vertices and triangles retained overall,
      * and update statistics. If @a record is true (the default), the statistics
-     * registry will record the results.
+     * registry will record the results. This is only called after all the geometry
+     * has been received.
+     *
+     * @param[out] thresholdVertices  Number of vertices that must appear in a component
+     *                                for it to appear in the output file (see @ref setPruneThreshold).
+     * @param[out] keptComponents,keptVertices,keptTriangles     Number of
+     *                                connected components / vertices / triangles that
+     *                                passed the threshold test
+     * @param record                  Whether to record statistics
+     *
      */
     void getStatistics(
         std::tr1::uint64_t &thresholdVertices,
@@ -760,7 +769,16 @@ protected:
         bool record = true) const;
 
     /**
-     * Compute the number of vertices and triangles retained for a chunk.
+     * Compute the number of vertices and triangles retained for a chunk. This
+     * is only called after all the geometry has been received.
+     *
+     * @param thresholdVertices Threshold for retaining components (see @ref getStatistics)
+     * @param chunk             The chunk to evaluate
+     * @param[out] keptVertices, keptTriangles Number of vertices/triangles that
+     *                          will be in the output file
+     * @param[out] totalExternal Total number of external vertices in the chunk,
+     *                          including those that will not be in the output file
+     *                          due to the threshold.
      */
     void getChunkStatistics(
         std::tr1::uint64_t thresholdVertices,
@@ -769,7 +787,12 @@ protected:
         std::tr1::uint64_t &keptTriangles,
         std::tr1::uint64_t &totalExternal) const;
 
-    /// Compute minimum number of bytes needed for the async writer
+    /**
+     * Compute minimum number of bytes needed for the async writer. This is
+     * only called after all the geometry has been received.
+     *
+     * @param thresholdVertices Threshold for retaining components (see @ref getStatistics)
+     */
     std::size_t getAsyncMem(std::tr1::uint64_t thresholdVertices) const;
 
     /**
@@ -793,6 +816,16 @@ protected:
         const triangle_type *inTriangles,
         std::tr1::uint8_t *outTriangles);
 
+    /**
+     * Compute write positions and remapping table for one output chunk.
+     *
+     * @param chunk             Fully-defined output chunk
+     * @param thresholdVertices Threshold for retaining components (see @ref getStatistics)
+     * @param chunkExternal     Total number of external vertices in the chunk (see @ref getChunkStatistics)
+     * @param[out] startVertex  Position in output file for vertices in each clump, as a vertex count (undefined for dropped clumps)
+     * @param[out] startTriangle Position in output file for triangles each clump, as a triangle count (undefined for dropped clumps)
+     * @param[out] externalRemap Maps external vertex indices to final indices
+     */
     void writeChunkPrepare(
         const Chunk &chunk,
         std::tr1::uint64_t thresholdVertices,
@@ -801,6 +834,23 @@ protected:
         Statistics::Container::PODBuffer<FastPly::Writer::size_type> &startTriangle,
         Statistics::Container::PODBuffer<std::tr1::uint32_t> &externalRemap);
 
+    /**
+     * Transfer clumps from the vertices temporary file to the output file.
+     *
+     * @param tworker           Worker to pass to @ref AsyncWriter::get
+     * @param verticesTmpRead   Reader for the vertices temporary file
+     * @param asyncWriter       Asynchronous writer to schedule through
+     * @param chunk             Output chunk to write
+     * @param thresholdVertices Threshold for retaining components (see @ref getStatistics)
+     * @param startVertex       Position (in vertices) to start writing each clump (see @ref writeChunkPrepare)
+     * @param progress          If non-NULL, updated with the number of triangles processed
+     * @param firstClump, lastClump Range of clumps from the chunk to process.
+     *
+     * @note The progress meter is updated in triangles not vertices. This
+     * avoids the need to worry about double-counting of external vertices.
+     *
+     * @pre @ref finalize has been called
+     */
     void writeChunkVertices(
         Timeplot::Worker &tworker,
         BinaryReader &verticesTmpRead,
@@ -809,8 +859,29 @@ protected:
         std::tr1::uint64_t thresholdVertices,
         const std::tr1::uint32_t *startVertex,
         ProgressMeter *progress,
-        std::size_t firstChunk, std::size_t lastChunk);
+        std::size_t firstClump, std::size_t lastClump);
 
+    /**
+     * Transfer clumps from the triangles temporary file to the output file.
+     *
+     * @param tworker           Worker to pass to @ref AsyncWriter::get
+     * @param trianglesTmpRead  Reader for the triangles temporary file
+     * @param asyncWriter       Asynchronous writer to schedule through
+     * @param chunk             Output chunk to write
+     * @param thresholdVertices Threshold for retaining components (see @ref getStatistics)
+     * @param chunkExternal     Total number of external vertices for the chunk (see @ref getChunkStatistics)
+     * @param startVertex       Position (in vertices) to start writing each
+     *                          clump (see @ref writeChunkPrepare). This is
+     *                          needed to adjust indices for internal vertices,
+     *                          which are clump-relative in the input.
+     * @param startTriangle     Position (in triangles) to start writing each clump
+     * @param externalRemap     Maps external vertex indices to final indices
+     * @param[in,out] triangles Temporary buffer the callee may use to hold data
+     * @param progress          If non-NULL, updated with the number of triangles written
+     * @param firstClump, lastClump Range of clumps to process
+     *
+     * @pre @ref finalize has been called
+     */
     void writeChunkTriangles(
         Timeplot::Worker &tworker,
         BinaryReader &trianglesTmpRead,

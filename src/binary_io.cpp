@@ -158,6 +158,10 @@ void BinaryWriter::resize(offset_type size) const
 namespace
 {
 
+/**
+ * Implementation of @ref BinaryReader using C++ iostreams. It uses a mutex
+ * to ensure that seeks happen in a thread-safe manner.
+ */
 class StreamReader : public BinaryReader
 {
 private:
@@ -170,6 +174,13 @@ private:
     virtual offset_type sizeImpl() const;
 };
 
+/**
+ * Implementation of @ref BinaryWriter using C++ iostreams. It uses a mutex
+ * to ensure that seeks happen in a thread-safe manner.
+ *
+ * @warning @ref resize does not work to shrink a file, and will silently
+ * fail.
+ */
 class StreamWriter : public BinaryWriter
 {
 private:
@@ -261,6 +272,10 @@ void StreamWriter::resizeImpl(offset_type size) const
     }
 }
 
+/**
+ * Implementation of @ref BinaryReader interface using memory mapping. This will fail
+ * if the file is too large to be fully mapped into memory.
+ */
 class MmapReader : public BinaryReader
 {
 private:
@@ -303,6 +318,10 @@ BinaryIO::offset_type MmapReader::sizeImpl() const
     return mapping.size();
 }
 
+/**
+ * Implementation of @ref BinaryReader using low-level operating system calls.
+ * This makes it unbuffered (unlike @ref StreamReader).
+ */
 class SyscallReader : public BinaryReader
 {
 private:
@@ -322,6 +341,10 @@ public:
     virtual ~SyscallReader();
 };
 
+/**
+ * Implementation of @ref BinaryWriter using low-level operating system calls.
+ * This makes it unbuffered (unlike @ref StreamWriter).
+ */
 class SyscallWriter : public BinaryWriter
 {
 private:
