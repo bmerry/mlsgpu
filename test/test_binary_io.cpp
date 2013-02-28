@@ -8,6 +8,7 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <boost/filesystem/path.hpp>
 #include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/fstream.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <fstream>
@@ -18,8 +19,8 @@
 #include "testutil.h"
 #include "../src/binary_io.h"
 #include "../src/errors.h"
+#include "../src/misc.h"
 
-static const boost::filesystem::path testPath("test_binary_io.bin");
 static const boost::filesystem::path badPath("/not_a_real_file/");
 static const BinaryIO::offset_type seekPos = 9876543210LL;
 
@@ -48,6 +49,8 @@ public:
     virtual void tearDown();
 
 protected:
+    boost::filesystem::path testPath;
+
     /// Create a instance of the class type
     virtual BinaryIO *factory() = 0;
 
@@ -139,7 +142,8 @@ BINARY_WRITER_CLASS(TestStreamWriter, STREAM_WRITER);
 
 void TestBinaryIO::setUp()
 {
-    std::ofstream f(testPath.c_str(), std::ios::out | std::ios::binary);
+    boost::filesystem::ofstream f;
+    createTmpFile(testPath, f);
     f.exceptions(std::ios::failbit | std::ios::badbit);
     f << "hello world";
     f.seekp(seekPos);
@@ -149,9 +153,7 @@ void TestBinaryIO::setUp()
 
 void TestBinaryIO::tearDown()
 {
-    boost::system::error_code ec;
-    boost::filesystem::remove(testPath, ec);
-    // Ignore the error code - the file might not have been created
+    boost::filesystem::remove(testPath);
 }
 
 void TestBinaryIO::testOpenClose()

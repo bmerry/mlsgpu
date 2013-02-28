@@ -8,13 +8,15 @@
 #include <cppunit/extensions/HelperMacros.h>
 #include <boost/filesystem/path.hpp>
 #include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/fstream.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/smart_ptr/scoped_ptr.hpp>
+#include <boost/smart_ptr/scoped_array.hpp>
 #include "../../src/binary_io.h"
 #include "../../src/binary_io_mpi.h"
+#include "../src/misc.h"
 #include "../testutil.h"
 
-static const boost::filesystem::path testPath("test_binary_io.bin");
 static const BinaryIO::offset_type seekPos = 9876543210LL;
 
 /**
@@ -34,6 +36,7 @@ public:
 private:
     MPI_Comm comm;
     boost::scoped_ptr<BinaryWriterMPI> writer;
+    boost::filesystem::path testPath;
 
     void testResize();
     void testWrite();
@@ -42,8 +45,30 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestBinaryWriterMPI, TestSet::perBuild());
 
 void TestBinaryWriterMPI::setUp()
 {
+    int rank;
+
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Comm_dup(MPI_COMM_WORLD, &comm);
+    MPI_Comm_rank(comm, &rank);
+    if (rank == 0)
+    {
+        boost::filesystem::ofstream dummy;
+        createTmpFile(testPath, dummy);
+        dummy.close();
+
+        int len = testPath.string().size();
+        MPI_Bcast(&len, 1, MPI_INT, 0, comm);
+        MPI_Bcast(const_cast<char *>(testPath.string().data()), len, MPI_CHAR, 0, comm);
+    }
+    else
+    {
+        int len;
+        MPI_Bcast(&len, 1, MPI_INT, 0, comm);
+        boost::scoped_array<char> chars(new char[len]);
+        MPI_Bcast(chars.get(), len, MPI_CHAR, 0, comm);
+        testPath = std::string(chars.get(), len);
+    }
+
     writer.reset(new BinaryWriterMPI(comm));
     writer->open(testPath);
 }
@@ -56,9 +81,7 @@ void TestBinaryWriterMPI::tearDown()
     MPI_Comm_rank(comm, &rank);
     if (rank == 0)
     {
-        boost::system::error_code ec;
-        boost::filesystem::remove(testPath, ec);
-        // Ignore the error code
+        boost::filesystem::remove(testPath);
     }
 
     MPI_Comm_free(&comm);
@@ -96,6 +119,7 @@ void TestBinaryWriterMPI::testWrite()
 
     writer->write(buffer, sizeof(buffer), offset);
     writer->close();
+    MPI_Barrier(comm);
 
     if (rank == 0)
     {
@@ -115,7 +139,7 @@ void TestBinaryWriterMPI::testWrite()
             std::size_t c = reader->read(buffer, sizeof(buffer), offset);
             CPPUNIT_ASSERT_EQUAL(sizeof(buffer), c);
             for (std::size_t i = 0; i < sizeof(buffer); i++)
-                CPPUNIT_ASSERT_EQUAL(buffer[i], expected[i]);
+                CPPUNIT_ASSERT_EQUAL(int(expected[i]), int(buffer[i]));
         }
         reader->close();
     }

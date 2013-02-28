@@ -24,6 +24,7 @@ int main(int argc, char **argv)
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    sleep(3);
     if (size <= 1)
     {
         std::cerr << "Must use at least two processes\n";
