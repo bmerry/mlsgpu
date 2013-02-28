@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * Asynchronous writes through a @ref BinaryWriter.
  */
 

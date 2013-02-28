@@ -276,7 +276,8 @@ void Slave::operator()() const
 }
 
 /**
- * Collect statistics from all nodes
+ * Collect statistics from all rank, and write to the output file on the @a root
+ * rank.
  */
 static void doStatistics(const po::variables_map &vm, MPI_Comm comm, int root)
 {
