@@ -270,7 +270,7 @@ public:
      *
      * @see @ref checkpoint
      */
-    virtual std::size_t resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
+    virtual std::size_t resume(Timeplot::Worker &tworker, const boost::filesystem::path &path,
                                std::ostream *progressStream = NULL) = 0;
 
     /**
@@ -837,7 +837,7 @@ public:
     virtual InputFunctor functor(unsigned int pass);
     virtual std::size_t write(Timeplot::Worker &tworker, std::ostream *progressStream = NULL);
     virtual void checkpoint(Timeplot::Worker &tworker, const boost::filesystem::path &path);
-    virtual std::size_t resume(Timeplot::Worker &worker, const boost::filesystem::path &path,
+    virtual std::size_t resume(Timeplot::Worker &tworker, const boost::filesystem::path &path,
                                std::ostream *progressStream = NULL);
 };
 

@@ -70,7 +70,7 @@ public:
      * It's a @em long way from being a full PLY parser. It handles only the sorts
      * of files produced by FastPly::Writer.
      *
-     * @param text           File contents
+     * @param content        File contents
      * @param[out] vertices  Vertices
      * @param[out] triangles Triangles
      */

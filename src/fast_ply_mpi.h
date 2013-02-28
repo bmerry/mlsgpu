@@ -24,7 +24,7 @@ namespace FastPly
  * taken from the root rank.
  *
  * The base class @ref open(const std::string&) will create a file on a single node
- * (i.e. using @ref MPI_COMM_SELF). To have parallel writes to a single file you
+ * (i.e. using @c MPI_COMM_SELF). To have parallel writes to a single file you
  * must use @ref open(const std::string&, MPI_Comm, int).
  */
 class WriterMPI : public Writer

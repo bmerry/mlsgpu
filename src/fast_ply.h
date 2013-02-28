@@ -343,7 +343,7 @@ public:
     void writeTrianglesRaw(
         Timeplot::Worker &tworker,
         size_type first, size_type count,
-        const boost::shared_ptr<AsyncWriterItem> &item,
+        const boost::shared_ptr<AsyncWriterItem> &data,
         AsyncWriter &async);
 
     size_type getNumVertices() const;

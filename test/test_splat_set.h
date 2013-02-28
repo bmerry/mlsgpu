@@ -428,7 +428,7 @@ protected:
 public:
     /**
      * Adds all splats in @a splatData to the set. Each element of @a splatData is
-     * converted to PLY format and appended as a new @ref FastPly::ReaderBase to @a set.
+     * converted to PLY format and appended as a new @ref FastPly::Reader to @a set.
      * The converted data are stored in @a store, which must remain live and unmodified
      * for as long as @a set is live.
      */
