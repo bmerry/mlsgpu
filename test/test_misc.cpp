@@ -50,8 +50,8 @@ void TestMulDiv::testBigA()
 void TestMulDiv::testBigC()
 {
     uint32_t a = 12345;
-    uint32_t b = 0x88888888u;
-    uint32_t c = 0x99999999u;
+    uint32_t b = 23456;
+    uint32_t c = 34567;
     uint32_t expected = uint64_t(a) * uint64_t(b) / uint64_t(c);
     CPPUNIT_ASSERT_EQUAL(expected, mulDiv(a, b, c));
     CPPUNIT_ASSERT_EQUAL(a, mulDiv(a, c, c));
@@ -64,6 +64,7 @@ void TestMulDiv::testExceptions()
     CPPUNIT_ASSERT_THROW(mulDiv(5, -1, 5), std::invalid_argument); // b < 0
     CPPUNIT_ASSERT_THROW(mulDiv(5, 0, 0), std::invalid_argument); // c <= 0
     CPPUNIT_ASSERT_THROW(mulDiv(-1, 4, 6), std::invalid_argument); // a < 0
+    CPPUNIT_ASSERT_THROW(mulDiv(int32_t(5), int32_t(3), int32_t(100000)), std::out_of_range);  // c too big
 }
 
 

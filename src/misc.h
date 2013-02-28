@@ -22,13 +22,14 @@
 #include "errors.h"
 
 /**
- * Computes a * b / c with reduced risk of overflowing. The intended use case is
+ * Computes @a a * @a b / @a c with reduced risk of overflowing. The intended use case is
  * partitioning of a last range into a small number of pieces.
  *
  * @pre
  * - 0 &lt;= @a b &lt;= @a c
  * - @a c &gt; 0
- * - @a a &gt; 0
+ * - @a a &gt;= 0
+ * - @a c<sup>2</sup> does not overflow type T
  */
 template<typename T, typename R>
 static T mulDiv(T a, R b, R c)
@@ -37,6 +38,7 @@ static T mulDiv(T a, R b, R c)
     MLSGPU_ASSERT((0 == b || 0 < b) && b <= c, std::invalid_argument);
     MLSGPU_ASSERT(a > 0 || a == 0, std::invalid_argument);
     MLSGPU_ASSERT(c > 0, std::invalid_argument);
+    MLSGPU_ASSERT(T(c) <= std::numeric_limits<T>::max() / c, std::out_of_range);
     return a / c * b + (a % c) * b / c;
 }
 
