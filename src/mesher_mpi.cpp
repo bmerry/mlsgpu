@@ -194,10 +194,22 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
         asyncWriter.stop();
     if (progress)
         progress->sync();
+
+    if (perChunk)
+    {
+        std::size_t totalOutputFiles = 0;
+        MPI_Reduce(&outputFiles, &totalOutputFiles, 1,
+                   Serialize::mpi_type_traits<std::size_t>::type(),
+                   MPI_SUM, root, comm);
+        outputFiles = totalOutputFiles;
+    }
     if (rank == root)
     {
         progressThread->join();
         Statistics::getStatistic<Statistics::Counter>("output.files").add(outputFiles);
     }
+
+    // To ensure that the timer gives useful information
+    MPI_Barrier(comm);
     return outputFiles;
 }
