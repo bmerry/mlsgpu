@@ -70,7 +70,7 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
     std::tr1::uint64_t thresholdVertices;
     clump_id keptComponents;
     std::tr1::uint64_t keptVertices, keptTriangles;
-    getStatistics(thresholdVertices, keptComponents, keptVertices, keptTriangles);
+    getStatistics(thresholdVertices, keptComponents, keptVertices, keptTriangles, rank == root);
 
     std::size_t asyncMem = getAsyncMem(thresholdVertices);
 

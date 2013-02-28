@@ -472,7 +472,8 @@ void OOCMesher::getStatistics(
     std::tr1::uint64_t &thresholdVertices,
     clump_id &keptComponents,
     std::tr1::uint64_t &keptVertices,
-    std::tr1::uint64_t &keptTriangles) const
+    std::tr1::uint64_t &keptTriangles,
+    bool record) const
 {
     std::tr1::uint64_t totalVertices = 0;
     clump_id totalComponents = 0;
@@ -503,14 +504,17 @@ void OOCMesher::getStatistics(
         }
     }
 
-    Statistics::Registry &registry = Statistics::Registry::getInstance();
-    registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
-    registry.getStatistic<Statistics::Variable>("components.vertices.total").add(writtenVerticesTmp);
-    registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
-    registry.getStatistic<Statistics::Variable>("components.triangles.kept").add(keptTriangles);
-    registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
-    registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
-    registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
+    if (record)
+    {
+        Statistics::Registry &registry = Statistics::Registry::getInstance();
+        registry.getStatistic<Statistics::Variable>("components.vertices.threshold").add(thresholdVertices);
+        registry.getStatistic<Statistics::Variable>("components.vertices.total").add(totalVertices);
+        registry.getStatistic<Statistics::Variable>("components.vertices.kept").add(keptVertices);
+        registry.getStatistic<Statistics::Variable>("components.triangles.kept").add(keptTriangles);
+        registry.getStatistic<Statistics::Variable>("components.total").add(totalComponents);
+        registry.getStatistic<Statistics::Variable>("components.kept").add(keptComponents);
+        registry.getStatistic<Statistics::Variable>("externalvertices").add(clumpIdMap.size());
+    }
 }
 
 void OOCMesher::getChunkStatistics(

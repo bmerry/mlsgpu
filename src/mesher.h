@@ -749,13 +749,15 @@ protected:
 
     /**
      * Compute the number of components, vertices and triangles retained overall,
-     * and update statistics.
+     * and update statistics. If @a record is true (the default), the statistics
+     * registry will record the results.
      */
     void getStatistics(
         std::tr1::uint64_t &thresholdVertices,
         clump_id &keptComponents,
         std::tr1::uint64_t &keptVertices,
-        std::tr1::uint64_t &keptTriangles) const;
+        std::tr1::uint64_t &keptTriangles,
+        bool record = true) const;
 
     /**
      * Compute the number of vertices and triangles retained for a chunk.
