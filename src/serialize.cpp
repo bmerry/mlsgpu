@@ -299,6 +299,25 @@ void recv(MesherWork &work, void *ptr, MPI_Comm comm, int source)
              mpi_type_traits<cl_float>::type(), source, MLSGPU_TAG_WORK, comm, MPI_STATUS_IGNORE);
 }
 
+void broadcast(std::string &str, MPI_Comm comm, int root)
+{
+    std::string::size_type len = str.size();
+    MPI_Bcast(&len, 1, mpi_type_traits<std::string::size_type>::type(), root, comm);
+    str.resize(len);
+    MPI_Bcast(&str[0], len, MPI_CHAR, root, comm);
+}
+
+void broadcast(boost::filesystem::path &path, MPI_Comm comm, int root)
+{
+    typedef boost::filesystem::path::string_type string_type;
+    string_type str = path.native();
+    string_type::size_type len = str.size();
+    MPI_Bcast(&len, 1, mpi_type_traits<string_type::size_type>::type(), root, comm);
+    str.resize(len);
+    MPI_Bcast(&str[0], len, mpi_type_traits<string_type::value_type>::type(), root, comm);
+    path = str;
+}
+
 void init()
 {
     registerGridType();

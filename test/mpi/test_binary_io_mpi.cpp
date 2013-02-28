@@ -14,7 +14,8 @@
 #include <boost/smart_ptr/scoped_array.hpp>
 #include "../../src/binary_io.h"
 #include "../../src/binary_io_mpi.h"
-#include "../src/misc.h"
+#include "../../src/misc.h"
+#include "../../src/serialize.h"
 #include "../testutil.h"
 
 static const BinaryIO::offset_type seekPos = 9876543210LL;
@@ -55,19 +56,8 @@ void TestBinaryWriterMPI::setUp()
         boost::filesystem::ofstream dummy;
         createTmpFile(testPath, dummy);
         dummy.close();
-
-        int len = testPath.string().size();
-        MPI_Bcast(&len, 1, MPI_INT, 0, comm);
-        MPI_Bcast(const_cast<char *>(testPath.string().data()), len, MPI_CHAR, 0, comm);
     }
-    else
-    {
-        int len;
-        MPI_Bcast(&len, 1, MPI_INT, 0, comm);
-        boost::scoped_array<char> chars(new char[len]);
-        MPI_Bcast(chars.get(), len, MPI_CHAR, 0, comm);
-        testPath = std::string(chars.get(), len);
-    }
+    Serialize::broadcast(testPath, comm, 0);
 
     writer.reset(new BinaryWriterMPI(comm));
     writer->open(testPath);

@@ -147,6 +147,10 @@ void send(const MesherWork &work, MPI_Comm comm, int dest);
  */
 void recv(MesherWork &work, void *ptr, MPI_Comm comm, int source);
 
+void broadcast(std::string &str, MPI_Comm comm, int root);
+
+void broadcast(boost::filesystem::path &path, MPI_Comm comm, int root);
+
 /**
  * Registers MPI data types. This must be called before any of the send or
  * receive functions.

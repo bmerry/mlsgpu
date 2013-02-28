@@ -44,20 +44,14 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
         boost::archive::text_oarchive archive(dump);
         archive << *this;
         std::string serial = dump.str();
-
-        std::size_t len = serial.size();
-        MPI_Bcast(&len, 1, Serialize::mpi_type_traits<std::size_t>::type(), root, comm);
-        MPI_Bcast(const_cast<char *>(serial.data()), len, MPI_CHAR, root, comm);
+        Serialize::broadcast(serial, comm, root);
     }
     else
     {
-        std::size_t len;
-        MPI_Bcast(&len, 1, Serialize::mpi_type_traits<std::size_t>::type(), root, comm);
-        boost::scoped_array<char> serial(new char[len]);
-        MPI_Bcast(serial.get(), len, MPI_CHAR, root, comm);
+        std::string serial;
+        Serialize::broadcast(serial, comm, root);
 
-        std::istringstream dump(std::string(serial.get(), len));
-        serial.reset();
+        std::istringstream dump(serial);
         boost::archive::text_iarchive archive(dump);
         archive >> *this;
     }

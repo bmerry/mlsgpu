@@ -43,6 +43,8 @@ class TestSerialize : public CppUnit::TestFixture
     SERIALIZE_TEST(testChunkId);
     SERIALIZE_TEST(testSubset);
     SERIALIZE_TEST(testMesherWork);
+    CPPUNIT_TEST(testBroadcastString);
+    CPPUNIT_TEST(testBroadcastPath);
     CPPUNIT_TEST_SUITE_END();
 private:
     /**
@@ -61,6 +63,8 @@ private:
     void testSubsetRecv(MPI_Comm comm, int source);
     void testMesherWorkSend(MPI_Comm comm, int dest);
     void testMesherWorkRecv(MPI_Comm comm, int source);
+    void testBroadcastString();
+    void testBroadcastPath();
 };
 CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestSerialize, TestSet::perBuild());
 
@@ -234,4 +238,34 @@ void TestSerialize::testMesherWorkRecv(MPI_Comm comm, int source)
     MLSGPU_ASSERT_EQUAL(UINT64_C(0xFFFFFFFF11111111), work.mesh.vertexKeys[1]);
 
     MLSGPU_ASSERT_EQUAL(false, work.hasEvents);
+}
+
+void TestSerialize::testBroadcastString()
+{
+    int rank;
+    std::string str;
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (rank == 1)
+        str = "test string";
+    else
+        str = "bad";
+
+    Serialize::broadcast(str, MPI_COMM_WORLD, 1);
+    CPPUNIT_ASSERT_EQUAL(std::string("test string"), str);
+}
+
+void TestSerialize::testBroadcastPath()
+{
+    int rank;
+    boost::filesystem::path path;
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    if (rank == 1)
+        path = "test path/with slash";
+    else
+        path = "bad";
+
+    Serialize::broadcast(path, MPI_COMM_WORLD, 1);
+    CPPUNIT_ASSERT_EQUAL(std::string("test path/with slash"), path.string());
 }

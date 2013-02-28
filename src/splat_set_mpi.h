@@ -137,21 +137,13 @@ void FastBlobSetMPI<Base>::computeBlobs(
         for (int i = 0; i < size; i++)
         {
             std::tr1::uint64_t nBlobs = blobFile.nBlobs;
+            boost::filesystem::path path = blobFile.path;
+
             MPI_Bcast(&nBlobs, 1, Serialize::mpi_type_traits<std::tr1::uint64_t>::type(),
                       i, comm);
-            std::size_t len = blobFile.path.native().size();
-            MPI_Bcast(&len, 1, Serialize::mpi_type_traits<std::size_t>::type(),
-                      i, comm);
-            std::vector<boost::filesystem::path::value_type> chars(len);
-            if (rank == i)
-            {
-                boost::filesystem::path::string_type str = blobFile.path.native();
-                std::copy(str.begin(), str.end(), chars.begin());
-            }
-            MPI_Bcast(&chars[0], len, Serialize::mpi_type_traits<boost::filesystem::path::value_type>::type(),
-                      i, comm);
+            Serialize::broadcast(path, comm, i);
             this->blobFiles.push_back(typename FastBlobSet<Base>::BlobFile());
-            this->blobFiles.back().path = chars;
+            this->blobFiles.back().path = path;
             this->blobFiles.back().nBlobs = nBlobs;
             this->blobFiles.back().owner = (rank == root);
             MPI_Barrier(comm); // ensures that the master takes ownership before the worker releases it
