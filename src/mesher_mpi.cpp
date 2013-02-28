@@ -34,7 +34,7 @@ OOCMesherMPI::OOCMesherMPI(
 std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progressStream)
 {
     Timeplot::Action writeAction("write", tworker, "finalize.time");
-    FastPly::Writer &writer = getWriter();
+    FastPly::WriterMPI &writer = static_cast<FastPly::WriterMPI &>(getWriter());
     std::size_t outputFiles = 0;
 
     finalize(tworker);
@@ -103,7 +103,31 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
 
     AsyncWriter asyncWriter(1, asyncMem * 2); // * 2 to allow overlapping
 
-    for (std::size_t i = 0; i < chunks.size(); i++)
+    /* When there are many chunks, we can simplify partition over chunks, and avoid worrying
+     * about interference between output files. When there aren't enough chunks we have to
+     * partition over clumps within each chunk. A hybrid scheme would avoid the need for
+     * two code-paths, but would itself get very complicated due to file opening and closing
+     * being collective operations. Either all files would have to be opened up-front by
+     * all processes (which could easily exceed OS limits on open files) or there would need
+     * to be complex logic to create a communicator for each subset of processes that share
+     * access to a file, and to sequence the operations to avoid stalls.
+     */
+    bool perChunk = (chunks.size() >= (std::size_t) size);
+    std::size_t firstChunk, lastChunk;
+
+    if (perChunk)
+    {
+        asyncWriter.start();
+        firstChunk = mulDiv(chunks.size(), rank, size);
+        lastChunk = mulDiv(chunks.size(), rank + 1, size);
+    }
+    else
+    {
+        firstChunk = 0;
+        lastChunk = chunks.size();
+    }
+
+    for (std::size_t i = firstChunk; i < lastChunk; i++)
     {
         const Chunk &chunk = chunks[i];
         std::tr1::uint64_t chunkVertices, chunkTriangles, chunkExternal;
@@ -115,18 +139,31 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
             const std::string filename = getOutputName(chunk.chunkId);
             try
             {
-                asyncWriter.start();
+                if (!perChunk)
+                    asyncWriter.start();
                 writer.setNumVertices(chunkVertices);
                 writer.setNumTriangles(chunkTriangles);
-                writer.open(filename);
+                if (perChunk)
+                    writer.open(filename);
+                else
+                    writer.open(filename, comm, root);
                 outputFiles++;
 
                 writeChunkPrepare(
                     chunk, thresholdVertices, chunkExternal,
                     startVertex, startTriangle, externalRemap);
 
-                std::size_t first = rank * chunk.clumps.size() / size;
-                std::size_t last = (rank + 1) * chunk.clumps.size() / size;
+                std::size_t first, last;
+                if (perChunk)
+                {
+                    first = 0;
+                    last = chunk.clumps.size();
+                }
+                else
+                {
+                    first = mulDiv(chunk.clumps.size(), rank, size);
+                    last = mulDiv(chunk.clumps.size(), rank + 1, size);
+                }
 
                 writeChunkVertices(
                     tworker, *verticesTmpRead, asyncWriter, chunk,
@@ -141,7 +178,8 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
                     first, last);
 
                 writer.close();
-                asyncWriter.stop();
+                if (!perChunk)
+                    asyncWriter.stop();
             }
             catch (std::ios::failure &e)
             {
@@ -152,6 +190,8 @@ std::size_t OOCMesherMPI::write(Timeplot::Worker &tworker, std::ostream *progres
         }
     }
 
+    if (perChunk)
+        asyncWriter.stop();
     if (progress)
         progress->sync();
     if (rank == root)

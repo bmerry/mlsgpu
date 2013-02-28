@@ -337,7 +337,7 @@ static std::size_t runResume(
         Timeplot::Worker mainWorker("main");
         Statistics::Timer grandTotalTimer("run.time");
 
-        boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI(comm, root));
+        boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI);
         setWriterComments(vm, *writer);
         boost::scoped_ptr<MesherBase> mesher(new OOCMesherMPI(*writer, getNamer(vm, out), comm, root));
         setMesherOptions(vm, *mesher);
@@ -401,7 +401,7 @@ static std::size_t run(
                     progressComm, root)));
     }
 
-    boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI(comm, root));
+    boost::scoped_ptr<FastPly::WriterMPI> writer(new FastPly::WriterMPI);
     setWriterComments(vm, *writer);
     boost::scoped_ptr<MesherBase> mesher(new OOCMesherMPI(*writer, getNamer(vm, out), comm, root));
     setMesherOptions(vm, *mesher);

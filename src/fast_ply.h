@@ -386,7 +386,7 @@ private:
     size_type numTriangles;             ///< Number of triangles (defaults to zero)
 
 protected:
-    /// File handle (always non-NULL)
+    /// File handle (non-NULL if the file is open)
     boost::shared_ptr<BinaryWriter> handle;
 
     BinaryWriter::offset_type vertexStart;   ///< Offset in file to start of vertices

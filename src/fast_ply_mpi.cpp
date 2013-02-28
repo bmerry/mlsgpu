@@ -16,18 +16,23 @@
 #include "fast_ply_mpi.h"
 #include "serialize.h"
 #include "binary_io_mpi.h"
+#include "errors.h"
 
 namespace FastPly
 {
 
-WriterMPI::WriterMPI(MPI_Comm comm, int root)
-    : Writer(boost::bind(&WriterMPI::makeHandle, comm)), comm(comm), root(root)
+static boost::shared_ptr<BinaryWriter> makeHandle()
+{
+    return boost::make_shared<BinaryWriterMPI>(MPI_COMM_SELF);
+}
+
+WriterMPI::WriterMPI() : Writer(makeHandle)
 {
 }
 
-void WriterMPI::open(const std::string &filename)
+void WriterMPI::open(const std::string &filename, MPI_Comm comm, int root)
 {
-    handle->open(filename);
+    MLSGPU_ASSERT(!isOpen(), state_error);
 
     std::string header;
     size_type sizes[3]; // header size, num vertices, num triangles
@@ -44,16 +49,13 @@ void WriterMPI::open(const std::string &filename)
     setNumVertices(sizes[1]);
     setNumTriangles(sizes[2]);
 
+    handle = boost::make_shared<BinaryWriterMPI>(comm);
+    handle->open(filename);
     handle->resize(sizes[0] + getNumVertices() * vertexSize + getNumTriangles() * triangleSize);
     if (rank == root)
         handle->write(header.data(), header.size(), 0);
     vertexStart = sizes[0];
     triangleStart = vertexStart + getNumVertices() * vertexSize;
-}
-
-boost::shared_ptr<BinaryWriter> WriterMPI::makeHandle(MPI_Comm comm)
-{
-    return boost::make_shared<BinaryWriterMPI>(comm);
 }
 
 } // namespace FastPly

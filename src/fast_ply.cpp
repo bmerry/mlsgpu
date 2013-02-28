@@ -373,7 +373,7 @@ void Reader::Handle::readRaw(size_type first, size_type last, char *buffer) cons
 
 bool Writer::isOpen() const
 {
-    return handle->isOpen();
+    return handle;
 }
 
 void Writer::addComment(const std::string &comment)
@@ -400,17 +400,14 @@ Writer::Writer(WriterType writerType) :
     handleFactory(InternalFactory(writerType)),
     comments(), numVertices(0), numTriangles(0)
 {
-    handle = handleFactory();
 }
 
 Writer::Writer(boost::function<boost::shared_ptr<BinaryWriter>()> handleFactory) : 
     writeVerticesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeVertices.time")),
     writeTrianglesTime(Statistics::getStatistic<Statistics::Variable>("writer.writeTriangles.time")),
     handleFactory(handleFactory),
-    comments(), numVertices(0), numTriangles(0),
-    handle(handleFactory())
+    comments(), numVertices(0), numTriangles(0)
 {
-    handle = this->handleFactory();
 }
 
 Writer::size_type Writer::getNumVertices() const
@@ -465,6 +462,8 @@ std::string Writer::makeHeader()
 
 void Writer::open(const std::string &filename)
 {
+    MLSGPU_ASSERT(!isOpen(), state_error);
+    handle = handleFactory();
     handle->open(filename);
 
     std::string header = makeHeader();
@@ -476,12 +475,14 @@ void Writer::open(const std::string &filename)
 
 void Writer::close()
 {
+    MLSGPU_ASSERT(isOpen(), state_error);
     // Note: the handle is not closed, because it may still be accessed by an AsyncWriter
-    handle = handleFactory();
+    handle.reset();
 }
 
 void Writer::writeVertices(size_type first, size_type count, const float *data)
 {
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
     Statistics::Timer timer(writeVerticesTime);
     handle->write(data, count * vertexSize, vertexStart + first * vertexSize);
@@ -493,12 +494,14 @@ void Writer::writeVertices(
     const boost::shared_ptr<AsyncWriterItem> &data,
     AsyncWriter &async)
 {
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumVertices() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
     async.push(tworker, data, handle, count * vertexSize, vertexStart + first * vertexSize);
 }
 
 void Writer::writeTrianglesRaw(size_type first, size_type count, const std::tr1::uint8_t *data)
 {
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
     Statistics::Timer timer(writeTrianglesTime);
     handle->write(data, count * triangleSize, triangleStart + first * triangleSize);
@@ -510,12 +513,14 @@ void Writer::writeTrianglesRaw(
     const boost::shared_ptr<AsyncWriterItem> &data,
     AsyncWriter &async)
 {
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
     async.push(tworker, data, handle, count * triangleSize, triangleStart + first * triangleSize);
 }
 
 void Writer::writeTriangles(size_type first, size_type count, const std::tr1::uint32_t *data)
 {
+    MLSGPU_ASSERT(isOpen(), state_error);
     MLSGPU_ASSERT(first + count <= getNumTriangles() && first <= std::numeric_limits<size_type>::max() - count, std::out_of_range);
 
     Statistics::Timer timer(writeTrianglesTime);

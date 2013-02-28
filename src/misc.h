@@ -18,7 +18,27 @@
 #include <limits>
 #include "tr1_cstdint.h"
 #include <cstring>
+#include <stdexcept>
 #include "errors.h"
+
+/**
+ * Computes a * b / c with reduced risk of overflowing. The intended use case is
+ * partitioning of a last range into a small number of pieces.
+ *
+ * @pre
+ * - 0 &lt;= @a b &lt;= @a c
+ * - @a c &gt; 0
+ * - @a a &gt; 0
+ */
+template<typename T, typename R>
+static T mulDiv(T a, R b, R c)
+{
+    // Tests for >= 0 are written funny to stop GCC from warning when types are unsigned
+    MLSGPU_ASSERT((0 == b || 0 < b) && b <= c, std::invalid_argument);
+    MLSGPU_ASSERT(a > 0 || a == 0, std::invalid_argument);
+    MLSGPU_ASSERT(c > 0, std::invalid_argument);
+    return a / c * b + (a % c) * b / c;
+}
 
 /**
  * Multiply @a a and @a b, clamping the result to the maximum value of the type
@@ -29,7 +49,7 @@
 template<typename T>
 static inline T mulSat(T a, T b)
 {
-    // Tests for >= 0 are written funny for stop GCC from warning when T is unsigned
+    // Tests for >= 0 are written funny to stop GCC from warning when T is unsigned
     MLSGPU_ASSERT(a > 0 || a == 0, std::invalid_argument);
     MLSGPU_ASSERT(b > 0 || b == 0, std::invalid_argument);
     if (a == 0 || std::numeric_limits<T>::max() / a >= b)

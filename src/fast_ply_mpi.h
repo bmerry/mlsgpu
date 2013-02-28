@@ -22,19 +22,25 @@ namespace FastPly
  * Variation on @ref FastPly::Writer that correctly handles writing the header
  * in only one rank. Additionally, the comments and vertex/triangle counts are
  * taken from the root rank.
+ *
+ * The base class @ref open(const std::string&) will create a file on a single node
+ * (i.e. using @ref MPI_COMM_SELF). To have parallel writes to a single file you
+ * must use @ref open(const std::string&, MPI_Comm, int).
  */
 class WriterMPI : public Writer
 {
 public:
-    WriterMPI(MPI_Comm comm, int root);
+    WriterMPI();
 
-    void open(const std::string &filename);
+    using Writer::open;
 
-private:
-    MPI_Comm comm;
-    int root;
-
-    static boost::shared_ptr<BinaryWriter> makeHandle(MPI_Comm comm);
+    /**
+     * Collectively open a file for parallel writing.
+     * @param filename        Filename.
+     * @param comm            Intracommunicator for the collective operation.
+     * @param root            Rank that will write the file header.
+     */
+    void open(const std::string &filename, MPI_Comm comm, int root);
 };
 
 } // namespace FastPly

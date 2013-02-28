@@ -23,6 +23,50 @@ using std::tr1::int32_t;
 using std::tr1::uint64_t;
 using std::tr1::int64_t;
 
+class TestMulDiv : public CppUnit::TestFixture
+{
+    CPPUNIT_TEST_SUITE(TestMulDiv);
+    CPPUNIT_TEST(testBigA);
+    CPPUNIT_TEST(testBigC);
+    CPPUNIT_TEST_SUITE_END();
+public:
+    void testBigA();         ///< Test with a large value for A
+    void testBigC();         ///< Test with a large value for C
+    void testExceptions();   ///< Test exception tests
+};
+CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestMulDiv, TestSet::perBuild());
+
+void TestMulDiv::testBigA()
+{
+    uint32_t a = 0x98765432u;
+    uint32_t b = 17;
+    uint32_t c = 20;
+    uint32_t expected = uint64_t(a) * uint64_t(b) / uint64_t(c);
+    CPPUNIT_ASSERT_EQUAL(expected, mulDiv(a, b, c));
+    CPPUNIT_ASSERT_EQUAL(a, mulDiv(a, c, c));
+    CPPUNIT_ASSERT_EQUAL(uint32_t(0), mulDiv(a, uint32_t(0), c));
+}
+
+void TestMulDiv::testBigC()
+{
+    uint32_t a = 12345;
+    uint32_t b = 0x88888888u;
+    uint32_t c = 0x99999999u;
+    uint32_t expected = uint64_t(a) * uint64_t(b) / uint64_t(c);
+    CPPUNIT_ASSERT_EQUAL(expected, mulDiv(a, b, c));
+    CPPUNIT_ASSERT_EQUAL(a, mulDiv(a, c, c));
+    CPPUNIT_ASSERT_EQUAL(uint32_t(0), mulDiv(a, uint32_t(0), c));
+}
+
+void TestMulDiv::testExceptions()
+{
+    CPPUNIT_ASSERT_THROW(mulDiv(5, 6, 5), std::invalid_argument); // b > c
+    CPPUNIT_ASSERT_THROW(mulDiv(5, -1, 5), std::invalid_argument); // b < 0
+    CPPUNIT_ASSERT_THROW(mulDiv(5, 0, 0), std::invalid_argument); // c <= 0
+    CPPUNIT_ASSERT_THROW(mulDiv(-1, 4, 6), std::invalid_argument); // a < 0
+}
+
+
 /// Tests for @ref mulSat.
 class TestMulSat : public CppUnit::TestFixture
 {

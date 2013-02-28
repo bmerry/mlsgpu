@@ -110,18 +110,6 @@ void FileSet::addFile(FastPly::Reader *file)
     nSplats += file->size();
 }
 
-/**
- * Computes a * b / c with reduced risk of overflowing.
- *
- * @pre
- * - 0 &lt;= @a b &lt;= @a c
- * - @a c &gt; 0
- */
-static splat_id mulDiv(splat_id a, splat_id b, splat_id c)
-{
-    return a / c * b + (a % c) * b / c;
-}
-
 std::pair<splat_id, splat_id> FileSet::partition(int rank, int size) const
 {
     // First determine the rank as indices into the list of splats. There are
