@@ -7,6 +7,11 @@
 #if HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#ifndef __CL_ENABLE_EXCEPTIONS
+# define __CL_ENABLE_EXCEPTIONS
+#endif
+
 #include <mpi.h>
 #include <boost/smart_ptr/scoped_ptr.hpp>
 #include <boost/smart_ptr/scoped_array.hpp>
