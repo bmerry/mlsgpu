@@ -479,6 +479,8 @@ static std::size_t run(
         slaveThread->join();
 
     std::size_t ret = mesher->write(mainWorker, &Log::log[Log::info]);
+
+    grandTotalTimer.reset();
     doStatistics(vm, comm, root);
     return ret;
 }
