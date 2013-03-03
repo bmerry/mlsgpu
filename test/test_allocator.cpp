@@ -22,7 +22,9 @@ class TestAllocator : public CppUnit::TestFixture
     CPPUNIT_TEST(testAllocateHint);
     CPPUNIT_TEST(testCopyConstruct);
     CPPUNIT_TEST(testEqual);
+#if DEBUG
     CPPUNIT_TEST(testException);
+#endif
     CPPUNIT_TEST_SUITE_END();
 
 private:

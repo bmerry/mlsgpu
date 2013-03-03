@@ -28,7 +28,9 @@ class TestGrid : public CppUnit::TestFixture
     CPPUNIT_TEST(testGetVertex);
     CPPUNIT_TEST(testWorldToVertex);
     CPPUNIT_TEST(testWorldToCell);
+#if DEBUG
     CPPUNIT_TEST(testWorldToCellOverflow);
+#endif
     CPPUNIT_TEST(testSubGrid);
     CPPUNIT_TEST_SUITE_END();
 private:

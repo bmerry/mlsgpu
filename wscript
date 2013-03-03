@@ -15,7 +15,6 @@ variants = {
         'optimize': False,
         'assertions': True,
         'expensive_assertions': False,
-        'unit_tests': True,
         'coverage': False,
     },
     'coverage':
@@ -25,7 +24,6 @@ variants = {
         'optimize': False,
         'assertions': True,
         'expensive_assertions': True,
-        'unit_tests': True,
         'coverage': True,
     },
     'optimized':
@@ -35,7 +33,6 @@ variants = {
         'optimize': True,
         'assertions': True,
         'expensive_assertions': False,
-        'unit_tests': True,
         'coverage': False,
     },
     'checked':
@@ -45,7 +42,6 @@ variants = {
         'optimize': False,
         'assertions': True,
         'expensive_assertions': True,
-        'unit_tests': True,
         'coverage': False,
     },
     'release':
@@ -55,7 +51,6 @@ variants = {
         'optimize': True,
         'assertions': False,
         'expensive_assertions': False,
-        'unit_tests': False,
         'coverage': False,
     }
 }
@@ -78,8 +73,8 @@ def configure_variant(conf):
     else:
         conf.define('NDEBUG', '1', quote = False)
         conf.define('BOOST_DISABLE_ASSERTS', '1', quote = False)
-    if conf.env['unit_tests']:
-        conf.define('UNIT_TESTS', 1, quote = False)
+    conf.env['unit_tests'] = True
+    conf.define('UNIT_TESTS', 1, quote = False)
 
 def configure_mpi(conf):
     if conf.options.mpi:

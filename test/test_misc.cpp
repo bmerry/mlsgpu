@@ -28,6 +28,9 @@ class TestMulDiv : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE(TestMulDiv);
     CPPUNIT_TEST(testBigA);
     CPPUNIT_TEST(testBigC);
+#if DEBUG
+    CPPUNIT_TEST(testExceptions);
+#endif
     CPPUNIT_TEST_SUITE_END();
 public:
     void testBigA();         ///< Test with a large value for A
@@ -74,7 +77,9 @@ class TestMulSat : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE(TestMulSat);
     CPPUNIT_TEST(testOverflow);
     CPPUNIT_TEST(testNoOverflow);
+#if DEBUG
     CPPUNIT_TEST(testExceptions);
+#endif
     CPPUNIT_TEST(testZero);
     CPPUNIT_TEST_SUITE_END();
 public:
@@ -119,7 +124,9 @@ class TestDivUp : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestDivUp);
     CPPUNIT_TEST(testSimple);
+#if DEBUG
     CPPUNIT_TEST(testExceptions);
+#endif
     CPPUNIT_TEST(testTypes);
     CPPUNIT_TEST_SUITE_END();
 public:
@@ -159,8 +166,10 @@ class TestDivDown : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestDivDown);
     CPPUNIT_TEST(testSimple);
+#if DEBUG
     CPPUNIT_TEST(testZero);
     CPPUNIT_TEST(testOverflow);
+#endif
     CPPUNIT_TEST_SUITE_END();
 public:
     void testSimple();           ///< Test normal use cases
@@ -210,7 +219,9 @@ class TestDownDivider : public CppUnit::TestFixture
 public:
     CPPUNIT_TEST_SUITE(TestDownDivider);
     CPPUNIT_TEST(testNormal);
+#if DEBUG
     CPPUNIT_TEST(testDivZero);
+#endif
     CPPUNIT_TEST_SUITE_END();
 
 private:
@@ -291,7 +302,9 @@ class TestTmpFile : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestTmpFile);
     CPPUNIT_TEST(testCreate);
+#if DEBUG
     CPPUNIT_TEST(testBadPath);
+#endif
     CPPUNIT_TEST_SUITE_END();
 
 private:

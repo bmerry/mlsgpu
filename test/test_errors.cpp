@@ -24,7 +24,9 @@ class TestErrors : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestErrors);
     CPPUNIT_TEST(testAssertPass);
+#if DEBUG
     CPPUNIT_TEST(testAssertFail);
+#endif
     CPPUNIT_TEST_SUITE_END();
 
 public:

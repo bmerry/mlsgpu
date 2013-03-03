@@ -46,6 +46,7 @@ static const std::string testFilename = "test_fast_ply.ply";
 class TestFastPlyReader : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestFastPlyReader);
+#if DEBUG
     TEST_EXCEPTION_FILENAME(testEmpty, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadSignature, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testBadFormatFormat, FormatError, testFilename);
@@ -69,6 +70,7 @@ class TestFastPlyReader : public CppUnit::TestFixture
     TEST_EXCEPTION_FILENAME(testNotFloat, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testFormatAscii, FormatError, testFilename);
     TEST_EXCEPTION_FILENAME(testFormatMissing, FormatError, testFilename);
+#endif
 
     CPPUNIT_TEST(testReadHeader);
     CPPUNIT_TEST(testRead);
@@ -464,7 +466,9 @@ void TestFastPlyReader::testRead()
     CPPUNIT_ASSERT_EQUAL(0.0f, out[3].position[0]); // check for overwriting
     verify(1, out, out + 3);
 
+#if DEBUG
     CPPUNIT_ASSERT_THROW(h.read(1, 6, out), std::out_of_range);
+#endif
 }
 
 void TestFastPlyReader::testReadZero()
@@ -491,7 +495,9 @@ void TestFastPlyReader::testReadIterator()
     CPPUNIT_ASSERT_EQUAL(9500 - 2, int(out.size()));
     verify(2, out.begin(), out.end());
 
+#if DEBUG
     CPPUNIT_ASSERT_THROW(h.read(1, 10001, back_inserter(out)), std::out_of_range);
+#endif
 }
 
 /**
@@ -534,8 +540,10 @@ class TestFastPlyWriter : public CppUnit::TestFixture
     CPPUNIT_TEST_SUITE(TestFastPlyWriter);
     TEST_EXCEPTION_FILENAME(testBadFilename, std::ios_base::failure, "/not_a_valid_filename/");
     CPPUNIT_TEST(testSimple);
+#if DEBUG
     CPPUNIT_TEST(testState);
     CPPUNIT_TEST(testOverrun);
+#endif
     CPPUNIT_TEST_SUITE_END();
 public:
     void testBadFilename();   ///< Try to write to an invalid filename, check for error

@@ -177,7 +177,9 @@ void TestVariable::testAdd()
 
 void TestVariable::testGetMean()
 {
+#if DEBUG
     CPPUNIT_ASSERT_THROW(stat0->getMean(), std::length_error);
+#endif
     CPPUNIT_ASSERT_EQUAL(1.0, stat1->getMean());
     CPPUNIT_ASSERT_EQUAL(2.5, stat2->getMean());
     CPPUNIT_ASSERT_EQUAL(4.5, stat2s->getMean());
@@ -185,16 +187,20 @@ void TestVariable::testGetMean()
 
 void TestVariable::testGetVariance()
 {
+#if DEBUG
     CPPUNIT_ASSERT_THROW(stat0->getVariance(), std::length_error);
     CPPUNIT_ASSERT_THROW(stat1->getVariance(), std::length_error);
+#endif
     CPPUNIT_ASSERT_EQUAL(0.5, stat2->getVariance());
     CPPUNIT_ASSERT_EQUAL(0.0, stat2s->getVariance());
 }
 
 void TestVariable::testGetStddev()
 {
+#if DEBUG
     CPPUNIT_ASSERT_THROW(stat0->getStddev(), std::length_error);
     CPPUNIT_ASSERT_THROW(stat1->getStddev(), std::length_error);
+#endif
     CPPUNIT_ASSERT_DOUBLES_EQUAL(0.707106781186548, stat2->getStddev(), 1e-12);
     CPPUNIT_ASSERT_EQUAL(0.0, stat2s->getStddev());
 }
@@ -480,8 +486,10 @@ void TestStatisticsRegistry::testGetStatistic()
     Statistics::Variable &n = registry.getStatistic<Statistics::Variable>("new");
     CPPUNIT_ASSERT_EQUAL(0ULL, n.getNumSamples());
 
+#if DEBUG
     // Type mismatch on known statistic
     CPPUNIT_ASSERT_THROW(registry.getStatistic<Statistics::Variable>("counter"), std::bad_cast);
+#endif
 }
 
 void TestStatisticsRegistry::testStream()

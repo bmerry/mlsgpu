@@ -182,8 +182,10 @@ class TestSplatToBuckets : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestSplatToBuckets);
     CPPUNIT_TEST(testSimple);
+#if DEBUG
     CPPUNIT_TEST(testNan);
     CPPUNIT_TEST(testZero);
+#endif
     CPPUNIT_TEST_SUITE_END();
 public:
     void testSimple();         ///< Test standard case
@@ -215,7 +217,9 @@ class TestSplatSet : public CppUnit::TestFixture
     CPPUNIT_TEST(testBlobStream);
     CPPUNIT_TEST(testSplatStreamEmpty);
     CPPUNIT_TEST(testBlobStreamEmpty);
+#if DEBUG
     CPPUNIT_TEST(testBlobStreamZeroBucket);
+#endif
     CPPUNIT_TEST(testOtherGridSpacing);
     CPPUNIT_TEST(testOtherGridExtent);
     CPPUNIT_TEST(testOtherBucketSizeMultiple);
@@ -441,7 +445,9 @@ class TestFastFileSet : public TestFastBlobSet<SplatSet::FileSet>
 {
     typedef TestFastBlobSet<SplatSet::FileSet> BaseFixture;
     CPPUNIT_TEST_SUB_SUITE(TestFastFileSet, BaseFixture);
+#if DEBUG
     CPPUNIT_TEST(testEmpty);
+#endif
     CPPUNIT_TEST(testProgress);
     CPPUNIT_TEST_SUITE_END();
 

@@ -29,13 +29,15 @@
 class TestCircularBuffer : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestCircularBuffer);
-    CPPUNIT_TEST(testCreateZero);
     CPPUNIT_TEST(testAllocateFree);
     CPPUNIT_TEST(testSize);
     CPPUNIT_TEST(testStatistics);
+#if DEBUG
+    CPPUNIT_TEST(testCreateZero);
     CPPUNIT_TEST(testTooLarge);
     CPPUNIT_TEST(testOverflow);
     CPPUNIT_TEST(testZero);
+#endif
     CPPUNIT_TEST(testUnallocated);
     CPPUNIT_TEST_SUITE_END();
 
@@ -88,7 +90,7 @@ void TestCircularBuffer::testStatistics()
     CircularBuffer buffer("test", 1000);
 
     std::size_t newMem = allStat.get();
-	// Can't make this an exact test, because the linked list can also allocate
+    // Can't make this an exact test, because the linked list can also allocate
     CPPUNIT_ASSERT(newMem >= oldMem + 1000);
 }
 

@@ -28,7 +28,9 @@ using namespace SplatSet;
 class TestFastFileSetMPI : public TestFastFileSet
 {
     CPPUNIT_TEST_SUB_SUITE(TestFastFileSetMPI, TestFastFileSet);
+#if DEBUG
     CPPUNIT_TEST(testEmpty);
+#endif
     CPPUNIT_TEST(testProgress);
     CPPUNIT_TEST_SUITE_END();
 

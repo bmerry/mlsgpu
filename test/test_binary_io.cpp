@@ -31,9 +31,11 @@ class TestBinaryIO : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestBinaryIO);
     CPPUNIT_TEST(testOpenClose);
+#if DEBUG
     TEST_EXCEPTION_FILENAME(testBadFilename, std::ios::failure, badPath.string());
     CPPUNIT_TEST(testAlreadyOpen);
     CPPUNIT_TEST(testAlreadyClosed);
+#endif
     CPPUNIT_TEST_SUITE_END_ABSTRACT();
 
 public:

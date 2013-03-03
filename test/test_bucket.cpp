@@ -107,8 +107,10 @@ void TestNode::testChild()
     CPPUNIT_ASSERT_EQUAL(Node(2, 5, 7, 3), parent.child(6));
     CPPUNIT_ASSERT_EQUAL(Node(3, 5, 7, 3), parent.child(7));
 
+#if DEBUG
     CPPUNIT_ASSERT_THROW(Node(1, 2, 3, 0).child(0), std::invalid_argument);
     CPPUNIT_ASSERT_THROW(Node(1, 2, 3, 1).child(8), std::invalid_argument);
+#endif
 }
 
 void TestNode::testToCells()
@@ -168,7 +170,9 @@ class TestForEachNode : public CppUnit::TestFixture
 {
     CPPUNIT_TEST_SUITE(TestForEachNode);
     CPPUNIT_TEST(testSimple);
+#if DEBUG
     CPPUNIT_TEST(testAsserts);
+#endif
     CPPUNIT_TEST_SUITE_END();
 
 private:
