@@ -424,6 +424,10 @@ private:
 
     /** @} */
 
+    Statistics::Counter &overflowStat;      ///< Number of swathe splits
+    Statistics::Variable &nonemptyStat;     ///< Number of @ref addSlice calls that add geometry
+    Statistics::Variable &shipoutsStat;     ///< Number of calls to @ref shipOut per bin
+
     clogs::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.
     clogs::Scan scanElements;               ///< Scanner to scan @ref viCount.
     clogs::Radixsort sortVertices;          ///< Sorts vertices by keys for welding.

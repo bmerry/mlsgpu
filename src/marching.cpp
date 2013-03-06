@@ -327,6 +327,9 @@ Marching::Marching(const cl::Context &context, const cl::Device &device,
     copySliceTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.copySlice.time")),
     zeroTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.zero.time")),
     readbackTime(Statistics::getStatistic<Statistics::Variable>("kernel.marching.readback.time")),
+    overflowStat(Statistics::getStatistic<Statistics::Counter>("marching.overflow")),
+    nonemptyStat(Statistics::getStatistic<Statistics::Variable>("marching.slices.nonempty")),
+    shipoutsStat(Statistics::getStatistic<Statistics::Variable>("marching.shipouts")),
     scanUint(context, device, clogs::TYPE_UINT),
     scanElements(context, device, clogs::Type(clogs::TYPE_UINT, 2)),
     sortVertices(context, device, clogs::TYPE_ULONG, clogs::Type(clogs::TYPE_FLOAT, 4)),
@@ -611,8 +614,6 @@ Grid::size_type Marching::addSlices(
     const std::vector<cl::Event> *events,
     cl::Event *event)
 {
-    Statistics::Variable &nonempty = Statistics::getStatistic<Statistics::Variable>("marching.slice.nonempty");
-
     std::vector<cl::Event> wait;
     cl::Event last;
     Grid::size_type shipOuts = 0;
@@ -631,6 +632,7 @@ Grid::size_type Marching::addSlices(
         if (counts.s[0] > vertexSpace
             || counts.s[1] > indexSpace)
         {
+            overflowStat.add(1);
             // Swathe is too big on its own. Subdivide it and start
             // again
             Grid::size_type subFirst = swathe.zFirst;
@@ -714,7 +716,7 @@ Grid::size_type Marching::addSlices(
             offsets.s[1] += counts.s[1];
         }
     }
-    nonempty.add(compacted > 0);
+    nonemptyStat.add(compacted > 0);
     if (event != NULL)
         CLH::enqueueMarkerWithWaitList(queue, &wait, event);
     return shipOuts;
@@ -797,6 +799,6 @@ void Marching::generate(
         wait[0] = last;
     }
     if (shipOuts > 0)
-        Statistics::getStatistic<Statistics::Variable>("marching.shipouts").add(shipOuts);
+        shipoutsStat.add(shipOuts);
     queue.finish(); // will normally be finished already, but there may be corner cases
 }
