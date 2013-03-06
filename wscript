@@ -44,6 +44,15 @@ variants = {
         'expensive_assertions': True,
         'coverage': False,
     },
+    'symbols':
+    {
+        'debuginfo': True,
+        'symbols': True,
+        'optimize': True,
+        'assertions': False,
+        'expensive_assertions': False,
+        'coverage': False,
+    },
     'release':
     {
         'debuginfo': False,
