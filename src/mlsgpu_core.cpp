@@ -139,7 +139,7 @@ po::variables_map processOptions(int argc, char **argv, bool isMPI)
     desc.add_options()
         ("output-file,o",   po::value<std::string>()->required(), "output file")
         (Option::split,     "split output across multiple files")
-        (Option::splitSize, po::value<Capacity>()->default_value(100 * 1024 * 1024), "approximate size of output chunks (MiB)");
+        (Option::splitSize, po::value<Capacity>()->default_value(100 * 1024 * 1024), "approximate size of output chunks");
 
     po::options_description clopts("OpenCL options");
     CLH::addOptions(clopts);
