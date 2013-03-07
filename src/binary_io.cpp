@@ -683,7 +683,7 @@ std::map<std::string, WriterType> WriterTypeWrapper::getNameMap()
 {
     std::map<std::string, WriterType> ans;
     ans["stream"] = STREAM_WRITER;
-    ans["stream"] = STREAM_WRITER;
+    ans["syscall"] = SYSCALL_WRITER;
     return ans;
 }
 
