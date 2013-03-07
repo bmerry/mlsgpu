@@ -115,6 +115,25 @@ class DeviceWorkerGroup;
 
 class DeviceWorkerGroupBase
 {
+protected:
+    /**
+     * Maximum size we will use for the distance field image. This is set to minimum
+     * maximum for @c CL_DEVICE_IMAGE2D_MAX_HEIGHT.
+     */
+    static const int MAX_IMAGE_HEIGHT = 8192;
+
+    /**
+     * Compute a @a maxSwath value to pass to @ref Marching. If the returned
+     * value is @a N, then it is guaranteed that
+     * - @a N is a multiple of @a zAlign.
+     * - @a N + 1 times @c roundUp(@a y, @a yAlign) is at most @a yMax.
+     * - @a N is as large as possible given these constraints.
+     *
+     * However, if this would require a return value of 0, @a zAlign is returned instead.
+     */
+    static Grid::size_type computeMaxSwathe(
+        Grid::size_type yMax, Grid::size_type y, Grid::size_type yAlign, Grid::size_type zAlign);
+
 public:
     /// Data about a single bucket.
     struct SubItem

@@ -425,7 +425,7 @@ private:
     /** @} */
 
     Statistics::Counter &overflowStat;      ///< Number of swathe splits
-    Statistics::Variable &nonemptyStat;     ///< Number of @ref addSlice calls that add geometry
+    Statistics::Variable &nonemptyStat;     ///< Number of @ref addSlices calls that add geometry
     Statistics::Variable &shipoutsStat;     ///< Number of calls to @ref shipOut per bin
 
     clogs::Scan scanUint;                   ///< Scanner to scan @c cl_uint values.

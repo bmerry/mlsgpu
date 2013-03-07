@@ -141,6 +141,21 @@ std::size_t DeviceWorkerGroup::unallocated()
     return unallocated_;
 }
 
+Grid::size_type DeviceWorkerGroupBase::computeMaxSwathe(
+    Grid::size_type yMax,
+    Grid::size_type y,
+    Grid::size_type yAlign,
+    Grid::size_type zAlign)
+{
+    y = roundUp(y, yAlign);
+    if (yMax < y)
+        return zAlign; // no even enough space for a single slice
+    Grid::size_type chunks = (yMax - y) / (y * zAlign);
+    if (chunks == 0)
+        chunks = 1;
+    return chunks * zAlign;
+}
+
 CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     std::size_t numWorkers, std::size_t spare,
     const cl::Device &device,
@@ -149,11 +164,13 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
     int levels)
 {
     Grid::size_type block = maxCells + 1;
+    Grid::size_type maxSwathe = computeMaxSwathe(
+        MAX_IMAGE_HEIGHT, block, MlsFunctor::wgs[1], MlsFunctor::wgs[2]);
 
     CLH::ResourceUsage workerUsage;
     workerUsage += Marching::resourceUsage(
         device, block, block, block,
-        MlsFunctor::wgs[2], meshMemory, MlsFunctor::wgs);
+        maxSwathe, meshMemory, MlsFunctor::wgs);
     workerUsage += SplatTreeCL::resourceUsage(device, levels, maxBucketSplats);
 
     const std::size_t maxItemSplats = maxBucketSplats; // the same thing for now
@@ -173,10 +190,8 @@ DeviceWorkerGroupBase::Worker::Worker(
     queue(context, device, Statistics::isEventTimingEnabled() ? CL_QUEUE_PROFILING_ENABLE : 0),
     tree(context, device, levels, owner.maxBucketSplats),
     input(context, shape),
-    // OpenCL requires support for images of height 8192; the complex formula below ensures we
-    // do not exceed this except when maxCells is large
     marching(context, device, owner.maxCells + 1, owner.maxCells + 1, owner.maxCells + 1,
-             input.alignment()[2] * std::max(1, int(divUp(8192, input.alignment()[2] * roundUp(owner.maxCells + 1, input.alignment()[1]))) - 1),
+             computeMaxSwathe(MAX_IMAGE_HEIGHT, owner.maxCells + 1, input.alignment()[1], input.alignment()[2]),
              owner.meshMemory, input.alignment()),
     scaleBias(context)
 {
