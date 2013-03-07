@@ -492,8 +492,7 @@ libgl1-mesa-dev</screen>
                         finer than 1mm.</para></listitem>
             </itemizedlist>
             <para>
-                When using multiple GPUs, two runs of MLSGPU will generally not
-                produce exactly the same
+                Two runs of MLSGPU will generally not produce exactly the same
                 stream of bytes, even with identical arguments. However, the
                 only difference should be the order in which the vertices and
                 triangles appear in the files, and the geometry should be
@@ -525,8 +524,8 @@ libgl1-mesa-dev</screen>
                 <answer>
                     <para>
                         Meshlab is unable to process long comments. Try deleting
-                        the comments from the output file. You might be able to do
-                        this by running
+                        the comments from the output file. On a UNIX system you
+                        can to do this by running
                     </para>
                     <screen><userinput>sed -i '/^comment mlsgpu/d' <replaceable>filename</replaceable>.ply</userinput></screen>
                 </answer>
@@ -537,12 +536,8 @@ libgl1-mesa-dev</screen>
                         even though I use the same options.
                 </para></question>
                 <answer><para>
-                        This is normal behavior when using multiple GPUs. The
-                        geometry is (or should be) the same every
-                        time. Only the order of the vertices and triangles are
-                        changing. If for some reason you need the exact same files
-                        each time, try using <option>--cl-device</option> to
-                        restrict execution to a signle device.
+                        This is normal behavior. The geometry is (or should be) the same every
+                        time. Only the order of the vertices and triangles change.
                 </para></answer>
             </qandaentry>
             <qandaentry>
