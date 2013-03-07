@@ -222,6 +222,12 @@ protected:
         workers.reserve(numWorkers);
     }
 
+    ~WorkerGroup()
+    {
+        if (running())
+            stop();
+    }
+
 private:
     /// Thread object that processes items from the queue.
     class Thread
