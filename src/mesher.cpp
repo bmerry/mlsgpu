@@ -576,7 +576,6 @@ void OOCMesher::rewriteTriangles(
     const triangle_type *inTriangles,
     std::tr1::uint8_t *outTriangles)
 {
-    const std::tr1::uint32_t badIndex = std::numeric_limits<std::tr1::uint32_t>::max();
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
 #endif
@@ -589,7 +588,10 @@ void OOCMesher::rewriteTriangles(
             if (t[k] > externalBoundary)
             {
                 t[k] = externalRemap[~t[k]];
+#if DEBUG
+                const std::tr1::uint32_t badIndex = std::numeric_limits<std::tr1::uint32_t>::max();
                 assert(t[k] != badIndex);
+#endif
             }
             else
                 t[k] += offset;
