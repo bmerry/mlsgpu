@@ -86,6 +86,9 @@ ResourceUsage ResourceUsage::operator+(const ResourceUsage &b) const
     out.totalMemory = totalMemory + b.totalMemory;
     out.imageWidth = std::max(imageWidth, b.imageWidth);
     out.imageHeight = std::max(imageHeight, b.imageHeight);
+    out.allocations = allocations;
+    for (map_type::const_iterator i = b.allocations.begin(); i != b.allocations.end(); ++i)
+        out.allocations[i->first] += i->second;
     return out;
 }
 
@@ -95,6 +98,8 @@ ResourceUsage &ResourceUsage::operator+=(const ResourceUsage &b)
     totalMemory += b.totalMemory;
     imageWidth = std::max(imageWidth, b.imageWidth);
     imageHeight = std::max(imageHeight, b.imageHeight);
+    for (map_type::const_iterator i = b.allocations.begin(); i != b.allocations.end(); ++i)
+        allocations[i->first] += i->second;
     return *this;
 }
 
@@ -106,24 +111,34 @@ ResourceUsage ResourceUsage::operator*(unsigned int n) const
     {
         ResourceUsage out = *this;
         out.totalMemory *= n;
+        for (map_type::iterator i = out.allocations.begin(); i != out.allocations.end(); ++i)
+            i->second *= n;
         return out;
     }
 }
 
-void ResourceUsage::addBuffer(std::tr1::uint64_t bytes)
+void ResourceUsage::addBuffer(const std::string &name, std::tr1::uint64_t bytes)
 {
     maxMemory = std::max(maxMemory, bytes);
     totalMemory += bytes;
+    allocations[name] += bytes;
 }
 
-void ResourceUsage::addImage(std::size_t width, std::size_t height, std::size_t bytesPerPixel)
+void ResourceUsage::addImage(const std::string &name, std::size_t width, std::size_t height, std::size_t bytesPerPixel)
 {
     std::tr1::uint64_t size = width;
     size *= height;
     size *= bytesPerPixel;
-    addBuffer(size);
+    addBuffer(name, size);
     imageWidth = std::max(imageWidth, width);
     imageHeight = std::max(imageHeight, height);
+}
+
+void ResourceUsage::addStatistics(Statistics::Registry &registry, const std::string &prefix)
+{
+    for (map_type::const_iterator i = allocations.begin(); i != allocations.end(); ++i)
+        registry.getStatistic<Statistics::Peak>(prefix + i->first) += i->second;
+    registry.getStatistic<Statistics::Peak>(prefix + "all") += totalMemory;
 }
 
 namespace detail

@@ -19,6 +19,9 @@
 #include <boost/smart_ptr/scoped_array.hpp>
 #include <cstdlib>
 #include <algorithm>
+#include <locale>
+#include <sstream>
+#include <string>
 #include "../src/tr1_cstdint.h"
 #include "testutil.h"
 #include "test_clh.h"
@@ -110,91 +113,115 @@ CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(TestResourceUsage, TestSet::perBuild());
 
 void TestResourceUsage::setUp()
 {
-    used.addBuffer(1234);
-    used.addImage(15, 20, 3);
+    used.addBuffer("buffer", 1234);
+    used.addImage("image", 15, 20, 3);
     // Should now have 1234 + 15*20*3 bytes = 2134 bytes allocated
     // Biggest allocation is 1234
 }
 
 void TestResourceUsage::testConstructor()
 {
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(0), empty.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(0), empty.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(0), empty.getImageHeight());
+    MLSGPU_ASSERT_EQUAL(0, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(0, empty.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(0, empty.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(0, empty.getImageHeight());
 }
 
 void TestResourceUsage::testAddBuffer()
 {
-    empty.addBuffer(100);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(100), empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(100), empty.getTotalMemory());
-    empty.addBuffer(50);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(100), empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(150), empty.getTotalMemory());
-    empty.addBuffer(200);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(200), empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(350), empty.getTotalMemory());
+    empty.addBuffer("buffer1", 100);
+    MLSGPU_ASSERT_EQUAL(100, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(100, empty.getTotalMemory());
+    empty.addBuffer("buffer2", 50);
+    MLSGPU_ASSERT_EQUAL(100, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(150, empty.getTotalMemory());
+    empty.addBuffer("buffer2", 200);
+    MLSGPU_ASSERT_EQUAL(200, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(350, empty.getTotalMemory());
     const std::tr1::uint64_t big = UINT64_C(0x1234567812345678);
-    empty.addBuffer(big);
-    CPPUNIT_ASSERT_EQUAL(big, empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(big + 350, empty.getTotalMemory());
+    empty.addBuffer("buffer3", big);
+    MLSGPU_ASSERT_EQUAL(big, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(big + 350, empty.getTotalMemory());
 
-    CPPUNIT_ASSERT_EQUAL(std::size_t(0), empty.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(0), empty.getImageHeight());
+    MLSGPU_ASSERT_EQUAL(0, empty.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(0, empty.getImageHeight());
+
+    Statistics::Registry registry;
+    empty.addStatistics(registry, "test.");
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << registry;
+    const std::string stats = stream.str();
+    MLSGPU_ASSERT_EQUAL(
+        "test.all: 1311768465173141462\n"
+        "test.buffer1: 100\n"
+        "test.buffer2: 250\n"
+        "test.buffer3: 1311768465173141112\n", stats);
 }
 
 void TestResourceUsage::testAddImage()
 {
-    empty.addImage(8, 16, 4);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(512), empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(512), empty.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(8), empty.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(16), empty.getImageHeight());
+    empty.addImage("image1", 8, 16, 4);
+    MLSGPU_ASSERT_EQUAL(512, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(512, empty.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(8, empty.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(16, empty.getImageHeight());
 
-    empty.addImage(18, 8, 3);
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(512), empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(std::tr1::uint64_t(944), empty.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(18), empty.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(16), empty.getImageHeight());
+    empty.addImage("image2", 18, 8, 3);
+    MLSGPU_ASSERT_EQUAL(512, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(944, empty.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(18, empty.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(16, empty.getImageHeight());
 
-    empty.addImage(0x1000000, 0x1000000, 1);
+    empty.addImage("image3", 0x1000000, 0x1000000, 1);
     const std::tr1::uint64_t big = UINT64_C(0x1000000000000);
-    CPPUNIT_ASSERT_EQUAL(big, empty.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(big + 944, empty.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(0x1000000), empty.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(0x1000000), empty.getImageHeight());
+    MLSGPU_ASSERT_EQUAL(big, empty.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(big + 944, empty.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(std::size_t(0x1000000), empty.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(std::size_t(0x1000000), empty.getImageHeight());
+
+    Statistics::Registry registry;
+    empty.addStatistics(registry, "test.");
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << registry;
+    const std::string stats = stream.str();
+    MLSGPU_ASSERT_EQUAL(
+        "test.all: 281474976711600\n"
+        "test.image1: 512\n"
+        "test.image2: 432\n"
+        "test.image3: 281474976710656\n", stats);
 }
 
 void TestResourceUsage::testAdd()
 {
     const std::tr1::uint64_t big = 0x12345678;
-    empty.addBuffer(big);
+    empty.addBuffer("big", big);
     CLH::ResourceUsage sum = empty + used;
-    CPPUNIT_ASSERT_EQUAL(big, sum.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(big + 2134, sum.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(15), sum.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(20), sum.getImageHeight());
+    MLSGPU_ASSERT_EQUAL(big, sum.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(big + 2134, sum.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(15, sum.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(20, sum.getImageHeight());
 }
 
 void TestResourceUsage::testAddEquals()
 {
     const std::tr1::uint64_t big = 0x1234567812345678;
-    empty.addBuffer(big);
+    empty.addBuffer("big", big);
     used += empty;
-    CPPUNIT_ASSERT_EQUAL(big, used.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL(big + 2134, used.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(15), used.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(20), used.getImageHeight());
+    MLSGPU_ASSERT_EQUAL(big, used.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL(big + 2134, used.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(15, used.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(20, used.getImageHeight());
 }
 
 void TestResourceUsage::testMultiply()
 {
     const std::tr1::uint64_t big = 0x12345678;
-    used.addBuffer(big);
+    used.addBuffer("big", big);
     CLH::ResourceUsage prod = used * 10;
-    CPPUNIT_ASSERT_EQUAL(big, prod.getMaxMemory());
-    CPPUNIT_ASSERT_EQUAL((big + 2134) * 10, prod.getTotalMemory());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(15), prod.getImageWidth());
-    CPPUNIT_ASSERT_EQUAL(std::size_t(20), prod.getImageHeight());
+    MLSGPU_ASSERT_EQUAL(big, prod.getMaxMemory());
+    MLSGPU_ASSERT_EQUAL((big + 2134) * 10, prod.getTotalMemory());
+    MLSGPU_ASSERT_EQUAL(15, prod.getImageWidth());
+    MLSGPU_ASSERT_EQUAL(20, prod.getImageHeight());
 }

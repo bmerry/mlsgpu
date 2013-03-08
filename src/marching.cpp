@@ -266,47 +266,47 @@ CLH::ResourceUsage Marching::resourceUsage(
     // Keep this in sync with the actual allocations below
 
     // image = cl::Image2D(context, CL_MEM_READ_WRITE, cl::ImageFormat(CL_R, CL_FLOAT), imageWidth, imageHeight * (maxSwathe + 1));
-    ans.addImage(imageWidth, imageHeight * (maxSwathe + 1), sizeof(cl_float));
+    ans.addImage("distances", imageWidth, imageHeight * (maxSwathe + 1), sizeof(cl_float));
 
     // cells = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint3));
-    ans.addBuffer(swatheCells * sizeof(cl_uint3));
+    ans.addBuffer("cells", swatheCells * sizeof(cl_uint3));
 
     // numOccupied = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
-    ans.addBuffer(sizeof(cl_uint));
+    ans.addBuffer("numOccupied", sizeof(cl_uint));
 
     // viHistogram = cl::Buffer(context, CL_MEM_READ_WRITE, maxDepth * sizeof(cl_uint2));
-    ans.addBuffer(maxDepth * sizeof(cl_uint2));
+    ans.addBuffer("viHistogram", maxDepth * sizeof(cl_uint2));
 
     // viCount = cl::Buffer(context, CL_MEM_READ_WRITE, swatheCells * sizeof(cl_uint2));
-    ans.addBuffer(swatheCells * sizeof(cl_uint2));
+    ans.addBuffer("viCount", swatheCells * sizeof(cl_uint2));
 
     // vertexUnique = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_uint));
-    ans.addBuffer((vertexSpace + 1) * sizeof(cl_uint));
+    ans.addBuffer("vertexUnique", (vertexSpace + 1) * sizeof(cl_uint));
 
     // indexRemap = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_uint));
-    ans.addBuffer(vertexSpace * sizeof(cl_uint));
+    ans.addBuffer("indexRemap", vertexSpace * sizeof(cl_uint));
 
     // unweldedVertices = cl::Buffer(context, CL_MEM_READ_WRITE, vertexSpace * sizeof(cl_float4));
     // unweldedVertexKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (vertexSpace + 1) * sizeof(cl_ulong));
-    ans.addBuffer(vertexSpace * sizeof(cl_float4));
-    ans.addBuffer((vertexSpace + 1) * sizeof(cl_ulong));
+    ans.addBuffer("unweldedVertices", vertexSpace * sizeof(cl_float4));
+    ans.addBuffer("unweldedVertexKeys", (vertexSpace + 1) * sizeof(cl_ulong));
 
     // weldedVertices = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_float4));
     // weldedVertexKeys = cl::Buffer(context, CL_MEM_WRITE_ONLY, vertexSpace * sizeof(cl_ulong));
-    ans.addBuffer(vertexSpace * sizeof(cl_float4));
-    ans.addBuffer(vertexSpace * sizeof(cl_ulong));
+    ans.addBuffer("weldedVertices", vertexSpace * sizeof(cl_float4));
+    ans.addBuffer("weldedVertexKeys", vertexSpace * sizeof(cl_ulong));
 
     // indices = cl::Buffer(context, CL_MEM_READ_WRITE, indexSpace * sizeof(cl_uint));
-    ans.addBuffer(indexSpace * sizeof(cl_uint));
+    ans.addBuffer("indices", indexSpace * sizeof(cl_uint));
 
     // firstExternal = cl::Buffer(context, CL_MEM_READ_WRITE, sizeof(cl_uint));
-    ans.addBuffer(sizeof(cl_uint));
+    ans.addBuffer("firstExternal", sizeof(cl_uint));
 
     // Lookup tables
-    ans.addBuffer(COUNT_TABLE_BYTES);
-    ans.addBuffer(START_TABLE_BYTES);
-    ans.addBuffer(DATA_TABLE_BYTES);
-    ans.addBuffer(KEY_TABLE_BYTES);
+    ans.addBuffer("table.count", COUNT_TABLE_BYTES);
+    ans.addBuffer("table.start", START_TABLE_BYTES);
+    ans.addBuffer("table.data", DATA_TABLE_BYTES);
+    ans.addBuffer("table.key", KEY_TABLE_BYTES);
     // TODO: temporaries for the sorter and scanners
 
     return ans;

@@ -9,6 +9,7 @@
 # include <config.h>
 #endif
 #include "tr1_cstdint.h"
+#include "tr1_unordered_map.h"
 #include <boost/program_options.hpp>
 #include <boost/noncopyable.hpp>
 #include <vector>
@@ -20,6 +21,7 @@
 namespace Statistics
 {
     class Variable;
+    class Registry;
 }
 
 /// OpenCL helper functions
@@ -230,14 +232,20 @@ private:
     std::size_t imageWidth;           ///< Maximum image width used (0 if no images)
     std::size_t imageHeight;          ///< Maximum image height used (0 if no images)
 
+    typedef std::tr1::unordered_map<std::string, std::size_t> map_type;
+    /**
+     * Allocation amount associated with each name.
+     */
+    map_type allocations;
+
 public:
     ResourceUsage() : maxMemory(0), totalMemory(0), imageWidth(0), imageHeight(0) {}
 
     /// Indicate that memory for a buffer is required.
-    void addBuffer(std::tr1::uint64_t bytes);
+    void addBuffer(const std::string &name, std::tr1::uint64_t bytes);
 
     /// Indicate that memory for a 2D image is required.
-    void addImage(std::size_t width, std::size_t height, std::size_t bytesPerPixel);
+    void addImage(const std::string &name, std::size_t width, std::size_t height, std::size_t bytesPerPixel);
 
     /**
      * Computes the combined requirements given the individual requirements for two
@@ -266,6 +274,13 @@ public:
     std::size_t getImageWidth() const { return imageWidth; }
     /// Retrieve the largest image height required (0 if no images).
     std::size_t getImageHeight() const { return imageHeight; }
+
+    /**
+     * Increment peak statistics based on the internal table of allocations.
+     * @param registry      The registry to update.
+     * @param prefix        A prefix that is prepended to the internal names to make statistic names
+     */
+    void addStatistics(Statistics::Registry &registry, const std::string &prefix);
 };
 
 /// Option names for OpenCL options

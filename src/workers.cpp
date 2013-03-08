@@ -95,6 +95,11 @@ DeviceWorkerGroup::DeviceWorkerGroup(
         itemPool.push(item);
     }
     unallocated_ = maxItemSplats * items;
+
+    CLH::ResourceUsage usage = resourceUsage(
+        numWorkers, spare, device,
+        maxBucketSplats, maxCells, meshMemory, levels);
+    usage.addStatistics(Statistics::Registry::getInstance(), "mem.device.");
 }
 
 void DeviceWorkerGroup::start(const Grid &fullGrid)
@@ -175,7 +180,7 @@ CLH::ResourceUsage DeviceWorkerGroup::resourceUsage(
 
     const std::size_t maxItemSplats = maxBucketSplats; // the same thing for now
     CLH::ResourceUsage itemUsage;
-    itemUsage.addBuffer(maxItemSplats * sizeof(Splat));
+    itemUsage.addBuffer("splats", maxItemSplats * sizeof(Splat));
     return workerUsage * numWorkers + itemUsage * (numWorkers + spare);
 }
 

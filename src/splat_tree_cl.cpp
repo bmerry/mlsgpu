@@ -51,17 +51,17 @@ CLH::ResourceUsage SplatTreeCL::resourceUsage(
     // Keep this up to date with the actual allocations below
 
     // start = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    ans.addBuffer(maxStart * sizeof(command_type));
+    ans.addBuffer("start", maxStart * sizeof(command_type));
     // jumpPos = cl::Buffer(context, CL_MEM_READ_WRITE, maxStart * sizeof(command_type));
-    ans.addBuffer(maxStart * sizeof(command_type));
+    ans.addBuffer("jumpPos", maxStart * sizeof(command_type));
     // commands = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
-    ans.addBuffer((maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
+    ans.addBuffer("commands", (maxSplats * 8 + maxRanges * 2) * sizeof(command_type));
     // commandMap = cl::Buffer(context, CL_MEM_READ_WRITE, maxSplats * 8 * sizeof(command_type));
-    ans.addBuffer(maxSplats * 8 * sizeof(command_type));
+    ans.addBuffer("commandMap", maxSplats * 8 * sizeof(command_type));
     // entryKeys = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(code_type));
-    ans.addBuffer((maxSplats * 8) * sizeof(code_type));
+    ans.addBuffer("entryKeys", (maxSplats * 8) * sizeof(code_type));
     // entryValues = cl::Buffer(context, CL_MEM_READ_WRITE, (maxSplats * 8) * sizeof(command_type));
-    ans.addBuffer((maxSplats * 8) * sizeof(command_type));
+    ans.addBuffer("entryValues", (maxSplats * 8) * sizeof(command_type));
 
     // TODO: add in constant overheads for the scan and sort primitives
 
