@@ -495,7 +495,7 @@ std::size_t Marching::generateCells(
     queue.enqueueWriteBuffer(viHistogram, CL_FALSE,
                              viOffset, viSize,
                              viReadback.get() + swathe.zFirst, events, &last2);
-    Statistics::timeEvent(last, zeroTime);
+    Statistics::timeEvent(last2, zeroTime);
 
     std::vector<cl::Event> wait(2);
     wait[0] = last;
