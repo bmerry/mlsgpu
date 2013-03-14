@@ -13,6 +13,7 @@
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
 #include "progress.h"
+#include "misc.h"
 
 void ProgressMeter::operator++()
 {
@@ -31,14 +32,9 @@ ProgressDisplay::ProgressDisplay(size_type total,
 
 void ProgressDisplay::updateNextTic()
 {
-    size_type t = ticsShown + 1;
-    /* We want to compute total * t / totalTics (rounded down), but the
-     * intermediate result may overflow. So instead, we represent total
-     * as totalQ * totalTics + totalR. Then the value we want is
-     * totalQ * t + (totalR * t / totalTics), and this will not lead to
-     * overflow provided that totalTics^2 is small enough.
-     */
-    nextTic = totalQ * t + (totalR * t / totalTics);
+    unsigned int t = ticsShown + 1;
+    if (t <= totalTics)
+        nextTic = mulDiv(total, t, (unsigned int) totalTics);
 }
 
 void ProgressDisplay::restart(size_type total)
@@ -46,8 +42,6 @@ void ProgressDisplay::restart(size_type total)
     current = 0;
     ticsShown = 0;
     this->total = total;
-    totalQ = total / totalTics;
-    totalR = total % totalTics;
     os  << s1 << "0%   10   20   30   40   50   60   70   80   90   100%\n"
         << s2 << "|----|----|----|----|----|----|----|----|----|----|\n"
         << s3;

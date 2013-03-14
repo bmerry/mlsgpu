@@ -67,8 +67,6 @@ private:
     size_type nextTic;           ///< Progress amount at which the next tick will be shown
 
     size_type total;             ///< Total amount of progress expected
-    size_type totalQ;            ///< @ref total / @ref totalTics
-    size_type totalR;            ///< @ref total % @ref totalTics
 
     mutable boost::mutex mutex;  ///< Lock protecting the count and stream
     std::ostream &os;            ///< Output stream
