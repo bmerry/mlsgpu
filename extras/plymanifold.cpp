@@ -20,6 +20,55 @@
 
 using namespace std;
 
+/// Builder for @ref PLY::Reader that reads vertices (just position)
+class VertexBuilder
+#ifdef DOXYGEN_FAKE_CODE
+: public PLY::Builder
+#endif
+{
+public:
+    typedef boost::array<float, 3> Element;
+
+    template<typename Iterator>
+    void setProperty(const string &name, Iterator first, Iterator last)
+    {
+        (void) name;
+        (void) first;
+        (void) last;
+    }
+
+    template<typename T>
+    void setProperty(const std::string &name, const T &value)
+    {
+        if (name == "x" || name == "y" || name == "z")
+            current[name[0] - 'x'] = value;
+    }
+
+    Element create()
+    {
+        return current;
+    }
+
+    static void validateProperties(const PLY::PropertyTypeSet &properties)
+    {
+        const string fields[] = {"x", "y", "z"};
+        PLY::PropertyTypeSet::index<PLY::Name>::type::const_iterator p;
+        for (int i = 0; i < 3; i++)
+        {
+            p = properties.get<PLY::Name>().find(fields[i]);
+            if (p == properties.get<PLY::Name>().end())
+            {
+                throw PLY::FormatError("Missing property " + fields[i]);
+            }
+            else if (p->isList)
+                throw PLY::FormatError("Property " + fields[i] + " should not be a list");
+        }
+    }
+
+private:
+    Element current;
+};
+
 /// Builder for @ref PLY::Reader that reads triangles
 class TriangleBuilder
 #ifdef DOXYGEN_FAKE_CODE
@@ -83,6 +132,23 @@ private:
     Element current;
 };
 
+/// Checks that vertex coordinates are all finite
+template<typename Iterator>
+static void validateVertices(Iterator first, Iterator last)
+{
+    std::tr1::uint64_t id = 0;
+    for (Iterator i = first; i != last; ++i, ++id)
+    {
+        const VertexBuilder::Element &e = *i;
+        for (int j = 0; j < 3; j++)
+            if (!std::tr1::isfinite(e[j]))
+            {
+                cout << "Vertex " << id << " has non-finite value\n";
+                exit(1);
+            }
+    }
+}
+
 int main(int argc, const char **argv)
 {
     if (argc != 2)
@@ -102,11 +168,12 @@ int main(int argc, const char **argv)
             return 1;
         }
         PLY::Reader reader(&in);
-        reader.addBuilder("vertex", PLY::EmptyBuilder());
+        reader.addBuilder("vertex", VertexBuilder());
         reader.addBuilder("face", TriangleBuilder());
         reader.readHeader();
-        PLY::ElementRangeReader<PLY::EmptyBuilder> &vertexReader = reader.skipTo<PLY::EmptyBuilder>("vertex");
+        PLY::ElementRangeReader<VertexBuilder> &vertexReader = reader.skipTo<VertexBuilder>("vertex");
         size_t numVertices = vertexReader.getNumber();
+        validateVertices(vertexReader.begin(), vertexReader.end());
         PLY::ElementRangeReader<TriangleBuilder> &triangleReader = reader.skipTo<TriangleBuilder>("face");
         Manifold::Metadata metadata;
         string reason = Manifold::isManifold(numVertices, triangleReader.begin(), triangleReader.end(), &metadata);
