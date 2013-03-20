@@ -4,3 +4,10 @@ build
 stxxl.errlog
 stxxl.log
 .lock-waf_*
+color
+timeplots
+statistics
+profiles
+sphere.ply
+tsphere.ply
+alternating.ply
