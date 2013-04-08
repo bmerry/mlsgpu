@@ -166,7 +166,6 @@ bool operator!=(const Allocator<A> &a, const Allocator<B> &b)
 template<typename Alloc>
 Alloc makeAllocator(const std::string &name)
 {
-    typedef typename Alloc::size_type size_type;
     Statistics::Registry &registry = Statistics::Registry::getInstance();
     Statistics::Peak &allStat = registry.getStatistic<Statistics::Peak>("mem.all");
     Statistics::Peak &myStat = registry.getStatistic<Statistics::Peak>(name);
