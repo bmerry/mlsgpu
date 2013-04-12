@@ -128,9 +128,6 @@ def configure_variant_gcc(conf):
         # -flto requires compilation flags to be provided at link time
         conf.env.append_value('LINKFLAGS', ccflags)
 
-    # The -Wno-unknown-pragmas is because we also use #pragma STDC FENV_ACCESS
-    conf.env.append_value('CXXFLAGS_ROUNDING_MATH', ['-frounding-math', '-Wno-unknown-pragmas'])
-
 def configure_variant_msvc(conf):
     # Wall is not enable since boost vomits up zillions of warnings
     ccflags = ['/W1', '/EHsc', '/MD']
@@ -231,6 +228,35 @@ def configure(conf):
     conf.check_cxx(header_name = 'tr1/unordered_set', mandatory = False)
     conf.check_cxx(header_name = 'xmmintrin.h', mandatory = False)
     conf.check_cxx(header_name = 'emmintrin.h', mandatory = False)
+
+    asm_mxcsr_fragment = r'''
+#include <xmmintrin.h>
+#include <emmintrin.h>
+
+void frob_mxcsr(
+    unsigned int csrOrig, unsigned int csrDown,
+    __m128 loWorld, __m128 hiWorld,
+    __m128i &loCell, __m128i &hiCell)
+{
+    asm(
+        "\tldmxcsr %[csrDown]\n"
+        "\tcvtps2dq %[loWorld], %[loCell]\n"
+        "\tcvtps2dq %[hiWorld], %[hiCell]\n"
+        "\tldmxcsr %[csrOrig]\n"
+        : [loCell] "=&x" (loCell),
+          [hiCell] "=x" (hiCell)
+        : [loWorld] "x" (loWorld),
+          [hiWorld] "x" (hiWorld),
+          [csrDown] "m" (csrDown),
+          [csrOrig] "m" (csrOrig)
+    );
+}'''
+    conf.check_cxx(
+            features = ['cxx'],
+            fragment = asm_mxcsr_fragment,
+            msg = 'Checking for extended inline asm support',
+            define_name = 'HAVE_ASM_MXCSR',
+            mandatory = False)
 
     # Detect which timer implementation to use
     # We have to provide a fragment because with the default one the
@@ -348,12 +374,6 @@ def build(bld):
             target = 'src/kernels.cpp')
     make_kernels.post() # To allow dep tracker to find the target
 
-    splat_set_sse = bld(
-        features = ['cxx'],
-        source = 'src/splat_set_sse.cpp',
-        name = 'splat_set_sse',
-        use = 'ROUNDING_MATH')
-
     core_sources = [
             'src/async_io.cpp',
             'src/binary_io.cpp',
@@ -370,6 +390,7 @@ def build(bld):
             'src/progress.cpp',
             'src/statistics.cpp',
             'src/splat_set.cpp',
+            'src/splat_set_sse.cpp',
             'src/thread_name.cpp',
             'src/timeplot.cpp',
             'src/timer.cpp']
@@ -402,7 +423,7 @@ def build(bld):
             features = ['cxx', 'cxxstlib'],
             source = core_sources,
             target = 'mls_core',
-            use = 'TIMER BOOST splat_set_sse',
+            use = 'TIMER BOOST',
             name = 'libmls_core')
     bld(
             features = ['cxx', 'cxxstlib'],

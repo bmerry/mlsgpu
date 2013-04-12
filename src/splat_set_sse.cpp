@@ -58,7 +58,6 @@ void SplatToBuckets::operator()(
     boost::array<Grid::difference_type, 3> &lower,
     boost::array<Grid::difference_type, 3> &upper) const
 {
-#pragma STDC FENV_ACCESS ON
     unsigned int csrOrig = _mm_getcsr();
     unsigned int csrDown = (csrOrig & ~_MM_ROUND_MASK) | _MM_ROUND_DOWN;
 
@@ -70,10 +69,26 @@ void SplatToBuckets::operator()(
     hiWorld = _mm_mul_ps(hiWorld, invSpacing);
     __m128i loCell, hiCell;
 
-    _mm_setcsr(csrDown);
-    loCell = _mm_cvtps_epi32(loWorld);
-    hiCell = _mm_cvtps_epi32(hiWorld);
-    _mm_setcsr(csrOrig);
+    /* Ideally this would be written with intrinsics instead of inline asm,
+     * but several compilers (MSVC and Clang) generate incorrect code because
+     * they move the ldmxcsr instructions around relative to others.
+     * Since compilers had to be white-listed anyway and GCC was the only
+     * compiler we could whitelist (and even then, it may just be good luck,
+     * since GCC explicitly does not support #pragma STDC FENV_ACCESS as of
+     * 4.7), it seems both safer and no less portable to use GCC asm syntax.
+     */
+    asm(
+        "\tldmxcsr %[csrDown]\n"
+        "\tcvtps2dq %[loWorld], %[loCell]\n"
+        "\tcvtps2dq %[hiWorld], %[hiCell]\n"
+        "\tldmxcsr %[csrOrig]\n"
+        : [loCell] "=&x" (loCell),
+          [hiCell] "=x" (hiCell)
+        : [loWorld] "x" (loWorld),
+          [hiWorld] "x" (hiWorld),
+          [csrDown] "m" (csrDown),
+          [csrOrig] "m" (csrOrig)
+    );
 
     divide(loCell, lower);
     divide(hiCell, upper);
