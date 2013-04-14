@@ -47,7 +47,7 @@ void Mixin::setUpCL()
     }
     device = devices[0];
     context = CLH::makeContext(device);
-    queue = cl::CommandQueue(context, device, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
+    queue = cl::CommandQueue(context, device);
 }
 
 void Mixin::tearDownCL()
