@@ -456,6 +456,11 @@ def build(bld):
                 target = 'plymanifold',
                 use = 'BOOST_MATH libmls_core',
                 install_path = None)
+        bld.program(
+                source = ['extras/plypntcat.cpp'],
+                target = 'plypntcat',
+                use = 'libmls_core',
+                install_path = None)
 
     if bld.env['XSLTPROC']:
         bld(
