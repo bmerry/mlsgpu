@@ -68,7 +68,7 @@ def options(opt):
     opt.load('gnu_dirs')
     opt.load('compiler_cxx')
     opt.load('waf_unit_test')
-    opt.load('provenance', tooldir = '../../waf-tools')
+    opt.load('provenance', tooldir = 'waf-tools')
     opt.add_option('--variant', type = 'choice', dest = 'variant', default = 'release', action = 'store', help = 'build variant', choices = list(variants.keys()))
     opt.add_option('--lto', dest = 'lto', default = False, action = 'store_true', help = 'use link-time optimization')
     opt.add_option('--cl-headers', action = 'store', default = None, help = 'Include path for OpenCL')
@@ -207,7 +207,7 @@ def configure(conf):
     if conf.options.cl_headers:
         conf.env.append_value('INCLUDES_OPENCL', [conf.options.cl_headers])
     else:
-        conf.env.append_value('INCLUDES_OPENCL', [os.path.abspath('../../khronos_headers')])
+        conf.env.append_value('INCLUDES_OPENCL', [os.path.abspath('khronos_headers')])
     conf.env.append_value('LIB_OPENCL', ['OpenCL'])
     conf.check_cxx(
         features = ['cxx', 'cxxprogram'],
