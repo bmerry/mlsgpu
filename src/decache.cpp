@@ -1,4 +1,6 @@
 /**
+ * @file
+ *
  * OS-specific utilities to remove a file from the OS cache.
  */
 

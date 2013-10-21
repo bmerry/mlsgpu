@@ -1,3 +1,9 @@
+/**
+ * @file
+ *
+ * Error and exception utilities.
+ */
+
 #ifndef MLSGPU_ERRORS_H
 #define MLSGPU_ERRORS_H
 

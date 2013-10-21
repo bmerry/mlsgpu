@@ -1,3 +1,9 @@
+/**
+ * @file
+ *
+ * Simple timer functions.
+ */
+
 #include <stdexcept>
 #include "timer.h"
 
