@@ -52,7 +52,9 @@
             </para>
             <itemizedlist>
                 <listitem><para>A C++ compiler. GCC 4.6 and 4.7, Clang 3.0 and
-                        MSVC 2010 have been tested.</para></listitem>
+                        MSVC 2010 have been tested. Note that at the time of
+                        writing, Clang does not support OpenMP and so
+                        performance will be reduced.</para></listitem>
                 <listitem><para><ulink
                             url="http://www.boost.org/">Boost</ulink> 1.48,
                         including the following runtime libraries:</para>
@@ -208,7 +210,7 @@ libgl1-mesa-dev</screen>
             <para>
                 For best performance, the order of input samples in a file
                 should correlate well with position. Simply outputting the
-                points they are encountered in a regular sampling grid will
+                points as they are encountered in a regular sampling grid will
                 give good results. In particular, do not sort the points along
                 a single axis, as this will reduce coherence.
             </para>
