@@ -440,7 +440,7 @@ public:
                          std::vector<std::string> &store);
 };
 
-/// Tests for @ref SplatSet::FastBlobSet<SplatSet::FileSet>.
+/// Tests for @ref SplatSet::FastBlobSet <SplatSet::FileSet>.
 class TestFastFileSet : public TestFastBlobSet<SplatSet::FileSet>
 {
     typedef TestFastBlobSet<SplatSet::FileSet> BaseFixture;

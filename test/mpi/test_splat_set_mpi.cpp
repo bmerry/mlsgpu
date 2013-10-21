@@ -24,7 +24,7 @@
 
 using namespace SplatSet;
 
-/// Tests for @ref SplatSet::FastBlobSetMPI<SplatSet::FileSet>.
+/// Tests for @ref SplatSet::FastBlobSetMPI <SplatSet::FileSet>.
 class TestFastFileSetMPI : public TestFastFileSet
 {
     CPPUNIT_TEST_SUB_SUITE(TestFastFileSetMPI, TestFastFileSet);
