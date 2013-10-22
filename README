@@ -1,8 +1,0 @@
-The documentation is built as part of the build process. If you can't access
-the documentation online, try reading the unformatted documentation in
-doc/mlsgpu-user-manual.xml.
-
-For the very impatient (who have all the dependencies installed):
-$ python waf configure --variant=release
-$ python waf
-$ sudo python waf install
