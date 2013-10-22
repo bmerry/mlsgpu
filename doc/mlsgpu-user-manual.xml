@@ -648,6 +648,14 @@ libgl1-mesa-dev</screen>
             </qandaentry>
         </qandaset>
     </chapter>
+    <chapter>
+        <title>Support</title>
+        <para>
+            MLSGPU is no longer being actively developed. If you find a bug or
+            need a new feature, your best option is to fix or implement it
+            yourself and send me a GitHub pull request.
+        </para>
+    </chapter>
     <chapter id="license">
         <title>License</title>
         <para>
