@@ -502,6 +502,48 @@ libgl1-mesa-dev</screen>
             </para>
         </section>
     </chapter>
+    <chapter>
+        <title>Using MLSGPU on a GPU cluster</title>
+        <para>
+            MLSGPU can be used on a cluster to distribute processing to more
+            GPUs than will fit in a single box. It scales reasonably well to 8
+            GPUs, but beyond this point it is likely that the master node will
+            become a bottleneck as some operations are not parallelized.
+        </para>
+        <para>
+            To use MLSGPU on a cluster, you will need an MPI implementation
+            while supports MPI-IO. We have only tested with OpenMPI 1.6 on
+            Linux, and in fact older versions of OpenMPI have known bugs. MPI
+            is automatically detected when running <command>python waf
+                configure</command>. The resulting binary is called
+            <command>mlsgpu-mpi</command>, and the interface is essentially the
+            same as for <command>mlsgpu</command>.
+        </para>
+        <para>
+            Most data movement is handled through the filesystem. It is thus
+            beneficial to have a high performance parallel filesystem that
+            integrates with MPI-IO. We have had good results with GPFS, but
+            other filesystems will probably work fine too. NFS does not work
+            very well, because it requires a lot of locking to guarantee the
+            necessary semantics for safe parallel access. Note that the
+            <link linkend="running.commandline.temporary">temporary
+                directory</link> <emphasis>must</emphasis> be on a filesystem
+            that is shared between the nodes, not a local scratch area.
+        </para>
+        <para>
+            MLSGPU is designed to run with one process per node and to use
+            multiple threads, rather than running one per CPU core. If you are
+            using OpenMPI, then you should pass <parameter>-pernode</parameter>
+            to <command>mpirun</command>. MLSGPU will fire up a number of
+            threads for managing I/O and GPUs, and more under the control of
+            OpenMP (the number can be overridden by passing
+            <parameter>--omp-threads</parameter> to
+            <command>mlsgpu-mpi</command>). If you are using a scheduling
+            system on the cluster it is best to ask to reserve entire nodes,
+            but if not it is up to you to ensure that MLSGPU does not consume
+            more CPU cores than you have reserved.
+        </para>
+    </chapter>
     <chapter id="troubleshooting">
         <title>Troubleshooting</title>
         <qandaset>
