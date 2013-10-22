@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>MLSGPU User Manual</title><meta name="generator" content="DocBook XSL Stylesheets V1.76.1" /></head><body><div class="book" title="MLSGPU User Manual"><div class="titlepage"><div><div><h1 class="title"><a id="idp100448"></a>MLSGPU User Manual</h1></div><div><div class="author"><h3 class="author"><span class="firstname">Bruce</span> <span class="surname">Merry</span></h3><code class="email">&lt;<a class="email" href="mailto:bmerry@cs.uct.ac.za">bmerry@cs.uct.ac.za</a>&gt;</code></div></div><div><p class="releaseinfo">
+        </p></div><div><p class="copyright">Copyright © 2012, 2013 University of Cape Town</p></div></div><hr /></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="chapter"><a href="#introduction">1. Introduction</a></span></dt><dt><span class="chapter"><a href="#installation">2. Installation</a></span></dt><dd><dl><dt><span class="section"><a href="#installation.dependencies">2.1. Dependencies</a></span></dt><dt><span class="section"><a href="#installation.compiling">2.2. Compiling</a></span></dt><dt><span class="section"><a href="#installation.install">2.3. Installing</a></span></dt></dl></dd><dt><span class="chapter"><a href="#running">3. Running MLSGPU</a></span></dt><dd><dl><dt><span class="section"><a href="#running.input">3.1. Input files</a></span></dt><dt><span class="section"><a href="#running.output">3.2. Output files</a></span></dt><dt><span class="section"><a href="#running.commandline">3.3. Command-line options</a></span></dt><dd><dl><dt><span class="section"><a href="#running.commandline.temporary">3.3.1. Temporary files</a></span></dt><dt><span class="section"><a href="#running.commandline.response">3.3.2. Response files</a></span></dt><dt><span class="section"><a href="#running.commandline.split">3.3.3. Splitting the output</a></span></dt><dt><span class="section"><a href="#running.commandline.opencl">3.3.4. Selecting OpenCL devices</a></span></dt><dt><span class="section"><a href="#running.commandline.smooth">3.3.5. Smoothing</a></span></dt><dt><span class="section"><a href="#running.commandline.prune">3.3.6. Component pruning</a></span></dt><dt><span class="section"><a href="#running.commandline.boundary">3.3.7. Boundary handling</a></span></dt></dl></dd><dt><span class="section"><a href="#running.limitations">3.4. Limitations</a></span></dt></dl></dd><dt><span class="chapter"><a href="#troubleshooting">4. Troubleshooting</a></span></dt><dt><span class="chapter"><a href="#license">5. License</a></span></dt><dd><dl><dt><span class="section"><a href="#idp1967104">5.1. Third-party components</a></span></dt></dl></dd></dl></div><div class="chapter" title="Chapter 1. Introduction"><div class="titlepage"><div><div><h2 class="title"><a id="introduction"></a>Chapter 1. Introduction</h2></div></div></div><p>
+            MLSGPU is a tool for reconstructing triangle meshes from point
+            clouds obtained via laser range scanning (or potentially other
+            methods). It is able to take advantage of GPUs for high
+            performance, and can handle hundreds of gigabytes of input and
+            output.
+        </p><p>
+            MLSGPU is only one step in a scanning pipeline. Acquistion,
+            cleaning, registration and feature size estimation all need to
+            occur before MLSGPU is used. Refer to <a class="xref" href="#running.input" title="3.1. Input files">Section 3.1, “Input files”</a> and <a class="xref" href="#running.output" title="3.2. Output files">Section 3.2, “Output files”</a>
+            for further details on the input and output data formats.
+        </p></div><div class="chapter" title="Chapter 2. Installation"><div class="titlepage"><div><div><h2 class="title"><a id="installation"></a>Chapter 2. Installation</h2></div></div></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="section"><a href="#installation.dependencies">2.1. Dependencies</a></span></dt><dt><span class="section"><a href="#installation.compiling">2.2. Compiling</a></span></dt><dt><span class="section"><a href="#installation.install">2.3. Installing</a></span></dt></dl></div><div class="section" title="2.1. Dependencies"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="installation.dependencies"></a>2.1. Dependencies</h2></div></div></div><p>
+                MLSGPU requires either Microsoft Windows, or a POSIX operating
+                system such as a GNU/Linux system. At present only Ubuntu 12.04
+                is tested, but other variants are expected to work. It is also
+                highly recommended that you use a 64-bit operating system. It
+                should still be possible to use a 32-bit OS, but it is untested
+                and there may be problems with large data sets.
+            </p><p>
+                MLSGPU depends on the following software to compile and run.
+                Versions listed are the ones that have been tested; older
+                or newer versions will often work too.
+            </p><div class="itemizedlist"><ul class="itemizedlist" type="disc"><li class="listitem"><p>A C++ compiler. GCC 4.6 and 4.7, Clang 3.0 and
+                        MSVC 2010 have been tested. Note that at the time of
+                        writing, Clang does not support OpenMP and so
+                        performance will be reduced.</p></li><li class="listitem"><p><a class="ulink" href="http://www.boost.org/" target="_top">Boost</a> 1.48,
+                        including the following runtime libraries:</p><div class="itemizedlist"><ul class="itemizedlist" type="circle"><li class="listitem"><p><code class="systemitem">boost_program_options</code></p></li><li class="listitem"><p><code class="systemitem">boost_iostreams</code></p></li><li class="listitem"><p><code class="systemitem">boost_thread</code></p></li><li class="listitem"><p><code class="systemitem">boost_filesystem</code></p></li><li class="listitem"><p><code class="systemitem">boost_system</code></p></li><li class="listitem"><p><code class="systemitem">boost_math_c99</code></p></li><li class="listitem"><p><code class="systemitem">boost_math_c99f</code></p></li><li class="listitem"><p><code class="systemitem">boost_serialization</code></p></li></ul></div></li><li class="listitem"><p><a class="ulink" href="http://clogs.sourceforge.net/" target="_top">clogs</a> 1.1</p></li><li class="listitem"><p><a class="ulink" href="http://www.stack.nl/~dimitri/doxygen/" target="_top">Doxygen</a> 1.7.4</p></li><li class="listitem"><p><a class="ulink" href="http://www.python.org" target="_top">Python</a> 2.7</p></li><li class="listitem"><p><a class="ulink" href="http://xmlsoft.org/xslt/" target="_top">xsltproc</a> 1.1</p></li><li class="listitem"><p><a class="ulink" href="http://docbook.sf.net/" target="_top">DocBook</a> 4.3 stylesheets</p></li><li class="listitem"><p>An implementation of OpenCL 1.1. GPU device
+                        drivers will normally include this. It has been tested
+                        with NVIDIA GPU drivers and with the AMD APP SDK 2.7
+                        on a CPU. The device must support images.</p></li></ul></div><p>
+                The following tools and libraries are necessarily to build
+                optional parts, but are not required:
+            </p><div class="itemizedlist"><ul class="itemizedlist" type="disc"><li class="listitem"><p><a class="ulink" href="http://sourceforge.net/apps/mediawiki/cppunit/" target="_top">CppUnit</a>
+                        1.12 is needed to build the test
+                        suite.</p></li></ul></div><p>
+                The following list of packages should suffice on Ubuntu 12.04 (although it has
+                not been tested against a clean installation), with the
+                exception of <code class="systemitem">clogs</code> which has not been
+                packaged for Ubuntu. When configuring <code class="systemitem">clogs</code> you can pass
+                <strong class="userinput"><code>--cl-headers=<em class="replaceable"><code>MLSGPU_ROOT</code></em>/khronos_headers</code></strong>
+                to get the OpenCL header files.
+            </p><pre class="screen">xsltproc
+docbook-xml
+docbook-xsl
+libboost-dev
+libboost-iostreams-dev
+libboost-filesystem-dev
+libboost-system-dev
+libboost-math-dev
+libboost-program-options-dev
+libboost-thread-dev
+libcppunit-dev
+g++
+libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="installation.compiling"></a>2.2. Compiling</h2></div></div></div><p>
+                Before actually compiling, the build must be configured. This can be
+                done by running <strong class="userinput"><code>python waf configure</code></strong>. This
+                will check that the required libraries are present. If
+                configuration fails, you can find more detailed error
+                information in <code class="filename">build/config.log</code>. The
+                build system will attempt to auto-detect the compiler, but if
+                you wish to override it you can set the <code class="envar">CXX</code>
+                environment variable before doing the configuration.
+            </p><p>
+                The installation directories are chosen at configure
+                time. The default is to install files into subdirectories of
+                <code class="filename">/usr/local</code>, but this
+                can be overridden with
+                <code class="option">--prefix=<em class="replaceable"><code>PREFIX</code></em></code>.
+            </p><p>
+                There are also other command-line options that can be given to
+                affect the configured build. They are intended mainly for
+                developer rather than end-user use, so they are not documented
+                here.  Running <strong class="userinput"><code>python waf configure --help</code></strong>
+                will show a full list.
+            </p><p>
+                Once configuration is complete, running
+                <strong class="userinput"><code>python waf</code></strong> will perform the compilation.
+            </p></div><div class="section" title="2.3. Installing"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="installation.install"></a>2.3. Installing</h2></div></div></div><p>
+                Once compilation is complete, run <strong class="userinput"><code>python waf
+                    install</code></strong> to install MLSGPU. If you used the
+                default installation paths on the POSIX system, you may need
+                to be root to do this.
+            </p></div></div><div class="chapter" title="Chapter 3. Running MLSGPU"><div class="titlepage"><div><div><h2 class="title"><a id="running"></a>Chapter 3. Running MLSGPU</h2></div></div></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="section"><a href="#running.input">3.1. Input files</a></span></dt><dt><span class="section"><a href="#running.output">3.2. Output files</a></span></dt><dt><span class="section"><a href="#running.commandline">3.3. Command-line options</a></span></dt><dd><dl><dt><span class="section"><a href="#running.commandline.temporary">3.3.1. Temporary files</a></span></dt><dt><span class="section"><a href="#running.commandline.response">3.3.2. Response files</a></span></dt><dt><span class="section"><a href="#running.commandline.split">3.3.3. Splitting the output</a></span></dt><dt><span class="section"><a href="#running.commandline.opencl">3.3.4. Selecting OpenCL devices</a></span></dt><dt><span class="section"><a href="#running.commandline.smooth">3.3.5. Smoothing</a></span></dt><dt><span class="section"><a href="#running.commandline.prune">3.3.6. Component pruning</a></span></dt><dt><span class="section"><a href="#running.commandline.boundary">3.3.7. Boundary handling</a></span></dt></dl></dd><dt><span class="section"><a href="#running.limitations">3.4. Limitations</a></span></dt></dl></div><div class="section" title="3.1. Input files"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="running.input"></a>3.1. Input files</h2></div></div></div><p>
+                The input format for MLSGPU is the PLY file format.
+                Additionally, it is restricted to a subset of valid PLY files:
+            </p><div class="itemizedlist"><ul class="itemizedlist" type="disc"><li class="listitem"><p>Only binary files are supported, and only in
+                        the endianness used by the host CPU (typically
+                        little-endian for an x86 or x86-64
+                        CPU).</p></li><li class="listitem"><p>The first type of element in the file must be
+                        <code class="literal">vertex</code>. Other elements may be
+                        present but they must occur later in the file, and
+                        will be ignored.</p></li><li class="listitem"><p>The <code class="literal">vertex</code> element must
+                        contain the fields
+                        <code class="literal">x</code>,
+                        <code class="literal">y</code>,
+                        <code class="literal">z</code>,
+                        <code class="literal">nx</code>,
+                        <code class="literal">ny</code>,
+                        <code class="literal">nz</code>
+                        and <code class="literal">radius</code> (explained below), and
+                        they must all have type <span class="symbol">float32</span>.
+                        Other fields may be present as long as they are not
+                        lists, and they will be ignored.</p></li></ul></div><p>
+                The positions are given by <code class="literal">x</code>,
+                <code class="literal">y</code> and <code class="literal">z</code>. The units are
+                arbitrarily, but they must of course match across all input
+                files. The oriented normals are given by
+                <code class="literal">nx</code>, <code class="literal">ny</code> and
+                <code class="literal">nz</code>, and they must have unit length. The
+                final required field is <code class="literal">radius</code>, which is an
+                estimate of the spacing between the sample and its neighbors.
+                This must be positive and use the same units as the position.
+            </p><p>
+                For best performance, the order of input samples in a file
+                should correlate well with position. Simply outputting the
+                points as they are encountered in a regular sampling grid will
+                give good results. In particular, do not sort the points along
+                a single axis, as this will reduce coherence.
+            </p><p>
+                MLSGPU accepts multiple input files. The files must already
+                have been registered and transformed into a common coordinate
+                system.
+            </p></div><div class="section" title="3.2. Output files"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="running.output"></a>3.2. Output files</h2></div></div></div><p>
+                The output format for MLSGPU is again the PLY file format. The
+                output file will contain just vertex positions and triangles;
+                all other metadata from the input is discarded. MLSGPU can
+                either write the entire output mesh to a single PLY file, or
+                break the volume up into a regular grid and output a
+                separate PLY file for each non-empty grid cell. In the latter
+                case, the vertices at the boundaries between files will be
+                duplicated in both files, so that neighboring files can be
+                loaded together to give a seamless join.
+            </p></div><div class="section" title="3.3. Command-line options"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="running.commandline"></a>3.3. Command-line options</h2></div></div></div><p>
+                The minimum command-line for running MLSGPU is
+            </p><div class="cmdsynopsis"><p><code class="command">mlsgpu</code>   --fit-grid=<em class="replaceable"><code>spacing</code></em>   -o <em class="replaceable"><code>output.ply</code></em>   <em class="replaceable"><code>input.ply</code></em>... </p></div><p>
+                The <em class="replaceable"><code>spacing</code></em> specifies the spacing
+                between sample points in a regular grid that will be used in
+                the Marching Tetrahedra algorithm. All vertices in the output
+                file will be on edges of this grid. This value should be of a
+                similar order of magnitude to the finest scanning density.
+                Using too large a value will not only cause the reconstruction
+                to look blocky, but will also lead to unexpected holes. Using
+                too small a value will lead to an excessively large output
+                file, and will also significantly increase the running time.
+            </p><p>
+                Multiple input files may be listed on the command line. You
+                may also list a directory on the command line, in which case
+                all <code class="filename">.ply</code> files in that
+                directory will be loaded (but without recursing into
+                subdirectories).
+            </p><p>
+                The following subsections document the options that are
+                intended for general use. There are additional options that
+                are only intended for use by the developers of MLSGPU, and
+                which are not documented. You can see a full list of options
+                by running <strong class="userinput"><code><span class="command"><strong>mlsgpu</strong></span>
+                    <code class="option">--help</code></code></strong>, which also shows the
+                default values used.
+            </p><div class="section" title="3.3.1. Temporary files"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.temporary"></a>3.3.1. Temporary files</h3></div></div></div><p>
+                    To handle the large datasets, the output mesh is first written
+                    to temporary files before being reorganised for the final
+                    output files. The temporary files will take roughly the same
+                    amount of space (sometimes around 20% more) as the final
+                    output files, so you will need to ensure you have sufficient
+                    free space. Use <code class="option">--tmp-dir
+                        <em class="replaceable"><code>path</code></em></code>
+                    to store the temporary files in
+                    <em class="replaceable"><code>path</code></em>. If this option is not
+                    specified, the default path for the operating system is used.
+                </p><p>
+                    The temporary files are deleted at the end of a successful
+                    run, but if the program crashes or is killed, the
+                    temporary files will remain on disk and need to be manually
+                    removed to recover the space.
+                </p></div><div class="section" title="3.3.2. Response files"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.response"></a>3.3.2. Response files</h3></div></div></div><p>
+                    Operating systems sometimes place a limit on the length of a
+                    command-line, which can be difficult if there are a very large
+                    number of input files (although the option to specify a
+                    directory instead of a file is usually sufficient). To
+                    work around this, a
+                    <em class="firstterm">response file</em> can be used to place the
+                    command-line arguments in a file. First create a file with the
+                    command-line arguments. The arguments can be separated by
+                    whitespace or placed on separate lines. Then pass
+                    <code class="option">--response-file
+                        <em class="replaceable"><code>filename</code></em></code> when running
+                    MLSGPU. It is possible to place some arguments in the response
+                    file and others on the command line, but only one response
+                    file is supported. The response-file processor is also extremely
+                    basic: spaces in filenames will cause problems, and shell
+                    wildcards will not work.
+                </p></div><div class="section" title="3.3.3. Splitting the output"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.split"></a>3.3.3. Splitting the output</h3></div></div></div><p>
+                    Rather than producing a single giant output file, it is
+                    possible to split the output into chunks by passing
+                    <code class="option">--split</code> on the command line. The chunks form
+                    a regular grid and each chunk is named
+                    <code class="filename"><em class="replaceable"><code>basename</code></em>_<em class="replaceable"><code>XXXX</code></em>_<em class="replaceable"><code>YYYY</code></em>_<em class="replaceable"><code>ZZZZ</code></em>.ply</code>,
+                    where <em class="replaceable"><code>XXXX</code></em>, <em class="replaceable"><code>YYYY</code></em> and
+                    <em class="replaceable"><code>ZZZZ</code></em> are the positions within
+                    this grid and <em class="replaceable"><code>basename</code></em> is the
+                    argument to <code class="option">-o</code>. Note that for this usage,
+                    the argument to <code class="option">-o</code> should be just a
+                    prefix and not a full filename.
+                </p><p>
+                    Only output files that contain at least one triangle are
+                    written. If you are experimenting with different
+                    parameters, it is strongly recommended that you delete all
+                    the outputs from previous runs with the same basename
+                    before starting, as if the corresponding file is not
+                    written in the current run then the old file will be mixed
+                    in with the other newly written files.
+                </p><p>
+                    The spatial size of the chunks is chosen automatically
+                    using heuristics that attempt to keep the size of each
+                    file manageable, but since it is impossible to determine
+                    the sizes of the output files in advance, the heuristic
+                    may need to be adjusted if the output files are too big or
+                    too small. This can be done by passing
+                    <code class="option">--split-size=<em class="replaceable"><code>size</code></em></code>,
+                    where <em class="replaceable"><code>size</code></em> is a target size. 
+                    Use <code class="option">--help</code> to see
+                    what the default value is and then adjust accordingly.
+                    You can use a suffix of <code class="literal">K</code>,
+                    <code class="literal">M</code> or <code class="literal">G</code> to specify
+                    kibibytes, mebibytes or gibibytes respectively. 
+                </p></div><div class="section" title="3.3.4. Selecting OpenCL devices"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.opencl"></a>3.3.4. Selecting OpenCL devices</h3></div></div></div><p>
+                    By default, MLSGPU will run on all GPU devices it finds in
+                    the system. This is often the desired result, but in some
+                    cases it may be desirable to use extra devices or restrict
+                    the set of devices used. In particular, when there are no
+                    OpenCL-capable GPUs in the system, it will usually be
+                    necessary to pass <code class="option">--cl-cpu</code>.
+                </p><p>
+                    There are three command-line options that control device
+                    selection: <code class="option">--cl-cpu</code>,
+                    <code class="option">--cl-gpu</code> and
+                    <code class="option">--cl-device</code>. The effects are additive,
+                    i.e., any device that matches any of the command-line
+                    selectors will be used. The <code class="option">--cl-cpu</code> and
+                    <code class="option">--cl-gpu</code> options take no arguments, and
+                    simply enable all CPU or GPU devices.
+                </p><p>
+                    The <code class="option">--cl-device</code> option can be used in two
+                    ways: firstly,
+                    <code class="option">--cl-device=<em class="replaceable"><code>prefix</code></em></code>
+                    will enable all devices whose device name begins with
+                    <em class="replaceable"><code>prefix</code></em>. The device name is
+                    determined by the OpenCL API; a tool like
+                    <span class="command"><strong>clinfo</strong></span> from the AMD APP SDK is useful
+                    to discover the names of the devices in the system.
+                    Secondly,
+                    <code class="option">--cl-device=<em class="replaceable"><code>prefix</code></em>:<em class="replaceable"><code>n</code></em></code>
+                    will enable just the <em class="replaceable"><code>n</code></em>th device
+                    (zero-based) whose name starts with
+                    <em class="replaceable"><code>prefix</code></em>.  This is mainly useful
+                    if there are several identical devices in the system.
+                </p><p>
+                    As an example, passing
+                    <code class="option">--cl-cpu</code>
+                    <code class="option">--cl-device=Intel</code>
+                    <code class="option">--cl-device=GeForce:0</code> will enable all CPU
+                    devices, all devices whose name begins with
+                    <code class="literal">Intel</code> and the first device whose name
+                    begins with <code class="literal">GeForce</code>.
+                </p><div class="warning" title="Warning" style="margin-left: 0.5in; margin-right: 0.5in;"><h3 class="title">Warning</h3><p>
+                        When mixing devices that are not identical,
+                        differences in floating-point computation can cause
+                        variations at the join between blocks. This can lead
+                        to cracks in the reconstructed mesh, and in extreme
+                        cases the mesh may even become non-manifold. For final
+                        production always use only identical devices.
+                    </p></div><p>
+                    When MLSGPU starts, it will report which devices it is
+                    using.
+                </p></div><div class="section" title="3.3.5. Smoothing"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.smooth"></a>3.3.5. Smoothing</h3></div></div></div><p>
+                    The MLS reconstruction is essentially a process to smooth
+                    the noisy sampling process. The degree of smoothing can be
+                    controlled with <code class="option">--fit-smooth</code>. Increasing
+                    the smoothing value will reduce noise, but may also smooth
+                    out detail. As a side effect of the implementation,
+                    increasing smoothing will also allow small holes to filled
+                    in that would not have been filled at lower smoothing
+                    levels. The running time scales roughly with the square of
+                    the smoothing factor, so using too much smoothing can also
+                    make MLSGPU very slow.
+                </p></div><div class="section" title="3.3.6. Component pruning"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.prune"></a>3.3.6. Component pruning</h3></div></div></div><p>
+                    The underlying reconstruction algorithm tends to create
+                    spurious pieces of geometry that are disconnected from the
+                    rest of the model, so as a final step any small connected
+                    components are discarded. Usually this will just do the
+                    right thing, but if the scans actually capture some small
+                    feature that is disconnected from the rest of the scanned
+                    data, it may accidentally be discarded. In this case, the
+                    threshhold for discarding a component (as a fraction of
+                    the total number of output vertices) may be specified with
+                    <code class="option">--fit-prune</code>.
+                </p></div><div class="section" title="3.3.7. Boundary handling"><div class="titlepage"><div><div><h3 class="title"><a id="running.commandline.boundary"></a>3.3.7. Boundary handling</h3></div></div></div><p>
+                    MLSGPU explicitly detects boundaries in the provided point
+                    cloud. It tries to avoid extrapolating beyond these
+                    boundaries, as these extrapolations tend to have very poor
+                    quality. However, the heuristic is not perfect, and tends
+                    to both cause unwanted small holes in the reconstruction
+                    and to extrapolate in some areas it should not. The
+                    default tries to balance the two, but the user can
+                    override the threshhold using
+                    <code class="option">--fit-boundary-limit</code>. Increasing the
+                    value will cause more extrapolation, while decreasing it
+                    will reduce extrapolation but potentially open more holes.
+                    However, increasing the value beyond about 1.7 will have no
+                    further effect.
+                </p></div></div><div class="section" title="3.4. Limitations"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="running.limitations"></a>3.4. Limitations</h2></div></div></div><p>
+                There are a number of limitations to the amount and type of input and output
+                that MLSGPU can handle:
+            </p><div class="itemizedlist"><ul class="itemizedlist" type="disc"><li class="listitem"><p>Only certain types of input files can be used.
+                        See <a class="xref" href="#running.input" title="3.1. Input files">Section 3.1, “Input files”</a> for
+                        details.</p></li><li class="listitem"><p>Up to 2<sup>23</sup> (about 8 million)
+                        input files. Note that when using large numbers of
+                        input files, you will probably need to either pass a
+                        directory on the command line, or use
+                        <a class="link" href="#running.commandline.response" title="3.3.2. Response files">response files</a> to work
+                        around limits on the length of the command
+                        line.</p></li><li class="listitem"><p>Up to 2<sup>40</sup> (about
+                        1.1 trillion) points per input
+                        file.</p></li><li class="listitem"><p>Up to 2<sup>32</sup>-1 (about
+                        four billion) vertices per output file (this is a
+                        limitation of the PLY file
+                        format).</p></li><li class="listitem"><p>The total size of the model can be at most
+                        2<sup>20</sup> (about one million)
+                        times the grid spacing. For example, a model with a
+                        side length of 1 kilometre cannot be reconstructed at
+                        finer than 1mm.</p></li></ul></div><p>
+                Two runs of MLSGPU will generally not produce exactly the same
+                stream of bytes, even with identical arguments. However, the
+                only difference should be the order in which the vertices and
+                triangles appear in the files, and the geometry should be
+                identical.
+            </p></div></div><div class="chapter" title="Chapter 4. Troubleshooting"><div class="titlepage"><div><div><h2 class="title"><a id="troubleshooting"></a>Chapter 4. Troubleshooting</h2></div></div></div><div class="qandaset" title="Frequently Asked Questions"><a id="idp4831776"></a><dl><dt>4.1. <a href="#idp4816464">
+                        The configuration said that a header file was not found,
+                        but I know it exists.
+                </a></dt><dt>4.2. <a href="#idp3175280">
+                        Meshlab crashes when I try to open one of the output
+                        files.
+                </a></dt><dt>4.3. <a href="#idp4603072">
+                        Every time I run the program I get different output files,
+                        even though I use the same options.
+                </a></dt><dt>4.4. <a href="#idp4607424">
+                        MLSGPU is using too much CPU memory.
+                </a></dt><dt>4.5. <a href="#idp4637600">
+                        I am getting errors about too much memory being used for
+                        an OpenCL device.
+                </a></dt><dt>4.6. <a href="#idm1760">
+                        I get the error Too many splats covering
+                            one cell.
+                </a></dt><dt>4.7. <a href="#idp1952016">
+                        I get almost no output, or I get the message
+                        Warning: no output files
+                            written!
+                </a></dt><dt>4.8. <a href="#idp1954928">
+                        The output model contains lots of tiny holes in a
+                        regular pattern.
+                </a></dt><dt>4.9. <a href="#idp1957728">
+                        There are some small holes in the output that I would like to fill.
+                </a></dt><dt>4.10. <a href="#idp1960544">
+                        My scans consisted of several unconnected pieces and
+                        one of them does not appear in the output.
+                </a></dt></dl><table border="0" width="100%" summary="Q and A Set"><col align="left" width="1%" /><col /><tbody><tr class="question" title="4.1."><td align="left" valign="top"><a id="idp4816464"></a><a id="idp5270064"></a><p><strong>4.1.</strong></p></td><td align="left" valign="top"><p>
+                        The configuration said that a header file was not found,
+                        but I know it exists.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        The error indicates that compilation using that header
+                        file failed, but this can happen for other reasons than
+                        the header file being absent. Look through
+                        <code class="filename">build/config.log</code> to find the
+                        error message.
+                </p></td></tr><tr class="question" title="4.2."><td align="left" valign="top"><a id="idp3175280"></a><a id="idp5298384"></a><p><strong>4.2.</strong></p></td><td align="left" valign="top"><p>
+                        Meshlab crashes when I try to open one of the output
+                        files.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        Meshlab is unable to process long comments. Try deleting
+                        the comments from the output file. On a UNIX system you
+                        can to do this by running
+                    </p><pre class="screen"><strong class="userinput"><code>sed -i '/^comment mlsgpu/d' <em class="replaceable"><code>filename</code></em>.ply</code></strong></pre></td></tr><tr class="question" title="4.3."><td align="left" valign="top"><a id="idp4603072"></a><a id="idp3218672"></a><p><strong>4.3.</strong></p></td><td align="left" valign="top"><p>
+                        Every time I run the program I get different output files,
+                        even though I use the same options.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        This is normal behavior. The geometry is (or should be) the same every
+                        time. Only the order of the vertices and triangles change.
+                </p></td></tr><tr class="question" title="4.4."><td align="left" valign="top"><a id="idp4607424"></a><a id="idp4168512"></a><p><strong>4.4.</strong></p></td><td align="left" valign="top"><p>
+                        MLSGPU is using too much CPU memory.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        Run <strong class="userinput"><code><span class="command"><strong>mlsgpu</strong></span>
+                            <code class="option">--help</code></code></strong> to get a list
+                        of options affecting memory usage with their default
+                        values, and try decreasing them. If you are only using
+                        one GPU it is possible to reduce the
+                        <code class="option">--mem-order</code> value very substantially without having
+                        much effect on performance. If that isn't sufficient, try decreasing
+                        <code class="option">--mem-host-splats</code> and
+                        <code class="option">--mem-load-splats</code> proportionally.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        Check whether <code class="option">--fit-grid</code> was specified
+                        using the right units. If the input data is in millimetres
+                        but <code class="option">--fit-grid</code> was specified in metres,
+                        the reconstruction will be 1000 times more detailed than
+                        expected, and this will require excessive memory to
+                        compute.
+                </p></td></tr><tr class="question" title="4.5."><td align="left" valign="top"><a id="idp4637600"></a><a id="idp61584"></a><p><strong>4.5.</strong></p></td><td align="left" valign="top"><p>
+                        I am getting errors about too much memory being used for
+                        an OpenCL device.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        Firstly try reducing the value of
+                        <code class="option">--mem-bucket-splats</code>. If this affects
+                        performance too badly, try increasing
+                        <code class="option">--subsampling</code> by 1, or reducing
+                        <code class="option">--levels</code> by 1.
+                </p></td></tr><tr class="question" title="4.6."><td align="left" valign="top"><a id="idm1760"></a><a id="idm1504"></a><p><strong>4.6.</strong></p></td><td align="left" valign="top"><p>
+                        I get the error <code class="computeroutput">Too many splats covering
+                            one cell</code>.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        This usually indicates that the value of
+                        <code class="option">--fit-grid</code> is far too high. This can
+                        happen if it is specified in millimetres when the input
+                        data is specified in metres, for example. It can also
+                        occur if trying to perform too coarse a reconstruction.
+                        If it is only slightly too large, it might be resolved by
+                        increasing <code class="option">--mem-bucket-splats</code>.
+                </p></td></tr><tr class="question" title="4.7."><td align="left" valign="top"><a id="idp1952016"></a><a id="idp1952272"></a><p><strong>4.7.</strong></p></td><td align="left" valign="top"><p>
+                        I get almost no output, or I get the message
+                        <code class="computeroutput">Warning: no output files
+                            written!</code>
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        This usually indicates that the value of
+                        <code class="option">--fit-grid</code> is too large, possibly as
+                        a result of a mismatch between the units specified for
+                        the option and the units used in the data files.
+                </p></td></tr><tr class="question" title="4.8."><td align="left" valign="top"><a id="idp1954928"></a><a id="idp1955184"></a><p><strong>4.8.</strong></p></td><td align="left" valign="top"><p>
+                        The output model contains lots of tiny holes in a
+                        regular pattern.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        This is usually caused by the value of
+                        <code class="option">--fit-grid</code> being too large to
+                        accurately sample the surface. Try decreasing it
+                        slightly. Increasing <code class="option">--fit-smooth</code> can
+                        also help and will avoid large increases to the output
+                        file size.
+                </p></td></tr><tr class="question" title="4.9."><td align="left" valign="top"><a id="idp1957728"></a><a id="idp1957984"></a><p><strong>4.9.</strong></p></td><td align="left" valign="top"><p>
+                        There are some small holes in the output that I would like to fill.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        Increasing <code class="option">--fit-smooth</code> will provide
+                        some hole-filling, at the expense of being slower and
+                        potentially smoothing away important detail. Adjusting
+                        <code class="option">--fit-boundary-limit</code> can also cause
+                        extrapolation to fill small holes, but will also cause
+                        extrapolation beyond genuine boundaries, sometimes with
+                        poor results.
+                </p></td></tr><tr class="question" title="4.10."><td align="left" valign="top"><a id="idp1960544"></a><a id="idp1960800"></a><p><strong>4.10.</strong></p></td><td align="left" valign="top"><p>
+                        My scans consisted of several unconnected pieces and
+                        one of them does not appear in the output.
+                </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
+                        See <a class="xref" href="#running.commandline.prune" title="3.3.6. Component pruning">Section 3.3.6, “Component pruning”</a> for an
+                        explanation of the <code class="option">--fit-prune</code>
+                        option.
+                </p></td></tr></tbody></table></div></div><div class="chapter" title="Chapter 5. License"><div class="titlepage"><div><div><h2 class="title"><a id="license"></a>Chapter 5. License</h2></div></div></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="section"><a href="#idp1967104">5.1. Third-party components</a></span></dt></dl></div><p>
+            This program is free software: you can redistribute it and/or modify
+            it under the terms of the GNU General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+        </p><p>
+            This program is distributed in the hope that it will be useful,
+            but WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+            GNU General Public License for more details.
+        </p><p>
+            You should have received a copy of the GNU General Public License
+            along with this program.  If not, see <a class="ulink" href="http://www.gnu.org/licenses/" target="_top">http://www.gnu.org/licenses/</a>.
+        </p><div class="section" title="5.1. Third-party components"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="idp1967104"></a>5.1. Third-party components</h2></div></div></div><p>
+                The files in the <code class="filename">khronos_headers</code> directory are
+                copyright The Khronos Group Inc. Refer to the individual files
+                for their license terms.
+            </p><p>
+                The <code class="filename">waf</code> build tool is copyright Thomas
+                Nagy. Refer to the file for its license terms.
+            </p></div></div></div></body></html>
