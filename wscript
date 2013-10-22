@@ -425,7 +425,6 @@ def build(bld):
             'src/mesher.cpp',
             'src/mls.cpp',
             'src/splat_tree.cpp',
-            'src/splat_tree_host.cpp',
             'src/splat_tree_cl.cpp',
             'src/statistics_cl.cpp',
             'src/workers.cpp',
