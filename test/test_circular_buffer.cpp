@@ -256,6 +256,7 @@ void TestCircularBufferStress::testStress()
     const std::size_t numConsumers = 3;
     boost::thread_group producers;
     boost::thread_group consumers;
+    badCount = 0;
 
     for (std::size_t i = 0; i < numProducers; i++)
         producers.create_thread(boost::bind(&TestCircularBufferStress::producerThread, this,
