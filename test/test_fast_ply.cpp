@@ -614,7 +614,7 @@ void TestFastPlyWriter::testSimple()
         "property list uint8 uint32 vertex_indices\n"
         "comment padding:XX\n"
         "end_header\n";
-    const typename std::size_t headerSize = expectedHeader.size();
+    const std::size_t headerSize = expectedHeader.size();
 
     MemoryWriterPly w;
 

@@ -249,7 +249,7 @@ std::size_t StreamReader::readImpl(void *buf, std::size_t count, offset_type off
 {
     boost::unique_lock<boost::mutex> lock(mutex);
     std::streampos newpos = fb.pubseekpos(offset, std::ios_base::in);
-    if (newpos == -1)
+    if (newpos == std::streamoff(-1))
         throw boost::enable_error_info(std::ios::failure("Seek failed"));
     return fb.sgetn((char *) buf, count);
 }
@@ -258,7 +258,7 @@ std::size_t StreamWriter::writeImpl(const void *buf, std::size_t count, offset_t
 {
     boost::unique_lock<boost::mutex> lock(mutex);
     std::streampos newpos = fb.pubseekpos(offset, std::ios_base::out);
-    if (newpos == -1)
+    if (newpos == std::streamoff(-1))
         throw boost::enable_error_info(std::ios::failure("Seek failed"));
     return fb.sputn((const char *) buf, count);
 };
@@ -267,7 +267,7 @@ BinaryIO::offset_type StreamReader::sizeImpl() const
 {
     boost::unique_lock<boost::mutex> lock(mutex);
     std::streampos pos = fb.pubseekoff(0, std::ios_base::end, std::ios_base::in);
-    if (pos == -1)
+    if (pos == std::streamoff(-1))
         throw boost::enable_error_info(std::ios::failure("Seek failed"));
     return boost::iostreams::position_to_offset(pos);
 }
@@ -279,7 +279,7 @@ void StreamWriter::resizeImpl(offset_type size) const
     // writing after the seek triggers the resize. So we first check the file
     // size, and write a single zero byte at the end if necessary
     std::streampos oldSize = fb.pubseekoff(0, std::ios_base::end, std::ios_base::in);
-    if (oldSize == -1)
+    if (oldSize == std::streamoff(-1))
         throw boost::enable_error_info(std::ios::failure("Seek failed"));
 
     if ((offset_type) oldSize < size)
@@ -594,7 +594,7 @@ std::size_t SyscallReader::readImpl(void *buf, size_t count, offset_type offset)
     return count;
 }
 
-std::size_t SyscallReader::write(const void *buf, size_t count, offset_type offset) const
+std::size_t SyscallWriter::writeImpl(const void *buf, size_t count, offset_type offset) const
 {
     std::size_t remain = count;
     while (remain > 0)

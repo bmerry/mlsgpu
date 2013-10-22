@@ -159,6 +159,9 @@ def configure_variant_msvc(conf):
     conf.env.append_value('DEFINES', 'WIN32_LEAN_AND_MEAN')
     # windows.h defines macros called min and max by default. EVIL!
     conf.env.append_value('DEFINES', 'NOMINMAX')
+    # Support for unicode symbols in filenames
+    conf.env.append_value('DEFINES', '_UNICODE')
+    conf.env.append_value('DEFINES', 'UNICODE')
 
     if conf.env['optimize']:
         ccflags.extend(['/O2', '/Ob2'])
@@ -179,7 +182,7 @@ def configure(conf):
     conf.load('waf_unit_test')
     conf.load('gnu_dirs')
     conf.load('compiler_cxx')
-    conf.load('provenance', tooldir = '../../waf-tools')
+    conf.load('provenance', tooldir = 'waf-tools')
 
     for (key, value) in variants[conf.options.variant].items():
         conf.env[key] = value
