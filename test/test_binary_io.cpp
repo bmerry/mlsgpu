@@ -42,7 +42,13 @@
 #include "../src/misc.h"
 
 static const boost::filesystem::path badPath("/not_a_real_file/");
+#ifdef _WIN32
+// Windows does not create a sparse file when seeking, so we use a much
+// smaller file to make the test run in a sane amount of time.
+static const BinaryIO::offset_type seekPos = 987654;
+#else
 static const BinaryIO::offset_type seekPos = 9876543210LL;
+#endif
 
 /**
  * Base class for testing all sub-classes of @ref BinaryIO.
