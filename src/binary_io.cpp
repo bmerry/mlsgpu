@@ -577,8 +577,11 @@ std::size_t SyscallReader::readImpl(void *buf, size_t count, offset_type offset)
         bytesToRead = std::min(remain, std::size_t(std::numeric_limits<DWORD>::max()));
         if (!ReadFile(fd, buf, bytesToRead, &bytes, &req))
         {
-            throw boost::enable_error_info(std::ios::failure("read failed"))
-                << boost::errinfo_errno(GetLastError());
+            if (GetLastError() == ERROR_HANDLE_EOF)
+                return count - remain;
+            else
+                throw boost::enable_error_info(std::ios::failure("read failed"))
+                    << boost::errinfo_errno(GetLastError());
         }
         else if (bytes == 0)
         {
