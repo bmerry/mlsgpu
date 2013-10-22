@@ -666,5 +666,18 @@ libgl1-mesa-dev</screen>
             You should have received a copy of the GNU General Public License
             along with this program.  If not, see <ulink url="http://www.gnu.org/licenses/"/>.
         </para>
+        <section>
+            <title>Third-party components</title>
+            <para>
+                The files in the <filename
+                    class="directory">khronos_headers</filename> directory are
+                copyright The Khronos Group Inc. Refer to the individual files
+                for their license terms.
+            </para>
+            <para>
+                The <filename>waf</filename> build tool is copyright Thomas
+                Nagy. Refer to the file for its license terms.
+            </para>
+        </section>
     </chapter>
 </book>
