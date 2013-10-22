@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>MLSGPU User Manual</title><meta name="generator" content="DocBook XSL Stylesheets V1.76.1" /></head><body><div class="book" title="MLSGPU User Manual"><div class="titlepage"><div><div><h1 class="title"><a id="idp100448"></a>MLSGPU User Manual</h1></div><div><div class="author"><h3 class="author"><span class="firstname">Bruce</span> <span class="surname">Merry</span></h3><code class="email">&lt;<a class="email" href="mailto:bmerry@cs.uct.ac.za">bmerry@cs.uct.ac.za</a>&gt;</code></div></div><div><p class="releaseinfo">
-        </p></div><div><p class="copyright">Copyright © 2012, 2013 University of Cape Town</p></div></div><hr /></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="chapter"><a href="#introduction">1. Introduction</a></span></dt><dt><span class="chapter"><a href="#installation">2. Installation</a></span></dt><dd><dl><dt><span class="section"><a href="#installation.dependencies">2.1. Dependencies</a></span></dt><dt><span class="section"><a href="#installation.compiling">2.2. Compiling</a></span></dt><dt><span class="section"><a href="#installation.install">2.3. Installing</a></span></dt></dl></dd><dt><span class="chapter"><a href="#running">3. Running MLSGPU</a></span></dt><dd><dl><dt><span class="section"><a href="#running.input">3.1. Input files</a></span></dt><dt><span class="section"><a href="#running.output">3.2. Output files</a></span></dt><dt><span class="section"><a href="#running.commandline">3.3. Command-line options</a></span></dt><dd><dl><dt><span class="section"><a href="#running.commandline.temporary">3.3.1. Temporary files</a></span></dt><dt><span class="section"><a href="#running.commandline.response">3.3.2. Response files</a></span></dt><dt><span class="section"><a href="#running.commandline.split">3.3.3. Splitting the output</a></span></dt><dt><span class="section"><a href="#running.commandline.opencl">3.3.4. Selecting OpenCL devices</a></span></dt><dt><span class="section"><a href="#running.commandline.smooth">3.3.5. Smoothing</a></span></dt><dt><span class="section"><a href="#running.commandline.prune">3.3.6. Component pruning</a></span></dt><dt><span class="section"><a href="#running.commandline.boundary">3.3.7. Boundary handling</a></span></dt></dl></dd><dt><span class="section"><a href="#running.limitations">3.4. Limitations</a></span></dt></dl></dd><dt><span class="chapter"><a href="#troubleshooting">4. Troubleshooting</a></span></dt><dt><span class="chapter"><a href="#license">5. License</a></span></dt><dd><dl><dt><span class="section"><a href="#idp1967104">5.1. Third-party components</a></span></dt></dl></dd></dl></div><div class="chapter" title="Chapter 1. Introduction"><div class="titlepage"><div><div><h2 class="title"><a id="introduction"></a>Chapter 1. Introduction</h2></div></div></div><p>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>MLSGPU User Manual</title><meta name="generator" content="DocBook XSL Stylesheets V1.76.1" /></head><body><div class="book" title="MLSGPU User Manual"><div class="titlepage"><div><div><h1 class="title"><a id="idp169760"></a>MLSGPU User Manual</h1></div><div><div class="author"><h3 class="author"><span class="firstname">Bruce</span> <span class="surname">Merry</span></h3><code class="email">&lt;<a class="email" href="mailto:bmerry@cs.uct.ac.za">bmerry@cs.uct.ac.za</a>&gt;</code></div></div><div><p class="releaseinfo">
+        </p></div><div><p class="copyright">Copyright © 2012, 2013 University of Cape Town</p></div></div><hr /></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="chapter"><a href="#introduction">1. Introduction</a></span></dt><dt><span class="chapter"><a href="#installation">2. Installation</a></span></dt><dd><dl><dt><span class="section"><a href="#installation.dependencies">2.1. Dependencies</a></span></dt><dt><span class="section"><a href="#installation.compiling">2.2. Compiling</a></span></dt><dt><span class="section"><a href="#installation.install">2.3. Installing</a></span></dt></dl></dd><dt><span class="chapter"><a href="#running">3. Running MLSGPU</a></span></dt><dd><dl><dt><span class="section"><a href="#running.input">3.1. Input files</a></span></dt><dt><span class="section"><a href="#running.output">3.2. Output files</a></span></dt><dt><span class="section"><a href="#running.commandline">3.3. Command-line options</a></span></dt><dd><dl><dt><span class="section"><a href="#running.commandline.temporary">3.3.1. Temporary files</a></span></dt><dt><span class="section"><a href="#running.commandline.response">3.3.2. Response files</a></span></dt><dt><span class="section"><a href="#running.commandline.split">3.3.3. Splitting the output</a></span></dt><dt><span class="section"><a href="#running.commandline.opencl">3.3.4. Selecting OpenCL devices</a></span></dt><dt><span class="section"><a href="#running.commandline.smooth">3.3.5. Smoothing</a></span></dt><dt><span class="section"><a href="#running.commandline.prune">3.3.6. Component pruning</a></span></dt><dt><span class="section"><a href="#running.commandline.boundary">3.3.7. Boundary handling</a></span></dt></dl></dd><dt><span class="section"><a href="#running.limitations">3.4. Limitations</a></span></dt></dl></dd><dt><span class="chapter"><a href="#troubleshooting">4. Troubleshooting</a></span></dt><dt><span class="chapter"><a href="#idp5380976">5. Support</a></span></dt><dt><span class="chapter"><a href="#license">6. License</a></span></dt><dd><dl><dt><span class="section"><a href="#idp5385664">6.1. Third-party components</a></span></dt></dl></dd></dl></div><div class="chapter" title="Chapter 1. Introduction"><div class="titlepage"><div><div><h2 class="title"><a id="introduction"></a>Chapter 1. Introduction</h2></div></div></div><p>
             MLSGPU is a tool for reconstructing triangle meshes from point
             clouds obtained via laser range scanning (or potentially other
             methods). It is able to take advantage of GPUs for high
@@ -337,36 +337,36 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                 only difference should be the order in which the vertices and
                 triangles appear in the files, and the geometry should be
                 identical.
-            </p></div></div><div class="chapter" title="Chapter 4. Troubleshooting"><div class="titlepage"><div><div><h2 class="title"><a id="troubleshooting"></a>Chapter 4. Troubleshooting</h2></div></div></div><div class="qandaset" title="Frequently Asked Questions"><a id="idp4831776"></a><dl><dt>4.1. <a href="#idp4816464">
+            </p></div></div><div class="chapter" title="Chapter 4. Troubleshooting"><div class="titlepage"><div><div><h2 class="title"><a id="troubleshooting"></a>Chapter 4. Troubleshooting</h2></div></div></div><div class="qandaset" title="Frequently Asked Questions"><a id="idp5349552"></a><dl><dt>4.1. <a href="#idp5349808">
                         The configuration said that a header file was not found,
                         but I know it exists.
-                </a></dt><dt>4.2. <a href="#idp3175280">
+                </a></dt><dt>4.2. <a href="#idp5352272">
                         Meshlab crashes when I try to open one of the output
                         files.
-                </a></dt><dt>4.3. <a href="#idp4603072">
+                </a></dt><dt>4.3. <a href="#idp5355712">
                         Every time I run the program I get different output files,
                         even though I use the same options.
-                </a></dt><dt>4.4. <a href="#idp4607424">
+                </a></dt><dt>4.4. <a href="#idp5357504">
                         MLSGPU is using too much CPU memory.
-                </a></dt><dt>4.5. <a href="#idp4637600">
+                </a></dt><dt>4.5. <a href="#idp5363664">
                         I am getting errors about too much memory being used for
                         an OpenCL device.
-                </a></dt><dt>4.6. <a href="#idm1760">
+                </a></dt><dt>4.6. <a href="#idp5366608">
                         I get the error Too many splats covering
                             one cell.
-                </a></dt><dt>4.7. <a href="#idp1952016">
+                </a></dt><dt>4.7. <a href="#idp5369920">
                         I get almost no output, or I get the message
                         Warning: no output files
                             written!
-                </a></dt><dt>4.8. <a href="#idp1954928">
+                </a></dt><dt>4.8. <a href="#idp5372768">
                         The output model contains lots of tiny holes in a
                         regular pattern.
-                </a></dt><dt>4.9. <a href="#idp1957728">
+                </a></dt><dt>4.9. <a href="#idp5375504">
                         There are some small holes in the output that I would like to fill.
-                </a></dt><dt>4.10. <a href="#idp1960544">
+                </a></dt><dt>4.10. <a href="#idp5378256">
                         My scans consisted of several unconnected pieces and
                         one of them does not appear in the output.
-                </a></dt></dl><table border="0" width="100%" summary="Q and A Set"><col align="left" width="1%" /><col /><tbody><tr class="question" title="4.1."><td align="left" valign="top"><a id="idp4816464"></a><a id="idp5270064"></a><p><strong>4.1.</strong></p></td><td align="left" valign="top"><p>
+                </a></dt></dl><table border="0" width="100%" summary="Q and A Set"><col align="left" width="1%" /><col /><tbody><tr class="question" title="4.1."><td align="left" valign="top"><a id="idp5349808"></a><a id="idp5350064"></a><p><strong>4.1.</strong></p></td><td align="left" valign="top"><p>
                         The configuration said that a header file was not found,
                         but I know it exists.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
@@ -375,20 +375,20 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         the header file being absent. Look through
                         <code class="filename">build/config.log</code> to find the
                         error message.
-                </p></td></tr><tr class="question" title="4.2."><td align="left" valign="top"><a id="idp3175280"></a><a id="idp5298384"></a><p><strong>4.2.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.2."><td align="left" valign="top"><a id="idp5352272"></a><a id="idp5352528"></a><p><strong>4.2.</strong></p></td><td align="left" valign="top"><p>
                         Meshlab crashes when I try to open one of the output
                         files.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
                         Meshlab is unable to process long comments. Try deleting
                         the comments from the output file. On a UNIX system you
                         can to do this by running
-                    </p><pre class="screen"><strong class="userinput"><code>sed -i '/^comment mlsgpu/d' <em class="replaceable"><code>filename</code></em>.ply</code></strong></pre></td></tr><tr class="question" title="4.3."><td align="left" valign="top"><a id="idp4603072"></a><a id="idp3218672"></a><p><strong>4.3.</strong></p></td><td align="left" valign="top"><p>
+                    </p><pre class="screen"><strong class="userinput"><code>sed -i '/^comment mlsgpu/d' <em class="replaceable"><code>filename</code></em>.ply</code></strong></pre></td></tr><tr class="question" title="4.3."><td align="left" valign="top"><a id="idp5355712"></a><a id="idp5355968"></a><p><strong>4.3.</strong></p></td><td align="left" valign="top"><p>
                         Every time I run the program I get different output files,
                         even though I use the same options.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
                         This is normal behavior. The geometry is (or should be) the same every
                         time. Only the order of the vertices and triangles change.
-                </p></td></tr><tr class="question" title="4.4."><td align="left" valign="top"><a id="idp4607424"></a><a id="idp4168512"></a><p><strong>4.4.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.4."><td align="left" valign="top"><a id="idp5357504"></a><a id="idp5357760"></a><p><strong>4.4.</strong></p></td><td align="left" valign="top"><p>
                         MLSGPU is using too much CPU memory.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
                         Run <strong class="userinput"><code><span class="command"><strong>mlsgpu</strong></span>
@@ -407,7 +407,7 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         the reconstruction will be 1000 times more detailed than
                         expected, and this will require excessive memory to
                         compute.
-                </p></td></tr><tr class="question" title="4.5."><td align="left" valign="top"><a id="idp4637600"></a><a id="idp61584"></a><p><strong>4.5.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.5."><td align="left" valign="top"><a id="idp5363664"></a><a id="idp5363920"></a><p><strong>4.5.</strong></p></td><td align="left" valign="top"><p>
                         I am getting errors about too much memory being used for
                         an OpenCL device.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
@@ -416,7 +416,7 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         performance too badly, try increasing
                         <code class="option">--subsampling</code> by 1, or reducing
                         <code class="option">--levels</code> by 1.
-                </p></td></tr><tr class="question" title="4.6."><td align="left" valign="top"><a id="idm1760"></a><a id="idm1504"></a><p><strong>4.6.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.6."><td align="left" valign="top"><a id="idp5366608"></a><a id="idp5366864"></a><p><strong>4.6.</strong></p></td><td align="left" valign="top"><p>
                         I get the error <code class="computeroutput">Too many splats covering
                             one cell</code>.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
@@ -427,7 +427,7 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         occur if trying to perform too coarse a reconstruction.
                         If it is only slightly too large, it might be resolved by
                         increasing <code class="option">--mem-bucket-splats</code>.
-                </p></td></tr><tr class="question" title="4.7."><td align="left" valign="top"><a id="idp1952016"></a><a id="idp1952272"></a><p><strong>4.7.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.7."><td align="left" valign="top"><a id="idp5369920"></a><a id="idp5370176"></a><p><strong>4.7.</strong></p></td><td align="left" valign="top"><p>
                         I get almost no output, or I get the message
                         <code class="computeroutput">Warning: no output files
                             written!</code>
@@ -436,7 +436,7 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         <code class="option">--fit-grid</code> is too large, possibly as
                         a result of a mismatch between the units specified for
                         the option and the units used in the data files.
-                </p></td></tr><tr class="question" title="4.8."><td align="left" valign="top"><a id="idp1954928"></a><a id="idp1955184"></a><p><strong>4.8.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.8."><td align="left" valign="top"><a id="idp5372768"></a><a id="idp5373024"></a><p><strong>4.8.</strong></p></td><td align="left" valign="top"><p>
                         The output model contains lots of tiny holes in a
                         regular pattern.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
@@ -446,7 +446,7 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         slightly. Increasing <code class="option">--fit-smooth</code> can
                         also help and will avoid large increases to the output
                         file size.
-                </p></td></tr><tr class="question" title="4.9."><td align="left" valign="top"><a id="idp1957728"></a><a id="idp1957984"></a><p><strong>4.9.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.9."><td align="left" valign="top"><a id="idp5375504"></a><a id="idp5375760"></a><p><strong>4.9.</strong></p></td><td align="left" valign="top"><p>
                         There are some small holes in the output that I would like to fill.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
                         Increasing <code class="option">--fit-smooth</code> will provide
@@ -456,14 +456,18 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
                         extrapolation to fill small holes, but will also cause
                         extrapolation beyond genuine boundaries, sometimes with
                         poor results.
-                </p></td></tr><tr class="question" title="4.10."><td align="left" valign="top"><a id="idp1960544"></a><a id="idp1960800"></a><p><strong>4.10.</strong></p></td><td align="left" valign="top"><p>
+                </p></td></tr><tr class="question" title="4.10."><td align="left" valign="top"><a id="idp5378256"></a><a id="idp5378512"></a><p><strong>4.10.</strong></p></td><td align="left" valign="top"><p>
                         My scans consisted of several unconnected pieces and
                         one of them does not appear in the output.
                 </p></td></tr><tr class="answer"><td align="left" valign="top"></td><td align="left" valign="top"><p>
                         See <a class="xref" href="#running.commandline.prune" title="3.3.6. Component pruning">Section 3.3.6, “Component pruning”</a> for an
                         explanation of the <code class="option">--fit-prune</code>
                         option.
-                </p></td></tr></tbody></table></div></div><div class="chapter" title="Chapter 5. License"><div class="titlepage"><div><div><h2 class="title"><a id="license"></a>Chapter 5. License</h2></div></div></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="section"><a href="#idp1967104">5.1. Third-party components</a></span></dt></dl></div><p>
+                </p></td></tr></tbody></table></div></div><div class="chapter" title="Chapter 5. Support"><div class="titlepage"><div><div><h2 class="title"><a id="idp5380976"></a>Chapter 5. Support</h2></div></div></div><p>
+            MLSGPU is no longer being actively developed. If you find a bug or
+            need a new feature, your best option is to fix or implement it
+            yourself and send me a GitHub pull request.
+        </p></div><div class="chapter" title="Chapter 6. License"><div class="titlepage"><div><div><h2 class="title"><a id="license"></a>Chapter 6. License</h2></div></div></div><div class="toc"><p><strong>Table of Contents</strong></p><dl><dt><span class="section"><a href="#idp5385664">6.1. Third-party components</a></span></dt></dl></div><p>
             This program is free software: you can redistribute it and/or modify
             it under the terms of the GNU General Public License as published by
             the Free Software Foundation, either version 3 of the License, or
@@ -476,7 +480,7 @@ libgl1-mesa-dev</pre></div><div class="section" title="2.2. Compiling"><div cla
         </p><p>
             You should have received a copy of the GNU General Public License
             along with this program.  If not, see <a class="ulink" href="http://www.gnu.org/licenses/" target="_top">http://www.gnu.org/licenses/</a>.
-        </p><div class="section" title="5.1. Third-party components"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="idp1967104"></a>5.1. Third-party components</h2></div></div></div><p>
+        </p><div class="section" title="6.1. Third-party components"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="idp5385664"></a>6.1. Third-party components</h2></div></div></div><p>
                 The files in the <code class="filename">khronos_headers</code> directory are
                 copyright The Khronos Group Inc. Refer to the individual files
                 for their license terms.
