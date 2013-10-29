@@ -191,15 +191,15 @@ def configure(conf):
 
     # Defaults that may be overridden per compiler
     conf.env['LIB_BOOST_MATH'] = [
-        'boost_math_c99-mt',
-        'boost_math_c99f-mt']
+        'boost_math_c99',
+        'boost_math_c99f']
     conf.env['LIB_BOOST'] = conf.env['LIB_BOOST_MATH'] + [
-        'boost_program_options-mt',
-        'boost_iostreams-mt',
-        'boost_thread-mt',
-        'boost_system-mt',
-        'boost_serialization-mt',
-        'boost_filesystem-mt'
+        'boost_program_options',
+        'boost_iostreams',
+        'boost_thread',
+        'boost_system',
+        'boost_serialization',
+        'boost_filesystem'
     ]
     conf.env['LIB_BOOST_TEST'] = []
 
